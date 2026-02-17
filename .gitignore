@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python cache/artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Generated simulation outputs
+data/setups/*.json
+data/simulations/*.json
+data/test_cases/*.json
+
+# Logs
+*.log

@@ -1,0 +1,127 @@
+documentclass[../main]{subfiles}
+\begin{document}
+\chapter{Quasiparticle Master Equation Appendix}
+\section{Numerical Methods and Implementation Details}
+
+This appendix provides a more detailed description of the numerical methods used to solve the full reaction-diffusion equation (Eq. \ref{eq:Final}), including specific algorithms, implementation strategies, and a formal analysis of the system's numerical properties.
+
+\subsection{Overall Algorithm Structure}
+The simulation solves the full dynamics by employing \term{operator splitting}, which separates the effects of diffusion and local collisions into distinct steps. The main simulation loop advances the system in discrete time steps $\Delta t$ and follows this sequence:
+
+\begin{enumerate}
+    \item \textbf{External Generation/Injection:} Add new quasiparticles to the density matrix $n_{i,k}$ from external sources $g_{\ext}$, if applicable. This is typically a simple additive step.
+    \item \textbf{Collision Step:} For each spatial pixel $k$, solve the master equation (Eq. \ref{eq:master_full}) for a duration $\Delta t$ to account for all local kinetic processes (scattering, recombination, thermal generation). This updates the density from $n_{i,k}(t)$ to an intermediate state $n_{i,k}^*$.
+    \item \textbf{Diffusion Step:} For each energy bin $i$, solve the diffusion equation for a duration $\Delta t$ to account for spatial transport. This updates the density from the intermediate state $n_{i,k}^*$ to the final state at the next time step, $n_{i,k}(t+\Delta t)$.
+    \item \textbf{Visualization/Data Storage:} Save or plot the state of the system as required.
+\end{enumerate}
+
+The following sections detail the implementation of the collision and diffusion steps.
+
+\subsection{The Diffusion Step: Crank-Nicolson Method}
+The diffusion part of the evolution, $\partial n / \partial t = \nabla \cdot [D \nabla n]$, is handled using the \term{Crank-Nicolson scheme}. This method is implicit, unconditionally stable, and second-order accurate in both space and time. As shown in the main text, it results in a tridiagonal system of linear equations of the form $\mathbf{A} \boldsymbol{n}^{m+1} = \mathbf{B} \boldsymbol{n}^{m}$ for each energy slice.
+
+\subsubsection{The Thomas Algorithm for Tridiagonal Systems}
+This tridiagonal system can be solved very efficiently using the \term{Thomas algorithm}, a specialized form of Gaussian elimination that runs in $O(N_x)$ time, where $N_x$ is the number of spatial pixels. For a system written as:
+\begin{equation}
+\begin{bmatrix}
+b_1 & c_1 & 0 & \cdots & 0 \\
+a_2 & b_2 & c_2 & \cdots & 0 \\
+\vdots & \vdots & \vdots & \ddots & \vdots \\
+0 & 0 & 0 & \cdots & b_{N_x}
+\end{bmatrix}
+\begin{bmatrix}
+n_1 \\ n_2 \\ \vdots \\ n_{N_x}
+\end{bmatrix} =
+\begin{bmatrix}
+d_1 \\ d_2 \\ \vdots \\ d_{N_x}
+\end{bmatrix}
+\end{equation}
+where the vector $\boldsymbol{d} = \mathbf{B} \boldsymbol{n}^{m}$ is the known right-hand side, the algorithm proceeds in two sweeps:
+
+\textbf{1. Forward elimination:} The upper diagonal is eliminated by calculating modified coefficients:
+\begin{align}
+c'_1 &= \frac{c_1}{b_1} \\
+c'_k &= \frac{c_k}{b_k - a_k c'_{k-1}}, \quad k = 2, 3, \ldots, N_x-1 \\
+d'_1 &= \frac{d_1}{b_1} \\
+d'_k &= \frac{d_k - a_k d'_{k-1}}{b_k - a_k c'_{k-1}}, \quad k = 2, 3, \ldots, N_x
+\end{align}
+
+\textbf{2. Back substitution:} The solution vector $\boldsymbol{n} = [n_1, \dots, n_{N_x}]^T$ is found:
+\begin{align}
+n_{N_x} &= d'_{N_x} \\
+n_k &= d'_k - c'_k n_{k+1}, \quad k = N_x-1, N_x-2, \ldots, 1
+\end{align}
+
+\subsubsection{Boundary Conditions}
+Physical boundary conditions are implemented by modifying the first and last rows of the tridiagonal matrices $\mathbf{A}$ and $\mathbf{B}$. For \term{insulating} (zero-flux) boundary conditions, we enforce $\partial n / \partial x = 0$ at the boundaries. For a forward-difference approximation at $x=0$, this means $n_1 = n_2$, which can be enforced by adjusting the matrix elements $A_{1,1}, A_{1,2}, B_{1,1}, B_{1,2}$ accordingly to ensure no net flux.
+
+\subsubsection{Pre-computation for Efficiency}
+For a spatially varying but time-independent gap profile $\Delta(x)$, the diffusion coefficient $D(E_i, x_k)$ is also time-independent. Consequently, the matrices $\mathbf{A}$ and $\mathbf{B}$ and the Thomas algorithm forward-elimination factors ($c'_k$) are constant throughout the simulation for each energy slice. A significant computational speedup can be achieved by pre-calculating and storing these arrays in memory before the main simulation loop begins. The diffusion step then reduces to calculating the right-hand side vector $\boldsymbol{d}$ and performing the back-substitution sweep at each time step.
+
+\subsection{The Collision Step: Time Integration}
+The collision step involves solving the system of coupled ordinary differential equations (ODEs) defined by the collision integral, $\partial n_{i,k} / \partial t = \mathcal{I}_{\coll}[n_{i,k}]$, for each spatial pixel $k$.
+
+A straightforward approach is to use an \term{explicit time-stepping} method, such as Forward Euler. In this scheme, the update rule for one time step $\Delta t$ is simply:
+\begin{equation}
+n_i(t+\Delta t) = n_i(t) + \Delta t \cdot \mathcal{I}_{\coll}[n_i(t)].
+\end{equation}
+While simple to implement, this method's stability is conditional on using a very small time step. A more rigorous analysis reveals that this is not an efficient approach for this particular physical system.
+
+\subsubsection{Numerical Stiffness and the Case for Implicit Solvers}
+A system of differential equations is considered \term{stiff} if it describes physical processes that occur on vastly different timescales. In our case:
+\begin{itemize}
+    \item \textbf{Fast Processes:} High-energy quasiparticles ($E \gg \Delta$) rapidly lose energy by scattering with phonons, relaxing towards the gap edge.
+    \item \textbf{Slow Processes:} Quasiparticles clustered near the gap edge ($E \approx \Delta$) are removed via two-body recombination, a much slower process, especially at low densities.
+\end{itemize}
+Using a standard \textit{explicit} numerical solver (like Forward Euler) would require a time step smaller than the fastest timescale to maintain stability. To model the slow, long-term decay, this would be computationally prohibitive. \textit{Implicit} solvers are designed to be stable even with large time steps, making them essential for stiff systems. We now estimate these timescales to demonstrate the system's stiffness.
+
+The total rate at which a single quasiparticle at energy $E$ scatters out is $\Gamma_{\text{scat}}(E) = 1/\tau_{\text{scat}}(E)$. For a high-energy quasiparticle ($E \gg \Delta$) emitting phonons at low temperature, we can approximate this rate:
+\begin{equation}
+    \frac{1}{\tau_{\text{scat}}(E)} \approx \int_{\Delta}^{E} K^s(E, E') \rho(E') \, dE' \approx \int_{\Delta}^{E} \frac{1}{\tau_{0}} \frac{(E-E')^{2}}{(k_B T_{c})^{3}} \, dE'.
+\end{equation}
+Solving this integral gives an analytical estimate for the lifetime:
+\begin{equation}
+    \tau_{\text{scat}}(E) \approx 3\tau_0 \left( \frac{k_B T_c}{E-\Delta} \right)^3.
+\end{equation}
+Using typical parameters for aluminum ($\tau_0 \approx 400$~ns, $T_c \approx 1.2$~K, $\Delta \approx 180~\mu\text{eV}$, $k_B T_c \approx 103~\mu\text{eV}$), the lifetime for a quasiparticle at $E=3\Delta$ is:
+\begin{equation}
+    \tau_{\text{scat}}(3\Delta) \approx 3 \cdot (400 \, \text{ns}) \left( \frac{103 \, \mu\text{eV}}{2 \cdot 180 \, \mu\text{eV}} \right)^3 \approx \mathbf{28 \, \text{ns}}.
+\end{equation}
+This establishes the fast timescale of the system.
+
+Recombination is a two-body process, so its rate depends on the density of other quasiparticles. We consider the lifetime of a quasiparticle at the gap edge ($E \approx \Delta$) recombining with a bath of other quasiparticles also near the gap. The rate is:
+\begin{equation}
+    \frac{1}{\tau_{\rec}(E)} = 2 \int_{\Delta}^{\infty} K^r(E, E') n(E') \, dE'.
+\end{equation}
+Approximating for $E, E' \to \Delta$, the kernel $K^r(\Delta, \Delta) \approx \frac{8\Delta^2}{\tau_0 (k_B T_c)^3}$, and the integral $\int n(E') dE'$ becomes the density parameter $x_{\qp}$. The recombination lifetime is therefore:
+\begin{equation}
+    \tau_{\rec} \approx \frac{\tau_0 (k_B T_c)^3}{16\Delta^2} \frac{1}{x_{\qp}}.
+\end{equation}
+This is a key result: the lifetime is inversely proportional to the density. For a typical non-equilibrium density of $x_{\qp}/(4N(0)) \sim 10^{-6}$, we find $x_{\qp} \approx 9 \times 10^{-5} \, \mu\text{eV}$, which gives a lifetime of $\tau_{\rec} \approx \mathbf{9.3 \, \text{ms}}$.
+
+The ratio between the slow (recombination) and fast (scattering) timescales is $10^4 - 10^6$. This extreme separation confirms the system is numerically stiff. Therefore, despite the simplicity of an explicit method, a robust simulation requires an **implicit ODE solver** (e.g., an implicit Runge-Kutta method or a backward differentiation formula solver) for the collision step, as recommended in the main text.
+
+\subsubsection{Second-Order Decay Kinetics}
+The density-dependent lifetime is characteristic of a \term{second-order decay} process, which contrasts with the familiar first-order (exponential) decay.
+\begin{itemize}
+    \item \textbf{First-Order:} The decay rate of a population $N$ is proportional to $N$. The differential equation is $\frac{dN}{dt} = -\Gamma N$, which yields exponential decay, $N(t) = N_0 e^{-t/\tau}$. The lifetime $\tau=1/\Gamma$ is constant.
+    \item \textbf{Second-Order:} The decay rate is proportional to the rate of two-body encounters, i.e., $N^2$. The differential equation is $\frac{dN}{dt} = -R N^2$, where $R$ is a rate constant. This describes recombination. The solution is:
+    \begin{equation}
+        N(t) = \frac{N_0}{1 + R N_0 t} = \frac{N_0}{1 + t/\tau_0},
+    \end{equation}
+    where $\tau_0 = 1/(R N_0)$ is the initial lifetime. At long times, the population decays as $1/t$, which is much slower than exponential decay.
+\end{itemize}
+The slow, $1/t$-like tail of the recombination process is a hallmark feature of quasiparticle dynamics.
+
+\subsection{Memory Layout and Data Structures}
+A practical implementation requires storing several large arrays. For a system with $N_x$ spatial pixels and $N_E$ energy bins, the primary data structures are:
+\begin{itemize}
+    \item \textbf{Quasiparticle Density Array} $n_{k,i}$: A 2D array of size $N_x \times N_E$ holding the main dynamical variable.
+    \item \textbf{Diffusion Coefficient Array} $D_{k,i}$: A 2D array of size $N_x \times N_E$ storing the diffusion coefficient for each energy at each location.
+    \item \textbf{Thomas Algorithm Factors} $c'_{k,i}$, $d'_{k,i}$: 2D arrays of size $N_x \times N_E$ for the pre-computed factors of the diffusion solver.
+    \item \textbf{Scattering and Recombination Kernels} $K^s_{k,i,j}$, $K^r_{k,i,j}$: 3D arrays of size $N_x \times N_E \times N_E$. These store the pre-computed values of the scattering and recombination kernels, which depend on the local gap $\Delta(x_k)$ and connect all pairs of energy bins $(E_i, E_j)$.
+\end{itemize}
+The memory required for the kernel arrays scales as $N_x N_E^2$ and often dominates the computational cost of the simulation.
+
+
+\end{document}

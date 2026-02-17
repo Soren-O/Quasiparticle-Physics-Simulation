@@ -1,0 +1,78 @@
+Name: Quasiparticle Physics Simulator
+Desktop Python application for creating, loading, and running quasiparticle simulations from GDS geometry. For now it jsut focuses on simulating the 2D heat (diffusion) equation using the Crank Nicolson Algorithm. See the pdf in References that describes this.
+
+Includes a launch button, "Run Quasiparticle Physics Simulator"
+Includes a button, "Install Requirements.bat"
+
+Design: Retro-style desktop UI inspired by Pre Windows XP controls
+- Launch menu with:
+  - View saved simulations
+  - Load saved setup
+  - Create new setup
+  - Generate test simulations (intrinsic geometry, no GDS required, used to validate the backend)
+  - View test simulations (live 1D simulation-vs-analytic replay for all generated test cases)
+
+_____________
+Create New Setup: User can import a .GDS. If the .GDS has only one layer, default to that layer, it the .GDS has two or more layers, it should ask the user which layer they want to import. Then it displays with 2D geometry gendering from the selected GDS layer on the right hand side. Validate connectivity (requires one connected region)
+
+Users can hover over edges of the geometry, when user is hovering over edge, the edge lights up, indicating they are clickable. Upon clicking, user assigns boundary conditions.
+
+When entering boundary conditions, users select from a popup of: Reflective, Neumann (non-zero flux), Dirichlet, Absorbing, and Robin. Some of these boundary conditions require the user to enter a numerical value. Others don't. For example, one of the options should be "Insulated/Reflective" which corresponds to zero flux, no numerical input is required from the user.  
+
+A user should not be able to start the simulation if any edges remain with unassigned boundary conditions. The user needs to input parameters. There are parameters like diffusion coefficient and grid (mesh size). 
+
+There should be a button "Initial Conditions" upon clicking this the user is taken to a popup. There can be several preset options; e.g., a Gaussian with a given mean and standard deviation. There can also be an option to create a custom intial condition. The user can modify a python script with a custom function. Note though that this python script needs to be determined by the grid (mesh size), so it should show the user the basic outline of the python script that can't be changed, along with the part that can. 
+
+There is a button "View Live Simulation"
+
+A user can "save setup" at any point. Save/load setup JSON files. Run simulation and save results to JSON. 
+
+_____________
+
+Generate Test Simulations: We verify that all boundary conditions options are being correctly simulated by the physics engine. See: 
+
+https://math.stackexchange.com/questions/4720247/1d-heat-equation-with-insulated-boundary-conditions-greens-function
+
+https://math.stackexchange.com/questions/4723649/1d-heat-equation-with-insulated-boundaries-with-dirac-delta
+
+1. Ivrii, University of Toronto PDE notes, Chapter 4, Section 4.1 (Dirichlet/Neumann eigenfunction expansions):
+- https://www.math.toronto.edu/ivrii/PDE-textbook/Chapter4/S4.1.html
+
+2. Ivrii, Chapter 6, Section 6.1 (nonhomogeneous Neumann reduction to homogeneous form):
+- https://www.math.toronto.edu/ivrii/PDE-textbook/Chapter6/S6.1.html
+
+3. Ivrii, Chapter 3, Section 3.2 (half-line Green functions; method of images for Dirichlet/Neumann):
+- https://www.math.toronto.edu/ivrii/PDE-textbook/Chapter3/S3.2.html
+
+4. Ivrii, Chapter 4, Section 4.2 (Robin/third-type boundary eigenvalue condition):
+- https://www.math.toronto.edu/ivrii/PDE-textbook/Chapter4/S4.2.html
+
+Give each boundary condition at least two intial setups that we can compare analytic solutions to. This is 2x5=10 cases. For each of these initially do a mesh_size of 1, so that the test we compare to is essentially a 1D simulation. 
+______________
+- View Test Simulations: User is taken to a screen which shows a replay of the simulations. Simulation evolves in time. Show, on the same plot, a 1D trace with the x-axis being the relevant dimension and the y-axis being density. The two 1D traces from the simulated and from the analytic solutions should both be shown.
+
+Replay shows one case at a time with `Prev/Next` case navigation and an on-screen LaTeX detail panel (boundary condition, analytic formula, initial condition, and description). Only the currently viewed test case evolves in time. 
+_______________
+- Viewing Live Simulations and Viewing Saved Simulations: The 2D geometry the user has imported is shown on the left as a heatmap. Make sure the legend for the heatmap is fixed in time. There can additionally be a plot on the right which shows total mass over time. 
+__________________
+
+## Install
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+## Run
+
+```powershell
+python app.py
+```
+
+## Data storage
+
+- Setups: `data/setups/*.json`
+- Simulations: `data/simulations/*.json`
+___________
+Set up a git configuration

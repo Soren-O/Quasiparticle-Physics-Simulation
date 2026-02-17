@@ -1,0 +1,2 @@
+"""Quasiparticle Physics Simulator package."""
+

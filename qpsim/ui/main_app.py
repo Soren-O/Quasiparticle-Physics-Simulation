@@ -1,0 +1,844 @@
+﻿from __future__ import annotations
+
+import subprocess
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
+
+import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+from ..geometry import (
+    create_geometry_from_gds,
+    create_intrinsic_geometry,
+    discover_gds_layers,
+    gds_support_available,
+    point_to_segment_distance,
+)
+from ..initial_conditions import build_initial_field, default_initial_condition
+from ..models import (
+    BoundaryCondition,
+    GeometryData,
+    InitialConditionSpec,
+    SetupData,
+    SimulationParameters,
+    SimulationResultData,
+    TestSuiteData,
+    utc_now_iso,
+)
+from ..paths import ROOT_DIR, SIMULATIONS_DIR, ensure_data_dirs
+from ..solver import BoundaryAssignmentError, run_2d_crank_nicolson
+from ..storage import (
+    create_setup_id,
+    create_simulation_id,
+    latest_test_suite_file,
+    list_simulation_files,
+    load_setup,
+    load_simulation,
+    load_test_suite,
+    save_setup,
+    save_simulation,
+)
+from ..test_cases import generate_and_save_test_suite
+from .dialogs import ask_boundary_condition, ask_initial_condition
+from .theme import FONT_MONO, FONT_TITLE, RETRO_ACCENT, RETRO_BG, RETRO_PANEL, apply_retro_theme
+
+
+def _frame_to_jsonable(frame: np.ndarray) -> list[list[float | None]]:
+    payload: list[list[float | None]] = []
+    for row in frame:
+        payload.append([None if np.isnan(v) else float(v) for v in row])
+    return payload
+
+
+def _frame_from_jsonable(frame: list[list[float | None]]) -> np.ndarray:
+    arr = np.array([[np.nan if v is None else float(v) for v in row] for row in frame], dtype=float)
+    return arr
+
+
+class SimulationViewer(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, result: SimulationResultData):
+        super().__init__(parent)
+        self.title(f"Live Simulation - {result.setup_name}")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1200x700")
+
+        self.result = result
+        self.times = np.asarray(result.times, dtype=float)
+        self.frames = [_frame_from_jsonable(frame) for frame in result.frames]
+        self.mass = np.asarray(result.mass_over_time, dtype=float)
+        self.index = 0
+        self.playing = True
+        self.after_id: str | None = None
+
+        top_controls = tk.Frame(self, bg=RETRO_PANEL)
+        top_controls.pack(fill="x", padx=8, pady=6)
+        self.play_btn = tk.Button(top_controls, text="Pause", width=10, command=self.toggle_play)
+        self.play_btn.pack(side="left", padx=4)
+        tk.Button(top_controls, text="Prev", width=10, command=self.prev_frame).pack(side="left", padx=4)
+        tk.Button(top_controls, text="Next", width=10, command=self.next_frame).pack(side="left", padx=4)
+        self.time_label = tk.Label(top_controls, text="", bg=RETRO_PANEL)
+        self.time_label.pack(side="left", padx=12)
+
+        self.scale = tk.Scale(
+            top_controls,
+            from_=0,
+            to=max(0, len(self.frames) - 1),
+            orient="horizontal",
+            showvalue=False,
+            command=self.on_scale,
+            length=380,
+            bg=RETRO_PANEL,
+        )
+        self.scale.pack(side="left", padx=8)
+
+        fig = Figure(figsize=(11.0, 6.5), dpi=100)
+        self.ax_field = fig.add_subplot(1, 2, 1)
+        self.ax_mass = fig.add_subplot(1, 2, 2)
+        self.canvas = FigureCanvasTkAgg(fig, master=self)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        vmin, vmax = float(result.color_limits[0]), float(result.color_limits[1])
+        self.heatmap = self.ax_field.imshow(self.frames[0], origin="lower", cmap="hot", vmin=vmin, vmax=vmax)
+        self.ax_field.set_title("2D Density Heatmap")
+        self.ax_field.set_aspect("equal")
+        fig.colorbar(self.heatmap, ax=self.ax_field, fraction=0.046, pad=0.04)
+
+        self.mass_line, = self.ax_mass.plot([], [], color="#004488", linewidth=2.0, label="Total Mass")
+        self.mass_marker, = self.ax_mass.plot([], [], "o", color="#AA2200")
+        self.ax_mass.set_title("Mass Over Time")
+        self.ax_mass.set_xlabel("Time")
+        self.ax_mass.set_ylabel("Total Mass")
+        self.ax_mass.grid(True, alpha=0.3)
+        self.ax_mass.legend(loc="best")
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.render_frame()
+        self.schedule_tick()
+
+    def on_close(self) -> None:
+        self.playing = False
+        if self.after_id is not None:
+            self.after_cancel(self.after_id)
+        self.destroy()
+
+    def toggle_play(self) -> None:
+        self.playing = not self.playing
+        self.play_btn.configure(text=("Pause" if self.playing else "Play"))
+        if self.playing:
+            self.schedule_tick()
+
+    def prev_frame(self) -> None:
+        self.index = max(0, self.index - 1)
+        self.render_frame()
+
+    def next_frame(self) -> None:
+        self.index = min(len(self.frames) - 1, self.index + 1)
+        self.render_frame()
+
+    def on_scale(self, raw_value: str) -> None:
+        self.index = int(float(raw_value))
+        self.render_frame()
+
+    def schedule_tick(self) -> None:
+        if not self.playing:
+            return
+        self.after_id = self.after(120, self.tick)
+
+    def tick(self) -> None:
+        if self.playing:
+            self.index = (self.index + 1) % len(self.frames)
+            self.render_frame()
+            self.schedule_tick()
+
+    def render_frame(self) -> None:
+        self.index = int(np.clip(self.index, 0, len(self.frames) - 1))
+        self.scale.set(self.index)
+        t = float(self.times[self.index])
+        self.time_label.configure(text=f"t = {t:.3f}")
+
+        self.heatmap.set_data(self.frames[self.index])
+        self.mass_line.set_data(self.times[: self.index + 1], self.mass[: self.index + 1])
+        self.mass_marker.set_data([self.times[self.index]], [self.mass[self.index]])
+        self.ax_mass.relim()
+        self.ax_mass.autoscale_view()
+        self.canvas.draw_idle()
+
+
+class TestSuiteViewer(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, suite: TestSuiteData):
+        super().__init__(parent)
+        self.title("Test Simulations Replay")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1240x760")
+
+        self.suite = suite
+        if not suite.cases:
+            raise ValueError("No test cases available in test suite.")
+
+        self.case_index = 0
+        self.frame_index = 0
+        self.playing = True
+        self.after_id: str | None = None
+
+        controls = tk.Frame(self, bg=RETRO_PANEL)
+        controls.pack(fill="x", padx=8, pady=6)
+        self.case_label = tk.Label(controls, text="", bg=RETRO_PANEL, fg=RETRO_ACCENT, font=("Tahoma", 10, "bold"))
+        self.case_label.pack(side="left", padx=8)
+        tk.Button(controls, text="Prev Case", width=12, command=self.prev_case).pack(side="left", padx=4)
+        tk.Button(controls, text="Next Case", width=12, command=self.next_case).pack(side="left", padx=4)
+        self.play_btn = tk.Button(controls, text="Pause", width=10, command=self.toggle_play)
+        self.play_btn.pack(side="left", padx=8)
+
+        self.scale = tk.Scale(
+            controls,
+            from_=0,
+            to=0,
+            orient="horizontal",
+            showvalue=False,
+            command=self.on_scale,
+            length=360,
+            bg=RETRO_PANEL,
+        )
+        self.scale.pack(side="left", padx=8)
+        self.time_label = tk.Label(controls, text="", bg=RETRO_PANEL)
+        self.time_label.pack(side="left", padx=8)
+
+        fig = Figure(figsize=(11.5, 7.0), dpi=100)
+        self.ax_trace = fig.add_subplot(1, 2, 1)
+        self.ax_info = fig.add_subplot(1, 2, 2)
+        self.ax_info.axis("off")
+        self.canvas = FigureCanvasTkAgg(fig, master=self)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        self.sim_line, = self.ax_trace.plot([], [], color="#1E88E5", linewidth=2.2, label="Simulated")
+        self.ana_line, = self.ax_trace.plot([], [], color="#D81B60", linewidth=2.0, linestyle="--", label="Analytic")
+        self.ax_trace.set_xlabel("x")
+        self.ax_trace.set_ylabel("Density")
+        self.ax_trace.set_title("Simulation vs Analytic")
+        self.ax_trace.grid(True, alpha=0.25)
+        self.ax_trace.legend(loc="best")
+        self.info_text = self.ax_info.text(0.02, 0.98, "", va="top", ha="left", wrap=True)
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.render_case(reset_frame=True)
+        self.schedule_tick()
+
+    def on_close(self) -> None:
+        self.playing = False
+        if self.after_id is not None:
+            self.after_cancel(self.after_id)
+        self.destroy()
+
+    def current_case(self):
+        return self.suite.cases[self.case_index]
+
+    def prev_case(self) -> None:
+        self.case_index = (self.case_index - 1) % len(self.suite.cases)
+        self.render_case(reset_frame=True)
+
+    def next_case(self) -> None:
+        self.case_index = (self.case_index + 1) % len(self.suite.cases)
+        self.render_case(reset_frame=True)
+
+    def toggle_play(self) -> None:
+        self.playing = not self.playing
+        self.play_btn.configure(text=("Pause" if self.playing else "Play"))
+        if self.playing:
+            self.schedule_tick()
+
+    def on_scale(self, raw_value: str) -> None:
+        self.frame_index = int(float(raw_value))
+        self.render_frame()
+
+    def schedule_tick(self) -> None:
+        if not self.playing:
+            return
+        self.after_id = self.after(120, self.tick)
+
+    def tick(self) -> None:
+        if self.playing:
+            case = self.current_case()
+            self.frame_index = (self.frame_index + 1) % len(case.times)
+            self.render_frame()
+            self.schedule_tick()
+
+    def render_case(self, reset_frame: bool = False) -> None:
+        case = self.current_case()
+        self.case_label.configure(
+            text=f"Case {self.case_index + 1}/{len(self.suite.cases)}: {case.title}"
+        )
+        self.scale.configure(to=max(0, len(case.times) - 1))
+        if reset_frame:
+            self.frame_index = 0
+
+        panel = (
+            f"Boundary Condition:\n{case.boundary_label}\n\n"
+            f"Analytic Formula:\n${case.formula_latex}$\n\n"
+            f"Initial Condition:\n${case.initial_condition_latex}$\n\n"
+            f"Description:\n{case.description}"
+        )
+        self.info_text.set_text(panel)
+        self.render_frame()
+
+    def render_frame(self) -> None:
+        case = self.current_case()
+        self.frame_index = int(np.clip(self.frame_index, 0, len(case.times) - 1))
+        self.scale.set(self.frame_index)
+        time_value = float(case.times[self.frame_index])
+        self.time_label.configure(text=f"t = {time_value:.3f}")
+
+        x = np.asarray(case.x, dtype=float)
+        sim = np.asarray(case.simulated[self.frame_index], dtype=float)
+        ana = np.asarray(case.analytic[self.frame_index], dtype=float)
+
+        self.sim_line.set_data(x, sim)
+        self.ana_line.set_data(x, ana)
+        self.ax_trace.relim()
+        self.ax_trace.autoscale_view()
+        self.canvas.draw_idle()
+
+class SetupEditor(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, setup: SetupData | None = None):
+        super().__init__(parent)
+        self.title("Create / Edit Simulation Setup")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1320x760")
+
+        self.setup_id = setup.setup_id if setup else create_setup_id()
+        self.geometry_data: GeometryData | None = None
+        self.mask: np.ndarray | None = None
+        self.initial_condition: InitialConditionSpec = (
+            setup.initial_condition if setup else default_initial_condition()
+        )
+        self.boundary_assignments: dict[str, BoundaryCondition] = (
+            dict(setup.boundary_conditions) if setup else {}
+        )
+        self.latest_result: SimulationResultData | None = None
+        self.hover_edge_id: str | None = None
+
+        root = tk.Frame(self, bg=RETRO_PANEL)
+        root.pack(fill="both", expand=True, padx=8, pady=8)
+        left = tk.Frame(root, bg=RETRO_PANEL, width=340)
+        left.pack(side="left", fill="y")
+        right = tk.Frame(root, bg=RETRO_PANEL)
+        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        self.name_var = tk.StringVar(value=(setup.name if setup else "Untitled Setup"))
+        default_params = setup.parameters if setup else SimulationParameters(
+            diffusion_coefficient=1.0,
+            dt=0.2,
+            total_time=30.0,
+            mesh_size=1.0,
+            store_every=1,
+        )
+        self.diff_var = tk.StringVar(value=str(default_params.diffusion_coefficient))
+        self.mesh_var = tk.StringVar(value=str(default_params.mesh_size))
+        self.dt_var = tk.StringVar(value=str(default_params.dt))
+        self.total_var = tk.StringVar(value=str(default_params.total_time))
+        self.store_var = tk.StringVar(value=str(default_params.store_every))
+
+        tk.Label(left, text="Setup Name", bg=RETRO_PANEL).pack(anchor="w")
+        tk.Entry(left, textvariable=self.name_var, width=36).pack(anchor="w", pady=(0, 8))
+
+        def add_param(label: str, var: tk.StringVar) -> None:
+            tk.Label(left, text=label, bg=RETRO_PANEL).pack(anchor="w")
+            tk.Entry(left, textvariable=var, width=18).pack(anchor="w", pady=(0, 6))
+
+        add_param("Diffusion Coefficient (D)", self.diff_var)
+        add_param("Mesh Size (dx)", self.mesh_var)
+        add_param("dt", self.dt_var)
+        add_param("Total Time", self.total_var)
+        add_param("Store Every N Steps", self.store_var)
+
+        tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(10, 4))
+        tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=4)
+        tk.Button(left, text="Initial Conditions...", width=30, command=self.edit_initial_conditions).pack(anchor="w", pady=4)
+        tk.Button(left, text="Set Unassigned -> Reflective", width=30, command=self.fill_unassigned_reflective).pack(
+            anchor="w", pady=4
+        )
+        tk.Button(left, text="Save Setup", width=30, command=self.save_setup_file).pack(anchor="w", pady=(14, 4))
+        self.run_btn = tk.Button(left, text="Run Simulation", width=30, command=self.run_simulation)
+        self.run_btn.pack(anchor="w", pady=4)
+        self.live_btn = tk.Button(left, text="View Live Simulation", width=30, command=self.open_live_viewer, state="disabled")
+        self.live_btn.pack(anchor="w", pady=4)
+
+        self.status_label = tk.Label(left, text="", bg=RETRO_PANEL, justify="left", wraplength=320)
+        self.status_label.pack(anchor="w", pady=(12, 6))
+        self.hover_label = tk.Label(left, text="Hover edge: none", bg=RETRO_PANEL, fg=RETRO_ACCENT, justify="left")
+        self.hover_label.pack(anchor="w")
+
+        fig = Figure(figsize=(8.6, 6.8), dpi=100)
+        self.ax = fig.add_subplot(1, 1, 1)
+        self.ax.set_title("Import geometry to begin")
+        self.ax.set_axis_off()
+        self.canvas = FigureCanvasTkAgg(fig, master=right)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.canvas.mpl_connect("button_press_event", self.on_click)
+        self.figure = fig
+
+        if setup is not None:
+            self.load_setup_data(setup)
+        else:
+            self.update_status()
+
+    def load_setup_data(self, setup: SetupData) -> None:
+        self.setup_id = setup.setup_id
+        self.name_var.set(setup.name)
+        self.diff_var.set(str(setup.parameters.diffusion_coefficient))
+        self.mesh_var.set(str(setup.parameters.mesh_size))
+        self.dt_var.set(str(setup.parameters.dt))
+        self.total_var.set(str(setup.parameters.total_time))
+        self.store_var.set(str(setup.parameters.store_every))
+        self.geometry_data = setup.geometry
+        self.mask = np.array(setup.geometry.mask, dtype=bool)
+        self.boundary_assignments = dict(setup.boundary_conditions)
+        self.initial_condition = setup.initial_condition
+        self.redraw_geometry()
+        self.update_status()
+
+    def parse_float(self, name: str, value: str) -> float:
+        try:
+            return float(value.strip())
+        except Exception as exc:
+            raise ValueError(f"'{name}' must be numeric.") from exc
+
+    def parse_int(self, name: str, value: str) -> int:
+        try:
+            return int(value.strip())
+        except Exception as exc:
+            raise ValueError(f"'{name}' must be an integer.") from exc
+
+    def import_gds(self) -> None:
+        if not gds_support_available():
+            messagebox.showerror(
+                "GDS Support Missing",
+                "gdstk is not installed. Run Install Requirements first.",
+                parent=self,
+            )
+            return
+        gds_path = filedialog.askopenfilename(
+            parent=self,
+            title="Select GDS File",
+            filetypes=[("GDSII files", "*.gds"), ("All files", "*.*")],
+        )
+        if not gds_path:
+            return
+        try:
+            mesh_size = self.parse_float("mesh size", self.mesh_var.get())
+            layers = discover_gds_layers(gds_path)
+            if len(layers) == 1:
+                layer = layers[0]
+            else:
+                layer = simpledialog.askinteger(
+                    "Select Layer",
+                    f"Layers found: {layers}\nEnter layer number to import:",
+                    parent=self,
+                )
+                if layer is None:
+                    return
+                if layer not in layers:
+                    raise ValueError(f"Layer {layer} is not present in this GDS file.")
+            geometry = create_geometry_from_gds(gds_path, layer=layer, mesh_size=mesh_size)
+        except Exception as exc:
+            messagebox.showerror("GDS Import Failed", str(exc), parent=self)
+            return
+        self.geometry_data = geometry
+        self.mask = np.array(geometry.mask, dtype=bool)
+        self.boundary_assignments = {}
+        self.hover_edge_id = None
+        self.redraw_geometry()
+        self.update_status()
+
+    def use_intrinsic(self) -> None:
+        try:
+            mesh_size = self.parse_float("mesh size", self.mesh_var.get())
+            geometry = create_intrinsic_geometry(mesh_size=mesh_size)
+        except Exception as exc:
+            messagebox.showerror("Geometry Error", str(exc), parent=self)
+            return
+        self.geometry_data = geometry
+        self.mask = np.array(geometry.mask, dtype=bool)
+        self.boundary_assignments = {}
+        self.hover_edge_id = None
+        self.redraw_geometry()
+        self.update_status()
+
+    def edit_initial_conditions(self) -> None:
+        spec = ask_initial_condition(self, self.initial_condition)
+        if spec is not None:
+            self.initial_condition = spec
+            self.update_status()
+
+    def fill_unassigned_reflective(self) -> None:
+        if not self.geometry_data:
+            return
+        for edge in self.geometry_data.edges:
+            if edge.edge_id not in self.boundary_assignments:
+                self.boundary_assignments[edge.edge_id] = BoundaryCondition(kind="reflective")
+        self.redraw_geometry()
+        self.update_status()
+
+    def edge_color(self, edge_id: str) -> str:
+        bc = self.boundary_assignments.get(edge_id)
+        if bc is None:
+            return "#AA0000"
+        kind = bc.kind.lower()
+        if kind == "reflective":
+            return "#1155AA"
+        if kind == "neumann":
+            return "#CC7A00"
+        if kind == "dirichlet":
+            return "#008844"
+        if kind == "absorbing":
+            return "#333333"
+        if kind == "robin":
+            return "#7A4A00"
+        return "#555555"
+
+    def redraw_geometry(self) -> None:
+        self.ax.clear()
+        self.ax.set_facecolor("#F6F6F6")
+        if self.mask is None or self.geometry_data is None:
+            self.ax.set_title("Import geometry to begin")
+            self.ax.set_axis_off()
+            self.canvas.draw_idle()
+            return
+
+        display = np.where(self.mask, 1.0, np.nan)
+        self.ax.imshow(display, origin="lower", cmap="Greys", alpha=0.28)
+        for edge in self.geometry_data.edges:
+            self.ax.plot(
+                [edge.x0, edge.x1],
+                [edge.y0, edge.y1],
+                color=self.edge_color(edge.edge_id),
+                linewidth=2.2,
+                solid_capstyle="butt",
+            )
+
+        if self.hover_edge_id is not None:
+            edge = next((e for e in self.geometry_data.edges if e.edge_id == self.hover_edge_id), None)
+            if edge is not None:
+                self.ax.plot(
+                    [edge.x0, edge.x1],
+                    [edge.y0, edge.y1],
+                    color="#FFD500",
+                    linewidth=4.0,
+                    solid_capstyle="round",
+                )
+
+        self.ax.set_title(
+            f"{self.geometry_data.name} | layer={self.geometry_data.layer} | edges={len(self.geometry_data.edges)}"
+        )
+        self.ax.set_aspect("equal")
+        self.ax.set_xlabel("x (mesh index)")
+        self.ax.set_ylabel("y (mesh index)")
+        self.ax.grid(False)
+        self.canvas.draw_idle()
+
+    def nearest_edge(self, x: float, y: float) -> str | None:
+        if self.geometry_data is None:
+            return None
+        best_edge = None
+        best_dist = float("inf")
+        for edge in self.geometry_data.edges:
+            dist = point_to_segment_distance(x, y, edge)
+            if dist < best_dist:
+                best_dist = dist
+                best_edge = edge.edge_id
+        if best_dist <= 0.45:
+            return best_edge
+        return None
+
+    def on_motion(self, event) -> None:
+        if self.geometry_data is None or event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            if self.hover_edge_id is not None:
+                self.hover_edge_id = None
+                self.hover_label.configure(text="Hover edge: none")
+                self.redraw_geometry()
+            return
+        candidate = self.nearest_edge(float(event.xdata), float(event.ydata))
+        if candidate != self.hover_edge_id:
+            self.hover_edge_id = candidate
+            if candidate is None:
+                self.hover_label.configure(text="Hover edge: none")
+            else:
+                self.hover_label.configure(text=f"Hover edge: {candidate} (click to assign)")
+            self.redraw_geometry()
+
+    def on_click(self, event) -> None:
+        if event.inaxes != self.ax or self.geometry_data is None:
+            return
+        if self.hover_edge_id is None:
+            return
+        current = self.boundary_assignments.get(self.hover_edge_id)
+        chosen = ask_boundary_condition(self, current)
+        if chosen is None:
+            return
+        self.boundary_assignments[self.hover_edge_id] = chosen
+        self.redraw_geometry()
+        self.update_status()
+
+    def update_status(self) -> None:
+        if self.geometry_data is None:
+            self.status_label.configure(text="No geometry loaded.")
+            self.run_btn.configure(state="disabled")
+            return
+        assigned = len(self.boundary_assignments)
+        total = len(self.geometry_data.edges)
+        setup_ready = total > 0 and assigned == total
+        initial_kind = self.initial_condition.kind
+        self.status_label.configure(
+            text=(
+                f"Geometry: {self.geometry_data.name}\n"
+                f"Boundary assignment: {assigned}/{total}\n"
+                f"Initial condition: {initial_kind}\n"
+                f"Click any highlighted edge to assign boundary conditions."
+            )
+        )
+        self.run_btn.configure(state=("normal" if setup_ready else "disabled"))
+        if self.latest_result is None:
+            self.live_btn.configure(state="disabled")
+
+    def build_setup(self) -> SetupData:
+        if self.geometry_data is None:
+            raise ValueError("No geometry loaded.")
+        params = SimulationParameters(
+            diffusion_coefficient=self.parse_float("diffusion coefficient", self.diff_var.get()),
+            dt=self.parse_float("dt", self.dt_var.get()),
+            total_time=self.parse_float("total time", self.total_var.get()),
+            mesh_size=self.parse_float("mesh size", self.mesh_var.get()),
+            store_every=max(1, self.parse_int("store_every", self.store_var.get())),
+        )
+        return SetupData(
+            setup_id=self.setup_id,
+            name=self.name_var.get().strip() or "Untitled Setup",
+            created_at=utc_now_iso(),
+            geometry=self.geometry_data,
+            boundary_conditions=dict(self.boundary_assignments),
+            parameters=params,
+            initial_condition=self.initial_condition,
+        )
+
+    def save_setup_file(self) -> None:
+        try:
+            setup = self.build_setup()
+            path = save_setup(setup)
+        except Exception as exc:
+            messagebox.showerror("Save Failed", str(exc), parent=self)
+            return
+        messagebox.showinfo("Setup Saved", f"Saved setup:\n{path}", parent=self)
+
+    def run_simulation(self) -> None:
+        if self.geometry_data is None or self.mask is None:
+            messagebox.showerror("Cannot Run", "Import geometry first.", parent=self)
+            return
+        try:
+            setup = self.build_setup()
+            if len(setup.boundary_conditions) != len(setup.geometry.edges):
+                raise BoundaryAssignmentError("All edges must be assigned before running the simulation.")
+
+            initial = build_initial_field(self.mask, self.initial_condition)
+            times, frames, mass, color_limits = run_2d_crank_nicolson(
+                mask=self.mask,
+                edges=self.geometry_data.edges,
+                edge_conditions=setup.boundary_conditions,
+                initial_field=initial,
+                diffusion_coefficient=setup.parameters.diffusion_coefficient,
+                dt=setup.parameters.dt,
+                total_time=setup.parameters.total_time,
+                dx=setup.parameters.mesh_size,
+                store_every=setup.parameters.store_every,
+            )
+        except Exception as exc:
+            messagebox.showerror("Simulation Failed", str(exc), parent=self)
+            return
+
+        result = SimulationResultData(
+            simulation_id=create_simulation_id(),
+            setup_id=setup.setup_id,
+            setup_name=setup.name,
+            created_at=utc_now_iso(),
+            times=[float(t) for t in times],
+            frames=[_frame_to_jsonable(frame) for frame in frames],
+            mass_over_time=[float(v) for v in mass],
+            color_limits=[float(color_limits[0]), float(color_limits[1])],
+            metadata={
+                "diffusion_coefficient": setup.parameters.diffusion_coefficient,
+                "mesh_size": setup.parameters.mesh_size,
+                "dt": setup.parameters.dt,
+                "total_time": setup.parameters.total_time,
+            },
+        )
+        try:
+            path = save_simulation(result)
+        except Exception as exc:
+            messagebox.showwarning("Saved In Memory Only", f"Simulation ran but save failed:\n{exc}", parent=self)
+            path = None
+
+        self.latest_result = result
+        self.live_btn.configure(state="normal")
+        if path is None:
+            messagebox.showinfo("Simulation Complete", "Simulation finished.", parent=self)
+        else:
+            messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
+
+    def open_live_viewer(self) -> None:
+        if self.latest_result is None:
+            messagebox.showerror("No Result", "Run a simulation first.", parent=self)
+            return
+        SimulationViewer(self, self.latest_result)
+
+class QuasiparticleMainApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Quasiparticle Physics Simulator")
+        self.geometry("980x640")
+        self.minsize(900, 560)
+        apply_retro_theme(self)
+        ensure_data_dirs()
+
+        self.start_frame = tk.Frame(self, bg=RETRO_BG)
+        self.menu_frame = tk.Frame(self, bg=RETRO_BG)
+        self.start_frame.pack(fill="both", expand=True)
+
+        self.build_start_frame()
+        self.build_menu_frame()
+
+    def build_start_frame(self) -> None:
+        frame = self.start_frame
+        tk.Label(
+            frame,
+            text="Quasiparticle Physics Simulator",
+            font=FONT_TITLE,
+            fg=RETRO_ACCENT,
+            bg=RETRO_BG,
+        ).pack(pady=(80, 12))
+        tk.Label(
+            frame,
+            text="2D Crank-Nicolson diffusion workflow with GDS geometry and boundary condition assignment",
+            bg=RETRO_BG,
+        ).pack(pady=(0, 20))
+
+        tk.Button(
+            frame,
+            text="Run Quasiparticle Physics Simulator",
+            width=42,
+            height=2,
+            command=self.show_menu,
+        ).pack(pady=8)
+        tk.Button(
+            frame,
+            text="Install Requirements.bat",
+            width=30,
+            command=self.run_install_requirements,
+        ).pack(pady=6)
+        tk.Label(
+            frame,
+            text=f"Workspace: {ROOT_DIR}",
+            bg=RETRO_BG,
+            justify="center",
+            font=FONT_MONO,
+        ).pack(side="bottom", pady=16)
+
+    def build_menu_frame(self) -> None:
+        frame = self.menu_frame
+        tk.Label(frame, text="Launch Menu", font=FONT_TITLE, fg=RETRO_ACCENT, bg=RETRO_BG).pack(pady=(28, 16))
+
+        menu = tk.Frame(frame, bg=RETRO_BG)
+        menu.pack(pady=12)
+        tk.Button(menu, text="Create New Setup", width=32, command=self.open_new_setup).pack(pady=6)
+        tk.Button(menu, text="Load Saved Setup", width=32, command=self.load_saved_setup).pack(pady=6)
+        tk.Button(menu, text="View Saved Simulations", width=32, command=self.view_saved_simulations).pack(pady=6)
+        tk.Button(menu, text="Generate Test Simulations", width=32, command=self.generate_tests).pack(pady=6)
+        tk.Button(menu, text="View Test Simulations", width=32, command=self.view_tests).pack(pady=6)
+        tk.Button(menu, text="Back To Start Screen", width=32, command=self.show_start).pack(pady=(20, 6))
+
+    def show_menu(self) -> None:
+        self.start_frame.pack_forget()
+        self.menu_frame.pack(fill="both", expand=True)
+
+    def show_start(self) -> None:
+        self.menu_frame.pack_forget()
+        self.start_frame.pack(fill="both", expand=True)
+
+    def run_install_requirements(self) -> None:
+        batch_path = ROOT_DIR / "Install Requirements.bat"
+        if not batch_path.exists():
+            messagebox.showerror("Missing Script", f"{batch_path} not found.", parent=self)
+            return
+        subprocess.Popen(["cmd", "/c", "start", "", str(batch_path)], cwd=str(ROOT_DIR))
+
+    def open_new_setup(self) -> None:
+        SetupEditor(self)
+
+    def load_saved_setup(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Load Setup JSON",
+            initialdir=str(ROOT_DIR / "data" / "setups"),
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            setup = load_setup(path)
+        except Exception as exc:
+            messagebox.showerror("Load Failed", str(exc), parent=self)
+            return
+        SetupEditor(self, setup=setup)
+
+    def view_saved_simulations(self) -> None:
+        files = list_simulation_files()
+        if not files:
+            messagebox.showinfo("No Simulations", "No saved simulations found.", parent=self)
+            return
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Open Simulation JSON",
+            initialdir=str(SIMULATIONS_DIR),
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            result = load_simulation(path)
+        except Exception as exc:
+            messagebox.showerror("Load Failed", str(exc), parent=self)
+            return
+        SimulationViewer(self, result)
+
+    def generate_tests(self) -> None:
+        self.configure(cursor="watch")
+        self.update_idletasks()
+        try:
+            suite, path = generate_and_save_test_suite()
+        except Exception as exc:
+            messagebox.showerror("Test Generation Failed", str(exc), parent=self)
+        else:
+            messagebox.showinfo(
+                "Test Suite Generated",
+                f"Generated {len(suite.cases)} cases.\nSaved to:\n{path}",
+                parent=self,
+            )
+        finally:
+            self.configure(cursor="")
+
+    def view_tests(self) -> None:
+        path = latest_test_suite_file()
+        if path is None:
+            messagebox.showinfo("No Test Suite", "Generate test simulations first.", parent=self)
+            return
+        try:
+            suite = load_test_suite(path)
+        except Exception as exc:
+            messagebox.showerror("Load Failed", str(exc), parent=self)
+            return
+        TestSuiteViewer(self, suite)
+
+
+def run_app() -> None:
+    app = QuasiparticleMainApp()
+    app.mainloop()
