@@ -121,11 +121,6 @@ def load_setup(path: str | Path) -> SetupData:
     return deserialize_setup(_read_json(Path(path)))
 
 
-def list_setup_files() -> list[Path]:
-    ensure_data_dirs()
-    return sorted(SETUPS_DIR.glob("*.json"))
-
-
 def create_setup_id() -> str:
     return uuid.uuid4().hex[:12]
 
@@ -210,7 +205,9 @@ def load_test_suite(path: str | Path) -> TestSuiteData:
 
 def latest_test_suite_file() -> Path | None:
     files = list_test_suite_files()
-    return files[-1] if files else None
+    if not files:
+        return None
+    return max(files, key=lambda p: p.stat().st_mtime)
 
 
 def list_test_suite_files() -> list[Path]:

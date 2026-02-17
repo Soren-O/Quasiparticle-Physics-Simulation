@@ -26,9 +26,20 @@ def _iter_top_polygons(gds_path: str | Path) -> Iterable[Any]:
     top_cells = lib.top_level() or list(lib.cells)
     if not top_cells:
         return []
-    cell = top_cells[0].copy("__flattened__")
-    cell.flatten()
-    return cell.polygons
+    polygons: list[Any] = []
+    for idx, top_cell in enumerate(top_cells):
+        cell = top_cell.copy(f"__flattened__{idx}")
+        cell.flatten()
+        polygons.extend(cell.polygons)
+    return polygons
+
+
+def _polygon_signed_area(points: np.ndarray) -> float:
+    if points.shape[0] < 3:
+        return 0.0
+    x = points[:, 0]
+    y = points[:, 1]
+    return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
 
 
 def discover_gds_layers(gds_path: str | Path) -> list[int]:
@@ -71,12 +82,21 @@ def rasterize_gds_layer(
     gx, gy = np.meshgrid(x_centers, y_centers)
     query_points = np.column_stack([gx.ravel(), gy.ravel()])
 
-    mask_flat = np.zeros(query_points.shape[0], dtype=bool)
-    for poly in polys:
-        path = MplPath(poly)
-        mask_flat |= path.contains_points(query_points)
+    # Use orientation-aware winding accumulation so opposite-oriented contours
+    # can carve cutouts/holes instead of always being unioned as solid fill.
+    areas = np.array([_polygon_signed_area(poly) for poly in polys], dtype=float)
+    dominant_idx = int(np.argmax(np.abs(areas)))
+    dominant_sign = np.sign(areas[dominant_idx]) or 1.0
 
-    mask = mask_flat.reshape((ny, nx))
+    winding = np.zeros(query_points.shape[0], dtype=np.int32)
+    for poly, area in zip(polys, areas):
+        path = MplPath(poly)
+        inside = path.contains_points(query_points)
+        sign = np.sign(area) or dominant_sign
+        weight = 1 if sign == dominant_sign else -1
+        winding[inside] += int(weight)
+
+    mask = (winding > 0).reshape((ny, nx))
     if not np.any(mask):
         raise ValueError("Layer rasterization produced an empty geometry mask.")
 

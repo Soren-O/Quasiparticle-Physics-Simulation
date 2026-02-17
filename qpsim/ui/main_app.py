@@ -63,7 +63,6 @@ class SimulationViewer(tk.Toplevel):
         self.configure(bg=RETRO_PANEL)
         self.geometry("1200x700")
 
-        self.result = result
         self.times = np.asarray(result.times, dtype=float)
         self.frames = [_frame_from_jsonable(frame) for frame in result.frames]
         self.mass = np.asarray(result.mass_over_time, dtype=float)
@@ -280,6 +279,19 @@ class TestSuiteViewer(tk.Toplevel):
             f"Description:\n{case.description}"
         )
         self.info_text.set_text(panel)
+
+        x_all = np.asarray(case.x, dtype=float)
+        sim_all = np.asarray(case.simulated, dtype=float)
+        ana_all = np.asarray(case.analytic, dtype=float)
+        y_min = float(min(np.min(sim_all), np.min(ana_all)))
+        y_max = float(max(np.max(sim_all), np.max(ana_all)))
+        if abs(y_max - y_min) < 1e-12:
+            pad = 1e-6
+        else:
+            pad = 0.05 * (y_max - y_min)
+        self.ax_trace.set_xlim(float(np.min(x_all)), float(np.max(x_all)))
+        self.ax_trace.set_ylim(y_min - pad, y_max + pad)
+
         self.render_frame()
 
     def render_frame(self) -> None:
@@ -295,8 +307,6 @@ class TestSuiteViewer(tk.Toplevel):
 
         self.sim_line.set_data(x, sim)
         self.ana_line.set_data(x, ana)
-        self.ax_trace.relim()
-        self.ax_trace.autoscale_view()
         self.canvas.draw_idle()
 
 class SetupEditor(tk.Toplevel):
@@ -377,7 +387,6 @@ class SetupEditor(tk.Toplevel):
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.canvas.mpl_connect("button_press_event", self.on_click)
-        self.figure = fig
 
         if setup is not None:
             self.load_setup_data(setup)
@@ -388,7 +397,7 @@ class SetupEditor(tk.Toplevel):
         self.setup_id = setup.setup_id
         self.name_var.set(setup.name)
         self.diff_var.set(str(setup.parameters.diffusion_coefficient))
-        self.mesh_var.set(str(setup.parameters.mesh_size))
+        self.mesh_var.set(f"{float(setup.geometry.mesh_size):g}")
         self.dt_var.set(str(setup.parameters.dt))
         self.total_var.set(str(setup.parameters.total_time))
         self.store_var.set(str(setup.parameters.store_every))
@@ -446,6 +455,7 @@ class SetupEditor(tk.Toplevel):
             messagebox.showerror("GDS Import Failed", str(exc), parent=self)
             return
         self.geometry_data = geometry
+        self.mesh_var.set(f"{float(geometry.mesh_size):g}")
         self.mask = np.array(geometry.mask, dtype=bool)
         self.boundary_assignments = {}
         self.hover_edge_id = None
@@ -460,6 +470,7 @@ class SetupEditor(tk.Toplevel):
             messagebox.showerror("Geometry Error", str(exc), parent=self)
             return
         self.geometry_data = geometry
+        self.mesh_var.set(f"{float(geometry.mesh_size):g}")
         self.mask = np.array(geometry.mask, dtype=bool)
         self.boundary_assignments = {}
         self.hover_edge_id = None
@@ -605,11 +616,18 @@ class SetupEditor(tk.Toplevel):
     def build_setup(self) -> SetupData:
         if self.geometry_data is None:
             raise ValueError("No geometry loaded.")
+        mesh_value = self.parse_float("mesh size", self.mesh_var.get())
+        geometry_mesh = float(self.geometry_data.mesh_size)
+        if abs(mesh_value - geometry_mesh) > 1e-12:
+            raise ValueError(
+                "Mesh Size must match the imported geometry mesh size "
+                f"({geometry_mesh:g}). Re-import geometry after changing mesh size."
+            )
         params = SimulationParameters(
             diffusion_coefficient=self.parse_float("diffusion coefficient", self.diff_var.get()),
             dt=self.parse_float("dt", self.dt_var.get()),
             total_time=self.parse_float("total time", self.total_var.get()),
-            mesh_size=self.parse_float("mesh size", self.mesh_var.get()),
+            mesh_size=geometry_mesh,
             store_every=max(1, self.parse_int("store_every", self.store_var.get())),
         )
         return SetupData(

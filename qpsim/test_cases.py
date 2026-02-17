@@ -218,9 +218,9 @@ def _build_case_definitions(length: float) -> list[_CaseDefinition]:
 def generate_test_suite(
     nx: int = 100,
     dx: float = 1.0,
-    diffusion_coefficient: float = 1.0,
-    dt: float = 0.25,
-    total_time: float = 40.0,
+    diffusion_coefficient: float = 25.0,
+    dt: float = 0.5,
+    total_time: float = 80.0,
     store_every: int = 2,
 ) -> TestSuiteData:
     if nx < 8:
