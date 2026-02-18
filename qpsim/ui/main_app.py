@@ -687,8 +687,14 @@ class SetupEditor(tk.Toplevel):
         tk.Button(left, text="Save Setup", width=30, command=self.save_setup_file).pack(anchor="w", pady=(14, 4))
         self.run_btn = tk.Button(left, text="Run Simulation", width=30, command=self.run_simulation)
         self.run_btn.pack(anchor="w", pady=4)
-        self.live_btn = tk.Button(left, text="View Live Simulation", width=30, command=self.open_live_viewer, state="disabled")
-        self.live_btn.pack(anchor="w", pady=4)
+        self.auto_live_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            left,
+            text="View Live Simulation On Run",
+            variable=self.auto_live_var,
+            bg=RETRO_PANEL,
+            anchor="w",
+        ).pack(anchor="w", pady=4)
 
         self.status_label = tk.Label(left, text="", bg=RETRO_PANEL, justify="left", wraplength=320)
         self.status_label.pack(anchor="w", pady=(12, 6))
@@ -926,8 +932,6 @@ class SetupEditor(tk.Toplevel):
             )
         )
         self.run_btn.configure(state=("normal" if setup_ready else "disabled"))
-        if self.latest_result is None:
-            self.live_btn.configure(state="disabled")
 
     def build_setup(self) -> SetupData:
         if self.geometry_data is None:
@@ -1013,11 +1017,14 @@ class SetupEditor(tk.Toplevel):
             path = None
 
         self.latest_result = result
-        self.live_btn.configure(state="normal")
+        if self.auto_live_var.get():
+            self.open_live_viewer()
+            return
+
         if path is None:
             messagebox.showinfo("Simulation Complete", "Simulation finished.", parent=self)
-        else:
-            messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
+            return
+        messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
 
     def open_live_viewer(self) -> None:
         if self.latest_result is None:
