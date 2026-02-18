@@ -1,8 +1,10 @@
 ﻿from __future__ import annotations
 
+import queue
 import subprocess
+import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -23,6 +25,7 @@ from ..models import (
     SetupData,
     SimulationParameters,
     SimulationResultData,
+    TestGeometryGroupData,
     TestSuiteData,
     utc_now_iso,
 )
@@ -33,6 +36,7 @@ from ..storage import (
     create_simulation_id,
     latest_test_suite_file,
     list_simulation_files,
+    load_test_geometry_group,
     load_setup,
     load_simulation,
     load_test_suite,
@@ -54,6 +58,34 @@ def _frame_to_jsonable(frame: np.ndarray) -> list[list[float | None]]:
 def _frame_from_jsonable(frame: list[list[float | None]]) -> np.ndarray:
     arr = np.array([[np.nan if v is None else float(v) for v in row] for row in frame], dtype=float)
     return arr
+
+
+class BusyDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, title: str, message: str):
+        super().__init__(parent)
+        self.title(title)
+        self.configure(bg=RETRO_PANEL)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        body = tk.Frame(self, bg=RETRO_PANEL)
+        body.pack(fill="both", expand=True, padx=14, pady=12)
+        tk.Label(body, text=message, bg=RETRO_PANEL, justify="left").pack(anchor="w", pady=(0, 8))
+        self.progress = ttk.Progressbar(body, mode="indeterminate", length=320)
+        self.progress.pack(fill="x", expand=True)
+        self.progress.start(12)
+        self.update_idletasks()
+
+    def close(self) -> None:
+        try:
+            self.progress.stop()
+        except Exception:
+            pass
+        if self.winfo_exists():
+            self.grab_release()
+            self.destroy()
 
 
 class SimulationViewer(tk.Toplevel):
@@ -165,20 +197,21 @@ class SimulationViewer(tk.Toplevel):
         self.canvas.draw_idle()
 
 
-class TestSuiteViewer(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, suite: TestSuiteData):
+class LineTestSuiteViewer(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, group: TestGeometryGroupData):
         super().__init__(parent)
-        self.title("Test Simulations Replay")
+        self.title(f"Test Simulations - {group.title}")
         self.configure(bg=RETRO_PANEL)
         self.geometry("1240x760")
-
-        self.suite = suite
-        if not suite.cases:
-            raise ValueError("No test cases available in test suite.")
+        self.group = group
+        self.cases = list(group.cases)
+        if not self.cases:
+            raise ValueError("No test cases available for this geometry.")
 
         self.case_index = 0
         self.frame_index = 0
         self.playing = True
+        self.frame_delay_ms = 300
         self.after_id: str | None = None
 
         controls = tk.Frame(self, bg=RETRO_PANEL)
@@ -189,7 +222,6 @@ class TestSuiteViewer(tk.Toplevel):
         tk.Button(controls, text="Next Case", width=12, command=self.next_case).pack(side="left", padx=4)
         self.play_btn = tk.Button(controls, text="Pause", width=10, command=self.toggle_play)
         self.play_btn.pack(side="left", padx=8)
-
         self.scale = tk.Scale(
             controls,
             from_=0,
@@ -231,14 +263,14 @@ class TestSuiteViewer(tk.Toplevel):
         self.destroy()
 
     def current_case(self):
-        return self.suite.cases[self.case_index]
+        return self.cases[self.case_index]
 
     def prev_case(self) -> None:
-        self.case_index = (self.case_index - 1) % len(self.suite.cases)
+        self.case_index = (self.case_index - 1) % len(self.cases)
         self.render_case(reset_frame=True)
 
     def next_case(self) -> None:
-        self.case_index = (self.case_index + 1) % len(self.suite.cases)
+        self.case_index = (self.case_index + 1) % len(self.cases)
         self.render_case(reset_frame=True)
 
     def toggle_play(self) -> None:
@@ -254,7 +286,7 @@ class TestSuiteViewer(tk.Toplevel):
     def schedule_tick(self) -> None:
         if not self.playing:
             return
-        self.after_id = self.after(120, self.tick)
+        self.after_id = self.after(self.frame_delay_ms, self.tick)
 
     def tick(self) -> None:
         if self.playing:
@@ -265,14 +297,13 @@ class TestSuiteViewer(tk.Toplevel):
 
     def render_case(self, reset_frame: bool = False) -> None:
         case = self.current_case()
-        self.case_label.configure(
-            text=f"Case {self.case_index + 1}/{len(self.suite.cases)}: {case.title}"
-        )
+        self.case_label.configure(text=f"{self.group.title} | Case {self.case_index + 1}/{len(self.cases)}: {case.title}")
         self.scale.configure(to=max(0, len(case.times) - 1))
         if reset_frame:
             self.frame_index = 0
 
         panel = (
+            f"Geometry:\n{self.group.title}\n\n"
             f"Boundary Condition:\n{case.boundary_label}\n\n"
             f"Analytic Formula:\n${case.formula_latex}$\n\n"
             f"Initial Condition:\n${case.initial_condition_latex}$\n\n"
@@ -285,13 +316,9 @@ class TestSuiteViewer(tk.Toplevel):
         ana_all = np.asarray(case.analytic, dtype=float)
         y_min = float(min(np.min(sim_all), np.min(ana_all)))
         y_max = float(max(np.max(sim_all), np.max(ana_all)))
-        if abs(y_max - y_min) < 1e-12:
-            pad = 1e-6
-        else:
-            pad = 0.05 * (y_max - y_min)
+        pad = 1e-6 if abs(y_max - y_min) < 1e-12 else 0.05 * (y_max - y_min)
         self.ax_trace.set_xlim(float(np.min(x_all)), float(np.max(x_all)))
         self.ax_trace.set_ylim(y_min - pad, y_max + pad)
-
         self.render_frame()
 
     def render_frame(self) -> None:
@@ -304,10 +331,299 @@ class TestSuiteViewer(tk.Toplevel):
         x = np.asarray(case.x, dtype=float)
         sim = np.asarray(case.simulated[self.frame_index], dtype=float)
         ana = np.asarray(case.analytic[self.frame_index], dtype=float)
-
         self.sim_line.set_data(x, sim)
         self.ana_line.set_data(x, ana)
         self.canvas.draw_idle()
+
+
+class HeatmapTestSuiteViewer(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, group: TestGeometryGroupData):
+        super().__init__(parent)
+        self.title(f"Test Simulations - {group.title}")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1360x780")
+        self.group = group
+        self.cases = list(group.cases)
+        if not self.cases:
+            raise ValueError("No test cases available for this geometry.")
+
+        self.case_index = 0
+        self.frame_index = 0
+        self.playing = True
+        self.frame_delay_ms = 300
+        self.after_id: str | None = None
+        self.sim_im = None
+        self.ana_im = None
+        self.colorbar = None
+
+        controls = tk.Frame(self, bg=RETRO_PANEL)
+        controls.pack(fill="x", padx=8, pady=6)
+        self.case_label = tk.Label(controls, text="", bg=RETRO_PANEL, fg=RETRO_ACCENT, font=("Tahoma", 10, "bold"))
+        self.case_label.pack(side="left", padx=8)
+        tk.Button(controls, text="Prev Case", width=12, command=self.prev_case).pack(side="left", padx=4)
+        tk.Button(controls, text="Next Case", width=12, command=self.next_case).pack(side="left", padx=4)
+        self.play_btn = tk.Button(controls, text="Pause", width=10, command=self.toggle_play)
+        self.play_btn.pack(side="left", padx=8)
+        self.scale = tk.Scale(
+            controls,
+            from_=0,
+            to=0,
+            orient="horizontal",
+            showvalue=False,
+            command=self.on_scale,
+            length=360,
+            bg=RETRO_PANEL,
+        )
+        self.scale.pack(side="left", padx=8)
+        self.time_label = tk.Label(controls, text="", bg=RETRO_PANEL)
+        self.time_label.pack(side="left", padx=8)
+
+        self.fig = Figure(figsize=(12.2, 7.0), dpi=100)
+        self.ax_sim = self.fig.add_subplot(1, 3, 1)
+        self.ax_ana = self.fig.add_subplot(1, 3, 2)
+        self.ax_info = self.fig.add_subplot(1, 3, 3)
+        self.ax_info.axis("off")
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.info_text = self.ax_info.text(0.02, 0.98, "", va="top", ha="left", wrap=True)
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.render_case(reset_frame=True)
+        self.schedule_tick()
+
+    def on_close(self) -> None:
+        self.playing = False
+        if self.after_id is not None:
+            self.after_cancel(self.after_id)
+        self.destroy()
+
+    def current_case(self):
+        return self.cases[self.case_index]
+
+    def prev_case(self) -> None:
+        self.case_index = (self.case_index - 1) % len(self.cases)
+        self.render_case(reset_frame=True)
+
+    def next_case(self) -> None:
+        self.case_index = (self.case_index + 1) % len(self.cases)
+        self.render_case(reset_frame=True)
+
+    def toggle_play(self) -> None:
+        self.playing = not self.playing
+        self.play_btn.configure(text=("Pause" if self.playing else "Play"))
+        if self.playing:
+            self.schedule_tick()
+
+    def on_scale(self, raw_value: str) -> None:
+        self.frame_index = int(float(raw_value))
+        self.render_frame()
+
+    def schedule_tick(self) -> None:
+        if not self.playing:
+            return
+        self.after_id = self.after(self.frame_delay_ms, self.tick)
+
+    def tick(self) -> None:
+        if self.playing:
+            case = self.current_case()
+            self.frame_index = (self.frame_index + 1) % len(case.times)
+            self.render_frame()
+            self.schedule_tick()
+
+    def _as_frames(self, payload) -> np.ndarray:
+        frames = np.array(payload, dtype=float)
+        if frames.ndim != 3:
+            raise ValueError("Heatmap test case data must have shape [time, y, x].")
+        return frames
+
+    def render_case(self, reset_frame: bool = False) -> None:
+        case = self.current_case()
+        self.case_label.configure(text=f"{self.group.title} | Case {self.case_index + 1}/{len(self.cases)}: {case.title}")
+        self.scale.configure(to=max(0, len(case.times) - 1))
+        if reset_frame:
+            self.frame_index = 0
+
+        panel = (
+            f"Geometry:\n{self.group.title}\n\n"
+            f"Boundary Condition:\n{case.boundary_label}\n\n"
+            f"Analytic Formula:\n${case.formula_latex}$\n\n"
+            f"Initial Condition:\n${case.initial_condition_latex}$\n\n"
+            f"Description:\n{case.description}"
+        )
+        self.info_text.set_text(panel)
+
+        sim_all = self._as_frames(case.simulated)
+        ana_all = self._as_frames(case.analytic)
+        vmin = float(np.nanmin(np.concatenate([sim_all.ravel(), ana_all.ravel()])))
+        vmax = float(np.nanmax(np.concatenate([sim_all.ravel(), ana_all.ravel()])))
+        if abs(vmax - vmin) < 1e-12:
+            vmax = vmin + 1e-9
+
+        self.ax_sim.clear()
+        self.ax_ana.clear()
+        self.ax_sim.set_title("Simulated")
+        self.ax_ana.set_title("Analytic")
+        self.ax_sim.set_axis_off()
+        self.ax_ana.set_axis_off()
+        self.sim_im = self.ax_sim.imshow(
+            sim_all[0],
+            origin="lower",
+            cmap="hot",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+        )
+        self.ana_im = self.ax_ana.imshow(
+            ana_all[0],
+            origin="lower",
+            cmap="hot",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+        )
+        if self.colorbar is None:
+            self.colorbar = self.fig.colorbar(
+                self.sim_im,
+                ax=[self.ax_sim, self.ax_ana],
+                fraction=0.046,
+                pad=0.03,
+            )
+            self.colorbar.set_label("Density")
+        else:
+            self.colorbar.update_normal(self.sim_im)
+            self.colorbar.ax.set_visible(True)
+            self.colorbar.set_label("Density")
+        self.render_frame()
+
+    def render_frame(self) -> None:
+        case = self.current_case()
+        sim_all = self._as_frames(case.simulated)
+        ana_all = self._as_frames(case.analytic)
+        self.frame_index = int(np.clip(self.frame_index, 0, len(case.times) - 1))
+        self.scale.set(self.frame_index)
+        time_value = float(case.times[self.frame_index])
+        self.time_label.configure(text=f"t = {time_value:.3f}")
+
+        if self.sim_im is not None:
+            self.sim_im.set_data(sim_all[self.frame_index])
+        if self.ana_im is not None:
+            self.ana_im.set_data(ana_all[self.frame_index])
+        self.canvas.draw_idle()
+
+
+class TestGeometryLanding(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, suite: TestSuiteData, suite_path: str | None = None):
+        super().__init__(parent)
+        self.title("Test Simulation Geometries")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("980x740")
+        self.suite = suite
+        self.suite_path = suite_path
+        self.preview_canvases: list[FigureCanvasTkAgg] = []
+
+        groups = list(suite.geometry_groups)
+        if not groups and suite.cases:
+            groups = [
+                TestGeometryGroupData(
+                    geometry_id="legacy_default",
+                    title="Legacy Geometry",
+                    description="Legacy suite format",
+                    view_mode="line1d",
+                    preview_mask=[[1 for _ in range(max(1, len(suite.cases[0].x)))]] if suite.cases[0].x else [[1] * 32],
+                    cases=list(suite.cases),
+                )
+            ]
+
+        if not groups:
+            raise ValueError("No test geometries found in this suite.")
+
+        tk.Label(
+            self,
+            text="Select Test Geometry",
+            font=("Tahoma", 14, "bold"),
+            fg=RETRO_ACCENT,
+            bg=RETRO_PANEL,
+        ).pack(anchor="w", padx=12, pady=(10, 6))
+        tk.Label(
+            self,
+            text="Each geometry has its own case set and replay mode.",
+            bg=RETRO_PANEL,
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+
+        container = tk.Frame(self, bg=RETRO_PANEL)
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        for group in groups:
+            card = tk.Frame(container, bg="#E7E4DA", bd=2, relief="groove")
+            card.pack(fill="x", pady=8)
+
+            preview = np.array(group.preview_mask, dtype=float)
+            if preview.ndim == 2 and preview.shape[0] <= 2:
+                preview = np.repeat(preview, repeats=8, axis=0)
+            if preview.ndim == 2 and np.nanmax(preview) - np.nanmin(preview) < 1e-12:
+                preview = np.pad(preview, pad_width=2, mode="constant", constant_values=0.0)
+            fig = Figure(figsize=(2.0, 1.5), dpi=100)
+            ax = fig.add_subplot(1, 1, 1)
+            ax.imshow(preview, origin="lower", cmap="Greys", interpolation="nearest", vmin=0.0, vmax=1.0)
+            ax.set_axis_off()
+            canvas = FigureCanvasTkAgg(fig, master=card)
+            canvas.get_tk_widget().pack(side="left", padx=8, pady=8)
+            canvas.draw_idle()
+            self.preview_canvases.append(canvas)
+
+            text_col = tk.Frame(card, bg="#E7E4DA")
+            text_col.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+            tk.Label(text_col, text=group.title, bg="#E7E4DA", fg=RETRO_ACCENT, font=("Tahoma", 11, "bold")).pack(anchor="w")
+            tk.Label(text_col, text=group.description, bg="#E7E4DA", justify="left", wraplength=520).pack(anchor="w", pady=(4, 2))
+            case_total = int(group.case_count or len(group.cases))
+            tk.Label(text_col, text=f"Cases: {case_total} | Mode: {group.view_mode}", bg="#E7E4DA").pack(anchor="w")
+
+            tk.Button(
+                card,
+                text="Open",
+                width=12,
+                command=lambda g=group: self.open_group(g),
+            ).pack(side="right", padx=12)
+
+    def open_group(self, group: TestGeometryGroupData) -> None:
+        if not group.cases and self.suite_path:
+            dialog = BusyDialog(self, title="Loading Geometry Cases", message=f"Loading cases for: {group.title}")
+            result_queue: queue.Queue = queue.Queue()
+
+            def worker() -> None:
+                try:
+                    loaded_group = load_test_geometry_group(self.suite_path, group.geometry_id)
+                except Exception as exc:
+                    result_queue.put(("error", exc))
+                else:
+                    result_queue.put(("ok", loaded_group))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+            def poll() -> None:
+                try:
+                    kind, payload = result_queue.get_nowait()
+                except queue.Empty:
+                    if dialog.winfo_exists():
+                        self.after(80, poll)
+                    return
+
+                dialog.close()
+                if kind == "error":
+                    messagebox.showerror("Load Failed", str(payload), parent=self)
+                    return
+                self._open_group_view(payload)
+
+            self.after(80, poll)
+            return
+        self._open_group_view(group)
+
+    def _open_group_view(self, group: TestGeometryGroupData) -> None:
+        mode = (group.view_mode or "").strip().lower()
+        if mode == "heatmap2d":
+            HeatmapTestSuiteViewer(self, group=group)
+        else:
+            LineTestSuiteViewer(self, group=group)
 
 class SetupEditor(tk.Toplevel):
     def __init__(self, parent: tk.Misc, setup: SetupData | None = None):
@@ -828,33 +1144,74 @@ class QuasiparticleMainApp(tk.Tk):
             return
         SimulationViewer(self, result)
 
+    def _run_background_task(
+        self,
+        title: str,
+        message: str,
+        task_fn,
+        on_success,
+    ) -> None:
+        dialog = BusyDialog(self, title=title, message=message)
+        result_queue: queue.Queue = queue.Queue()
+
+        def worker() -> None:
+            try:
+                value = task_fn()
+            except Exception as exc:
+                result_queue.put(("error", exc))
+            else:
+                result_queue.put(("ok", value))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def poll() -> None:
+            try:
+                kind, payload = result_queue.get_nowait()
+            except queue.Empty:
+                if dialog.winfo_exists():
+                    self.after(100, poll)
+                return
+
+            dialog.close()
+            if kind == "error":
+                messagebox.showerror(f"{title} Failed", str(payload), parent=self)
+                return
+            on_success(payload)
+
+        self.after(100, poll)
+
     def generate_tests(self) -> None:
-        self.configure(cursor="watch")
-        self.update_idletasks()
-        try:
-            suite, path = generate_and_save_test_suite()
-        except Exception as exc:
-            messagebox.showerror("Test Generation Failed", str(exc), parent=self)
-        else:
+        def on_success(result) -> None:
+            suite, path = result
+            total_cases = sum(len(group.cases) for group in suite.geometry_groups) if suite.geometry_groups else len(suite.cases)
             messagebox.showinfo(
                 "Test Suite Generated",
-                f"Generated {len(suite.cases)} cases.\nSaved to:\n{path}",
+                f"Generated {total_cases} cases across {len(suite.geometry_groups) or 1} geometry set(s).\nSaved to:\n{path}",
                 parent=self,
             )
-        finally:
-            self.configure(cursor="")
+
+        self._run_background_task(
+            title="Generating Test Simulations",
+            message="Running numerical simulations and writing test-suite files...",
+            task_fn=generate_and_save_test_suite,
+            on_success=on_success,
+        )
 
     def view_tests(self) -> None:
         path = latest_test_suite_file()
         if path is None:
             messagebox.showinfo("No Test Suite", "Generate test simulations first.", parent=self)
             return
-        try:
-            suite = load_test_suite(path)
-        except Exception as exc:
-            messagebox.showerror("Load Failed", str(exc), parent=self)
-            return
-        TestSuiteViewer(self, suite)
+
+        def on_success(suite: TestSuiteData) -> None:
+            TestGeometryLanding(self, suite, suite_path=str(path))
+
+        self._run_background_task(
+            title="Loading Test Simulations",
+            message=f"Loading test suite:\n{path.name}",
+            task_fn=lambda: load_test_suite(path, load_group_cases=False),
+            on_success=on_success,
+        )
 
 
 def run_app() -> None:

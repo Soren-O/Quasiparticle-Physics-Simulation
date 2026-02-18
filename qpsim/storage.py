@@ -15,6 +15,7 @@ from .models import (
     InitialConditionSpec,
     SetupData,
     SimulationParameters,
+    TestGeometryGroupData,
     SimulationResultData,
     TestCaseResultData,
     TestSuiteData,
@@ -30,6 +31,7 @@ def slugify_name(name: str, fallback: str = "item") -> str:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     ensure_data_dirs()
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
@@ -168,27 +170,114 @@ def serialize_test_suite(suite: TestSuiteData) -> dict[str, Any]:
     return asdict(suite)
 
 
-def deserialize_test_suite(payload: dict[str, Any]) -> TestSuiteData:
-    cases = [
-        TestCaseResultData(
-            case_id=case["case_id"],
-            title=case["title"],
-            boundary_label=case["boundary_label"],
-            formula_latex=case["formula_latex"],
-            initial_condition_latex=case["initial_condition_latex"],
-            description=case["description"],
-            x=[float(v) for v in case["x"]],
-            times=[float(v) for v in case["times"]],
-            simulated=[[float(v) for v in row] for row in case["simulated"]],
-            analytic=[[float(v) for v in row] for row in case["analytic"]],
-            metadata=case.get("metadata", {}),
-        )
-        for case in payload.get("cases", [])
-    ]
+def _deserialize_test_case(case: dict[str, Any]) -> TestCaseResultData:
+    return TestCaseResultData(
+        case_id=case["case_id"],
+        title=case["title"],
+        boundary_label=case["boundary_label"],
+        formula_latex=case["formula_latex"],
+        initial_condition_latex=case["initial_condition_latex"],
+        description=case["description"],
+        x=[float(v) for v in case.get("x", [])],
+        times=[float(v) for v in case["times"]],
+        # Keep raw nested arrays for speed; viewers convert to numpy at render time.
+        simulated=case["simulated"],
+        analytic=case["analytic"],
+        metadata=case.get("metadata", {}),
+    )
+
+
+def _deserialize_group_inline(group: dict[str, Any]) -> TestGeometryGroupData:
+    group_cases = [_deserialize_test_case(case) for case in group.get("cases", [])]
+    preview = [[int(v) for v in row] for row in group.get("preview_mask", [])]
+    return TestGeometryGroupData(
+        geometry_id=group["geometry_id"],
+        title=group["title"],
+        description=group.get("description", ""),
+        view_mode=group.get("view_mode", "line1d"),
+        preview_mask=preview,
+        cases=group_cases,
+        case_count=int(group.get("case_count", len(group_cases))),
+        group_file=group.get("group_file"),
+    )
+
+
+def load_test_geometry_group(manifest_path: str | Path, geometry_id: str) -> TestGeometryGroupData:
+    manifest_path = Path(manifest_path)
+    payload = _read_json(manifest_path)
+    groups = payload.get("geometry_groups", [])
+    raw_group = next((g for g in groups if g.get("geometry_id") == geometry_id), None)
+    if raw_group is None:
+        raise ValueError(f"Geometry group '{geometry_id}' not found in suite manifest.")
+
+    inline_cases = raw_group.get("cases", [])
+    if inline_cases:
+        return _deserialize_group_inline(raw_group)
+
+    group_file = raw_group.get("group_file")
+    if not group_file:
+        raise ValueError(f"Geometry group '{geometry_id}' has no group file reference.")
+
+    suite_dir = manifest_path.with_suffix("")
+    group_path = suite_dir / group_file
+    group_payload = _read_json(group_path)
+    raw = group_payload.get("group", group_payload)
+    group = _deserialize_group_inline(raw)
+    if group.case_count <= 0:
+        group.case_count = int(raw_group.get("case_count", len(group.cases)))
+    if not group.preview_mask:
+        group.preview_mask = [[int(v) for v in row] for row in raw_group.get("preview_mask", [])]
+    group.group_file = group_file
+    if group.case_count <= 0:
+        group.case_count = len(group.cases)
+    return group
+
+
+def deserialize_test_suite(
+    payload: dict[str, Any],
+    manifest_path: Path | None = None,
+    load_group_cases: bool = True,
+) -> TestSuiteData:
+    geometry_groups_raw = payload.get("geometry_groups", [])
+    if geometry_groups_raw:
+        geometry_groups: list[TestGeometryGroupData] = []
+        for group in geometry_groups_raw:
+            parsed_group = _deserialize_group_inline(group)
+            if (
+                load_group_cases
+                and not parsed_group.cases
+                and manifest_path is not None
+                and parsed_group.group_file
+            ):
+                try:
+                    parsed_group = load_test_geometry_group(manifest_path, parsed_group.geometry_id)
+                except Exception:
+                    # Keep lightweight metadata-only group if sidecar load fails.
+                    pass
+            geometry_groups.append(parsed_group)
+        cases: list[TestCaseResultData] = []
+        for group in geometry_groups:
+            cases.extend(group.cases)
+    else:
+        cases = [_deserialize_test_case(case) for case in payload.get("cases", [])]
+        # Backward compatibility for older suites that only stored a flat case list.
+        geometry_groups = [
+            TestGeometryGroupData(
+                geometry_id="legacy_default",
+                title="Legacy Test Geometry",
+                description="Imported from legacy suite format",
+                view_mode="line1d",
+                preview_mask=[[1 for _ in range(max(1, len(cases[0].x) if cases and cases[0].x else 32))]],
+                cases=cases,
+            )
+        ] if cases else []
+
     return TestSuiteData(
         suite_id=payload["suite_id"],
         created_at=payload.get("created_at", utc_now_iso()),
         cases=cases,
+        geometry_groups=geometry_groups,
+        metadata=payload.get("metadata", {}),
     )
 
 
@@ -196,11 +285,57 @@ def save_test_suite(suite: TestSuiteData, path: Path | None = None) -> Path:
     if path is None:
         filename = f"test_suite_{suite.suite_id}.json"
         path = TEST_CASES_DIR / filename
-    return _write_json(path, serialize_test_suite(suite))
+    suite_dir = path.with_suffix("")
+
+    groups_summary: list[dict[str, Any]] = []
+    for group in suite.geometry_groups:
+        group_file = f"{slugify_name(group.geometry_id, 'group')}.json"
+        group_path = suite_dir / group_file
+        full_group = TestGeometryGroupData(
+            geometry_id=group.geometry_id,
+            title=group.title,
+            description=group.description,
+            view_mode=group.view_mode,
+            preview_mask=group.preview_mask,
+            cases=list(group.cases),
+            case_count=len(group.cases),
+            group_file=group_file,
+        )
+        _write_json(
+            group_path,
+            {
+                "suite_id": suite.suite_id,
+                "group": asdict(full_group),
+            },
+        )
+        groups_summary.append(
+            {
+                "geometry_id": group.geometry_id,
+                "title": group.title,
+                "description": group.description,
+                "view_mode": group.view_mode,
+                "preview_mask": group.preview_mask,
+                "cases": [],
+                "case_count": len(group.cases),
+                "group_file": group_file,
+            }
+        )
+
+    metadata = dict(suite.metadata or {})
+    metadata["format_version"] = max(3, int(metadata.get("format_version", 0)))
+    manifest = {
+        "suite_id": suite.suite_id,
+        "created_at": suite.created_at,
+        "cases": [],
+        "geometry_groups": groups_summary,
+        "metadata": metadata,
+    }
+    return _write_json(path, manifest)
 
 
-def load_test_suite(path: str | Path) -> TestSuiteData:
-    return deserialize_test_suite(_read_json(Path(path)))
+def load_test_suite(path: str | Path, load_group_cases: bool = True) -> TestSuiteData:
+    path = Path(path)
+    return deserialize_test_suite(_read_json(path), manifest_path=path, load_group_cases=load_group_cases)
 
 
 def latest_test_suite_file() -> Path | None:

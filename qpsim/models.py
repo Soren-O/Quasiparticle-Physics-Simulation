@@ -117,14 +117,27 @@ class TestCaseResultData:
     description: str
     x: list[float]
     times: list[float]
-    simulated: list[list[float]]
-    analytic: list[list[float]]
+    simulated: list[Any]
+    analytic: list[Any]
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TestGeometryGroupData:
+    geometry_id: str
+    title: str
+    description: str
+    view_mode: str
+    preview_mask: list[list[int]]
+    cases: list[TestCaseResultData] = field(default_factory=list)
+    case_count: int = 0
+    group_file: str | None = None
 
 
 @dataclass
 class TestSuiteData:
     suite_id: str
     created_at: str
-    cases: list[TestCaseResultData]
-
+    cases: list[TestCaseResultData] = field(default_factory=list)
+    geometry_groups: list[TestGeometryGroupData] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)

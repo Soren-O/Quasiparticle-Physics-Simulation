@@ -23,6 +23,7 @@ Desktop.ini
 data/setups/*.json
 data/simulations/*.json
 data/test_cases/*.json
+data/test_cases/test_suite_*/
 
 # Logs
 *.log
