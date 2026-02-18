@@ -18,7 +18,7 @@ from .models import (
     utc_now_iso,
 )
 from .solver import run_2d_crank_nicolson
-from .storage import save_test_suite
+from .storage import TEST_SUITE_FORMAT_VERSION, frame_to_jsonable, save_test_suite
 
 
 @dataclass
@@ -223,13 +223,6 @@ def _build_strip_case_definitions(length: float) -> list[_StripCaseDefinition]:
     ]
 
 
-def _frame_to_jsonable(frame: np.ndarray) -> list[list[float | None]]:
-    payload: list[list[float | None]] = []
-    for row in frame:
-        payload.append([None if np.isnan(v) else float(v) for v in row])
-    return payload
-
-
 def _uniform_edge_conditions(edges, bc: BoundaryCondition) -> dict[str, BoundaryCondition]:
     return {edge.edge_id: bc for edge in edges}
 
@@ -367,8 +360,8 @@ def _generate_rectangle_geometry_group(
                 description=f"2D rectangular eigenmode benchmark case {mode_index}.",
                 x=[],
                 times=t_arr.tolist(),
-                simulated=[_frame_to_jsonable(frame) for frame in frames],
-                analytic=[_frame_to_jsonable(frame) for frame in analytic_frames],
+                simulated=[frame_to_jsonable(frame) for frame in frames],
+                analytic=[frame_to_jsonable(frame) for frame in analytic_frames],
                 metadata={
                     "geometry_id": "rectangle_2d",
                     "view_mode": "heatmap2d",
@@ -519,8 +512,8 @@ def _generate_polygon_donut_geometry_group(
                 description=f"Polygon annulus benchmark using radial Bessel mode k={mode_index}.",
                 x=[],
                 times=t_arr.tolist(),
-                simulated=[_frame_to_jsonable(frame) for frame in frames_with_nan],
-                analytic=[_frame_to_jsonable(frame) for frame in analytic_frames],
+                simulated=[frame_to_jsonable(frame) for frame in frames_with_nan],
+                analytic=[frame_to_jsonable(frame) for frame in analytic_frames],
                 metadata={
                     "geometry_id": "polygon_donut",
                     "view_mode": "heatmap2d",
@@ -590,7 +583,7 @@ def generate_test_suite(
         created_at=utc_now_iso(),
         cases=[],
         geometry_groups=geometry_groups,
-        metadata={"format_version": 2},
+        metadata={"format_version": TEST_SUITE_FORMAT_VERSION},
     )
 
 

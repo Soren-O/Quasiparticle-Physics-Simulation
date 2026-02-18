@@ -36,6 +36,33 @@ def _compile_custom_expression(body: str):
     return fn
 
 
+def _evaluate_custom_expression_vectorized(
+    fn,
+    x_norm: np.ndarray,
+    y_norm: np.ndarray,
+    mask: np.ndarray,
+    custom_params: dict,
+) -> np.ndarray | None:
+    masked_x = x_norm[mask]
+    masked_y = y_norm[mask]
+    if masked_x.size == 0:
+        return np.empty((0,), dtype=float)
+
+    try:
+        vector_value = fn(masked_x, masked_y, custom_params)
+        arr = np.asarray(vector_value, dtype=float)
+    except Exception:
+        return None
+
+    if arr.ndim == 0:
+        return np.full(masked_x.shape[0], float(arr), dtype=float)
+    if arr.size == masked_x.size:
+        return arr.reshape(masked_x.size)
+    if arr.shape == mask.shape:
+        return np.asarray(arr[mask], dtype=float)
+    return None
+
+
 def build_initial_field(mask: np.ndarray, spec: InitialConditionSpec) -> np.ndarray:
     if mask.ndim != 2:
         raise ValueError("Geometry mask must be 2D.")
@@ -76,12 +103,22 @@ def build_initial_field(mask: np.ndarray, spec: InitialConditionSpec) -> np.ndar
     elif kind == "custom":
         fn = _compile_custom_expression(spec.custom_body)
         custom_params = dict(spec.custom_params or {})
-        for row, col in np.argwhere(mask):
-            value = fn(float(x_norm[row, col]), float(y_norm[row, col]), custom_params)
-            field[row, col] = float(value)
+        vector_values = _evaluate_custom_expression_vectorized(
+            fn=fn,
+            x_norm=x_norm,
+            y_norm=y_norm,
+            mask=mask,
+            custom_params=custom_params,
+        )
+        if vector_values is not None:
+            field[mask] = vector_values
+        else:
+            # Fallback keeps compatibility with scalar-only custom expressions.
+            for row, col in np.argwhere(mask):
+                value = fn(float(x_norm[row, col]), float(y_norm[row, col]), custom_params)
+                field[row, col] = float(value)
     else:
         raise ValueError(f"Unsupported initial condition kind: {spec.kind}")
 
     field[~mask] = 0.0
     return field
-

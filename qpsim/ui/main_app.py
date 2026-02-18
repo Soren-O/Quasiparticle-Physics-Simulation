@@ -34,6 +34,8 @@ from ..solver import BoundaryAssignmentError, run_2d_crank_nicolson
 from ..storage import (
     create_setup_id,
     create_simulation_id,
+    frame_from_jsonable,
+    frame_to_jsonable,
     latest_test_suite_file,
     list_simulation_files,
     load_test_geometry_group,
@@ -46,18 +48,6 @@ from ..storage import (
 from ..test_cases import generate_and_save_test_suite
 from .dialogs import ask_boundary_condition, ask_initial_condition
 from .theme import FONT_MONO, FONT_TITLE, RETRO_ACCENT, RETRO_BG, RETRO_PANEL, apply_retro_theme
-
-
-def _frame_to_jsonable(frame: np.ndarray) -> list[list[float | None]]:
-    payload: list[list[float | None]] = []
-    for row in frame:
-        payload.append([None if np.isnan(v) else float(v) for v in row])
-    return payload
-
-
-def _frame_from_jsonable(frame: list[list[float | None]]) -> np.ndarray:
-    arr = np.array([[np.nan if v is None else float(v) for v in row] for row in frame], dtype=float)
-    return arr
 
 
 class BusyDialog(tk.Toplevel):
@@ -96,7 +86,7 @@ class SimulationViewer(tk.Toplevel):
         self.geometry("1200x700")
 
         self.times = np.asarray(result.times, dtype=float)
-        self.frames = [_frame_from_jsonable(frame) for frame in result.frames]
+        self.frames = [frame_from_jsonable(frame) for frame in result.frames]
         self.mass = np.asarray(result.mass_over_time, dtype=float)
         self.index = 0
         self.playing = True
@@ -355,6 +345,8 @@ class HeatmapTestSuiteViewer(tk.Toplevel):
         self.sim_im = None
         self.ana_im = None
         self.colorbar = None
+        self._sim_frames_cache: np.ndarray | None = None
+        self._ana_frames_cache: np.ndarray | None = None
 
         controls = tk.Frame(self, bg=RETRO_PANEL)
         controls.pack(fill="x", padx=8, pady=6)
@@ -452,8 +444,10 @@ class HeatmapTestSuiteViewer(tk.Toplevel):
         )
         self.info_text.set_text(panel)
 
-        sim_all = self._as_frames(case.simulated)
-        ana_all = self._as_frames(case.analytic)
+        self._sim_frames_cache = self._as_frames(case.simulated)
+        self._ana_frames_cache = self._as_frames(case.analytic)
+        sim_all = self._sim_frames_cache
+        ana_all = self._ana_frames_cache
         vmin = float(np.nanmin(np.concatenate([sim_all.ravel(), ana_all.ravel()])))
         vmax = float(np.nanmax(np.concatenate([sim_all.ravel(), ana_all.ravel()])))
         if abs(vmax - vmin) < 1e-12:
@@ -497,8 +491,13 @@ class HeatmapTestSuiteViewer(tk.Toplevel):
 
     def render_frame(self) -> None:
         case = self.current_case()
-        sim_all = self._as_frames(case.simulated)
-        ana_all = self._as_frames(case.analytic)
+        sim_all = self._sim_frames_cache
+        ana_all = self._ana_frames_cache
+        if sim_all is None or ana_all is None:
+            sim_all = self._as_frames(case.simulated)
+            ana_all = self._as_frames(case.analytic)
+            self._sim_frames_cache = sim_all
+            self._ana_frames_cache = ana_all
         self.frame_index = int(np.clip(self.frame_index, 0, len(case.times) - 1))
         self.scale.set(self.frame_index)
         time_value = float(case.times[self.frame_index])
@@ -643,6 +642,7 @@ class SetupEditor(tk.Toplevel):
         )
         self.latest_result: SimulationResultData | None = None
         self.hover_edge_id: str | None = None
+        self.simulation_running = False
 
         root = tk.Frame(self, bg=RETRO_PANEL)
         root.pack(fill="both", expand=True, padx=8, pady=8)
@@ -931,7 +931,8 @@ class SetupEditor(tk.Toplevel):
                 f"Click any highlighted edge to assign boundary conditions."
             )
         )
-        self.run_btn.configure(state=("normal" if setup_ready else "disabled"))
+        run_state = "disabled" if self.simulation_running else ("normal" if setup_ready else "disabled")
+        self.run_btn.configure(state=run_state)
 
     def build_setup(self) -> SetupData:
         if self.geometry_data is None:
@@ -969,19 +970,67 @@ class SetupEditor(tk.Toplevel):
             return
         messagebox.showinfo("Setup Saved", f"Saved setup:\n{path}", parent=self)
 
+    def _run_background_task(
+        self,
+        title: str,
+        message: str,
+        task_fn,
+        on_success,
+    ) -> None:
+        self.simulation_running = True
+        self.update_status()
+        dialog = BusyDialog(self, title=title, message=message)
+        result_queue: queue.Queue = queue.Queue()
+
+        def worker() -> None:
+            try:
+                value = task_fn()
+            except Exception as exc:
+                result_queue.put(("error", exc))
+            else:
+                result_queue.put(("ok", value))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def poll() -> None:
+            try:
+                kind, payload = result_queue.get_nowait()
+            except queue.Empty:
+                if dialog.winfo_exists():
+                    self.after(100, poll)
+                return
+
+            dialog.close()
+            self.simulation_running = False
+            self.update_status()
+            if kind == "error":
+                messagebox.showerror(f"{title} Failed", str(payload), parent=self)
+                return
+            on_success(payload)
+
+        self.after(100, poll)
+
     def run_simulation(self) -> None:
         if self.geometry_data is None or self.mask is None:
             messagebox.showerror("Cannot Run", "Import geometry first.", parent=self)
+            return
+        if self.simulation_running:
             return
         try:
             setup = self.build_setup()
             if len(setup.boundary_conditions) != len(setup.geometry.edges):
                 raise BoundaryAssignmentError("All edges must be assigned before running the simulation.")
+        except Exception as exc:
+            messagebox.showerror("Simulation Failed", str(exc), parent=self)
+            return
 
-            initial = build_initial_field(self.mask, self.initial_condition)
+        mask_snapshot = self.mask.copy()
+
+        def task_fn():
+            initial = build_initial_field(mask_snapshot, setup.initial_condition)
             times, frames, mass, color_limits = run_2d_crank_nicolson(
-                mask=self.mask,
-                edges=self.geometry_data.edges,
+                mask=mask_snapshot,
+                edges=setup.geometry.edges,
                 edge_conditions=setup.boundary_conditions,
                 initial_field=initial,
                 diffusion_coefficient=setup.parameters.diffusion_coefficient,
@@ -990,41 +1039,49 @@ class SetupEditor(tk.Toplevel):
                 dx=setup.parameters.mesh_size,
                 store_every=setup.parameters.store_every,
             )
-        except Exception as exc:
-            messagebox.showerror("Simulation Failed", str(exc), parent=self)
-            return
+            result = SimulationResultData(
+                simulation_id=create_simulation_id(),
+                setup_id=setup.setup_id,
+                setup_name=setup.name,
+                created_at=utc_now_iso(),
+                times=[float(t) for t in times],
+                frames=[frame_to_jsonable(frame) for frame in frames],
+                mass_over_time=[float(v) for v in mass],
+                color_limits=[float(color_limits[0]), float(color_limits[1])],
+                metadata={
+                    "diffusion_coefficient": setup.parameters.diffusion_coefficient,
+                    "mesh_size": setup.parameters.mesh_size,
+                    "dt": setup.parameters.dt,
+                    "total_time": setup.parameters.total_time,
+                },
+            )
+            save_error: str | None = None
+            path: str | None = None
+            try:
+                path = str(save_simulation(result))
+            except Exception as exc:
+                save_error = str(exc)
+            return result, path, save_error
 
-        result = SimulationResultData(
-            simulation_id=create_simulation_id(),
-            setup_id=setup.setup_id,
-            setup_name=setup.name,
-            created_at=utc_now_iso(),
-            times=[float(t) for t in times],
-            frames=[_frame_to_jsonable(frame) for frame in frames],
-            mass_over_time=[float(v) for v in mass],
-            color_limits=[float(color_limits[0]), float(color_limits[1])],
-            metadata={
-                "diffusion_coefficient": setup.parameters.diffusion_coefficient,
-                "mesh_size": setup.parameters.mesh_size,
-                "dt": setup.parameters.dt,
-                "total_time": setup.parameters.total_time,
-            },
+        def on_success(payload) -> None:
+            result, path, save_error = payload
+            self.latest_result = result
+            if save_error is not None:
+                messagebox.showwarning("Saved In Memory Only", f"Simulation ran but save failed:\n{save_error}", parent=self)
+            if self.auto_live_var.get():
+                self.open_live_viewer()
+                return
+            if path is None:
+                messagebox.showinfo("Simulation Complete", "Simulation finished.", parent=self)
+                return
+            messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
+
+        self._run_background_task(
+            title="Running Simulation",
+            message="Running Crank-Nicolson simulation and saving results...",
+            task_fn=task_fn,
+            on_success=on_success,
         )
-        try:
-            path = save_simulation(result)
-        except Exception as exc:
-            messagebox.showwarning("Saved In Memory Only", f"Simulation ran but save failed:\n{exc}", parent=self)
-            path = None
-
-        self.latest_result = result
-        if self.auto_live_var.get():
-            self.open_live_viewer()
-            return
-
-        if path is None:
-            messagebox.showinfo("Simulation Complete", "Simulation finished.", parent=self)
-            return
-        messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
 
     def open_live_viewer(self) -> None:
         if self.latest_result is None:

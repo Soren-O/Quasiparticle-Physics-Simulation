@@ -181,25 +181,47 @@ def run_2d_crank_nicolson(
     laplacian, source, _ = build_laplacian_with_boundaries(mask, edges, edge_conditions, dx)
     interior_values = initial_field[mask].astype(float)
     n = interior_values.shape[0]
-    steps = max(1, int(np.ceil(total_time / dt)))
+    full_steps = int(np.floor(total_time / dt + 1e-12))
+    remainder_dt = float(total_time - full_steps * dt)
+    if remainder_dt < 1e-12:
+        remainder_dt = 0.0
+    total_steps = full_steps + (1 if remainder_dt > 0.0 else 0)
 
     identity = sparse.eye(n, format="csc")
     alpha = 0.5 * dt * diffusion_coefficient
     a_mat = (identity - alpha * laplacian).tocsc()
     b_mat = (identity + alpha * laplacian).tocsr()
     lu = spla.splu(a_mat)
+    final_lu = None
+    final_b_mat = None
+    if remainder_dt > 0.0:
+        alpha_final = 0.5 * remainder_dt * diffusion_coefficient
+        final_a = (identity - alpha_final * laplacian).tocsc()
+        final_b_mat = (identity + alpha_final * laplacian).tocsr()
+        final_lu = spla.splu(final_a)
 
     times: list[float] = [0.0]
     frames: list[np.ndarray] = [reconstruct_field(mask, interior_values)]
     mass: list[float] = [float(np.sum(interior_values) * dx * dx)]
 
     current = interior_values
-    for step in range(1, steps + 1):
-        rhs = b_mat @ current + dt * diffusion_coefficient * source
-        current = lu.solve(rhs)
-        if step % store_every == 0 or step == steps:
-            t = step * dt
-            times.append(float(t))
+    current_time = 0.0
+    for step in range(1, total_steps + 1):
+        if step <= full_steps:
+            dt_step = dt
+            b_step = b_mat
+            lu_step = lu
+        else:
+            dt_step = remainder_dt
+            if final_b_mat is None or final_lu is None:
+                raise RuntimeError("Internal error: final-step solver matrices were not initialized.")
+            b_step = final_b_mat
+            lu_step = final_lu
+        rhs = b_step @ current + dt_step * diffusion_coefficient * source
+        current = lu_step.solve(rhs)
+        current_time += dt_step
+        if step % store_every == 0 or step == total_steps:
+            times.append(float(current_time))
             frame = reconstruct_field(mask, current)
             frames.append(frame)
             mass.append(float(np.sum(current) * dx * dx))

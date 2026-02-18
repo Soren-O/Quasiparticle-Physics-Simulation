@@ -10,6 +10,11 @@ from matplotlib.path import Path as MplPath
 from .models import BoundaryFace, EdgeSegment, GeometryData
 
 try:
+    from scipy import ndimage as ndi
+except Exception:
+    ndi = None
+
+try:
     import gdstk  # type: ignore
 except Exception:
     gdstk = None
@@ -106,6 +111,19 @@ def rasterize_gds_layer(
 def connected_component_count(mask: np.ndarray) -> int:
     if mask.ndim != 2:
         raise ValueError("Mask must be 2D.")
+    if ndi is not None:
+        structure = np.array(
+            [
+                [0, 1, 0],
+                [1, 1, 1],
+                [0, 1, 0],
+            ],
+            dtype=np.int8,
+        )
+        _, count = ndi.label(mask, structure=structure)
+        return int(count)
+
+    # Fallback for environments without scipy.ndimage.
     visited = np.zeros_like(mask, dtype=bool)
     ny, nx = mask.shape
     components = 0

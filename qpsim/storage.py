@@ -7,6 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .models import (
     BoundaryCondition,
     BoundaryFace,
@@ -23,6 +25,8 @@ from .models import (
 )
 from .paths import SETUPS_DIR, SIMULATIONS_DIR, TEST_CASES_DIR, ensure_data_dirs
 
+TEST_SUITE_FORMAT_VERSION = 3
+
 
 def slugify_name(name: str, fallback: str = "item") -> str:
     value = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip()).strip("_")
@@ -38,6 +42,17 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def frame_to_jsonable(frame: np.ndarray) -> list[list[float | None]]:
+    payload: list[list[float | None]] = []
+    for row in frame:
+        payload.append([None if np.isnan(v) else float(v) for v in row])
+    return payload
+
+
+def frame_from_jsonable(frame: list[list[float | None]]) -> np.ndarray:
+    return np.array([[np.nan if v is None else float(v) for v in row] for row in frame], dtype=float)
 
 
 def serialize_setup(setup: SetupData) -> dict[str, Any]:
@@ -251,9 +266,11 @@ def deserialize_test_suite(
             ):
                 try:
                     parsed_group = load_test_geometry_group(manifest_path, parsed_group.geometry_id)
-                except Exception:
-                    # Keep lightweight metadata-only group if sidecar load fails.
-                    pass
+                except Exception as exc:
+                    raise ValueError(
+                        f"Failed to load geometry group '{parsed_group.geometry_id}' "
+                        f"from sidecar '{parsed_group.group_file}'."
+                    ) from exc
             geometry_groups.append(parsed_group)
         cases: list[TestCaseResultData] = []
         for group in geometry_groups:
@@ -285,6 +302,13 @@ def save_test_suite(suite: TestSuiteData, path: Path | None = None) -> Path:
     if path is None:
         filename = f"test_suite_{suite.suite_id}.json"
         path = TEST_CASES_DIR / filename
+    if not suite.geometry_groups:
+        payload = serialize_test_suite(suite)
+        metadata = dict(payload.get("metadata", {}))
+        metadata["format_version"] = max(TEST_SUITE_FORMAT_VERSION, int(metadata.get("format_version", 0)))
+        payload["metadata"] = metadata
+        return _write_json(path, payload)
+
     suite_dir = path.with_suffix("")
 
     groups_summary: list[dict[str, Any]] = []
@@ -322,7 +346,7 @@ def save_test_suite(suite: TestSuiteData, path: Path | None = None) -> Path:
         )
 
     metadata = dict(suite.metadata or {})
-    metadata["format_version"] = max(3, int(metadata.get("format_version", 0)))
+    metadata["format_version"] = max(TEST_SUITE_FORMAT_VERSION, int(metadata.get("format_version", 0)))
     manifest = {
         "suite_id": suite.suite_id,
         "created_at": suite.created_at,
