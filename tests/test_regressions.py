@@ -178,7 +178,7 @@ class RegressionTests(unittest.TestCase):
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
         initial = np.full(mask.shape, 3.0, dtype=float)
 
-        _, frames, mass, _ = run_2d_crank_nicolson(
+        _, frames, mass, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
             edge_conditions=edge_conditions,
@@ -200,7 +200,7 @@ class RegressionTests(unittest.TestCase):
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
         initial = np.ones(mask.shape, dtype=float)
 
-        times, _, _, _ = run_2d_crank_nicolson(
+        times, _, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
             edge_conditions=edge_conditions,

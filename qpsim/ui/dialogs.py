@@ -3,9 +3,210 @@ from __future__ import annotations
 import json
 import tkinter as tk
 from tkinter import messagebox, ttk
+from typing import Any
 
 from ..models import BoundaryCondition, InitialConditionSpec
 from .theme import FONT_MONO, RETRO_PANEL
+
+
+# Literature values for quasiparticle diffusion in common superconductors.
+# Each entry: (material, Tc_K, gap_ueV, D0_um2_per_ns, D0_range_str, references)
+# D0 is the normal-state electron diffusion coefficient.
+# gap is the single-particle gap Δ(0) in μeV.
+MATERIAL_REFERENCE_TABLE: list[dict[str, Any]] = [
+    {
+        "material": "Aluminum (Al)",
+        "Tc_K": 1.2,
+        "gap_ueV": 180,
+        "D0_nom": 6.0,
+        "D0_range": "2\u201310",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 440.0,
+        "refs": [
+            ("Chi & Clarke, PRB 19 (1979)", "D \u2248 60 cm\u00b2/s in thin films"),
+            ("Heikkil\u00e4 et al., arXiv:1911.02434", "D = 100 cm\u00b2/s (nanothermometry)"),
+            ("Hubbell & Briscoe, PRL 20 (1968)", "D = 22.5 cm\u00b2/s (first measurement)"),
+        ],
+        "notes": "Widely used in transmon qubits. D\u2080 varies ~20\u2013100 cm\u00b2/s depending on film quality/thickness.",
+    },
+    {
+        "material": "Niobium (Nb)",
+        "Tc_K": 9.25,
+        "gap_ueV": 1530,
+        "D0_nom": 1.0,
+        "D0_range": "0.5\u20132",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 0.15,
+        "refs": [
+            ("Kaplan et al., PRB 14 (1976)", "Recombination/scattering times; BCS parameters"),
+            ("SQMS / Bal et al., PRApplied 20 (2023)", "QP spectroscopy in Nb transmon films"),
+        ],
+        "notes": "Strong-coupling superconductor (2\u0394/k_BT_c \u2248 3.8). Short mean free path in sputtered films gives low D\u2080.",
+    },
+    {
+        "material": "Tantalum (Ta)",
+        "Tc_K": 4.47,
+        "gap_ueV": 700,
+        "D0_nom": 0.82,
+        "D0_range": "0.5\u20131.5",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 1.8,
+        "refs": [
+            ("Poelaert et al., PRB 61 (2000)", "D = 8.2 cm\u00b2/s, \u03c4 = 83 \u03bcs at 0.21 K (STJ)"),
+        ],
+        "notes": "Used in STJ X-ray detectors and emerging qubit platforms. Longer QP lifetime than Nb.",
+    },
+    {
+        "material": "Tin (Sn)",
+        "Tc_K": 3.72,
+        "gap_ueV": 575,
+        "D0_nom": 3.0,
+        "D0_range": "2\u20134",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 2.3,
+        "refs": [
+            ("Kittel, Intro Solid State Physics", "\u0394 = 0.575 meV, standard BCS values"),
+        ],
+        "notes": "Classical low-T_c superconductor. Less commonly used in modern devices.",
+    },
+    {
+        "material": "NbN",
+        "Tc_K": 16.0,
+        "gap_ueV": 2460,
+        "D0_nom": 0.05,
+        "D0_range": "0.02\u20130.1",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 0.02,
+        "refs": [
+            ("Il'in et al., 2019 (NbN thin films)", "D ~ 0.5 cm\u00b2/s, strongly disordered"),
+        ],
+        "notes": "Highly disordered; very short mean free path. Used in SNSPDs.",
+    },
+    {
+        "material": "TiN",
+        "Tc_K": 4.5,
+        "gap_ueV": 700,
+        "D0_nom": 0.1,
+        "D0_range": "0.05\u20130.3",
+        "D0_unit": "\u03bcm\u00b2/ns",
+        "tau_0_ns": 1.5,
+        "refs": [
+            ("Leduc et al., APL 2010", "Used in KID detectors; disordered thin films"),
+        ],
+        "notes": "Tunable T_c via nitrogen content. Used in kinetic inductance detectors.",
+    },
+]
+
+
+def show_material_reference(
+    parent: tk.Misc,
+    on_select: None | (callable) = None,
+) -> None:
+    """Show a reference table of superconductor material parameters.
+
+    If *on_select* is provided it is called with (D0_nom, gap_ueV, Tc_K, tau_0_ns)
+    when the user clicks 'Load' on a row.
+    """
+    window = tk.Toplevel(parent)
+    window.title("Superconductor Material Reference")
+    window.configure(bg=RETRO_PANEL)
+    window.geometry("960x560")
+
+    tk.Label(
+        window,
+        text="Measured quasiparticle diffusion parameters for common superconductors",
+        bg=RETRO_PANEL,
+        font=("Tahoma", 10, "bold"),
+    ).pack(anchor="w", padx=10, pady=(10, 2))
+
+    tk.Label(
+        window,
+        text=(
+            "D\u2080 values vary significantly with film thickness, purity, and deposition method. "
+            "Ranges below reflect the spread in the literature. "
+            "Click a row and press 'Load Selected' to populate D\u2080 and \u0394 in the setup form."
+        ),
+        bg=RETRO_PANEL,
+        wraplength=860,
+        justify="left",
+    ).pack(anchor="w", padx=10, pady=(0, 8))
+
+    # Treeview table
+    columns = ("material", "Tc", "gap", "D0_nom", "D0_range", "tau0", "notes")
+    tree = ttk.Treeview(window, columns=columns, show="headings", height=len(MATERIAL_REFERENCE_TABLE))
+    tree.heading("material", text="Material")
+    tree.heading("Tc", text="T\u2081 (K)")
+    tree.heading("gap", text="\u0394 (\u03bceV)")
+    tree.heading("D0_nom", text="D\u2080 (\u03bcm\u00b2/ns)")
+    tree.heading("D0_range", text="D\u2080 range")
+    tree.heading("tau0", text="\u03c4\u2080 (ns)")
+    tree.heading("notes", text="Notes")
+    tree.column("material", width=110, minwidth=90)
+    tree.column("Tc", width=55, minwidth=40, anchor="center")
+    tree.column("gap", width=65, minwidth=50, anchor="center")
+    tree.column("D0_nom", width=90, minwidth=70, anchor="center")
+    tree.column("D0_range", width=80, minwidth=60, anchor="center")
+    tree.column("tau0", width=70, minwidth=50, anchor="center")
+    tree.column("notes", width=380, minwidth=200)
+
+    for entry in MATERIAL_REFERENCE_TABLE:
+        tree.insert("", "end", values=(
+            entry["material"],
+            f"{entry['Tc_K']:.2f}",
+            str(entry["gap_ueV"]),
+            f"{entry['D0_nom']}",
+            entry["D0_range"],
+            f"{entry['tau_0_ns']}",
+            entry["notes"],
+        ))
+
+    tree.pack(fill="x", padx=10, pady=(0, 6))
+
+    # References detail area
+    ref_label = tk.Label(
+        window,
+        text="Select a material above to see literature references.",
+        bg=RETRO_PANEL,
+        justify="left",
+        wraplength=860,
+        font=FONT_MONO,
+    )
+    ref_label.pack(anchor="w", padx=10, fill="x")
+
+    def on_tree_select(_event: Any = None) -> None:
+        sel = tree.selection()
+        if not sel:
+            return
+        idx = tree.index(sel[0])
+        entry = MATERIAL_REFERENCE_TABLE[idx]
+        lines = [f"References for {entry['material']}:"]
+        for ref_text, detail in entry["refs"]:
+            lines.append(f"  \u2022 {ref_text}: {detail}")
+        ref_label.configure(text="\n".join(lines))
+
+    tree.bind("<<TreeviewSelect>>", on_tree_select)
+
+    # Buttons
+    btn_frame = tk.Frame(window, bg=RETRO_PANEL)
+    btn_frame.pack(fill="x", padx=10, pady=(10, 10))
+
+    def do_load() -> None:
+        sel = tree.selection()
+        if not sel:
+            messagebox.showinfo("No Selection", "Select a material row first.", parent=window)
+            return
+        idx = tree.index(sel[0])
+        entry = MATERIAL_REFERENCE_TABLE[idx]
+        if on_select is not None:
+            on_select(entry["D0_nom"], entry["gap_ueV"], entry["Tc_K"], entry["tau_0_ns"])
+        window.destroy()
+
+    if on_select is not None:
+        tk.Button(btn_frame, text="Load Selected", width=16, command=do_load).pack(side="left", padx=4)
+    tk.Button(btn_frame, text="Close", width=12, command=window.destroy).pack(side="right", padx=4)
+
+    window.transient(parent)
+    window.grab_set()
 
 
 _BOUNDARY_LABELS = {
@@ -135,7 +336,7 @@ def ask_initial_condition(
     custom_params_var = tk.StringVar(value=json.dumps(current.custom_params or {}))
 
     tk.Label(window, text="Type:", bg=RETRO_PANEL).pack(anchor="w", padx=10, pady=(10, 4))
-    kind_menu = ttk.Combobox(window, state="readonly", width=28, values=["gaussian", "uniform", "point", "custom"])
+    kind_menu = ttk.Combobox(window, state="readonly", width=28, values=["gaussian", "uniform", "point", "fermi_dirac", "custom"])
     kind_menu.set(kind_var.get())
     kind_menu.pack(anchor="w", padx=10, pady=(0, 8))
 
@@ -168,6 +369,29 @@ def ask_initial_condition(
     tk.Entry(point_frame, textvariable=point_x0, width=12).grid(row=1, column=1, sticky="w")
     tk.Label(point_frame, text="y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_y0, width=12).grid(row=2, column=1, sticky="w")
+
+    fd_amp = tk.StringVar(value=str(current.params.get("amplitude", 1.0)))
+    fd_temp = tk.StringVar(value=str(current.params.get("temperature", 0.1)))
+    fd_frame = tk.Frame(container, bg=RETRO_PANEL)
+    frames["fermi_dirac"] = fd_frame
+    tk.Label(fd_frame, text="amplitude (spatial density)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(fd_frame, textvariable=fd_amp, width=12).grid(row=0, column=1, sticky="w")
+    tk.Label(fd_frame, text="temperature (K)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Entry(fd_frame, textvariable=fd_temp, width=12).grid(row=1, column=1, sticky="w")
+    tk.Label(
+        fd_frame,
+        text=(
+            "Spatially uniform. Energy distribution set by the thermal\n"
+            "Bogoliubov quasiparticle occupation:\n"
+            "  n(E) \u221d N_s(E) \u00d7 f(E, T)\n"
+            "  N_s(E) = E / \u221a(E\u00b2 \u2212 \u0394\u00b2)   (BCS density of states)\n"
+            "  f(E, T) = 1 / (exp(E / k_B T) + 1)\n"
+            "where E is the quasiparticle excitation energy (\u2265 \u0394)."
+        ),
+        bg=RETRO_PANEL,
+        justify="left",
+        font=FONT_MONO,
+    ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
     custom_frame = tk.Frame(container, bg=RETRO_PANEL)
     frames["custom"] = custom_frame
@@ -250,6 +474,14 @@ def ask_initial_condition(
                         "value": parse_float("value", point_value.get()),
                         "x0": parse_float("x0", point_x0.get()),
                         "y0": parse_float("y0", point_y0.get()),
+                    },
+                )
+            elif kind == "fermi_dirac":
+                spec = InitialConditionSpec(
+                    kind="fermi_dirac",
+                    params={
+                        "amplitude": parse_float("amplitude", fd_amp.get()),
+                        "temperature": parse_float("temperature", fd_temp.get()),
                     },
                 )
             elif kind == "custom":

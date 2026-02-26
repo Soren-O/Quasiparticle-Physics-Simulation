@@ -30,7 +30,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..paths import ROOT_DIR, SIMULATIONS_DIR, ensure_data_dirs
-from ..solver import BoundaryAssignmentError, run_2d_crank_nicolson
+from ..solver import BoundaryAssignmentError, run_2d_crank_nicolson, thermal_qp_weights
 from ..storage import (
     create_setup_id,
     create_simulation_id,
@@ -46,7 +46,7 @@ from ..storage import (
     save_simulation,
 )
 from ..test_cases import generate_and_save_test_suite
-from .dialogs import ask_boundary_condition, ask_initial_condition
+from .dialogs import ask_boundary_condition, ask_initial_condition, show_material_reference
 from .theme import FONT_MONO, FONT_TITLE, RETRO_ACCENT, RETRO_BG, RETRO_PANEL, apply_retro_theme
 
 
@@ -122,15 +122,18 @@ class SimulationViewer(tk.Toplevel):
 
         vmin, vmax = float(result.color_limits[0]), float(result.color_limits[1])
         self.heatmap = self.ax_field.imshow(self.frames[0], origin="lower", cmap="hot", vmin=vmin, vmax=vmax)
-        self.ax_field.set_title("2D Density Heatmap")
+        has_energy = result.energy_bins is not None
+        self.ax_field.set_title("Quasiparticle Density (energy-integrated)" if has_energy else "2D Density Heatmap")
+        self.ax_field.set_xlabel("x (\u03bcm)")
+        self.ax_field.set_ylabel("y (\u03bcm)")
         self.ax_field.set_aspect("equal")
         fig.colorbar(self.heatmap, ax=self.ax_field, fraction=0.046, pad=0.04)
 
-        self.mass_line, = self.ax_mass.plot([], [], color="#004488", linewidth=2.0, label="Total Mass")
+        self.mass_line, = self.ax_mass.plot([], [], color="#004488", linewidth=2.0, label="Total QP Number" if has_energy else "Total Mass")
         self.mass_marker, = self.ax_mass.plot([], [], "o", color="#AA2200")
-        self.ax_mass.set_title("Mass Over Time")
-        self.ax_mass.set_xlabel("Time")
-        self.ax_mass.set_ylabel("Total Mass")
+        self.ax_mass.set_title("Total Quasiparticle Number" if has_energy else "Mass Over Time")
+        self.ax_mass.set_xlabel("Time (ns)")
+        self.ax_mass.set_ylabel("Total Quasiparticle Number" if has_energy else "Total Mass")
         self.ax_mass.grid(True, alpha=0.3)
         self.ax_mass.legend(loc="best")
 
@@ -177,7 +180,7 @@ class SimulationViewer(tk.Toplevel):
         self.index = int(np.clip(self.index, 0, len(self.frames) - 1))
         self.scale.set(self.index)
         t = float(self.times[self.index])
-        self.time_label.configure(text=f"t = {t:.3f}")
+        self.time_label.configure(text=f"t = {t:.3f} ns")
 
         self.heatmap.set_data(self.frames[self.index])
         self.mass_line.set_data(self.times[: self.index + 1], self.mass[: self.index + 1])
@@ -323,6 +326,95 @@ class LineTestSuiteViewer(tk.Toplevel):
         ana = np.asarray(case.analytic[self.frame_index], dtype=float)
         self.sim_line.set_data(x, sim)
         self.ana_line.set_data(x, ana)
+        self.canvas.draw_idle()
+
+
+class TimeSeriesTestViewer(tk.Toplevel):
+    """Viewer for time-series test cases (e.g. recombination dynamics).
+
+    Shows the full n(t) trajectory at once — no time slider or animation.
+    Left subplot: simulated vs analytic curves.
+    Right subplot: info panel with formula and description.
+    """
+
+    def __init__(self, parent: tk.Misc, group: TestGeometryGroupData):
+        super().__init__(parent)
+        self.title(f"Test Simulations - {group.title}")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1240x760")
+        self.group = group
+        self.cases = list(group.cases)
+        if not self.cases:
+            raise ValueError("No test cases available for this geometry.")
+        self.case_index = 0
+
+        controls = tk.Frame(self, bg=RETRO_PANEL)
+        controls.pack(fill="x", padx=8, pady=6)
+        self.case_label = tk.Label(
+            controls, text="", bg=RETRO_PANEL, fg=RETRO_ACCENT,
+            font=("Tahoma", 10, "bold"),
+        )
+        self.case_label.pack(side="left", padx=8)
+        tk.Button(controls, text="Prev Case", width=12, command=self.prev_case).pack(side="left", padx=4)
+        tk.Button(controls, text="Next Case", width=12, command=self.next_case).pack(side="left", padx=4)
+
+        fig = Figure(figsize=(11.5, 7.0), dpi=100)
+        self.ax_trace = fig.add_subplot(1, 2, 1)
+        self.ax_info = fig.add_subplot(1, 2, 2)
+        self.ax_info.axis("off")
+        self.canvas = FigureCanvasTkAgg(fig, master=self)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        self.sim_line, = self.ax_trace.plot([], [], color="#1E88E5", linewidth=2.2, label="Simulated")
+        self.ana_line, = self.ax_trace.plot([], [], color="#D81B60", linewidth=2.0, linestyle="--", label="Analytic")
+        self.ax_trace.set_xlabel("Time (ns)")
+        self.ax_trace.set_ylabel("QP Spectral Density n(E)")
+        self.ax_trace.set_title("Simulation vs Analytic")
+        self.ax_trace.grid(True, alpha=0.25)
+        self.ax_trace.legend(loc="best")
+        self.info_text = self.ax_info.text(0.02, 0.98, "", va="top", ha="left", wrap=True)
+
+        self.render_case()
+
+    def current_case(self):
+        return self.cases[self.case_index]
+
+    def prev_case(self) -> None:
+        self.case_index = (self.case_index - 1) % len(self.cases)
+        self.render_case()
+
+    def next_case(self) -> None:
+        self.case_index = (self.case_index + 1) % len(self.cases)
+        self.render_case()
+
+    def render_case(self) -> None:
+        case = self.current_case()
+        self.case_label.configure(
+            text=f"{self.group.title} | Case {self.case_index + 1}/{len(self.cases)}: {case.title}",
+        )
+
+        panel = (
+            f"Geometry:\n{self.group.title}\n\n"
+            f"Boundary Condition:\n{case.boundary_label}\n\n"
+            f"Analytic Formula:\n${case.formula_latex}$\n\n"
+            f"Initial Condition:\n${case.initial_condition_latex}$\n\n"
+            f"Description:\n{case.description}"
+        )
+        self.info_text.set_text(panel)
+
+        # x stores the time axis; simulated/analytic are [[values...]] (single frame)
+        t = np.asarray(case.x, dtype=float)
+        sim = np.asarray(case.simulated[0], dtype=float)
+        ana = np.asarray(case.analytic[0], dtype=float)
+
+        y_min = float(min(np.min(sim), np.min(ana)))
+        y_max = float(max(np.max(sim), np.max(ana)))
+        pad = 1e-6 if abs(y_max - y_min) < 1e-12 else 0.05 * (y_max - y_min)
+        self.ax_trace.set_xlim(float(np.min(t)), float(np.max(t)))
+        self.ax_trace.set_ylim(y_min - pad, y_max + pad)
+
+        self.sim_line.set_data(t, sim)
+        self.ana_line.set_data(t, ana)
         self.canvas.draw_idle()
 
 
@@ -549,8 +641,33 @@ class TestGeometryLanding(tk.Toplevel):
             bg=RETRO_PANEL,
         ).pack(anchor="w", padx=12, pady=(0, 10))
 
-        container = tk.Frame(self, bg=RETRO_PANEL)
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        outer = tk.Frame(self, bg=RETRO_PANEL)
+        outer.pack(fill="both", expand=True, padx=10, pady=10)
+
+        scroll_canvas = tk.Canvas(outer, bg=RETRO_PANEL, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient="vertical", command=scroll_canvas.yview)
+        container = tk.Frame(scroll_canvas, bg=RETRO_PANEL)
+
+        container.bind(
+            "<Configure>",
+            lambda e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all")),
+        )
+        scroll_canvas.create_window((0, 0), window=container, anchor="nw")
+        scroll_canvas.configure(yscrollcommand=scrollbar.set)
+
+        scroll_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event: tk.Event) -> None:
+            scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        scroll_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.bind("<Destroy>", lambda e: scroll_canvas.unbind_all("<MouseWheel>"), add=True)
+
+        # Stretch the inner frame to the canvas width so cards fill horizontally
+        def _resize_inner(event: tk.Event) -> None:
+            scroll_canvas.itemconfigure("all", width=event.width)
+        scroll_canvas.bind("<Configure>", _resize_inner)
 
         for group in groups:
             card = tk.Frame(container, bg="#E7E4DA", bd=2, relief="groove")
@@ -621,6 +738,8 @@ class TestGeometryLanding(tk.Toplevel):
         mode = (group.view_mode or "").strip().lower()
         if mode == "heatmap2d":
             HeatmapTestSuiteViewer(self, group=group)
+        elif mode == "timeseries":
+            TimeSeriesTestViewer(self, group=group)
         else:
             LineTestSuiteViewer(self, group=group)
 
@@ -653,17 +772,29 @@ class SetupEditor(tk.Toplevel):
 
         self.name_var = tk.StringVar(value=(setup.name if setup else "Untitled Setup"))
         default_params = setup.parameters if setup else SimulationParameters(
-            diffusion_coefficient=1.0,
-            dt=0.2,
-            total_time=30.0,
+            diffusion_coefficient=6.0,
+            dt=2.0,
+            total_time=2000.0,
             mesh_size=1.0,
-            store_every=1,
+            store_every=5,
+            energy_gap=180.0,
+            energy_max_factor=10.0,
+            num_energy_bins=50,
         )
         self.diff_var = tk.StringVar(value=str(default_params.diffusion_coefficient))
         self.mesh_var = tk.StringVar(value=str(default_params.mesh_size))
         self.dt_var = tk.StringVar(value=str(default_params.dt))
         self.total_var = tk.StringVar(value=str(default_params.total_time))
         self.store_var = tk.StringVar(value=str(default_params.store_every))
+        self.energy_gap_var = tk.StringVar(value=str(default_params.energy_gap))
+        self.energy_max_var = tk.StringVar(value=str(default_params.energy_max_factor))
+        self.energy_bins_var = tk.StringVar(value=str(default_params.num_energy_bins))
+        self.enable_diffusion_var = tk.BooleanVar(value=default_params.enable_diffusion)
+        self.enable_recombination_var = tk.BooleanVar(value=default_params.enable_recombination)
+        self.enable_scattering_var = tk.BooleanVar(value=default_params.enable_scattering)
+        self.tau_0_var = tk.StringVar(value=str(default_params.tau_0))
+        self.T_c_var = tk.StringVar(value=str(default_params.T_c))
+        self.bath_temp_var = tk.StringVar(value=str(default_params.bath_temperature))
 
         tk.Label(left, text="Setup Name", bg=RETRO_PANEL).pack(anchor="w")
         tk.Entry(left, textvariable=self.name_var, width=36).pack(anchor="w", pady=(0, 8))
@@ -672,11 +803,40 @@ class SetupEditor(tk.Toplevel):
             tk.Label(left, text=label, bg=RETRO_PANEL).pack(anchor="w")
             tk.Entry(left, textvariable=var, width=18).pack(anchor="w", pady=(0, 6))
 
-        add_param("Diffusion Coefficient (D)", self.diff_var)
-        add_param("Mesh Size (dx)", self.mesh_var)
-        add_param("dt", self.dt_var)
-        add_param("Total Time", self.total_var)
+        add_param("Diffusion Coeff D\u2080 (\u03bcm\u00b2/ns)", self.diff_var)
+        add_param("Mesh Size dx (\u03bcm)", self.mesh_var)
+        add_param("dt (ns)", self.dt_var)
+        add_param("Total Time (ns)", self.total_var)
         add_param("Store Every N Steps", self.store_var)
+        add_param("Energy Gap \u0394 (\u03bceV)", self.energy_gap_var)
+        add_param("Energy Max (\u00d7\u0394)", self.energy_max_var)
+        add_param("Energy Bins", self.energy_bins_var)
+
+        # --- Physics process toggles ---
+        tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(8, 2))
+        tk.Checkbutton(left, text="Enable Diffusion", variable=self.enable_diffusion_var, bg=RETRO_PANEL, anchor="w").pack(anchor="w")
+        tk.Checkbutton(left, text="Enable Recombination", variable=self.enable_recombination_var, bg=RETRO_PANEL, anchor="w",
+                        command=self._toggle_recomb_fields).pack(anchor="w")
+        self.scattering_cb = tk.Checkbutton(left, text="Enable Scattering (not yet implemented)", variable=self.enable_scattering_var,
+                                             bg=RETRO_PANEL, anchor="w", state="disabled")
+        self.scattering_cb.pack(anchor="w")
+
+        # --- Recombination parameters (shown/hidden based on checkbox) ---
+        self.recomb_frame = tk.Frame(left, bg=RETRO_PANEL)
+        self.recomb_frame.pack(anchor="w", fill="x")
+        add_param_in = lambda parent, label, var: (
+            tk.Label(parent, text=label, bg=RETRO_PANEL).pack(anchor="w"),
+            tk.Entry(parent, textvariable=var, width=18).pack(anchor="w", pady=(0, 4)),
+        )
+        add_param_in(self.recomb_frame, "\u03c4\u2080 (ns)", self.tau_0_var)
+        add_param_in(self.recomb_frame, "T\u2081 (K)", self.T_c_var)
+        add_param_in(self.recomb_frame, "Bath Temperature (K)", self.bath_temp_var)
+        self._toggle_recomb_fields()
+
+        tk.Button(
+            left, text="Material Reference Table...", width=30,
+            command=self.show_material_reference,
+        ).pack(anchor="w", pady=(6, 4))
 
         tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(10, 4))
         tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=4)
@@ -723,12 +883,28 @@ class SetupEditor(tk.Toplevel):
         self.dt_var.set(str(setup.parameters.dt))
         self.total_var.set(str(setup.parameters.total_time))
         self.store_var.set(str(setup.parameters.store_every))
+        self.energy_gap_var.set(str(setup.parameters.energy_gap))
+        self.energy_max_var.set(str(setup.parameters.energy_max_factor))
+        self.energy_bins_var.set(str(setup.parameters.num_energy_bins))
+        self.enable_diffusion_var.set(setup.parameters.enable_diffusion)
+        self.enable_recombination_var.set(setup.parameters.enable_recombination)
+        self.enable_scattering_var.set(setup.parameters.enable_scattering)
+        self.tau_0_var.set(str(setup.parameters.tau_0))
+        self.T_c_var.set(str(setup.parameters.T_c))
+        self.bath_temp_var.set(str(setup.parameters.bath_temperature))
+        self._toggle_recomb_fields()
         self.geometry_data = setup.geometry
         self.mask = np.array(setup.geometry.mask, dtype=bool)
         self.boundary_assignments = dict(setup.boundary_conditions)
         self.initial_condition = setup.initial_condition
         self.redraw_geometry()
         self.update_status()
+
+    def _toggle_recomb_fields(self) -> None:
+        if self.enable_recombination_var.get():
+            self.recomb_frame.pack(anchor="w", fill="x")
+        else:
+            self.recomb_frame.pack_forget()
 
     def parse_float(self, name: str, value: str) -> float:
         try:
@@ -783,6 +959,15 @@ class SetupEditor(tk.Toplevel):
         self.hover_edge_id = None
         self.redraw_geometry()
         self.update_status()
+
+    def show_material_reference(self) -> None:
+        def on_select(D0: float, gap_ueV: int, Tc_K: float, tau_0_ns: float) -> None:
+            self.diff_var.set(str(D0))
+            self.energy_gap_var.set(str(gap_ueV))
+            self.T_c_var.set(str(Tc_K))
+            self.tau_0_var.set(str(tau_0_ns))
+
+        show_material_reference(self, on_select=on_select)
 
     def use_intrinsic(self) -> None:
         try:
@@ -950,6 +1135,15 @@ class SetupEditor(tk.Toplevel):
             total_time=self.parse_float("total time", self.total_var.get()),
             mesh_size=geometry_mesh,
             store_every=max(1, self.parse_int("store_every", self.store_var.get())),
+            energy_gap=self.parse_float("energy gap", self.energy_gap_var.get()),
+            energy_max_factor=self.parse_float("energy max factor", self.energy_max_var.get()),
+            num_energy_bins=max(1, self.parse_int("energy bins", self.energy_bins_var.get())),
+            enable_diffusion=self.enable_diffusion_var.get(),
+            enable_recombination=self.enable_recombination_var.get(),
+            enable_scattering=self.enable_scattering_var.get(),
+            tau_0=self.parse_float("τ₀", self.tau_0_var.get()),
+            T_c=self.parse_float("T_c", self.T_c_var.get()),
+            bath_temperature=self.parse_float("bath temperature", self.bath_temp_var.get()),
         )
         return SetupData(
             setup_id=self.setup_id,
@@ -1028,17 +1222,51 @@ class SetupEditor(tk.Toplevel):
 
         def task_fn():
             initial = build_initial_field(mask_snapshot, setup.initial_condition)
-            times, frames, mass, color_limits = run_2d_crank_nicolson(
+            # Compute energy weights for Fermi-Dirac initial condition
+            e_weights = None
+            p = setup.parameters
+            if (
+                setup.initial_condition.kind.lower() == "fermi_dirac"
+                and p.energy_gap > 0
+            ):
+                import numpy as _np
+                E_bins = _np.linspace(
+                    p.energy_min_factor * p.energy_gap,
+                    p.energy_max_factor * p.energy_gap,
+                    p.num_energy_bins,
+                )
+                temp_K = float(setup.initial_condition.params.get("temperature", 0.1))
+                e_weights = thermal_qp_weights(E_bins, p.energy_gap, temp_K)
+            times, frames, mass, color_limits, energy_frames, energy_bins = run_2d_crank_nicolson(
                 mask=mask_snapshot,
                 edges=setup.geometry.edges,
                 edge_conditions=setup.boundary_conditions,
                 initial_field=initial,
-                diffusion_coefficient=setup.parameters.diffusion_coefficient,
-                dt=setup.parameters.dt,
-                total_time=setup.parameters.total_time,
-                dx=setup.parameters.mesh_size,
-                store_every=setup.parameters.store_every,
+                diffusion_coefficient=p.diffusion_coefficient,
+                dt=p.dt,
+                total_time=p.total_time,
+                dx=p.mesh_size,
+                store_every=p.store_every,
+                energy_gap=p.energy_gap,
+                energy_min_factor=p.energy_min_factor,
+                energy_max_factor=p.energy_max_factor,
+                num_energy_bins=p.num_energy_bins,
+                energy_weights=e_weights,
+                enable_diffusion=p.enable_diffusion,
+                enable_recombination=p.enable_recombination,
+                enable_scattering=p.enable_scattering,
+                tau_0=p.tau_0,
+                T_c=p.T_c,
+                bath_temperature=p.bath_temperature,
             )
+            serialized_energy_frames = None
+            serialized_energy_bins = None
+            if energy_frames is not None:
+                serialized_energy_frames = [
+                    [frame_to_jsonable(eframe) for eframe in time_slice]
+                    for time_slice in energy_frames
+                ]
+                serialized_energy_bins = energy_bins.tolist()
             result = SimulationResultData(
                 simulation_id=create_simulation_id(),
                 setup_id=setup.setup_id,
@@ -1053,7 +1281,10 @@ class SetupEditor(tk.Toplevel):
                     "mesh_size": setup.parameters.mesh_size,
                     "dt": setup.parameters.dt,
                     "total_time": setup.parameters.total_time,
+                    "energy_gap": setup.parameters.energy_gap,
                 },
+                energy_frames=serialized_energy_frames,
+                energy_bins=serialized_energy_bins,
             )
             save_error: str | None = None
             path: str | None = None

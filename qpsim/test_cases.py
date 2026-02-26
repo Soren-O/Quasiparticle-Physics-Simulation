@@ -17,7 +17,13 @@ from .models import (
     TestSuiteData,
     utc_now_iso,
 )
-from .solver import run_2d_crank_nicolson
+from .solver import (
+    _bcs_density_of_states,
+    recombination_kernel,
+    run_2d_crank_nicolson,
+    scattering_kernel,
+    thermal_qp_weights,
+)
 from .storage import TEST_SUITE_FORMAT_VERSION, frame_to_jsonable, save_test_suite
 
 
@@ -256,7 +262,7 @@ def _generate_strip_geometry_group(
 
         initial_field = np.zeros((1, nx), dtype=float)
         initial_field[0, :] = u0
-        times, frames, _, _ = run_2d_crank_nicolson(
+        times, frames, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
             edge_conditions=edge_conditions,
@@ -331,7 +337,7 @@ def _generate_rectangle_geometry_group(
     for mode_index, (m, n) in enumerate(modes, start=1):
         phi = np.sin(m * np.pi * gx / lx) * np.sin(n * np.pi * gy / ly)
         initial_field = phi.copy()
-        times, frames, _, _ = run_2d_crank_nicolson(
+        times, frames, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
             edge_conditions=edge_conditions,
@@ -474,7 +480,7 @@ def _generate_polygon_donut_geometry_group(
             phi = phi / amp
 
         initial_field = phi.copy()
-        times, frames, _, _ = run_2d_crank_nicolson(
+        times, frames, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
             edge_conditions=edge_conditions,
@@ -541,6 +547,364 @@ def _generate_polygon_donut_geometry_group(
     )
 
 
+def _generate_recombination_test_group() -> TestGeometryGroupData:
+    """Generate recombination test cases comparing simulation to analytic ODE solutions."""
+    # Boltzmann constant in μeV/K (must match solver._KB_UEV_PER_K)
+    kB = 86.17
+
+    cases: list[TestCaseResultData] = []
+
+    # ── Case 1: Pure 1/t Recombination Decay (T_bath=0) ──
+    tau_0_1 = 440.0  # ns
+    T_c_1 = 1.2      # K
+    gap_1 = 180.0     # μeV
+    T_bath_1 = 0.0
+    E_bin_1 = np.array([1.5 * gap_1])  # single energy bin
+    dE_1 = 1.0  # arbitrary for single bin; cancels with n₀ units
+
+    K_r_1 = recombination_kernel(E_bin_1, gap_1, tau_0_1, T_c_1, T_bath_1)
+    R_1 = 2.0 * float(K_r_1[0, 0]) * dE_1  # effective rate constant
+
+    n0_1 = 0.5
+    dt_1 = 0.5
+    total_time_1 = 2000.0
+    store_every_1 = 4
+
+    # Run simulation: 1×1 mask, reflective BCs, diffusion OFF, recombination ON
+    mask_1 = np.ones((1, 1), dtype=bool)
+    edges_1 = extract_edge_segments(mask_1)
+    edge_conds_1 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_1}
+    init_field_1 = np.full((1, 1), n0_1, dtype=float)
+
+    times_1, frames_1, _, _, energy_frames_1, _ = run_2d_crank_nicolson(
+        mask=mask_1, edges=edges_1, edge_conditions=edge_conds_1,
+        initial_field=init_field_1, diffusion_coefficient=1.0,
+        dt=dt_1, total_time=total_time_1, dx=1.0, store_every=store_every_1,
+        energy_gap=gap_1, energy_min_factor=1.5, energy_max_factor=1.5,
+        num_energy_bins=1, energy_weights=np.array([1.0]),
+        enable_diffusion=False, enable_recombination=True,
+        tau_0=tau_0_1, T_c=T_c_1, bath_temperature=T_bath_1,
+    )
+
+    t_arr_1 = np.asarray(times_1, dtype=float)
+    # Extract simulated n(t) from energy frames: single bin, single spatial point
+    sim_n_1 = np.array([ef[0][0, 0] for ef in energy_frames_1], dtype=float) * dE_1
+    ana_n_1 = n0_1 / (1.0 + R_1 * n0_1 * t_arr_1)
+
+    cases.append(TestCaseResultData(
+        case_id="recomb_pure_1_over_t",
+        title="Pure 1/t Recombination Decay",
+        boundary_label="Reflective (single cell, no diffusion)",
+        formula_latex=r"n(t) = \frac{n_0}{1 + R\,n_0\,t},\quad R = 2\,K^r\,\Delta E",
+        initial_condition_latex=r"n(0) = 0.5",
+        description=(
+            "Single energy bin at E=1.5\u0394, T_bath=0. "
+            "Two-body recombination gives dn/dt = -Rn\u00b2 "
+            "with the classic 1/t power-law solution."
+        ),
+        x=t_arr_1.tolist(),
+        times=[0.0],
+        simulated=[sim_n_1.tolist()],
+        analytic=[ana_n_1.tolist()],
+        metadata={
+            "geometry_id": "recombination",
+            "view_mode": "timeseries",
+            "tau_0": tau_0_1, "T_c": T_c_1, "gap": gap_1,
+            "T_bath": T_bath_1, "R": R_1, "n0": n0_1,
+        },
+    ))
+
+    # ── Case 2: Equilibrium Stationarity ──
+    tau_0_2 = 10.0   # ns (fast for practical timing)
+    T_c_2 = 1.2
+    gap_2 = 180.0
+    T_bath_2 = 0.8
+    num_bins_2 = 15
+    E_bins_2 = np.linspace(1.0 * gap_2, 3.0 * gap_2, num_bins_2)
+    dE_2 = E_bins_2[1] - E_bins_2[0]
+
+    n_eq_2 = thermal_qp_weights(E_bins_2, gap_2, T_bath_2)
+    total_n_eq_2 = float(np.sum(n_eq_2) * dE_2)
+
+    # Initial field = total equilibrium density
+    mask_2 = np.ones((1, 1), dtype=bool)
+    edges_2 = extract_edge_segments(mask_2)
+    edge_conds_2 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_2}
+    init_field_2 = np.full((1, 1), total_n_eq_2, dtype=float)
+
+    dt_2 = 0.1
+    total_time_2 = 200.0
+    store_every_2 = 10
+
+    times_2, frames_2, _, _, energy_frames_2, _ = run_2d_crank_nicolson(
+        mask=mask_2, edges=edges_2, edge_conditions=edge_conds_2,
+        initial_field=init_field_2, diffusion_coefficient=1.0,
+        dt=dt_2, total_time=total_time_2, dx=1.0, store_every=store_every_2,
+        energy_gap=gap_2, energy_min_factor=1.0, energy_max_factor=3.0,
+        num_energy_bins=num_bins_2, energy_weights=n_eq_2,
+        enable_diffusion=False, enable_recombination=True,
+        tau_0=tau_0_2, T_c=T_c_2, bath_temperature=T_bath_2,
+    )
+
+    t_arr_2 = np.asarray(times_2, dtype=float)
+    sim_n_2 = np.array([
+        float(np.sum(np.array([ef_bin[0, 0] for ef_bin in ef])) * dE_2)
+        for ef in energy_frames_2
+    ], dtype=float)
+    ana_n_2 = np.full_like(t_arr_2, total_n_eq_2)
+
+    cases.append(TestCaseResultData(
+        case_id="recomb_equilibrium_stationarity",
+        title="Equilibrium Stationarity",
+        boundary_label="Reflective (single cell, no diffusion)",
+        formula_latex=r"n(t) = n_{\mathrm{eq}} = \mathrm{const}",
+        initial_condition_latex=r"n(0) = n_{\mathrm{eq}}(T_{\mathrm{bath}})",
+        description=(
+            "15 energy bins, T_bath=0.8 K, \u03c4\u2080=10 ns. "
+            "Initial state is exact thermal equilibrium. "
+            "Thermal generation exactly balances recombination, "
+            "so total QP density remains constant."
+        ),
+        x=t_arr_2.tolist(),
+        times=[0.0],
+        simulated=[sim_n_2.tolist()],
+        analytic=[ana_n_2.tolist()],
+        metadata={
+            "geometry_id": "recombination",
+            "view_mode": "timeseries",
+            "tau_0": tau_0_2, "T_c": T_c_2, "gap": gap_2,
+            "T_bath": T_bath_2, "n_eq": total_n_eq_2,
+        },
+    ))
+
+    # ── Case 3: Decay to Thermal Equilibrium ──
+    tau_0_3 = 10.0
+    T_c_3 = 1.2
+    gap_3 = 180.0
+    T_bath_3 = 0.8
+    E_bin_3 = np.array([1.5 * gap_3])
+    dE_3 = 1.0
+
+    K_r_3 = recombination_kernel(E_bin_3, gap_3, tau_0_3, T_c_3, T_bath_3)
+    R_3 = 2.0 * float(K_r_3[0, 0]) * dE_3
+
+    n_eq_w3 = thermal_qp_weights(E_bin_3, gap_3, T_bath_3)
+    G_therm_3 = 2.0 * n_eq_w3[0] * dE_3 * float(K_r_3[0, 0]) * n_eq_w3[0]
+    # n_eq for the single-bin ODE: R n_eq² = G_therm → n_eq = sqrt(G/R)
+    n_eq_3 = np.sqrt(float(G_therm_3) / R_3)
+
+    n0_3 = 0.5
+    dt_3 = 0.05
+    total_time_3 = 50.0
+    store_every_3 = 4
+
+    mask_3 = np.ones((1, 1), dtype=bool)
+    edges_3 = extract_edge_segments(mask_3)
+    edge_conds_3 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_3}
+    init_field_3 = np.full((1, 1), n0_3, dtype=float)
+
+    times_3, frames_3, _, _, energy_frames_3, _ = run_2d_crank_nicolson(
+        mask=mask_3, edges=edges_3, edge_conditions=edge_conds_3,
+        initial_field=init_field_3, diffusion_coefficient=1.0,
+        dt=dt_3, total_time=total_time_3, dx=1.0, store_every=store_every_3,
+        energy_gap=gap_3, energy_min_factor=1.5, energy_max_factor=1.5,
+        num_energy_bins=1, energy_weights=np.array([1.0]),
+        enable_diffusion=False, enable_recombination=True,
+        tau_0=tau_0_3, T_c=T_c_3, bath_temperature=T_bath_3,
+    )
+
+    t_arr_3 = np.asarray(times_3, dtype=float)
+    sim_n_3 = np.array([ef[0][0, 0] for ef in energy_frames_3], dtype=float) * dE_3
+    # Analytic: n(t) = n_eq * coth(R n_eq t + arccoth(n0/n_eq))
+    arccoth_arg = n0_3 / n_eq_3
+    arccoth_val = 0.5 * np.log((arccoth_arg + 1.0) / (arccoth_arg - 1.0))
+    ana_n_3 = n_eq_3 / np.tanh(R_3 * n_eq_3 * t_arr_3 + arccoth_val)
+
+    cases.append(TestCaseResultData(
+        case_id="recomb_decay_to_equilibrium",
+        title="Decay to Thermal Equilibrium",
+        boundary_label="Reflective (single cell, no diffusion)",
+        formula_latex=r"n(t) = n_{\mathrm{eq}}\,\coth\!\left(R\,n_{\mathrm{eq}}\,t + \mathrm{arccoth}\!\left(\frac{n_0}{n_{\mathrm{eq}}}\right)\right)",
+        initial_condition_latex=r"n(0) = 0.5 \gg n_{\mathrm{eq}}",
+        description=(
+            "Single energy bin at E=1.5\u0394, T_bath=0.8 K, \u03c4\u2080=10 ns. "
+            "Elevated initial density decays toward thermal equilibrium "
+            "via dn/dt = R(n_eq\u00b2 - n\u00b2)."
+        ),
+        x=t_arr_3.tolist(),
+        times=[0.0],
+        simulated=[sim_n_3.tolist()],
+        analytic=[ana_n_3.tolist()],
+        metadata={
+            "geometry_id": "recombination",
+            "view_mode": "timeseries",
+            "tau_0": tau_0_3, "T_c": T_c_3, "gap": gap_3,
+            "T_bath": T_bath_3, "R": R_3, "n0": n0_3, "n_eq": n_eq_3,
+        },
+    ))
+
+    preview = np.zeros((8, 12), dtype=int)
+    preview[3:5, 5:7] = 1
+    return TestGeometryGroupData(
+        geometry_id="recombination",
+        title="Recombination Dynamics",
+        description="Quasiparticle recombination test cases comparing simulated dynamics to analytic ODE solutions.",
+        view_mode="timeseries",
+        preview_mask=preview.tolist(),
+        cases=cases,
+    )
+
+
+def _generate_scattering_test_group() -> TestGeometryGroupData:
+    """Generate scattering test cases comparing simulation to analytic predictions."""
+    kB = 86.17  # μeV/K — must match solver._KB_UEV_PER_K
+
+    cases: list[TestCaseResultData] = []
+
+    # ── Case 1: Top-Bin Scattering Out (Exponential Decay) ──
+    tau_0_1 = 10.0   # ns
+    T_c_1 = 1.2      # K
+    gap_1 = 180.0     # μeV
+    T_bath_1 = 0.3    # K
+    num_bins_1 = 10
+    E_bins_1 = np.linspace(1.0 * gap_1, 3.0 * gap_1, num_bins_1)
+    dE_1 = E_bins_1[1] - E_bins_1[0]
+
+    # Precompute analytic decay rate for the top bin
+    K_s_1 = scattering_kernel(E_bins_1, gap_1, tau_0_1, T_c_1, T_bath_1)
+    rho_1 = _bcs_density_of_states(E_bins_1, gap_1)
+    # Γ_top = ΔE × Σ_j K^s_{top,j} × ρ_j  (with 1-f_j ≈ 1 at low occupation)
+    top_idx = num_bins_1 - 1
+    Gamma_top = dE_1 * float(np.sum(K_s_1[top_idx, :] * rho_1))
+
+    # Initial: only top bin populated with small density, all others zero
+    n0_top = 0.01
+    # Build energy weights: zero everywhere except top bin
+    e_weights_1 = np.zeros(num_bins_1)
+    e_weights_1[top_idx] = 1.0
+
+    mask_1 = np.ones((1, 1), dtype=bool)
+    edges_1 = extract_edge_segments(mask_1)
+    edge_conds_1 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_1}
+    init_field_1 = np.full((1, 1), n0_top, dtype=float)
+
+    dt_1 = 0.002
+    total_time_1 = 4.0
+    store_every_1 = 20
+
+    times_1, _, _, _, energy_frames_1, _ = run_2d_crank_nicolson(
+        mask=mask_1, edges=edges_1, edge_conditions=edge_conds_1,
+        initial_field=init_field_1, diffusion_coefficient=1.0,
+        dt=dt_1, total_time=total_time_1, dx=1.0, store_every=store_every_1,
+        energy_gap=gap_1, energy_min_factor=1.0, energy_max_factor=3.0,
+        num_energy_bins=num_bins_1, energy_weights=e_weights_1,
+        enable_diffusion=False, enable_recombination=False, enable_scattering=True,
+        tau_0=tau_0_1, T_c=T_c_1, bath_temperature=T_bath_1,
+    )
+
+    t_arr_1 = np.asarray(times_1, dtype=float)
+    # Extract top-bin density over time (spectral density × dE)
+    sim_n_1 = np.array([ef[top_idx][0, 0] for ef in energy_frames_1], dtype=float) * dE_1
+    ana_n_1 = n0_top * np.exp(-Gamma_top * t_arr_1)
+
+    cases.append(TestCaseResultData(
+        case_id="scat_top_bin_decay",
+        title="Top-Bin Scattering Out (Exponential Decay)",
+        boundary_label="Reflective (single cell, no diffusion)",
+        formula_latex=r"n_{\mathrm{top}}(t) = n_0\,e^{-\Gamma\,t},\quad \Gamma = \Delta E\,\sum_j K^s_{\mathrm{top},j}\,\rho_j",
+        initial_condition_latex=r"n_{\mathrm{top}}(0) = 0.01,\ \text{all other bins} = 0",
+        description=(
+            "10 energy bins, T_bath=0.3 K, \u03c4\u2080=10 ns. "
+            "Only the highest bin is populated (low density, Pauli blocking \u2248 0). "
+            "No density above \u2192 nothing scatters in. "
+            "Pure exponential decay at rate \u0393."
+        ),
+        x=t_arr_1.tolist(),
+        times=[0.0],
+        simulated=[sim_n_1.tolist()],
+        analytic=[ana_n_1.tolist()],
+        metadata={
+            "geometry_id": "scattering",
+            "view_mode": "timeseries",
+            "tau_0": tau_0_1, "T_c": T_c_1, "gap": gap_1,
+            "T_bath": T_bath_1, "Gamma_top": Gamma_top, "n0": n0_top,
+        },
+    ))
+
+    # ── Case 2: Scattering Equilibrium Stationarity ──
+    tau_0_2 = 10.0
+    T_c_2 = 1.2
+    gap_2 = 180.0
+    T_bath_2 = 0.8
+    num_bins_2 = 15
+    E_bins_2 = np.linspace(1.0 * gap_2, 3.0 * gap_2, num_bins_2)
+    dE_2 = E_bins_2[1] - E_bins_2[0]
+
+    n_eq_2 = thermal_qp_weights(E_bins_2, gap_2, T_bath_2)
+    total_n_eq_2 = float(np.sum(n_eq_2) * dE_2)
+
+    mask_2 = np.ones((1, 1), dtype=bool)
+    edges_2 = extract_edge_segments(mask_2)
+    edge_conds_2 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_2}
+    init_field_2 = np.full((1, 1), total_n_eq_2, dtype=float)
+
+    dt_2 = 0.1
+    total_time_2 = 200.0
+    store_every_2 = 10
+
+    times_2, _, _, _, energy_frames_2, _ = run_2d_crank_nicolson(
+        mask=mask_2, edges=edges_2, edge_conditions=edge_conds_2,
+        initial_field=init_field_2, diffusion_coefficient=1.0,
+        dt=dt_2, total_time=total_time_2, dx=1.0, store_every=store_every_2,
+        energy_gap=gap_2, energy_min_factor=1.0, energy_max_factor=3.0,
+        num_energy_bins=num_bins_2, energy_weights=n_eq_2,
+        enable_diffusion=False, enable_recombination=False, enable_scattering=True,
+        tau_0=tau_0_2, T_c=T_c_2, bath_temperature=T_bath_2,
+    )
+
+    t_arr_2 = np.asarray(times_2, dtype=float)
+    sim_n_2 = np.array([
+        float(np.sum(np.array([ef_bin[0, 0] for ef_bin in ef])) * dE_2)
+        for ef in energy_frames_2
+    ], dtype=float)
+    ana_n_2 = np.full_like(t_arr_2, total_n_eq_2)
+
+    cases.append(TestCaseResultData(
+        case_id="scat_equilibrium_stationarity",
+        title="Scattering Equilibrium Stationarity",
+        boundary_label="Reflective (single cell, no diffusion)",
+        formula_latex=r"n(t) = n_{\mathrm{eq}} = \mathrm{const}",
+        initial_condition_latex=r"n(0) = n_{\mathrm{eq}}(T_{\mathrm{bath}})",
+        description=(
+            "15 energy bins, T_bath=0.8 K, \u03c4\u2080=10 ns. "
+            "Initial state is exact thermal equilibrium. "
+            "Detailed balance ensures scattering in = scattering out "
+            "at every energy, so total QP density remains constant."
+        ),
+        x=t_arr_2.tolist(),
+        times=[0.0],
+        simulated=[sim_n_2.tolist()],
+        analytic=[ana_n_2.tolist()],
+        metadata={
+            "geometry_id": "scattering",
+            "view_mode": "timeseries",
+            "tau_0": tau_0_2, "T_c": T_c_2, "gap": gap_2,
+            "T_bath": T_bath_2, "n_eq": total_n_eq_2,
+        },
+    ))
+
+    preview = np.zeros((8, 12), dtype=int)
+    preview[3:5, 5:7] = 1
+    return TestGeometryGroupData(
+        geometry_id="scattering",
+        title="Scattering Dynamics",
+        description="Quasiparticle-phonon scattering test cases verifying exponential decay and detailed balance.",
+        view_mode="timeseries",
+        preview_mask=preview.tolist(),
+        cases=cases,
+    )
+
+
 def generate_test_suite(
     nx: int = 100,
     dx: float = 1.0,
@@ -577,7 +941,9 @@ def generate_test_suite(
         store_every=store_every,
     )
 
-    geometry_groups = [strip_group, rectangle_group, donut_group]
+    recombination_group = _generate_recombination_test_group()
+    scattering_group = _generate_scattering_test_group()
+    geometry_groups = [strip_group, rectangle_group, donut_group, recombination_group, scattering_group]
     return TestSuiteData(
         suite_id=uuid.uuid4().hex[:12],
         created_at=utc_now_iso(),

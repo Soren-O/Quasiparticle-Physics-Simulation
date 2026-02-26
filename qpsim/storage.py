@@ -102,6 +102,16 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         total_time=float(params_raw["total_time"]),
         mesh_size=float(params_raw["mesh_size"]),
         store_every=int(params_raw.get("store_every", 1)),
+        energy_gap=float(params_raw.get("energy_gap", 0.0)),
+        energy_min_factor=float(params_raw.get("energy_min_factor", 1.0)),
+        energy_max_factor=float(params_raw.get("energy_max_factor", 10.0)),
+        num_energy_bins=int(params_raw.get("num_energy_bins", 50)),
+        enable_diffusion=bool(params_raw.get("enable_diffusion", True)),
+        enable_recombination=bool(params_raw.get("enable_recombination", False)),
+        enable_scattering=bool(params_raw.get("enable_scattering", False)),
+        tau_0=float(params_raw.get("tau_0", 440.0)),
+        T_c=float(params_raw.get("T_c", 1.2)),
+        bath_temperature=float(params_raw.get("bath_temperature", 0.1)),
     )
 
     ic_raw = payload.get("initial_condition", {})
@@ -157,6 +167,8 @@ def deserialize_simulation(payload: dict[str, Any]) -> SimulationResultData:
         mass_over_time=[float(v) for v in payload["mass_over_time"]],
         color_limits=[float(v) for v in payload["color_limits"]],
         metadata=payload.get("metadata", {}),
+        energy_frames=payload.get("energy_frames"),
+        energy_bins=[float(v) for v in payload["energy_bins"]] if payload.get("energy_bins") else None,
     )
 
 

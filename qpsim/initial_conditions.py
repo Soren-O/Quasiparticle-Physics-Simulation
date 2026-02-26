@@ -100,6 +100,12 @@ def build_initial_field(mask: np.ndarray, spec: InitialConditionSpec) -> np.ndar
                 d2 = (inside[:, 0] - row) ** 2 + (inside[:, 1] - col) ** 2
                 nearest = inside[int(np.argmin(d2))]
                 field[int(nearest[0]), int(nearest[1])] = value
+    elif kind == "fermi_dirac":
+        # Spatially uniform field; energy distribution is handled by the solver
+        # via thermal_qp_weights.  The amplitude here sets the total spatial
+        # density before energy redistribution.
+        amplitude = float(params.get("amplitude", 1.0))
+        field.fill(amplitude)
     elif kind == "custom":
         fn = _compile_custom_expression(spec.custom_body)
         custom_params = dict(spec.custom_params or {})

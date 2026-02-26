@@ -76,11 +76,24 @@ class InitialConditionSpec:
 
 @dataclass
 class SimulationParameters:
-    diffusion_coefficient: float
-    dt: float
-    total_time: float
-    mesh_size: float
+    diffusion_coefficient: float     # D₀ in μm²/ns
+    dt: float                        # ns
+    total_time: float                # ns
+    mesh_size: float                 # μm (spatial grid spacing)
     store_every: int = 1
+    # Energy grid fields (energy_gap=0 disables energy dimension for legacy mode)
+    energy_gap: float = 0.0          # Δ in μeV (0 = no energy dimension)
+    energy_min_factor: float = 1.0   # E_min = factor × Δ (must be ≥ 1.0)
+    energy_max_factor: float = 10.0  # E_max = factor × Δ
+    num_energy_bins: int = 50        # number of energy bins
+    # --- physics process toggles ---
+    enable_diffusion: bool = True
+    enable_recombination: bool = False
+    enable_scattering: bool = False       # future, not implemented yet
+    # --- recombination parameters ---
+    tau_0: float = 440.0                  # electron-phonon time in ns (Al ≈ 440 ns)
+    T_c: float = 1.2                      # critical temperature in K
+    bath_temperature: float = 0.1         # phonon bath temperature in K
 
 
 @dataclass
@@ -101,10 +114,12 @@ class SimulationResultData:
     setup_name: str
     created_at: str
     times: list[float]
-    frames: list[list[list[float | None]]]
+    frames: list[list[list[float | None]]]       # energy-integrated 2D snapshots (for viewer)
     mass_over_time: list[float]
     color_limits: list[float]
     metadata: dict[str, Any] = field(default_factory=dict)
+    energy_frames: list[list[list[list[float | None]]]] | None = None  # full 3D [time][energy][y][x]
+    energy_bins: list[float] | None = None        # energy bin centers in μeV
 
 
 @dataclass
