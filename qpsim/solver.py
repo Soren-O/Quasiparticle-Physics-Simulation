@@ -13,6 +13,7 @@ from .models import (
     ExternalGenerationSpec,
     normalize_collision_solver_name,
 )
+from .safe_eval import compile_safe_expression
 
 
 class BoundaryAssignmentError(ValueError):
@@ -314,8 +315,9 @@ def _dynes_density_of_states(E: np.ndarray, gap: float, gamma: float) -> np.ndar
     return np.maximum(result, 0.0)
 
 
-# Boltzmann constant in μeV/K
-_KB_UEV_PER_K = 86.17  # k_B ≈ 86.17 μeV/K
+# Boltzmann constant in μeV/K.
+# k_B = 8.617333262145e-5 eV/K = 86.17333262145 μeV/K.
+_KB_UEV_PER_K = 86.17333262145
 
 
 def thermal_qp_weights(
@@ -681,22 +683,10 @@ def evaluate_external_generation(
         return _check_generation(np.zeros((NE, n_spatial), dtype=float), mode)
 
     if mode == "custom":
-        import math
-        from textwrap import indent as _indent
-        body = spec.custom_body.strip() or "return 0.0"
-        source = "def _g_ext(E, x, y, t, params):\n" + _indent(body, "    ") + "\n"
-        safe_globals = {
-            "__builtins__": {},
-            "np": np,
-            "math": math,
-            "abs": abs,
-            "min": min,
-            "max": max,
-            "pow": pow,
-        }
-        local_ns: dict = {}
-        exec(source, safe_globals, local_ns)
-        fn = local_ns["_g_ext"]
+        fn = compile_safe_expression(
+            spec.custom_body.strip() or "0.0",
+            variable_names=("E", "x", "y", "t", "params"),
+        )
 
         ny, nx = mask.shape
         y_idx, x_idx = np.indices(mask.shape)
@@ -711,7 +701,7 @@ def evaluate_external_generation(
             # Try vectorized: pass arrays for E, x, y
             for i in range(NE):
                 E_val = E_bins[i]
-                val = fn(E_val, x_flat, y_flat, t, params)
+                val = fn(E=E_val, x=x_flat, y=y_flat, t=t, params=params)
                 arr = np.asarray(val, dtype=float)
                 if arr.ndim == 0:
                     result[i] = float(arr)
@@ -727,7 +717,15 @@ def evaluate_external_generation(
             # Scalar fallback
             for i in range(NE):
                 for px in range(n_spatial):
-                    result[i, px] = float(fn(float(E_bins[i]), float(x_flat[px]), float(y_flat[px]), t, params))
+                    result[i, px] = float(
+                        fn(
+                            E=float(E_bins[i]),
+                            x=float(x_flat[px]),
+                            y=float(y_flat[px]),
+                            t=t,
+                            params=params,
+                        )
+                    )
         return _check_generation(result, mode)
 
     return None

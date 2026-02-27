@@ -331,17 +331,35 @@ def _generate_rectangle_geometry_group(
     mask = np.ones((ny, nx), dtype=bool)
     edges = extract_edge_segments(mask)
     dirichlet_zero = BoundaryCondition(kind="dirichlet", value=0.0)
+    reflective = BoundaryCondition(kind="reflective")
     edge_conditions = _uniform_edge_conditions(edges, dirichlet_zero)
     modes = [(1, 1), (2, 1), (1, 2), (2, 2), (3, 1), (1, 3)]
 
-    cases: list[TestCaseResultData] = []
-    for mode_index, (m, n) in enumerate(modes, start=1):
-        phi = np.sin(m * np.pi * gx / lx) * np.sin(n * np.pi * gy / ly)
+    def _edge_conditions_by_normal(overrides: dict[str, BoundaryCondition]) -> dict[str, BoundaryCondition]:
+        return {
+            edge.edge_id: overrides.get(edge.normal, reflective)
+            for edge in edges
+        }
+
+    def _append_case(
+        *,
+        case_id: str,
+        title: str,
+        boundary_label: str,
+        formula_latex: str,
+        initial_condition_latex: str,
+        description: str,
+        mode_m: int,
+        mode_n: int,
+        phi: np.ndarray,
+        lam_sq: float,
+        current_edge_conditions: dict[str, BoundaryCondition],
+    ) -> None:
         initial_field = phi.copy()
         times, frames, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
             edges=edges,
-            edge_conditions=edge_conditions,
+            edge_conditions=current_edge_conditions,
             initial_field=initial_field,
             diffusion_coefficient=diffusion_coefficient,
             dt=dt,
@@ -349,22 +367,16 @@ def _generate_rectangle_geometry_group(
             dx=dx,
             store_every=store_every,
         )
-        lam_sq = (m * np.pi / lx) ** 2 + (n * np.pi / ly) ** 2
         t_arr = np.asarray(times, dtype=float)
         analytic_frames = [phi * np.exp(-diffusion_coefficient * lam_sq * t) for t in t_arr]
-
         cases.append(
             TestCaseResultData(
-                case_id=f"rectangle_mode_{m}_{n}",
-                title=f"Rectangle Mode ({m}, {n})",
-                boundary_label="Dirichlet zero on all rectangle edges",
-                formula_latex=(
-                    rf"u(x,y,t)=\sin\left(\frac{{{m}\pi x}}{{L_x}}\right)"
-                    rf"\sin\left(\frac{{{n}\pi y}}{{L_y}}\right)"
-                    rf"e^{{-D[(\frac{{{m}\pi}}{{L_x}})^2+(\frac{{{n}\pi}}{{L_y}})^2]t}}"
-                ),
-                initial_condition_latex=rf"u(x,y,0)=\sin\left(\frac{{{m}\pi x}}{{L_x}}\right)\sin\left(\frac{{{n}\pi y}}{{L_y}}\right)",
-                description=f"2D rectangular eigenmode benchmark case {mode_index}.",
+                case_id=case_id,
+                title=title,
+                boundary_label=boundary_label,
+                formula_latex=formula_latex,
+                initial_condition_latex=initial_condition_latex,
+                description=description,
                 x=[],
                 times=t_arr.tolist(),
                 simulated=[frame_to_jsonable(frame) for frame in frames],
@@ -373,8 +385,8 @@ def _generate_rectangle_geometry_group(
                     "geometry_id": "rectangle_2d",
                     "view_mode": "heatmap2d",
                     "grid_shape": [ny, nx],
-                    "mode_m": m,
-                    "mode_n": n,
+                    "mode_m": mode_m,
+                    "mode_n": mode_n,
                     "diffusion_coefficient": diffusion_coefficient,
                     "dx": dx,
                     "dt": dt,
@@ -383,11 +395,111 @@ def _generate_rectangle_geometry_group(
             )
         )
 
+    cases: list[TestCaseResultData] = []
+    for mode_index, (m, n) in enumerate(modes, start=1):
+        phi = np.sin(m * np.pi * gx / lx) * np.sin(n * np.pi * gy / ly)
+        lam_sq = (m * np.pi / lx) ** 2 + (n * np.pi / ly) ** 2
+        _append_case(
+            case_id=f"rectangle_mode_{m}_{n}",
+            title=f"Rectangle Mode ({m}, {n})",
+            boundary_label="Dirichlet zero on all rectangle edges",
+            formula_latex=(
+                rf"u(x,y,t)=\sin\left(\frac{{{m}\pi x}}{{L_x}}\right)"
+                rf"\sin\left(\frac{{{n}\pi y}}{{L_y}}\right)"
+                rf"e^{{-D[(\frac{{{m}\pi}}{{L_x}})^2+(\frac{{{n}\pi}}{{L_y}})^2]t}}"
+            ),
+            initial_condition_latex=(
+                rf"u(x,y,0)=\sin\left(\frac{{{m}\pi x}}{{L_x}}\right)"
+                rf"\sin\left(\frac{{{n}\pi y}}{{L_y}}\right)"
+            ),
+            description=f"2D rectangular Dirichlet eigenmode benchmark case {mode_index}.",
+            mode_m=m,
+            mode_n=n,
+            phi=phi,
+            lam_sq=lam_sq,
+            current_edge_conditions=edge_conditions,
+        )
+
+    mixed_profiles = [
+        {
+            "case_id": "rectangle_mix_dirichlet_x_neumann_y_1_1",
+            "title": "Rectangle Mixed BC (D/N) Mode (1, 1)",
+            "boundary_label": "Dirichlet on left/right, reflective on top/bottom",
+            "formula_latex": (
+                r"u(x,y,t)=\sin\left(\frac{\pi x}{L_x}\right)\cos\left(\frac{\pi y}{L_y}\right)"
+                r"e^{-D[(\frac{\pi}{L_x})^2+(\frac{\pi}{L_y})^2]t}"
+            ),
+            "initial_condition_latex": (
+                r"u(x,y,0)=\sin\left(\frac{\pi x}{L_x}\right)\cos\left(\frac{\pi y}{L_y}\right)"
+            ),
+            "description": "Mixed-boundary rectangle benchmark with Dirichlet-x and Neumann-y constraints.",
+            "mode_m": 1,
+            "mode_n": 1,
+            "phi": np.sin(np.pi * gx / lx) * np.cos(np.pi * gy / ly),
+            "edge_conditions": _edge_conditions_by_normal(
+                {"left": dirichlet_zero, "right": dirichlet_zero, "up": reflective, "down": reflective}
+            ),
+        },
+        {
+            "case_id": "rectangle_mix_neumann_x_dirichlet_y_1_1",
+            "title": "Rectangle Mixed BC (N/D) Mode (1, 1)",
+            "boundary_label": "Reflective on left/right, Dirichlet on top/bottom",
+            "formula_latex": (
+                r"u(x,y,t)=\cos\left(\frac{\pi x}{L_x}\right)\sin\left(\frac{\pi y}{L_y}\right)"
+                r"e^{-D[(\frac{\pi}{L_x})^2+(\frac{\pi}{L_y})^2]t}"
+            ),
+            "initial_condition_latex": (
+                r"u(x,y,0)=\cos\left(\frac{\pi x}{L_x}\right)\sin\left(\frac{\pi y}{L_y}\right)"
+            ),
+            "description": "Mixed-boundary rectangle benchmark with Neumann-x and Dirichlet-y constraints.",
+            "mode_m": 1,
+            "mode_n": 1,
+            "phi": np.cos(np.pi * gx / lx) * np.sin(np.pi * gy / ly),
+            "edge_conditions": _edge_conditions_by_normal(
+                {"left": reflective, "right": reflective, "up": dirichlet_zero, "down": dirichlet_zero}
+            ),
+        },
+        {
+            "case_id": "rectangle_reflective_mode_1_1",
+            "title": "Rectangle Reflective Mode (1, 1)",
+            "boundary_label": "Reflective on all rectangle edges",
+            "formula_latex": (
+                r"u(x,y,t)=\cos\left(\frac{\pi x}{L_x}\right)\cos\left(\frac{\pi y}{L_y}\right)"
+                r"e^{-D[(\frac{\pi}{L_x})^2+(\frac{\pi}{L_y})^2]t}"
+            ),
+            "initial_condition_latex": (
+                r"u(x,y,0)=\cos\left(\frac{\pi x}{L_x}\right)\cos\left(\frac{\pi y}{L_y}\right)"
+            ),
+            "description": "Fully reflective rectangle benchmark with zero-flux boundaries on all sides.",
+            "mode_m": 1,
+            "mode_n": 1,
+            "phi": np.cos(np.pi * gx / lx) * np.cos(np.pi * gy / ly),
+            "edge_conditions": _uniform_edge_conditions(edges, reflective),
+        },
+    ]
+    for profile in mixed_profiles:
+        m = int(profile["mode_m"])
+        n = int(profile["mode_n"])
+        lam_sq = (m * np.pi / lx) ** 2 + (n * np.pi / ly) ** 2
+        _append_case(
+            case_id=str(profile["case_id"]),
+            title=str(profile["title"]),
+            boundary_label=str(profile["boundary_label"]),
+            formula_latex=str(profile["formula_latex"]),
+            initial_condition_latex=str(profile["initial_condition_latex"]),
+            description=str(profile["description"]),
+            mode_m=m,
+            mode_n=n,
+            phi=np.asarray(profile["phi"], dtype=float),
+            lam_sq=lam_sq,
+            current_edge_conditions=profile["edge_conditions"],
+        )
+
     preview = np.pad(mask.astype(int), pad_width=3, mode="constant", constant_values=0)
     return TestGeometryGroupData(
         geometry_id="rectangle_2d",
         title="2D Rectangle",
-        description="Non-1D rectangular diffusion with analytic sine-mode solutions.",
+        description="Non-1D rectangular diffusion with Dirichlet, mixed, and reflective analytic eigenmode solutions.",
         view_mode="heatmap2d",
         preview_mask=preview.tolist(),
         cases=cases,
@@ -430,10 +542,35 @@ def _polygon_donut_mask(nx: int, ny: int) -> tuple[np.ndarray, float, float, flo
 
 
 def _annulus_eigenvalue(inner_r: float, outer_r: float, mode_index: int) -> float:
+    return _annulus_radial_eigenvalue(
+        inner_r=inner_r,
+        outer_r=outer_r,
+        mode_index=mode_index,
+        inner_boundary="dirichlet",
+        outer_boundary="dirichlet",
+    )
+
+
+def _annulus_radial_eigenvalue(
+    inner_r: float,
+    outer_r: float,
+    mode_index: int,
+    inner_boundary: str,
+    outer_boundary: str,
+) -> float:
+    valid = {"dirichlet", "reflective", "neumann"}
+    if inner_boundary not in valid or outer_boundary not in valid:
+        raise ValueError("Annulus radial eigenvalue supports dirichlet/reflective(neumann) boundaries only.")
+
+    def _row_values(lam: float, radius: float, boundary: str) -> tuple[float, float]:
+        if boundary in {"reflective", "neumann"}:
+            return float(special.j1(lam * radius)), float(special.y1(lam * radius))
+        return float(special.j0(lam * radius)), float(special.y0(lam * radius))
+
     def f(lam: float) -> float:
-        return special.j0(lam * inner_r) * special.y0(lam * outer_r) - special.y0(lam * inner_r) * special.j0(
-            lam * outer_r
-        )
+        i0, i1 = _row_values(lam, inner_r, inner_boundary)
+        o0, o1 = _row_values(lam, outer_r, outer_boundary)
+        return i0 * o1 - i1 * o0
 
     roots: list[float] = []
     left = 1e-4
@@ -453,6 +590,40 @@ def _annulus_eigenvalue(inner_r: float, outer_r: float, mode_index: int) -> floa
     raise ValueError("Failed to find annulus eigenvalue root.")
 
 
+def _annulus_radial_mode(
+    r: np.ndarray,
+    lam: float,
+    inner_r: float,
+    inner_boundary: str,
+) -> np.ndarray:
+    if inner_boundary in {"reflective", "neumann"}:
+        coeff_j = special.y1(lam * inner_r)
+        coeff_y = -special.j1(lam * inner_r)
+    else:
+        coeff_j = special.y0(lam * inner_r)
+        coeff_y = -special.j0(lam * inner_r)
+    return coeff_j * special.j0(lam * r) + coeff_y * special.y0(lam * r)
+
+
+def _annulus_edge_conditions(
+    edges,
+    cx: float,
+    cy: float,
+    inner_r: float,
+    outer_r: float,
+    inner_bc: BoundaryCondition,
+    outer_bc: BoundaryCondition,
+) -> dict[str, BoundaryCondition]:
+    split_radius = 0.5 * (inner_r + outer_r)
+    out: dict[str, BoundaryCondition] = {}
+    for edge in edges:
+        mx = 0.5 * (edge.x0 + edge.x1)
+        my = 0.5 * (edge.y0 + edge.y1)
+        radius = float(np.hypot(mx - cx, my - cy))
+        out[edge.edge_id] = inner_bc if radius < split_radius else outer_bc
+    return out
+
+
 def _generate_polygon_donut_geometry_group(
     dx: float,
     diffusion_coefficient: float,
@@ -464,7 +635,7 @@ def _generate_polygon_donut_geometry_group(
     mask, cx, cy, inner_r, outer_r = _polygon_donut_mask(nx=nx, ny=ny)
     edges = extract_edge_segments(mask)
     dirichlet_zero = BoundaryCondition(kind="dirichlet", value=0.0)
-    edge_conditions = _uniform_edge_conditions(edges, dirichlet_zero)
+    reflective = BoundaryCondition(kind="reflective")
 
     y_idx, x_idx = np.indices(mask.shape, dtype=float)
     x = x_idx + 0.5
@@ -472,14 +643,70 @@ def _generate_polygon_donut_geometry_group(
     r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
 
     cases: list[TestCaseResultData] = []
-    for mode_index in [1, 2, 3, 4]:
-        lam = _annulus_eigenvalue(inner_r=inner_r, outer_r=outer_r, mode_index=mode_index)
-        phi = special.j0(lam * r) * special.y0(lam * inner_r) - special.y0(lam * r) * special.j0(lam * inner_r)
+    profiles = [
+        {
+            "case_id": "donut_radial_dd_mode_1",
+            "title": "Donut Radial D/D Mode 1",
+            "inner_boundary": "dirichlet",
+            "outer_boundary": "dirichlet",
+            "boundary_label": "Dirichlet on inner and outer polygon boundaries",
+            "mode_index": 1,
+            "boundary_latex": r"\phi_k(a)=0,\quad \phi_k(b)=0",
+        },
+        {
+            "case_id": "donut_radial_dn_mode_1",
+            "title": "Donut Radial D/N Mode 1",
+            "inner_boundary": "dirichlet",
+            "outer_boundary": "reflective",
+            "boundary_label": "Dirichlet inner boundary, reflective outer boundary",
+            "mode_index": 1,
+            "boundary_latex": r"\phi_k(a)=0,\quad \partial_r\phi_k(b)=0",
+        },
+        {
+            "case_id": "donut_radial_nd_mode_1",
+            "title": "Donut Radial N/D Mode 1",
+            "inner_boundary": "reflective",
+            "outer_boundary": "dirichlet",
+            "boundary_label": "Reflective inner boundary, Dirichlet outer boundary",
+            "mode_index": 1,
+            "boundary_latex": r"\partial_r\phi_k(a)=0,\quad \phi_k(b)=0",
+        },
+        {
+            "case_id": "donut_radial_nn_mode_1",
+            "title": "Donut Radial N/N Mode 1",
+            "inner_boundary": "reflective",
+            "outer_boundary": "reflective",
+            "boundary_label": "Reflective inner and outer polygon boundaries",
+            "mode_index": 1,
+            "boundary_latex": r"\partial_r\phi_k(a)=0,\quad \partial_r\phi_k(b)=0",
+        },
+    ]
+    for profile in profiles:
+        mode_index = int(profile["mode_index"])
+        inner_boundary = str(profile["inner_boundary"])
+        outer_boundary = str(profile["outer_boundary"])
+        lam = _annulus_radial_eigenvalue(
+            inner_r=inner_r,
+            outer_r=outer_r,
+            mode_index=mode_index,
+            inner_boundary=inner_boundary,
+            outer_boundary=outer_boundary,
+        )
+        phi = _annulus_radial_mode(r=r, lam=lam, inner_r=inner_r, inner_boundary=inner_boundary)
         phi[~mask] = 0.0
         amp = np.max(np.abs(phi[mask]))
         if amp > 0:
             phi = phi / amp
 
+        edge_conditions = _annulus_edge_conditions(
+            edges=edges,
+            cx=cx,
+            cy=cy,
+            inner_r=inner_r,
+            outer_r=outer_r,
+            inner_bc=dirichlet_zero if inner_boundary == "dirichlet" else reflective,
+            outer_bc=dirichlet_zero if outer_boundary == "dirichlet" else reflective,
+        )
         initial_field = phi.copy()
         times, frames, _, _, _, _ = run_2d_crank_nicolson(
             mask=mask,
@@ -508,15 +735,18 @@ def _generate_polygon_donut_geometry_group(
 
         cases.append(
             TestCaseResultData(
-                case_id=f"donut_radial_mode_{mode_index}",
-                title=f"Donut Radial Mode {mode_index}",
-                boundary_label="Dirichlet zero on inner and outer polygon boundaries",
+                case_id=str(profile["case_id"]),
+                title=str(profile["title"]),
+                boundary_label=str(profile["boundary_label"]),
                 formula_latex=(
-                    r"u(r,t)=\phi(r)e^{-D\lambda_k^2 t},\ "
-                    r"\phi(r)=J_0(\lambda_k r)Y_0(\lambda_k a)-Y_0(\lambda_k r)J_0(\lambda_k a)"
+                    r"u(r,t)=\phi_k(r)e^{-D\lambda_k^2 t},\ "
+                    + str(profile["boundary_latex"])
                 ),
-                initial_condition_latex=r"u(r,0)=\phi(r)",
-                description=f"Polygon annulus benchmark using radial Bessel mode k={mode_index}.",
+                initial_condition_latex=r"u(r,0)=\phi_k(r)",
+                description=(
+                    "Polygon annulus benchmark using radial Bessel eigenmodes "
+                    f"with {profile['boundary_label'].lower()} (k={mode_index})."
+                ),
                 x=[],
                 times=t_arr.tolist(),
                 simulated=[frame_to_jsonable(frame) for frame in frames_with_nan],
@@ -526,6 +756,8 @@ def _generate_polygon_donut_geometry_group(
                     "view_mode": "heatmap2d",
                     "grid_shape": [ny, nx],
                     "mode_index": mode_index,
+                    "inner_boundary": inner_boundary,
+                    "outer_boundary": outer_boundary,
                     "lambda": float(lam),
                     "inner_radius": float(inner_r),
                     "outer_radius": float(outer_r),
@@ -541,7 +773,7 @@ def _generate_polygon_donut_geometry_group(
     return TestGeometryGroupData(
         geometry_id="polygon_donut",
         title="Polygon Donut",
-        description="Polygonal annulus geometry compared against radial Bessel-mode analytic solutions.",
+        description="Polygonal annulus geometry with Dirichlet/reflective boundary variants and radial Bessel analytic solutions.",
         view_mode="heatmap2d",
         preview_mask=preview.tolist(),
         cases=cases,
@@ -805,8 +1037,8 @@ def _generate_scattering_test_group() -> TestGeometryGroupData:
         case_id="scat_top_bin_decay",
         title="Top-Bin Scattering Out (Exponential Decay)",
         boundary_label="Reflective (single cell, no diffusion)",
-        formula_latex=r"n_{\mathrm{top}}(t) = n_0\,e^{-\Gamma\,t},\quad \Gamma = \Delta E\,\sum_j K^s_{\mathrm{top},j}\,\rho_j",
-        initial_condition_latex=r"n_{\mathrm{top}}(0) = 0.01,\ \text{all other bins} = 0",
+        formula_latex=r"n_{\mathrm{top}}(t)=n_0 e^{-\Gamma t},\quad \Gamma=\Delta E\sum_j K^s_{\mathrm{top},j}\rho_j",
+        initial_condition_latex=r"n_{\mathrm{top}}(0)=0.01,\quad n_{j\neq \mathrm{top}}(0)=0",
         description=(
             "10 energy bins, T_bath=0.3 K, \u03c4\u2080=10 ns. "
             "Only the highest bin is populated (low density, Pauli blocking \u2248 0). "

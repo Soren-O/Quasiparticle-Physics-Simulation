@@ -286,6 +286,23 @@ def _deserialize_group_inline(group: dict[str, Any]) -> TestGeometryGroupData:
     )
 
 
+def _resolve_group_sidecar_path(manifest_path: Path, group_file: str) -> Path:
+    suite_dir = manifest_path.with_suffix("")
+    group_rel = Path(group_file)
+    if group_rel.is_absolute():
+        raise ValueError(f"Geometry group sidecar must be a relative path, got '{group_file}'.")
+
+    suite_root = suite_dir.resolve()
+    group_path = (suite_dir / group_rel).resolve()
+    try:
+        group_path.relative_to(suite_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Geometry group sidecar '{group_file}' escapes suite directory '{suite_dir}'."
+        ) from exc
+    return group_path
+
+
 def load_test_geometry_group(manifest_path: str | Path, geometry_id: str) -> TestGeometryGroupData:
     manifest_path = Path(manifest_path)
     payload = _read_json(manifest_path)
@@ -302,8 +319,7 @@ def load_test_geometry_group(manifest_path: str | Path, geometry_id: str) -> Tes
     if not group_file:
         raise ValueError(f"Geometry group '{geometry_id}' has no group file reference.")
 
-    suite_dir = manifest_path.with_suffix("")
-    group_path = suite_dir / group_file
+    group_path = _resolve_group_sidecar_path(manifest_path, str(group_file))
     group_payload = _read_json(group_path)
     raw = group_payload.get("group", group_payload)
     group = _deserialize_group_inline(raw)

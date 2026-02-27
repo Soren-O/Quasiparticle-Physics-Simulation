@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import math
-from textwrap import indent
-
 import numpy as np
 
 from .models import InitialConditionSpec
+from .safe_eval import compile_safe_expression
 
 
 def default_initial_condition() -> InitialConditionSpec:
@@ -18,22 +16,12 @@ def default_initial_condition() -> InitialConditionSpec:
 
 
 def _compile_custom_expression(body: str):
-    source = "def user_expression(x, y, params):\n" + indent(body.strip() or "return 0.0", "    ") + "\n"
-    safe_globals = {
-        "__builtins__": {},
-        "np": np,
-        "math": math,
-        "abs": abs,
-        "min": min,
-        "max": max,
-        "pow": pow,
-    }
-    local_ns: dict[str, object] = {}
-    exec(source, safe_globals, local_ns)
-    fn = local_ns.get("user_expression")
-    if fn is None:
-        raise ValueError("Custom initial condition did not define user_expression.")
-    return fn
+    evaluator = compile_safe_expression(body, variable_names=("x", "y", "params"))
+
+    def user_expression(x, y, params):
+        return evaluator(x=x, y=y, params=params)
+
+    return user_expression
 
 
 def _evaluate_custom_expression_vectorized(
@@ -82,8 +70,20 @@ def evaluate_gap_expression(
     1D array of gap values, one per True pixel in *mask* (row-major order).
     """
     n_interior = int(np.sum(mask))
+    def _validate_gap_values(values: np.ndarray) -> np.ndarray:
+        arr = np.asarray(values, dtype=float).reshape(-1)
+        if arr.size != n_interior:
+            raise ValueError(
+                f"Gap expression returned {arr.size} values; expected {n_interior} interior pixels."
+            )
+        if not np.all(np.isfinite(arr)):
+            raise ValueError("Gap expression produced non-finite values.")
+        if np.any(arr <= 0.0):
+            raise ValueError("Gap expression must produce strictly positive values.")
+        return arr
+
     if not expression.strip():
-        return np.full(n_interior, energy_gap_default, dtype=float)
+        return _validate_gap_values(np.full(n_interior, energy_gap_default, dtype=float))
 
     fn = _compile_custom_expression(expression)
     ny, nx = mask.shape
@@ -99,14 +99,14 @@ def evaluate_gap_expression(
         custom_params={},
     )
     if vector_result is not None:
-        return vector_result.astype(float)
+        return _validate_gap_values(vector_result)
 
     # Scalar fallback
     coords = np.argwhere(mask)
     result = np.empty(n_interior, dtype=float)
     for idx, (row, col) in enumerate(coords):
         result[idx] = float(fn(float(x_norm[row, col]), float(y_norm[row, col]), {}))
-    return result
+    return _validate_gap_values(result)
 
 
 def build_initial_field(mask: np.ndarray, spec: InitialConditionSpec) -> np.ndarray:

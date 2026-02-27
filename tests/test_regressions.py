@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -16,9 +16,13 @@ from qpsim.storage import (
     TEST_SUITE_FORMAT_VERSION,
     frame_from_jsonable,
     frame_to_jsonable,
+    load_test_geometry_group,
     load_test_suite,
     save_test_suite,
 )
+
+_SANDBOX_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp_test"
+_SANDBOX_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class RegressionTests(unittest.TestCase):
@@ -56,6 +60,15 @@ class RegressionTests(unittest.TestCase):
         expected = (x_norm > 0.5).astype(float)
         self.assertTrue(np.array_equal(field, expected))
 
+    def test_custom_ic_rejects_unsafe_expression(self) -> None:
+        mask = np.ones((8, 8), dtype=bool)
+        spec = InitialConditionSpec(
+            kind="custom",
+            custom_body="__import__('os').system('echo unsafe')",
+        )
+        with self.assertRaises(ValueError):
+            build_initial_field(mask, spec)
+
     def test_connected_component_count_uses_4_connectivity(self) -> None:
         mask = np.array(
             [
@@ -75,9 +88,12 @@ class RegressionTests(unittest.TestCase):
             geometry_groups=[],
             metadata={"format_version": TEST_SUITE_FORMAT_VERSION},
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        path = _SANDBOX_TMP_ROOT / f"suite_{uuid.uuid4().hex}.json"
+        try:
             with self.assertRaises(ValueError):
-                save_test_suite(suite, path=Path(tmpdir) / "suite.json")
+                save_test_suite(suite, path=path)
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_load_test_suite_raises_on_missing_group_sidecar(self) -> None:
         payload = {
@@ -98,11 +114,13 @@ class RegressionTests(unittest.TestCase):
             ],
             "metadata": {"format_version": TEST_SUITE_FORMAT_VERSION},
         }
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "suite.json"
+        path = _SANDBOX_TMP_ROOT / f"suite_{uuid.uuid4().hex}.json"
+        try:
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_test_suite(path, load_group_cases=True)
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_load_test_suite_can_skip_missing_group_sidecar(self) -> None:
         payload = {
@@ -123,12 +141,61 @@ class RegressionTests(unittest.TestCase):
             ],
             "metadata": {"format_version": TEST_SUITE_FORMAT_VERSION},
         }
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "suite.json"
+        path = _SANDBOX_TMP_ROOT / f"suite_{uuid.uuid4().hex}.json"
+        try:
             path.write_text(json.dumps(payload), encoding="utf-8")
             suite = load_test_suite(path, load_group_cases=False)
+        finally:
+            path.unlink(missing_ok=True)
         self.assertEqual(len(suite.geometry_groups), 1)
         self.assertEqual(suite.geometry_groups[0].geometry_id, "g1")
+
+    def test_load_test_geometry_group_rejects_path_escape(self) -> None:
+        uid = uuid.uuid4().hex
+        path = _SANDBOX_TMP_ROOT / f"suite_{uid}.json"
+        outside_group = _SANDBOX_TMP_ROOT / f"outside_{uid}.json"
+        payload = {
+            "suite_id": "suite_escape",
+            "created_at": utc_now_iso(),
+            "cases": [],
+            "geometry_groups": [
+                {
+                    "geometry_id": "g1",
+                    "title": "Group 1",
+                    "description": "path escape should be rejected",
+                    "view_mode": "line1d",
+                    "preview_mask": [[1, 1, 1]],
+                    "cases": [],
+                    "case_count": 1,
+                    "group_file": f"..\\{outside_group.name}",
+                }
+            ],
+            "metadata": {"format_version": TEST_SUITE_FORMAT_VERSION},
+        }
+        try:
+            outside_group.write_text(
+                json.dumps(
+                    {
+                        "suite_id": "suite_escape",
+                        "group": {
+                            "geometry_id": "g1",
+                            "title": "Group 1",
+                            "description": "",
+                            "view_mode": "line1d",
+                            "preview_mask": [[1, 1, 1]],
+                            "cases": [],
+                            "case_count": 1,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_test_geometry_group(path, "g1")
+        finally:
+            path.unlink(missing_ok=True)
+            outside_group.unlink(missing_ok=True)
 
     def test_load_test_suite_rejects_legacy_flat_case_format(self) -> None:
         payload = {
@@ -151,11 +218,13 @@ class RegressionTests(unittest.TestCase):
             ],
             "metadata": {"format_version": 1},
         }
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "suite.json"
+        path = _SANDBOX_TMP_ROOT / f"suite_{uuid.uuid4().hex}.json"
+        try:
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_test_suite(path)
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_reflective_uniform_field_is_stationary(self) -> None:
         mask = np.ones((2, 2), dtype=bool)
@@ -280,6 +349,24 @@ class RegressionTests(unittest.TestCase):
         for m in mass:
             self.assertTrue(np.isfinite(m))
 
+    def test_precompute_rejects_non_finite_gap_expression(self) -> None:
+        mask = np.ones((4, 4), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        params = SimulationParameters(
+            diffusion_coefficient=6.0,
+            dt=0.1,
+            total_time=0.1,
+            mesh_size=1.0,
+            energy_gap=180.0,
+            energy_min_factor=1.0,
+            energy_max_factor=3.0,
+            num_energy_bins=8,
+            gap_expression="np.nan",
+        )
+        with self.assertRaises(ValueError):
+            precompute_arrays(mask, edges, edge_conditions, params)
+
     def test_external_generation_constant_increases_mass(self) -> None:
         """Constant external generation should increase total quasiparticle mass."""
         mask = np.ones((3, 3), dtype=bool)
@@ -344,6 +431,32 @@ class RegressionTests(unittest.TestCase):
         )
         for m_ext, m_none in zip(mass_ext, mass_none):
             self.assertAlmostEqual(m_ext, m_none, places=12)
+
+    def test_external_generation_custom_rejects_unsafe_expression(self) -> None:
+        mask = np.ones((1, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        ext_gen = ExternalGenerationSpec(
+            mode="custom",
+            custom_body="__import__('os').system('echo unsafe')",
+        )
+        with self.assertRaises(ValueError):
+            run_2d_crank_nicolson(
+                mask=mask,
+                edges=edges,
+                edge_conditions=edge_conditions,
+                initial_field=np.zeros((1, 2), dtype=float),
+                diffusion_coefficient=6.0,
+                dt=0.1,
+                total_time=0.1,
+                dx=1.0,
+                energy_gap=180.0,
+                energy_min_factor=1.0,
+                energy_max_factor=3.0,
+                num_energy_bins=8,
+                enable_diffusion=False,
+                external_generation=ext_gen,
+            )
 
     def test_bdf_collision_solver_runs(self) -> None:
         """BDF collision solver should run and produce finite results."""
