@@ -12,10 +12,23 @@ BOUNDARY_KINDS = {
     "absorbing",
     "robin",
 }
+COLLISION_SOLVERS = {"forward_euler", "bdf"}
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_collision_solver_name(value: str) -> str:
+    solver = str(value).strip().lower()
+    if not solver:
+        return "forward_euler"
+    if solver not in COLLISION_SOLVERS:
+        allowed = ", ".join(sorted(COLLISION_SOLVERS))
+        raise ValueError(
+            f"Unsupported collision solver '{value}'. Supported values: {allowed}."
+        )
+    return solver
 
 
 @dataclass
@@ -111,6 +124,7 @@ class SimulationParameters:
     external_generation: ExternalGenerationSpec = field(default_factory=ExternalGenerationSpec)
 
     def __post_init__(self) -> None:
+        self.collision_solver = normalize_collision_solver_name(self.collision_solver)
         if self.dt <= 0:
             raise ValueError("dt must be positive.")
         if self.total_time <= 0:

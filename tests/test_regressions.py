@@ -488,19 +488,125 @@ class RegressionTests(unittest.TestCase):
             energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
         )
         precomp = precompute_arrays(mask, edges, edge_conditions, params1)
-        n_spatial = int(np.sum(mask))
 
         # Same params should validate
-        self.assertIsNone(validate_precomputed(precomp, params1, n_spatial))
+        self.assertIsNone(validate_precomputed(precomp, params1, mask))
 
         # Changed gap should fail validation
         params2 = SimulationParameters(
             diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
             energy_gap=200.0, energy_max_factor=5.0, num_energy_bins=5,
         )
-        mismatch = validate_precomputed(precomp, params2, n_spatial)
+        mismatch = validate_precomputed(precomp, params2, mask)
         self.assertIsNotNone(mismatch)
         self.assertIn("energy_gap", mismatch)
+
+    def test_precompute_validation_checks_mask_hash(self) -> None:
+        """Different masks with the same n_spatial must not pass precompute validation."""
+        mask_a = np.array([[1, 1, 1, 1]], dtype=bool)
+        mask_b = np.array([[1, 1], [1, 1]], dtype=bool)  # same n_spatial=4, different topology
+        edges_a = extract_edge_segments(mask_a)
+        edge_conditions_a = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges_a}
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
+        )
+        precomp = precompute_arrays(mask_a, edges_a, edge_conditions_a, params)
+
+        mismatch = validate_precomputed(precomp, params, mask_b)
+        self.assertIsNotNone(mismatch)
+        self.assertIn("mask_hash", mismatch)
+
+    def test_invalid_collision_solver_rejected_by_parameters(self) -> None:
+        with self.assertRaises(ValueError):
+            SimulationParameters(
+                diffusion_coefficient=6.0,
+                dt=1.0,
+                total_time=3.0,
+                mesh_size=1.0,
+                collision_solver="not_a_solver",
+            )
+
+    def test_invalid_collision_solver_rejected_by_solver(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.ones(mask.shape, dtype=float)
+        with self.assertRaises(ValueError):
+            run_2d_crank_nicolson(
+                mask=mask, edges=edges, edge_conditions=edge_conditions,
+                initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+                total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+                energy_max_factor=5.0, num_energy_bins=5,
+                collision_solver=" definitely-not-valid ",
+            )
+
+    def test_diffusion_disabled_does_not_require_boundary_assignment(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        initial = np.full(mask.shape, 1.0, dtype=float)
+        _, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions={},  # intentionally empty
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=3.0,
+            dx=1.0,
+            store_every=1,
+            energy_gap=180.0,
+            energy_max_factor=5.0,
+            num_energy_bins=5,
+            enable_diffusion=False,
+        )
+        self.assertAlmostEqual(mass[0], mass[-1], places=12)
+
+    def test_energy_grid_cell_centers_are_above_gap(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.ones(mask.shape, dtype=float)
+        _, _, _, _, _, energy_bins = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=1.0,
+            dx=1.0,
+            energy_gap=180.0,
+            energy_min_factor=1.0,
+            energy_max_factor=5.0,
+            num_energy_bins=10,
+            enable_diffusion=False,
+        )
+        self.assertIsNotNone(energy_bins)
+        self.assertGreater(float(np.min(np.asarray(energy_bins, dtype=float))), 180.0)
+
+    def test_energy_weights_validation_rejects_negative_values(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.ones(mask.shape, dtype=float)
+        with self.assertRaises(ValueError):
+            run_2d_crank_nicolson(
+                mask=mask,
+                edges=edges,
+                edge_conditions=edge_conditions,
+                initial_field=initial,
+                diffusion_coefficient=6.0,
+                dt=1.0,
+                total_time=1.0,
+                dx=1.0,
+                energy_gap=180.0,
+                energy_min_factor=1.0,
+                energy_max_factor=5.0,
+                num_energy_bins=10,
+                energy_weights=np.full(10, -1.0),
+                enable_diffusion=False,
+            )
 
     def test_forward_euler_collision_non_negative(self) -> None:
         """Forward Euler collision should never produce negative spectral densities."""

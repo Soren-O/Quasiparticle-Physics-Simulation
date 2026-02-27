@@ -31,7 +31,12 @@ from ..models import (
     utc_now_iso,
 )
 from ..paths import ROOT_DIR, SIMULATIONS_DIR, ensure_data_dirs
-from ..solver import BoundaryAssignmentError, run_2d_crank_nicolson, thermal_qp_weights
+from ..solver import (
+    BoundaryAssignmentError,
+    build_energy_grid,
+    run_2d_crank_nicolson,
+    thermal_qp_weights,
+)
 from ..storage import (
     create_setup_id,
     create_simulation_id,
@@ -831,7 +836,14 @@ class SetupEditor(tk.Toplevel):
 
         # --- Physics process toggles ---
         tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(8, 2))
-        tk.Checkbutton(left, text="Enable Diffusion", variable=self.enable_diffusion_var, bg=RETRO_PANEL, anchor="w").pack(anchor="w")
+        tk.Checkbutton(
+            left,
+            text="Enable Diffusion",
+            variable=self.enable_diffusion_var,
+            bg=RETRO_PANEL,
+            anchor="w",
+            command=self.update_status,
+        ).pack(anchor="w")
         tk.Checkbutton(left, text="Enable Recombination", variable=self.enable_recombination_var, bg=RETRO_PANEL, anchor="w",
                         command=self._toggle_recomb_fields).pack(anchor="w")
         self.scattering_cb = tk.Checkbutton(left, text="Enable Scattering", variable=self.enable_scattering_var,
@@ -1186,14 +1198,21 @@ class SetupEditor(tk.Toplevel):
             return
         assigned = len(self.boundary_assignments)
         total = len(self.geometry_data.edges)
-        setup_ready = total > 0 and assigned == total
+        diffusion_enabled = self.enable_diffusion_var.get()
+        boundary_ready = assigned == total if diffusion_enabled else True
+        setup_ready = total > 0 and boundary_ready
         initial_kind = self.initial_condition.kind
+        boundary_note = (
+            "Click any highlighted edge to assign boundary conditions."
+            if diffusion_enabled
+            else "Boundary conditions are optional while diffusion is disabled."
+        )
         self.status_label.configure(
             text=(
                 f"Geometry: {self.geometry_data.name}\n"
                 f"Boundary assignment: {assigned}/{total}\n"
                 f"Initial condition: {initial_kind}\n"
-                f"Click any highlighted edge to assign boundary conditions."
+                f"{boundary_note}"
             )
         )
         run_state = "disabled" if self.simulation_running else ("normal" if setup_ready else "disabled")
@@ -1298,7 +1317,10 @@ class SetupEditor(tk.Toplevel):
             return
         try:
             setup = self.build_setup()
-            if len(setup.boundary_conditions) != len(setup.geometry.edges):
+            if (
+                setup.parameters.enable_diffusion
+                and len(setup.boundary_conditions) != len(setup.geometry.edges)
+            ):
                 raise BoundaryAssignmentError("All edges must be assigned before running the simulation.")
         except Exception as exc:
             messagebox.showerror("Simulation Failed", str(exc), parent=self)
@@ -1314,8 +1336,7 @@ class SetupEditor(tk.Toplevel):
             if precomputed_exists(sp):
                 try:
                     candidate = load_precomputed(sp)
-                    n_spatial = int(np.sum(mask_snapshot))
-                    mismatch = validate_precomputed(candidate, setup.parameters, n_spatial)
+                    mismatch = validate_precomputed(candidate, setup.parameters, mask_snapshot)
                     if mismatch:
                         messagebox.showwarning(
                             "Stale Pre-computed Data",
@@ -1337,10 +1358,10 @@ class SetupEditor(tk.Toplevel):
                 setup.initial_condition.kind.lower() == "fermi_dirac"
                 and p.energy_gap > 0
             ):
-                import numpy as _np
-                E_bins = _np.linspace(
-                    p.energy_min_factor * p.energy_gap,
-                    p.energy_max_factor * p.energy_gap,
+                E_bins, _ = build_energy_grid(
+                    p.energy_gap,
+                    p.energy_min_factor,
+                    p.energy_max_factor,
                     p.num_energy_bins,
                 )
                 temp_K = float(setup.initial_condition.params.get("temperature", 0.1))

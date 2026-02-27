@@ -19,6 +19,7 @@ from .models import (
 )
 from .solver import (
     _bcs_density_of_states,
+    build_energy_grid,
     recombination_kernel,
     run_2d_crank_nicolson,
     scattering_kernel,
@@ -620,8 +621,7 @@ def _generate_recombination_test_group() -> TestGeometryGroupData:
     gap_2 = 180.0
     T_bath_2 = 0.8
     num_bins_2 = 15
-    E_bins_2 = np.linspace(1.0 * gap_2, 3.0 * gap_2, num_bins_2)
-    dE_2 = E_bins_2[1] - E_bins_2[0]
+    E_bins_2, dE_2 = build_energy_grid(gap_2, 1.0, 3.0, num_bins_2)
 
     n_eq_2 = thermal_qp_weights(E_bins_2, gap_2, T_bath_2)
     total_n_eq_2 = float(np.sum(n_eq_2) * dE_2)
@@ -767,8 +767,7 @@ def _generate_scattering_test_group() -> TestGeometryGroupData:
     gap_1 = 180.0     # μeV
     T_bath_1 = 0.3    # K
     num_bins_1 = 10
-    E_bins_1 = np.linspace(1.0 * gap_1, 3.0 * gap_1, num_bins_1)
-    dE_1 = E_bins_1[1] - E_bins_1[0]
+    E_bins_1, dE_1 = build_energy_grid(gap_1, 1.0, 3.0, num_bins_1)
 
     # Precompute analytic decay rate for the top bin
     K_s_1 = scattering_kernel(E_bins_1, gap_1, tau_0_1, T_c_1, T_bath_1)
@@ -837,8 +836,7 @@ def _generate_scattering_test_group() -> TestGeometryGroupData:
     gap_2 = 180.0
     T_bath_2 = 0.8
     num_bins_2 = 15
-    E_bins_2 = np.linspace(1.0 * gap_2, 3.0 * gap_2, num_bins_2)
-    dE_2 = E_bins_2[1] - E_bins_2[0]
+    E_bins_2, dE_2 = build_energy_grid(gap_2, 1.0, 3.0, num_bins_2)
 
     n_eq_2 = thermal_qp_weights(E_bins_2, gap_2, T_bath_2)
     total_n_eq_2 = float(np.sum(n_eq_2) * dE_2)

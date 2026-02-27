@@ -6,7 +6,12 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse import linalg as spla
 
-from .models import BoundaryCondition, EdgeSegment, ExternalGenerationSpec
+from .models import (
+    BoundaryCondition,
+    EdgeSegment,
+    ExternalGenerationSpec,
+    normalize_collision_solver_name,
+)
 
 
 class BoundaryAssignmentError(ValueError):
@@ -47,6 +52,32 @@ def _mask_to_index(mask: np.ndarray) -> tuple[np.ndarray, list[tuple[int, int]]]
     for idx, (row, col) in enumerate(coords):
         index_map[row, col] = idx
     return index_map, [tuple(map(int, rc)) for rc in coords]
+
+
+def build_energy_grid(
+    gap: float,
+    energy_min_factor: float,
+    energy_max_factor: float,
+    num_energy_bins: int,
+) -> tuple[np.ndarray, float]:
+    """Build a cell-centered energy grid and its integration bin width."""
+    if gap <= 0:
+        raise ValueError("gap must be positive.")
+    if num_energy_bins <= 0:
+        raise ValueError("num_energy_bins must be >= 1.")
+
+    E_min = energy_min_factor * gap
+    E_max = energy_max_factor * gap
+    if num_energy_bins == 1:
+        # Keep legacy single-bin behavior by using a unit integration weight.
+        center = 0.5 * (E_min + E_max)
+        return np.array([center], dtype=float), 1.0
+    if E_max <= E_min:
+        raise ValueError("energy_max_factor must be > energy_min_factor for num_energy_bins > 1.")
+
+    dE = (E_max - E_min) / float(num_energy_bins)
+    E_bins = E_min + (np.arange(num_energy_bins, dtype=float) + 0.5) * dE
+    return E_bins, dE
 
 
 def _apply_boundary_contribution(
@@ -186,6 +217,8 @@ def build_variable_diffusion_laplacian(
 
     This is the standard choice for conservative discretization on staggered
     grids and ensures correct flux continuity at interfaces with varying D.
+    The reference PDF (Eq. 34) shows an arithmetic mean; we intentionally use
+    the harmonic mean for better flux continuity across sharp D contrasts.
 
     Returns (L_D, source) where the CN step uses:
       A = I - 0.5*dt*L_D,  B = I + 0.5*dt*L_D
@@ -729,9 +762,15 @@ def run_2d_crank_nicolson(
         store_every = 1
     if initial_field.shape != mask.shape:
         raise ValueError("Initial field shape must match mask shape.")
-
-    laplacian, source, _ = build_laplacian_with_boundaries(mask, edges, edge_conditions, dx)
     n = int(np.sum(mask))
+    if n == 0:
+        raise ValueError("Geometry mask has no interior points.")
+    source = np.zeros(n, dtype=float)
+    laplacian = None
+    identity = None
+    if enable_diffusion:
+        laplacian, source, _ = build_laplacian_with_boundaries(mask, edges, edge_conditions, dx)
+        identity = sparse.eye(n, format="csc")
 
     full_steps = int(np.floor(total_time / dt + 1e-12))
     remainder_dt = float(total_time - full_steps * dt)
@@ -739,15 +778,10 @@ def run_2d_crank_nicolson(
         remainder_dt = 0.0
     total_steps = full_steps + (1 if remainder_dt > 0.0 else 0)
 
-    identity = sparse.eye(n, format="csc")
-
     # --- Energy-resolved mode ---
     if energy_gap > 0.0:
         gap = energy_gap
-        E_min = energy_min_factor * gap
-        E_max = energy_max_factor * gap
-        E_bins = np.linspace(E_min, E_max, num_energy_bins)
-        dE = E_bins[1] - E_bins[0] if num_energy_bins > 1 else 1.0
+        E_bins, dE = build_energy_grid(gap, energy_min_factor, energy_max_factor, num_energy_bins)
 
         # Auto-precompute if gap_expression is set but no precomputed data provided
         if precomputed is None and gap_expression.strip():
@@ -766,6 +800,14 @@ def run_2d_crank_nicolson(
         # Determine if we have precomputed arrays and whether gap is non-uniform
         has_precomp = precomputed is not None
         nonuniform_gap = has_precomp and not bool(precomputed.get("is_uniform", True))
+        use_bdf = normalize_collision_solver_name(collision_solver) == "bdf"
+        if enable_scattering and not use_bdf:
+            import warnings
+            warnings.warn(
+                "Forward Euler collision solver can be unstable for stiff scattering dynamics. "
+                "Use collision_solver='bdf' for better robustness.",
+                stacklevel=2,
+            )
 
         if has_precomp:
             D_array = precomputed["D_array"]  # (NE, N_spatial)
@@ -850,11 +892,21 @@ def run_2d_crank_nicolson(
         spatial_values = initial_field[mask].astype(float)
         if energy_weights is not None:
             raw_w = np.asarray(energy_weights, dtype=float)
+            if raw_w.ndim != 1:
+                raise ValueError("energy_weights must be a 1D array.")
+            if raw_w.shape[0] != num_energy_bins:
+                raise ValueError(
+                    f"energy_weights must have length {num_energy_bins}, got {raw_w.shape[0]}."
+                )
+            if not np.all(np.isfinite(raw_w)):
+                raise ValueError("energy_weights must contain only finite values.")
+            if np.any(raw_w < 0):
+                raise ValueError("energy_weights must be non-negative.")
             w_integral = np.sum(raw_w) * dE
             if w_integral > 0:
                 weights = raw_w / w_integral
             else:
-                weights = np.ones(num_energy_bins) / (num_energy_bins * dE)
+                weights = np.ones(num_energy_bins, dtype=float) / (num_energy_bins * dE)
         else:
             # Default: distribute proportional to density of states
             rho = _dynes_density_of_states(E_bins, gap, dynes_gamma)
@@ -862,7 +914,7 @@ def run_2d_crank_nicolson(
             if rho_integral > 0:
                 weights = rho / rho_integral
             else:
-                weights = np.ones(num_energy_bins) / (num_energy_bins * dE)
+                weights = np.ones(num_energy_bins, dtype=float) / (num_energy_bins * dE)
 
         # state[i] is the 1D interior vector for energy bin i
         state = np.empty((num_energy_bins, n), dtype=float)
@@ -894,7 +946,6 @@ def run_2d_crank_nicolson(
                     state += dt_step * g_ext
 
             # Step 1: Collision (recombination + scattering) — modifies state in-place
-            use_bdf = collision_solver == "bdf"
             if nonuniform_gap:
                 if use_bdf and (enable_recombination or enable_scattering):
                     bdf_fallback_total += apply_collision_step_bdf_nonuniform(
@@ -969,6 +1020,8 @@ def run_2d_crank_nicolson(
     interior_values = initial_field[mask].astype(float)
 
     if enable_diffusion:
+        if identity is None or laplacian is None:
+            raise RuntimeError("Internal error: diffusion matrices were not initialized.")
         b_mat, lu = _build_cn_operators(identity, laplacian, dt, diffusion_coefficient)
         final_lu = None
         final_b_mat = None

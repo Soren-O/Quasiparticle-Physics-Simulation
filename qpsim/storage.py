@@ -131,7 +131,7 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         num_energy_bins=int(params_raw.get("num_energy_bins", 50)),
         dynes_gamma=float(params_raw.get("dynes_gamma", 0.0)),
         gap_expression=str(params_raw.get("gap_expression", "")),
-        collision_solver=str(params_raw.get("collision_solver", "forward_euler")),
+        collision_solver=str(params_raw.get("collision_solver") or "forward_euler"),
         enable_diffusion=_to_bool(params_raw.get("enable_diffusion", True), default=True),
         enable_recombination=_to_bool(params_raw.get("enable_recombination", False), default=False),
         enable_scattering=_to_bool(params_raw.get("enable_scattering", False), default=False),
