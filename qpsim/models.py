@@ -13,6 +13,7 @@ BOUNDARY_KINDS = {
     "robin",
 }
 COLLISION_SOLVERS = {"forward_euler", "bdf"}
+EXTERNAL_GENERATION_MODES = {"none", "constant", "pulse", "custom"}
 
 
 def utc_now_iso() -> str:
@@ -97,6 +98,23 @@ class ExternalGenerationSpec:
     custom_body: str = "return 0.0"      # expression g(E, x, y, t, params)
     custom_params: dict[str, Any] = field(default_factory=dict)
 
+    def normalized_mode(self) -> str:
+        return self.mode.strip().lower()
+
+    def validate(self) -> None:
+        mode = self.normalized_mode()
+        if mode not in EXTERNAL_GENERATION_MODES:
+            allowed = ", ".join(sorted(EXTERNAL_GENERATION_MODES))
+            raise ValueError(
+                f"Unsupported external generation mode '{self.mode}'. Supported: {allowed}."
+            )
+        if self.rate < 0:
+            raise ValueError("External generation constant rate must be non-negative.")
+        if self.pulse_rate < 0:
+            raise ValueError("External generation pulse rate must be non-negative.")
+        if self.pulse_duration < 0:
+            raise ValueError("External generation pulse_duration must be non-negative.")
+
 
 @dataclass
 class SimulationParameters:
@@ -117,14 +135,23 @@ class SimulationParameters:
     enable_diffusion: bool = True
     enable_recombination: bool = False
     enable_scattering: bool = False
-    # --- recombination parameters ---
-    tau_0: float = 440.0                  # electron-phonon time in ns (Al ≈ 440 ns)
+    # --- collision parameters ---
+    # Keep tau_0 as legacy/default source; resolve tau_s and tau_r in __post_init__.
+    tau_0: float = 440.0
+    tau_s: float | None = None
+    tau_r: float | None = None
     T_c: float = 1.2                      # critical temperature in K
     bath_temperature: float = 0.1         # phonon bath temperature in K
     external_generation: ExternalGenerationSpec = field(default_factory=ExternalGenerationSpec)
 
     def __post_init__(self) -> None:
         self.collision_solver = normalize_collision_solver_name(self.collision_solver)
+        if self.tau_s is None:
+            self.tau_s = float(self.tau_0)
+        if self.tau_r is None:
+            self.tau_r = float(self.tau_0)
+        # Keep tau_0 synchronized for legacy readers.
+        self.tau_0 = float(0.5 * (self.tau_s + self.tau_r))
         if self.dt <= 0:
             raise ValueError("dt must be positive.")
         if self.total_time <= 0:
@@ -136,8 +163,10 @@ class SimulationParameters:
         if self.enable_recombination or self.enable_scattering:
             if self.T_c <= 0:
                 raise ValueError("T_c must be positive when recombination or scattering is enabled.")
-            if self.tau_0 <= 0:
-                raise ValueError("tau_0 must be positive when recombination or scattering is enabled.")
+            if self.tau_s <= 0:
+                raise ValueError("tau_s must be positive when recombination or scattering is enabled.")
+            if self.tau_r <= 0:
+                raise ValueError("tau_r must be positive when recombination or scattering is enabled.")
         if self.energy_gap > 0:
             if self.energy_min_factor < 1.0:
                 raise ValueError("energy_min_factor must be >= 1.0 when energy_gap > 0.")
@@ -145,6 +174,7 @@ class SimulationParameters:
                 raise ValueError("energy_max_factor must be > energy_min_factor when energy_gap > 0.")
             if self.num_energy_bins < 2:
                 raise ValueError("num_energy_bins must be >= 2 when energy_gap > 0.")
+        self.external_generation.validate()
 
 
 @dataclass
@@ -175,6 +205,7 @@ class SimulationResultData:
 
 @dataclass
 class TestCaseResultData:
+    __test__ = False  # Prevent pytest from collecting this dataclass as a test class.
     case_id: str
     title: str
     boundary_label: str
@@ -190,6 +221,7 @@ class TestCaseResultData:
 
 @dataclass
 class TestGeometryGroupData:
+    __test__ = False  # Prevent pytest from collecting this dataclass as a test class.
     geometry_id: str
     title: str
     description: str
@@ -202,6 +234,7 @@ class TestGeometryGroupData:
 
 @dataclass
 class TestSuiteData:
+    __test__ = False  # Prevent pytest from collecting this dataclass as a test class.
     suite_id: str
     created_at: str
     cases: list[TestCaseResultData] = field(default_factory=list)

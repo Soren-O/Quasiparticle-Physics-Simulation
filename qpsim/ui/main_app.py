@@ -798,7 +798,12 @@ class SetupEditor(tk.Toplevel):
         self.enable_diffusion_var = tk.BooleanVar(value=default_params.enable_diffusion)
         self.enable_recombination_var = tk.BooleanVar(value=default_params.enable_recombination)
         self.enable_scattering_var = tk.BooleanVar(value=default_params.enable_scattering)
-        self.tau_0_var = tk.StringVar(value=str(default_params.tau_0))
+        self.tau_s_var = tk.StringVar(
+            value=str(default_params.tau_s if default_params.tau_s is not None else default_params.tau_0)
+        )
+        self.tau_r_var = tk.StringVar(
+            value=str(default_params.tau_r if default_params.tau_r is not None else default_params.tau_0)
+        )
         self.T_c_var = tk.StringVar(value=str(default_params.T_c))
         self.bath_temp_var = tk.StringVar(value=str(default_params.bath_temperature))
 
@@ -851,7 +856,8 @@ class SetupEditor(tk.Toplevel):
             tk.Label(parent, text=label, bg=RETRO_PANEL).pack(anchor="w"),
             tk.Entry(parent, textvariable=var, width=18).pack(anchor="w", pady=(0, 4)),
         )
-        add_param_in(self.recomb_frame, "\u03c4\u2080 (ns)", self.tau_0_var)
+        add_param_in(self.recomb_frame, "\u03c4\u2080,s (ns)", self.tau_s_var)
+        add_param_in(self.recomb_frame, "\u03c4\u2080,r (ns)", self.tau_r_var)
         add_param_in(self.recomb_frame, "T\u2081 (K)", self.T_c_var)
         add_param_in(self.recomb_frame, "Bath Temperature (K)", self.bath_temp_var)
         self._toggle_recomb_fields()
@@ -924,7 +930,12 @@ class SetupEditor(tk.Toplevel):
         self.enable_diffusion_var.set(setup.parameters.enable_diffusion)
         self.enable_recombination_var.set(setup.parameters.enable_recombination)
         self.enable_scattering_var.set(setup.parameters.enable_scattering)
-        self.tau_0_var.set(str(setup.parameters.tau_0))
+        self.tau_s_var.set(
+            str(setup.parameters.tau_s if setup.parameters.tau_s is not None else setup.parameters.tau_0)
+        )
+        self.tau_r_var.set(
+            str(setup.parameters.tau_r if setup.parameters.tau_r is not None else setup.parameters.tau_0)
+        )
         self.T_c_var.set(str(setup.parameters.T_c))
         self.bath_temp_var.set(str(setup.parameters.bath_temperature))
         self._toggle_recomb_fields()
@@ -1000,7 +1011,8 @@ class SetupEditor(tk.Toplevel):
             self.diff_var.set(str(D0))
             self.energy_gap_var.set(str(gap_ueV))
             self.T_c_var.set(str(Tc_K))
-            self.tau_0_var.set(str(tau_0_ns))
+            self.tau_s_var.set(str(tau_0_ns))
+            self.tau_r_var.set(str(tau_0_ns))
 
         show_material_reference(self, on_select=on_select)
 
@@ -1230,7 +1242,8 @@ class SetupEditor(tk.Toplevel):
             enable_diffusion=self.enable_diffusion_var.get(),
             enable_recombination=self.enable_recombination_var.get(),
             enable_scattering=self.enable_scattering_var.get(),
-            tau_0=self.parse_float("τ₀", self.tau_0_var.get()),
+            tau_s=self.parse_float("τ₀,s", self.tau_s_var.get()),
+            tau_r=self.parse_float("τ₀,r", self.tau_r_var.get()),
             T_c=self.parse_float("T_c", self.T_c_var.get()),
             bath_temperature=self.parse_float("bath temperature", self.bath_temp_var.get()),
             external_generation=self._external_generation,
@@ -1373,6 +1386,8 @@ class SetupEditor(tk.Toplevel):
                 dynes_gamma=p.dynes_gamma,
                 collision_solver=p.collision_solver,
                 tau_0=p.tau_0,
+                tau_s=p.tau_s,
+                tau_r=p.tau_r,
                 T_c=p.T_c,
                 bath_temperature=p.bath_temperature,
                 external_generation=p.external_generation,

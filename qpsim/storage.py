@@ -136,6 +136,16 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         enable_recombination=_to_bool(params_raw.get("enable_recombination", False)),
         enable_scattering=_to_bool(params_raw.get("enable_scattering", False)),
         tau_0=float(params_raw.get("tau_0", 440.0)),
+        tau_s=(
+            float(params_raw["tau_s"])
+            if params_raw.get("tau_s") is not None
+            else None
+        ),
+        tau_r=(
+            float(params_raw["tau_r"])
+            if params_raw.get("tau_r") is not None
+            else None
+        ),
         T_c=float(params_raw.get("T_c", 1.2)),
         bath_temperature=float(params_raw.get("bath_temperature", 0.1)),
         external_generation=_deserialize_external_generation(params_raw.get("external_generation")),

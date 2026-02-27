@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import warnings
 
 import numpy as np
 from scipy import sparse
@@ -612,28 +613,31 @@ def _apply_collision_nonuniform(
     dt: float,
     n_spatial: int,
 ) -> None:
-    """Apply collision step per spatial pixel with per-pixel kernels."""
-    for px in range(n_spatial):
-        n_px = state[:, px]  # (NE,)
+    """Apply collision step with per-pixel kernels using vectorized batch ops."""
+    # Work in [N_spatial, NE] layout for batched einsum contractions.
+    n_px = state.T  # view, shape (N_spatial, NE)
+    if n_px.shape[0] != n_spatial:
+        raise ValueError("Internal error: state shape does not match n_spatial.")
 
-        if enable_recombination and K_r_all is not None and G_therm_all is not None:
-            K_r = K_r_all[px]
-            G_therm = G_therm_all[px]
-            Kr_dot_n = K_r @ n_px
-            recomb_rate = 2.0 * n_px * dE * Kr_dot_n
-            n_px = n_px + dt * (G_therm - recomb_rate)
+    if enable_recombination and K_r_all is not None and G_therm_all is not None:
+        # Kr_dot_n[p, i] = sum_j K_r_all[p, i, j] * n_px[p, j]
+        Kr_dot_n = np.einsum("pij,pj->pi", K_r_all, n_px, optimize=True)
+        recomb_rate = 2.0 * n_px * dE * Kr_dot_n
+        n_px = n_px + dt * (G_therm_all - recomb_rate)
 
-        if enable_scattering and K_s_all is not None and rho_all is not None:
-            K_s = K_s_all[px]
-            rho = rho_all[px]
-            f = n_px / np.maximum(rho, 1e-30)
-            one_minus_f = np.maximum(1.0 - f, 0.0)
-            scat_in = dE * rho * one_minus_f * (K_s.T @ n_px)
-            M = K_s * rho[None, :]
-            scat_out = n_px * dE * (M @ one_minus_f)
-            n_px = n_px + dt * (scat_in - scat_out)
+    if enable_scattering and K_s_all is not None and rho_all is not None:
+        f = n_px / np.maximum(rho_all, 1e-30)
+        one_minus_f = np.maximum(1.0 - f, 0.0)
+        # scat_in[p, i] = dE * rho[p, i]*(1-f[p, i]) * sum_j K_s[p, j, i] * n[p, j]
+        scat_in_core = np.einsum("pji,pj->pi", K_s_all, n_px, optimize=True)
+        scat_in = dE * rho_all * one_minus_f * scat_in_core
+        # scat_out[p, i] = n[p, i] * dE * sum_j K_s[p, i, j] * rho[p, j] * (1-f[p, j])
+        scat_out_rates = np.einsum("pij,pj,pj->pi", K_s_all, rho_all, one_minus_f, optimize=True)
+        scat_out = n_px * dE * scat_out_rates
+        n_px = n_px + dt * (scat_in - scat_out)
 
-        state[:, px] = np.maximum(n_px, 0.0)
+    np.maximum(n_px, 0.0, out=n_px)
+    state[:, :] = n_px.T
 
 
 def evaluate_external_generation(
@@ -647,6 +651,21 @@ def evaluate_external_generation(
 
     Returns (NE, N_spatial) array, or None if mode is "none".
     """
+    def _check_generation(arr: np.ndarray, mode_name: str) -> np.ndarray:
+        if arr.shape != (NE, n_spatial):
+            raise ValueError(
+                f"External generation mode '{mode_name}' returned invalid shape "
+                f"{arr.shape}; expected {(NE, n_spatial)}."
+            )
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"External generation mode '{mode_name}' produced non-finite values.")
+        if np.any(arr < 0):
+            raise ValueError(
+                f"External generation mode '{mode_name}' produced negative values. "
+                "Generation rates must be non-negative."
+            )
+        return arr
+
     mode = spec.mode.strip().lower()
     if mode == "none":
         return None
@@ -654,12 +673,12 @@ def evaluate_external_generation(
     NE = len(E_bins)
 
     if mode == "constant":
-        return np.full((NE, n_spatial), spec.rate, dtype=float)
+        return _check_generation(np.full((NE, n_spatial), spec.rate, dtype=float), mode)
 
     if mode == "pulse":
         if spec.pulse_start <= t < spec.pulse_start + spec.pulse_duration:
-            return np.full((NE, n_spatial), spec.pulse_rate, dtype=float)
-        return np.zeros((NE, n_spatial), dtype=float)
+            return _check_generation(np.full((NE, n_spatial), spec.pulse_rate, dtype=float), mode)
+        return _check_generation(np.zeros((NE, n_spatial), dtype=float), mode)
 
     if mode == "custom":
         import math
@@ -697,15 +716,53 @@ def evaluate_external_generation(
                 if arr.ndim == 0:
                     result[i] = float(arr)
                 else:
-                    result[i] = arr.ravel()[:n_spatial]
+                    flat = arr.ravel()
+                    if flat.size != n_spatial:
+                        raise ValueError(
+                            "Vectorized custom generation must return a scalar or "
+                            f"exactly {n_spatial} values per energy bin; got {flat.size}."
+                        )
+                    result[i] = flat
         except Exception:
             # Scalar fallback
             for i in range(NE):
                 for px in range(n_spatial):
                     result[i, px] = float(fn(float(E_bins[i]), float(x_flat[px]), float(y_flat[px]), t, params))
-        return result
+        return _check_generation(result, mode)
 
     return None
+
+
+def _pauli_occupancy_stats(
+    state: np.ndarray,
+    rho_state: np.ndarray,
+    density_floor: float = 1e-18,
+) -> tuple[float, tuple[int, int], tuple[int, int] | None]:
+    """Return occupancy diagnostics for state n(E,x) against rho(E,x).
+
+    Returns (max_occupation, max_occ_index, forbidden_index_or_none), where
+    indices are (energy_idx, spatial_idx).
+    """
+    if state.shape != rho_state.shape:
+        raise ValueError("state and rho_state shapes must match for Pauli diagnostics.")
+
+    rho_mask = rho_state > 1e-30
+    forbidden = (~rho_mask) & (state > density_floor)
+    forbidden_idx: tuple[int, int] | None = None
+    if np.any(forbidden):
+        idx = np.unravel_index(int(np.argmax(forbidden)), forbidden.shape)
+        forbidden_idx = (int(idx[0]), int(idx[1]))
+
+    f = np.divide(
+        state,
+        np.maximum(rho_state, 1e-30),
+        out=np.zeros_like(state),
+        where=rho_mask,
+    )
+    max_idx_raw = np.unravel_index(int(np.argmax(f)), f.shape)
+    max_idx = (int(max_idx_raw[0]), int(max_idx_raw[1]))
+    max_occ = float(f[max_idx])
+    return max_occ, max_idx, forbidden_idx
 
 
 def run_2d_crank_nicolson(
@@ -729,11 +786,17 @@ def run_2d_crank_nicolson(
     dynes_gamma: float = 0.0,
     collision_solver: str = "forward_euler",
     tau_0: float = 440.0,
+    tau_s: float | None = None,
+    tau_r: float | None = None,
     T_c: float = 1.2,
     bath_temperature: float = 0.1,
     external_generation: ExternalGenerationSpec | None = None,
     gap_expression: str = "",
     precomputed: dict | None = None,
+    pauli_warn_threshold: float | None = 0.5,
+    pauli_error_threshold: float | None = 1.0,
+    enforce_pauli: bool = False,
+    pauli_density_floor: float = 1e-18,
 ) -> tuple[list[float], list[np.ndarray], list[float], list[float],
            list[list[np.ndarray]] | None, np.ndarray | None]:
     """Run 2D Crank-Nicolson diffusion, optionally energy-resolved.
@@ -764,6 +827,14 @@ def run_2d_crank_nicolson(
     n = int(np.sum(mask))
     if n == 0:
         raise ValueError("Geometry mask has no interior points.")
+    tau_s_eff = float(tau_s if tau_s is not None else tau_0)
+    tau_r_eff = float(tau_r if tau_r is not None else tau_0)
+    if enable_scattering and tau_s_eff <= 0:
+        raise ValueError("tau_s must be positive when scattering is enabled.")
+    if enable_recombination and tau_r_eff <= 0:
+        raise ValueError("tau_r must be positive when recombination is enabled.")
+    if external_generation is not None:
+        external_generation.validate()
     source = np.zeros(n, dtype=float)
     laplacian = None
     identity = None
@@ -792,7 +863,8 @@ def run_2d_crank_nicolson(
                 energy_gap=energy_gap, energy_min_factor=energy_min_factor,
                 energy_max_factor=energy_max_factor, num_energy_bins=num_energy_bins,
                 dynes_gamma=dynes_gamma, gap_expression=gap_expression,
-                tau_0=tau_0, T_c=T_c, bath_temperature=bath_temperature,
+                tau_0=tau_0, tau_s=tau_s_eff, tau_r=tau_r_eff,
+                T_c=T_c, bath_temperature=bath_temperature,
             )
             precomputed = precompute_arrays(mask, edges, edge_conditions, _auto_params)
 
@@ -801,7 +873,6 @@ def run_2d_crank_nicolson(
         nonuniform_gap = has_precomp and not bool(precomputed.get("is_uniform", True))
         use_bdf = normalize_collision_solver_name(collision_solver) == "bdf"
         if enable_scattering and not use_bdf:
-            import warnings
             warnings.warn(
                 "Forward Euler collision solver can be unstable for stiff scattering dynamics. "
                 "Use collision_solver='bdf' for better robustness.",
@@ -865,27 +936,38 @@ def run_2d_crank_nicolson(
         G_therm_all: np.ndarray | None = None
 
         if has_precomp and nonuniform_gap:
+            rho_all = precomputed.get("rho_all")
             if enable_recombination:
                 K_r_all = precomputed["K_r_all"]
                 G_therm_all = precomputed["G_therm_all"]
             if enable_scattering:
                 K_s_all = precomputed["K_s_all"]
-                rho_all = precomputed["rho_all"]
         elif has_precomp:
+            rho_bins = precomputed.get("rho_bins")
             if enable_recombination:
                 K_r = precomputed["K_r"]
                 G_therm = precomputed["G_therm"]
             if enable_scattering:
                 K_s = precomputed["K_s"]
-                rho_bins = precomputed["rho_bins"]
         else:
             if enable_recombination:
-                K_r = recombination_kernel(E_bins, gap, tau_0, T_c, bath_temperature)
+                K_r = recombination_kernel(E_bins, gap, tau_r_eff, T_c, bath_temperature)
                 n_eq = thermal_qp_weights(E_bins, gap, bath_temperature, dynes_gamma)
                 G_therm = 2.0 * n_eq * dE * (K_r @ n_eq)
             if enable_scattering:
-                K_s = scattering_kernel(E_bins, gap, tau_0, T_c, bath_temperature)
-                rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
+                K_s = scattering_kernel(E_bins, gap, tau_s_eff, T_c, bath_temperature)
+            # rho is also needed for occupancy diagnostics.
+            rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
+
+        # Occupancy diagnostics also require rho arrays even if scattering is disabled.
+        if nonuniform_gap and rho_all is None and has_precomp:
+            gap_values = precomputed.get("gap_values")
+            if gap_values is not None:
+                rho_all = np.empty((n, num_energy_bins), dtype=float)
+                for px in range(n):
+                    rho_all[px] = _dynes_density_of_states(E_bins, float(gap_values[px]), dynes_gamma)
+        if (not nonuniform_gap) and rho_bins is None:
+            rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
 
         # Distribute initial 2D field across energy bins
         spatial_values = initial_field[mask].astype(float)
@@ -920,6 +1002,67 @@ def run_2d_crank_nicolson(
         for i in range(num_energy_bins):
             state[i] = spatial_values * weights[i]
 
+        coords = np.argwhere(mask)
+        rho_state: np.ndarray | None
+        if nonuniform_gap and rho_all is not None:
+            rho_state = np.asarray(rho_all, dtype=float).T  # [NE, N_spatial]
+        elif rho_bins is not None:
+            rho_state = np.asarray(rho_bins, dtype=float)[:, None] * np.ones((1, n), dtype=float)
+        else:
+            rho_state = None
+
+        pauli_warned = False
+
+        def _enforce_pauli(step_idx: int, time_ns: float) -> None:
+            nonlocal pauli_warned
+            if rho_state is None:
+                return
+            max_occ, max_idx, forbidden_idx = _pauli_occupancy_stats(
+                state,
+                rho_state,
+                density_floor=pauli_density_floor,
+            )
+            if forbidden_idx is not None:
+                ie_bad, px_bad = forbidden_idx
+                row_bad, col_bad = coords[px_bad]
+                msg = (
+                    f"Detected non-zero quasiparticle density in forbidden state "
+                    f"(rho≈0): step={step_idx}, t={time_ns:.6g} ns, "
+                    f"E={E_bins[ie_bad]:.6g} μeV, pixel=({int(row_bad)},{int(col_bad)})."
+                )
+                if enforce_pauli:
+                    raise ValueError(msg)
+                if not pauli_warned:
+                    warnings.warn(msg, stacklevel=2)
+                    pauli_warned = True
+
+            if pauli_error_threshold is not None and max_occ > pauli_error_threshold:
+                ie_max, px_max = max_idx
+                row_max, col_max = coords[px_max]
+                msg = (
+                    f"Pauli occupation exceeded limit: f={max_occ:.6g} > {pauli_error_threshold:.6g} "
+                    f"at step={step_idx}, t={time_ns:.6g} ns, "
+                    f"E={E_bins[ie_max]:.6g} μeV, pixel=({int(row_max)},{int(col_max)})."
+                )
+                if enforce_pauli:
+                    raise ValueError(msg)
+                if not pauli_warned:
+                    warnings.warn(msg, stacklevel=2)
+                    pauli_warned = True
+
+            if pauli_warn_threshold is not None and max_occ > pauli_warn_threshold and not pauli_warned:
+                ie_max, px_max = max_idx
+                row_max, col_max = coords[px_max]
+                warnings.warn(
+                    "High occupation detected (Pauli blocking regime): "
+                    f"max f={max_occ:.6g} at step={step_idx}, t={time_ns:.6g} ns, "
+                    f"E={E_bins[ie_max]:.6g} μeV, pixel=({int(row_max)},{int(col_max)}).",
+                    stacklevel=2,
+                )
+                pauli_warned = True
+
+        _enforce_pauli(step_idx=0, time_ns=0.0)
+
         # Initial energy-integrated field
         integrated = np.sum(state, axis=0) * dE
 
@@ -932,6 +1075,62 @@ def run_2d_crank_nicolson(
 
         current_time = 0.0
         bdf_fallback_total = 0
+        collision_enabled = bool(enable_recombination or enable_scattering)
+
+        def _apply_collision(dt_col: float) -> None:
+            nonlocal bdf_fallback_total
+            if dt_col <= 0.0 or not collision_enabled:
+                return
+
+            if nonuniform_gap:
+                if use_bdf:
+                    bdf_fallback_total += apply_collision_step_bdf_nonuniform(
+                        state, K_r_all, K_s_all, rho_all, G_therm_all, dE, dt_col, n,
+                    )
+                else:
+                    _apply_collision_nonuniform(
+                        state, K_r_all, K_s_all, rho_all, G_therm_all,
+                        enable_recombination, enable_scattering, dE, dt_col, n,
+                    )
+                return
+
+            if use_bdf:
+                bdf_fallback_total += apply_collision_step_bdf(
+                    state, K_r, K_s, rho_bins, G_therm, dE, dt_col,
+                )
+                return
+
+            if enable_recombination and K_r is not None and G_therm is not None:
+                apply_recombination_step(state, K_r, G_therm, dE, dt_col)
+            if enable_scattering and K_s is not None and rho_bins is not None:
+                apply_scattering_step(state, K_s, rho_bins, dE, dt_col)
+
+        def _apply_diffusion(dt_diff: float, is_final_step: bool) -> None:
+            if dt_diff <= 0.0 or not enable_diffusion:
+                return
+            if use_variable_diffusion:
+                for i in range(num_energy_bins):
+                    if is_final_step:
+                        ops = bin_operators_final[i]
+                        if ops is None:
+                            raise RuntimeError("Internal error: final-step solver not initialized.")
+                        b_step, lu_step = ops
+                    else:
+                        b_step, lu_step = bin_operators[i]
+                    rhs = b_step @ state[i] + dt_diff * var_sources[i]
+                    state[i] = lu_step.solve(rhs)
+            else:
+                for i in range(num_energy_bins):
+                    if is_final_step:
+                        ops = bin_operators_final[i]
+                        if ops is None:
+                            raise RuntimeError("Internal error: final-step solver not initialized.")
+                        b_step, lu_step, D_i = ops
+                    else:
+                        b_step, lu_step, D_i = bin_operators[i]
+                    rhs = b_step @ state[i] + dt_diff * D_i * source
+                    state[i] = lu_step.solve(rhs)
+
         for step in range(1, total_steps + 1):
             is_final = step > full_steps
             dt_step = remainder_dt if is_final else dt
@@ -944,53 +1143,18 @@ def run_2d_crank_nicolson(
                 if g_ext is not None:
                     state += dt_step * g_ext
 
-            # Step 1: Collision (recombination + scattering) — modifies state in-place
-            if nonuniform_gap:
-                if use_bdf and (enable_recombination or enable_scattering):
-                    bdf_fallback_total += apply_collision_step_bdf_nonuniform(
-                        state, K_r_all, K_s_all, rho_all, G_therm_all,
-                        dE, dt_step, n,
-                    )
-                elif enable_recombination or enable_scattering:
-                    _apply_collision_nonuniform(
-                        state, K_r_all, K_s_all, rho_all, G_therm_all,
-                        enable_recombination, enable_scattering, dE, dt_step, n,
-                    )
-            elif use_bdf and (enable_recombination or enable_scattering):
-                bdf_fallback_total += apply_collision_step_bdf(
-                    state, K_r, K_s, rho_bins, G_therm, dE, dt_step,
-                )
+            # Symmetric split when both collision and diffusion are enabled:
+            # C(dt/2) -> D(dt) -> C(dt/2). Pure-collision and pure-diffusion
+            # paths keep a single full step.
+            if collision_enabled and enable_diffusion:
+                _apply_collision(0.5 * dt_step)
+                _apply_diffusion(dt_step, is_final)
+                _apply_collision(0.5 * dt_step)
             else:
-                if enable_recombination and K_r is not None and G_therm is not None:
-                    apply_recombination_step(state, K_r, G_therm, dE, dt_step)
-                if enable_scattering and K_s is not None and rho_bins is not None:
-                    apply_scattering_step(state, K_s, rho_bins, dE, dt_step)
+                _apply_collision(dt_step)
+                _apply_diffusion(dt_step, is_final)
 
-            # Step 2: Diffusion — CN solve per energy bin
-            if enable_diffusion:
-                if use_variable_diffusion:
-                    for i in range(num_energy_bins):
-                        if is_final:
-                            ops = bin_operators_final[i]
-                            if ops is None:
-                                raise RuntimeError("Internal error: final-step solver not initialized.")
-                            b_step, lu_step = ops
-                        else:
-                            b_step, lu_step = bin_operators[i]
-                        rhs = b_step @ state[i] + dt_step * var_sources[i]
-                        state[i] = lu_step.solve(rhs)
-                else:
-                    for i in range(num_energy_bins):
-                        if is_final:
-                            ops = bin_operators_final[i]
-                            if ops is None:
-                                raise RuntimeError("Internal error: final-step solver not initialized.")
-                            b_step, lu_step, D_i = ops
-                        else:
-                            b_step, lu_step, D_i = bin_operators[i]
-                        rhs = b_step @ state[i] + dt_step * D_i * source
-                        state[i] = lu_step.solve(rhs)
-
+            _enforce_pauli(step_idx=step, time_ns=current_time + dt_step)
             current_time += dt_step
             if step % store_every == 0 or step == total_steps:
                 integrated = np.sum(state, axis=0) * dE
@@ -1002,7 +1166,6 @@ def run_2d_crank_nicolson(
                 mass.append(float(np.sum(integrated) * dx * dx))
 
         if bdf_fallback_total > 0:
-            import warnings
             warnings.warn(
                 f"BDF collision solver fell back to forward Euler for "
                 f"{bdf_fallback_total} pixel-steps. Consider reducing dt.",

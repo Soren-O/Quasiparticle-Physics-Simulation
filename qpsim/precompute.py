@@ -47,7 +47,8 @@ def _make_fingerprint(params: SimulationParameters, mask: np.ndarray) -> np.ndar
         float(params.num_energy_bins),
         params.dynes_gamma,
         params.diffusion_coefficient,
-        params.tau_0,
+        float(params.tau_s if params.tau_s is not None else params.tau_0),
+        float(params.tau_r if params.tau_r is not None else params.tau_0),
         params.T_c,
         params.bath_temperature,
         float(n_spatial),
@@ -73,7 +74,7 @@ def validate_precomputed(
     labels = [
         "energy_gap", "energy_min_factor", "energy_max_factor",
         "num_energy_bins", "dynes_gamma", "diffusion_coefficient",
-        "tau_0", "T_c", "bath_temperature", "n_spatial", "mask_hash", "gap_expression",
+        "tau_s", "tau_r", "T_c", "bath_temperature", "n_spatial", "mask_hash", "gap_expression",
     ]
     if stored.shape != current.shape:
         return f"Fingerprint size mismatch: stored {stored.shape} vs current {current.shape}."
@@ -160,8 +161,10 @@ def precompute_arrays(
         if progress_callback:
             progress_callback("Computing uniform kernels...")
         gap = float(unique_gaps[0])
-        K_r = recombination_kernel(E_bins, gap, params.tau_0, params.T_c, params.bath_temperature)
-        K_s = scattering_kernel(E_bins, gap, params.tau_0, params.T_c, params.bath_temperature)
+        tau_r = float(params.tau_r if params.tau_r is not None else params.tau_0)
+        tau_s = float(params.tau_s if params.tau_s is not None else params.tau_0)
+        K_r = recombination_kernel(E_bins, gap, tau_r, params.T_c, params.bath_temperature)
+        K_s = scattering_kernel(E_bins, gap, tau_s, params.T_c, params.bath_temperature)
         rho_bins = _dynes_density_of_states(E_bins, gap, gamma)
         n_eq = thermal_qp_weights(E_bins, gap, params.bath_temperature, gamma)
         G_therm = 2.0 * n_eq * dE * (K_r @ n_eq)
@@ -183,8 +186,10 @@ def precompute_arrays(
         cache: dict[float, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
         for gap_val in unique_gaps:
             gap_f = float(gap_val)
-            kr = recombination_kernel(E_bins, gap_f, params.tau_0, params.T_c, params.bath_temperature)
-            ks = scattering_kernel(E_bins, gap_f, params.tau_0, params.T_c, params.bath_temperature)
+            tau_r = float(params.tau_r if params.tau_r is not None else params.tau_0)
+            tau_s = float(params.tau_s if params.tau_s is not None else params.tau_0)
+            kr = recombination_kernel(E_bins, gap_f, tau_r, params.T_c, params.bath_temperature)
+            ks = scattering_kernel(E_bins, gap_f, tau_s, params.T_c, params.bath_temperature)
             rho = _dynes_density_of_states(E_bins, gap_f, gamma)
             n_eq = thermal_qp_weights(E_bins, gap_f, params.bath_temperature, gamma)
             g_therm = 2.0 * n_eq * dE * (kr @ n_eq)
