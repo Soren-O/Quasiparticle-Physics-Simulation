@@ -75,6 +75,17 @@ class InitialConditionSpec:
 
 
 @dataclass
+class ExternalGenerationSpec:
+    mode: str = "none"                    # "none" / "constant" / "pulse" / "custom"
+    rate: float = 0.0                     # generation rate for constant mode (μeV⁻¹ μm⁻² ns⁻¹)
+    pulse_start: float = 0.0             # ns — pulse onset time
+    pulse_duration: float = 10.0         # ns — pulse width
+    pulse_rate: float = 0.0              # generation rate during pulse
+    custom_body: str = "return 0.0"      # expression g(E, x, y, t, params)
+    custom_params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class SimulationParameters:
     diffusion_coefficient: float     # D₀ in μm²/ns
     dt: float                        # ns
@@ -86,14 +97,40 @@ class SimulationParameters:
     energy_min_factor: float = 1.0   # E_min = factor × Δ (must be ≥ 1.0)
     energy_max_factor: float = 10.0  # E_max = factor × Δ
     num_energy_bins: int = 50        # number of energy bins
+    dynes_gamma: float = 0.0         # Dynes broadening Γ in μeV (0 = pure BCS)
+    gap_expression: str = ""         # spatial gap Δ(x,y) expression (empty = uniform energy_gap)
+    collision_solver: str = "forward_euler"  # "forward_euler" or "bdf"
     # --- physics process toggles ---
     enable_diffusion: bool = True
     enable_recombination: bool = False
-    enable_scattering: bool = False       # future, not implemented yet
+    enable_scattering: bool = False
     # --- recombination parameters ---
     tau_0: float = 440.0                  # electron-phonon time in ns (Al ≈ 440 ns)
     T_c: float = 1.2                      # critical temperature in K
     bath_temperature: float = 0.1         # phonon bath temperature in K
+    external_generation: ExternalGenerationSpec = field(default_factory=ExternalGenerationSpec)
+
+    def __post_init__(self) -> None:
+        if self.dt <= 0:
+            raise ValueError("dt must be positive.")
+        if self.total_time <= 0:
+            raise ValueError("total_time must be positive.")
+        if self.mesh_size <= 0:
+            raise ValueError("mesh_size must be positive.")
+        if self.bath_temperature < 0:
+            raise ValueError("bath_temperature must be non-negative.")
+        if self.enable_recombination or self.enable_scattering:
+            if self.T_c <= 0:
+                raise ValueError("T_c must be positive when recombination or scattering is enabled.")
+            if self.tau_0 <= 0:
+                raise ValueError("tau_0 must be positive when recombination or scattering is enabled.")
+        if self.energy_gap > 0:
+            if self.energy_min_factor < 1.0:
+                raise ValueError("energy_min_factor must be >= 1.0 when energy_gap > 0.")
+            if self.energy_max_factor <= self.energy_min_factor:
+                raise ValueError("energy_max_factor must be > energy_min_factor when energy_gap > 0.")
+            if self.num_energy_bins < 2:
+                raise ValueError("num_energy_bins must be >= 2 when energy_gap > 0.")
 
 
 @dataclass

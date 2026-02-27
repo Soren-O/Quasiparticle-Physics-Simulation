@@ -63,6 +63,52 @@ def _evaluate_custom_expression_vectorized(
     return None
 
 
+def evaluate_gap_expression(
+    expression: str,
+    mask: np.ndarray,
+    energy_gap_default: float,
+) -> np.ndarray:
+    """Evaluate a spatially varying gap expression over interior pixels.
+
+    Parameters
+    ----------
+    expression : Python expression body with variables x, y (normalized 0..1).
+                 Empty string returns uniform array of *energy_gap_default*.
+    mask : 2D boolean array
+    energy_gap_default : default gap value Δ in μeV
+
+    Returns
+    -------
+    1D array of gap values, one per True pixel in *mask* (row-major order).
+    """
+    n_interior = int(np.sum(mask))
+    if not expression.strip():
+        return np.full(n_interior, energy_gap_default, dtype=float)
+
+    fn = _compile_custom_expression(expression)
+    ny, nx = mask.shape
+    y_idx, x_idx = np.indices(mask.shape)
+    x_norm = (x_idx + 0.5) / max(1, nx)
+    y_norm = (y_idx + 0.5) / max(1, ny)
+
+    vector_result = _evaluate_custom_expression_vectorized(
+        fn=fn,
+        x_norm=x_norm,
+        y_norm=y_norm,
+        mask=mask,
+        custom_params={},
+    )
+    if vector_result is not None:
+        return vector_result.astype(float)
+
+    # Scalar fallback
+    coords = np.argwhere(mask)
+    result = np.empty(n_interior, dtype=float)
+    for idx, (row, col) in enumerate(coords):
+        result[idx] = float(fn(float(x_norm[row, col]), float(y_norm[row, col]), {}))
+    return result
+
+
 def build_initial_field(mask: np.ndarray, spec: InitialConditionSpec) -> np.ndarray:
     if mask.ndim != 2:
         raise ValueError("Geometry mask must be 2D.")

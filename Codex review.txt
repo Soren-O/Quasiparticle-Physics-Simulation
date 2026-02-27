@@ -1,0 +1,43 @@
+Codex Review - quasiparticle-physics-simulation
+Date: 2026-02-27
+
+Bottom line
+- The code is still not bug-free.
+- Physics is improved but not reliable across all parameter regimes.
+
+Current issues (latest scan)
+
+1) High: `enable_diffusion=False` is ignored in legacy scalar mode (`energy_gap == 0`)
+- In `qpsim/solver.py`, scalar-mode branch always builds and runs CN diffusion even when diffusion is disabled.
+- Reproduced: localized initial condition spreads in time with `enable_diffusion=False`.
+- Impact: wrong behavior for users expecting collision-only or source-only scalar runs.
+
+2) High: missing parameter guards allow silent non-physical NaN states
+- No strict validation for key physical inputs (`T_c > 0`, `tau_0 > 0`, valid energy range with `energy_max_factor > energy_min_factor`, etc.).
+- Reproduced:
+  - `T_c = 0` leads to divisions by zero and NaN mass.
+  - `energy_max_factor == energy_min_factor` gives `dE = 0` and NaN outputs.
+- Impact: simulation can complete with invalid numbers instead of failing fast.
+
+3) Medium: precompute can run with `energy_gap = 0` and produce invalid arrays
+- `qpsim/precompute.py` builds zero-valued energy bins and then computes kernels/diffusion arrays from them.
+- Reproduced: `D_array`, kernels contain NaN/inf when precompute is called at zero gap.
+- Impact: poisoned sidecar data and confusing downstream behavior.
+
+4) Medium: nonuniform-gap + `collision_solver="bdf"` does unnecessary expensive work when collisions are disabled
+- In the nonuniform path, BDF stepping is called based only on solver selection, not on whether recombination/scattering are enabled.
+- Impact: major avoidable performance hit in diffusion-only simulations.
+
+5) Medium: UI silently drops `energy_min_factor` when rebuilding/saving setups
+- `SimulationParameters` has `energy_min_factor`, but setup editor does not expose/persist it during `build_setup`.
+- Loading and resaving a setup with non-default `energy_min_factor` collapses it back to default `1.0`.
+- Impact: silent physics drift between load/save cycles.
+
+6) Low: boolean deserialization is fragile for string values
+- `qpsim/storage.py` uses direct `bool(...)` casts from raw payload values.
+- Example: `"false"` parses to `True`.
+- Impact: malformed/hand-edited JSON can flip feature toggles unexpectedly.
+
+Test context from this run
+- Most physics/core regressions passed.
+- A subset of test-suite I/O tests failed in this environment due to filesystem permission behavior around `tempfile.TemporaryDirectory()` on this drive, not due to the target physics logic.

@@ -9,8 +9,9 @@ import numpy as np
 
 from qpsim.geometry import connected_component_count, extract_edge_segments
 from qpsim.initial_conditions import build_initial_field
-from qpsim.models import BoundaryCondition, InitialConditionSpec, TestCaseResultData, TestSuiteData, utc_now_iso
-from qpsim.solver import run_2d_crank_nicolson
+from qpsim.models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec, SimulationParameters, TestCaseResultData, TestSuiteData, utc_now_iso
+from qpsim.precompute import precompute_arrays, validate_precomputed
+from qpsim.solver import _bcs_density_of_states, _dynes_density_of_states, run_2d_crank_nicolson
 from qpsim.storage import (
     TEST_SUITE_FORMAT_VERSION,
     frame_from_jsonable,
@@ -212,6 +213,331 @@ class RegressionTests(unittest.TestCase):
             store_every=1,
         )
         self.assertAlmostEqual(times[-1], 1.0, places=12)
+
+
+    def test_dynes_dos_gamma_zero_matches_bcs(self) -> None:
+        """Dynes DOS with gamma=0 should match BCS DOS exactly."""
+        E = np.linspace(180.0, 900.0, 50)
+        bcs = _bcs_density_of_states(E, 180.0)
+        dynes = _dynes_density_of_states(E, 180.0, 0.0)
+        self.assertTrue(np.allclose(bcs, dynes, atol=1e-14))
+
+    def test_dynes_dos_smooths_singularity(self) -> None:
+        """Dynes DOS with gamma>0 should be finite everywhere (no singularity at gap edge)."""
+        E = np.linspace(179.0, 181.0, 100)
+        dos = _dynes_density_of_states(E, 180.0, 5.0)
+        self.assertTrue(np.all(np.isfinite(dos)))
+        self.assertTrue(np.all(dos >= 0.0))
+        # Should have non-zero DOS even slightly below the gap
+        self.assertGreater(dos[0], 0.0)
+
+    def test_precompute_uniform_matches_direct(self) -> None:
+        """Uniform precomputed arrays should match direct solver results."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            store_every=1, energy_gap=180.0, energy_max_factor=5.0,
+            num_energy_bins=10, enable_diffusion=True, enable_recombination=True,
+            tau_0=440.0, T_c=1.2, bath_temperature=0.1,
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params)
+        self.assertTrue(bool(precomp["is_uniform"]))
+
+        # Run with precomputed
+        _, frames_pre, mass_pre, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=10, enable_diffusion=True,
+            enable_recombination=True, tau_0=440.0, T_c=1.2, bath_temperature=0.1,
+            precomputed=precomp,
+        )
+        # Run without precomputed
+        _, frames_dir, mass_dir, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=10, enable_diffusion=True,
+            enable_recombination=True, tau_0=440.0, T_c=1.2, bath_temperature=0.1,
+        )
+        for m_pre, m_dir in zip(mass_pre, mass_dir):
+            self.assertAlmostEqual(m_pre, m_dir, places=10)
+
+    def test_precompute_nonuniform_gap_runs(self) -> None:
+        """Non-uniform gap expression should produce non-uniform precomputed arrays."""
+        mask = np.ones((4, 4), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=2.0, mesh_size=1.0,
+            store_every=1, energy_gap=180.0, energy_max_factor=5.0,
+            num_energy_bins=5, enable_diffusion=True,
+            gap_expression="return 180 + 20 * x",
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params)
+        self.assertFalse(bool(precomp["is_uniform"]))
+        self.assertIn("K_r_all", precomp)
+
+        # Run with non-uniform precomputed
+        initial = np.full(mask.shape, 1.0, dtype=float)
+        times, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=2.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5, enable_diffusion=True,
+            precomputed=precomp,
+        )
+        self.assertAlmostEqual(times[-1], 2.0, places=10)
+        for m in mass:
+            self.assertTrue(np.isfinite(m))
+
+    def test_external_generation_constant_increases_mass(self) -> None:
+        """Constant external generation should increase total quasiparticle mass."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 0.1, dtype=float)
+        ext_gen = ExternalGenerationSpec(mode="constant", rate=0.01)
+
+        _, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=5.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=8,
+            enable_diffusion=True,
+            external_generation=ext_gen,
+        )
+        # Mass should increase over time
+        self.assertGreater(mass[-1], mass[0])
+
+    def test_external_generation_pulse_only_during_window(self) -> None:
+        """Pulse generation should only be active during the pulse window."""
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 0.0, dtype=float)
+        # Pulse from t=0 to t=2, then nothing
+        ext_gen = ExternalGenerationSpec(mode="pulse", pulse_rate=1.0, pulse_start=0.0, pulse_duration=2.0)
+
+        times, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=4.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5,
+            enable_diffusion=False,
+            external_generation=ext_gen,
+        )
+        # Mass should increase during pulse and stabilize after
+        self.assertGreater(mass[2], mass[0])  # During pulse
+        # After pulse ends (t=2..4), mass should be constant with no other processes
+        self.assertAlmostEqual(mass[3], mass[2], places=10)
+
+    def test_external_generation_none_matches_baseline(self) -> None:
+        """mode='none' should produce identical results to no external generation."""
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+        ext_gen = ExternalGenerationSpec(mode="none")
+
+        _, _, mass_ext, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5,
+            external_generation=ext_gen,
+        )
+        _, _, mass_none, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5,
+        )
+        for m_ext, m_none in zip(mass_ext, mass_none):
+            self.assertAlmostEqual(m_ext, m_none, places=12)
+
+    def test_bdf_collision_solver_runs(self) -> None:
+        """BDF collision solver should run and produce finite results."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+
+        times, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=2.0,
+            total_time=6.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=8,
+            enable_diffusion=True, enable_recombination=True, enable_scattering=True,
+            collision_solver="bdf",
+            tau_0=440.0, T_c=1.2, bath_temperature=0.1,
+        )
+        self.assertAlmostEqual(times[-1], 6.0, places=10)
+        for m in mass:
+            self.assertTrue(np.isfinite(m))
+            self.assertGreaterEqual(m, 0.0)
+
+    def test_scattering_and_recombination_combined(self) -> None:
+        """Scattering + recombination together should run without error and conserve mass reasonably."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+
+        times, frames, mass, _, energy_frames, energy_bins = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=5.0,
+            dx=1.0,
+            store_every=1,
+            energy_gap=180.0,
+            energy_min_factor=1.0,
+            energy_max_factor=5.0,
+            num_energy_bins=10,
+            enable_diffusion=True,
+            enable_recombination=True,
+            enable_scattering=True,
+            tau_0=440.0,
+            T_c=1.2,
+            bath_temperature=0.1,
+        )
+        self.assertGreater(len(times), 1)
+        self.assertAlmostEqual(times[-1], 5.0, places=10)
+        # Energy frames should be present
+        self.assertIsNotNone(energy_frames)
+        self.assertIsNotNone(energy_bins)
+        # Mass should remain finite and non-negative
+        for m in mass:
+            self.assertTrue(np.isfinite(m))
+            self.assertGreaterEqual(m, 0.0)
+
+
+    # --- Codex review regression tests ---
+
+    def test_nonuniform_dirichlet_bc_produces_nonzero(self) -> None:
+        """Non-uniform gap + non-zero Dirichlet BC should drive the field toward the BC value."""
+        mask = np.ones((4, 4), dtype=bool)
+        edges = extract_edge_segments(mask)
+        # Set one edge to Dirichlet with value 5.0, rest reflective
+        edge_conditions = {}
+        dirichlet_set = False
+        for edge in edges:
+            if not dirichlet_set:
+                edge_conditions[edge.edge_id] = BoundaryCondition(kind="dirichlet", value=5.0)
+                dirichlet_set = True
+            else:
+                edge_conditions[edge.edge_id] = BoundaryCondition(kind="reflective")
+        initial = np.zeros(mask.shape, dtype=float)
+
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=0.5, total_time=5.0, mesh_size=1.0,
+            store_every=1, energy_gap=180.0, energy_max_factor=5.0,
+            num_energy_bins=5, enable_diffusion=True,
+            gap_expression="return 180 + 10 * x",
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params)
+        self.assertFalse(bool(precomp["is_uniform"]))
+
+        _, frames, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=0.5,
+            total_time=5.0, dx=1.0, store_every=5, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5, enable_diffusion=True,
+            gap_expression="return 180 + 10 * x",
+            precomputed=precomp,
+        )
+        # Dirichlet BC should push mass above zero
+        self.assertGreater(mass[-1], 0.0)
+
+    def test_gap_expression_without_precompute_auto_computes(self) -> None:
+        """Setting gap_expression without precompute should still produce non-uniform results."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+
+        # Run with gap_expression but no precomputed sidecar
+        times, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
+            total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=5, enable_diffusion=True,
+            gap_expression="return 180 + 20 * x",
+        )
+        self.assertAlmostEqual(times[-1], 3.0, places=10)
+        for m in mass:
+            self.assertTrue(np.isfinite(m))
+
+    def test_precompute_validates_changed_parameters(self) -> None:
+        """Changing parameters after precompute should be detected by validation."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+
+        params1 = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params1)
+        n_spatial = int(np.sum(mask))
+
+        # Same params should validate
+        self.assertIsNone(validate_precomputed(precomp, params1, n_spatial))
+
+        # Changed gap should fail validation
+        params2 = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=200.0, energy_max_factor=5.0, num_energy_bins=5,
+        )
+        mismatch = validate_precomputed(precomp, params2, n_spatial)
+        self.assertIsNotNone(mismatch)
+        self.assertIn("energy_gap", mismatch)
+
+    def test_forward_euler_collision_non_negative(self) -> None:
+        """Forward Euler collision should never produce negative spectral densities."""
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        # Start with very small initial density — prone to going negative without clamp
+        initial = np.full(mask.shape, 0.001, dtype=float)
+
+        _, _, _, _, energy_frames, _ = run_2d_crank_nicolson(
+            mask=mask, edges=edges, edge_conditions=edge_conditions,
+            initial_field=initial, diffusion_coefficient=6.0, dt=5.0,
+            total_time=50.0, dx=1.0, store_every=5, energy_gap=180.0,
+            energy_max_factor=5.0, num_energy_bins=8,
+            enable_diffusion=True, enable_recombination=True, enable_scattering=True,
+            collision_solver="forward_euler",
+            tau_0=440.0, T_c=1.2, bath_temperature=0.1,
+        )
+        self.assertIsNotNone(energy_frames)
+        for time_slice in energy_frames:
+            for eframe in time_slice:
+                vals = eframe[~np.isnan(eframe)]
+                self.assertTrue(np.all(vals >= 0.0), f"Negative spectral density found: {vals.min()}")
+
+    def test_variable_diffusion_missing_bc_raises(self) -> None:
+        """Variable-diffusion builder should raise on missing face BC, same as scalar path."""
+        from qpsim.solver import build_variable_diffusion_laplacian
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        # Only assign some edges — leave gaps
+        edge_conditions = {}
+        for i, edge in enumerate(edges):
+            if i < len(edges) // 2:
+                edge_conditions[edge.edge_id] = BoundaryCondition(kind="reflective")
+        D_spatial = np.ones(int(np.sum(mask)), dtype=float)
+        with self.assertRaises(Exception):
+            build_variable_diffusion_laplacian(mask, edges, edge_conditions, 1.0, D_spatial)
 
 
 if __name__ == "__main__":

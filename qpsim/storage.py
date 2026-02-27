@@ -9,10 +9,19 @@ from typing import Any
 
 import numpy as np
 
+def _to_bool(val: Any, default: bool) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() not in ("false", "0", "no", "")
+    return bool(val)
+
+
 from .models import (
     BoundaryCondition,
     BoundaryFace,
     EdgeSegment,
+    ExternalGenerationSpec,
     GeometryData,
     InitialConditionSpec,
     SetupData,
@@ -57,6 +66,20 @@ def frame_from_jsonable(frame: list[list[float | None]]) -> np.ndarray:
 
 def serialize_setup(setup: SetupData) -> dict[str, Any]:
     return asdict(setup)
+
+
+def _deserialize_external_generation(raw: dict[str, Any] | None) -> ExternalGenerationSpec:
+    if raw is None:
+        return ExternalGenerationSpec()
+    return ExternalGenerationSpec(
+        mode=str(raw.get("mode", "none")),
+        rate=float(raw.get("rate", 0.0)),
+        pulse_start=float(raw.get("pulse_start", 0.0)),
+        pulse_duration=float(raw.get("pulse_duration", 10.0)),
+        pulse_rate=float(raw.get("pulse_rate", 0.0)),
+        custom_body=str(raw.get("custom_body", "return 0.0")),
+        custom_params=dict(raw.get("custom_params", {})),
+    )
 
 
 def deserialize_setup(payload: dict[str, Any]) -> SetupData:
@@ -106,12 +129,16 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         energy_min_factor=float(params_raw.get("energy_min_factor", 1.0)),
         energy_max_factor=float(params_raw.get("energy_max_factor", 10.0)),
         num_energy_bins=int(params_raw.get("num_energy_bins", 50)),
-        enable_diffusion=bool(params_raw.get("enable_diffusion", True)),
-        enable_recombination=bool(params_raw.get("enable_recombination", False)),
-        enable_scattering=bool(params_raw.get("enable_scattering", False)),
+        dynes_gamma=float(params_raw.get("dynes_gamma", 0.0)),
+        gap_expression=str(params_raw.get("gap_expression", "")),
+        collision_solver=str(params_raw.get("collision_solver", "forward_euler")),
+        enable_diffusion=_to_bool(params_raw.get("enable_diffusion", True), default=True),
+        enable_recombination=_to_bool(params_raw.get("enable_recombination", False), default=False),
+        enable_scattering=_to_bool(params_raw.get("enable_scattering", False), default=False),
         tau_0=float(params_raw.get("tau_0", 440.0)),
         T_c=float(params_raw.get("T_c", 1.2)),
         bath_temperature=float(params_raw.get("bath_temperature", 0.1)),
+        external_generation=_deserialize_external_generation(params_raw.get("external_generation")),
     )
 
     ic_raw = payload.get("initial_condition", {})
@@ -134,6 +161,30 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         parameters=params,
         initial_condition=initial_condition,
     )
+
+
+def precompute_npz_path(setup_path: Path) -> Path:
+    """Return the .precompute.npz sidecar path for a setup JSON file."""
+    return setup_path.with_suffix(".precompute.npz")
+
+
+def save_precomputed(setup_path: Path, arrays: dict) -> Path:
+    """Save precomputed arrays to .npz sidecar file."""
+    npz_path = precompute_npz_path(setup_path)
+    np.savez(str(npz_path), **arrays)
+    return npz_path
+
+
+def load_precomputed(setup_path: Path) -> dict:
+    """Load precomputed arrays from .npz sidecar file."""
+    npz_path = precompute_npz_path(setup_path)
+    data = np.load(str(npz_path), allow_pickle=False)
+    return dict(data)
+
+
+def precomputed_exists(setup_path: Path) -> bool:
+    """Check if a precomputed .npz sidecar file exists."""
+    return precompute_npz_path(setup_path).exists()
 
 
 def save_setup(setup: SetupData, path: Path | None = None) -> Path:

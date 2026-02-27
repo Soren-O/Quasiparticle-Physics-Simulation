@@ -20,6 +20,7 @@ from ..geometry import (
 from ..initial_conditions import build_initial_field, default_initial_condition
 from ..models import (
     BoundaryCondition,
+    ExternalGenerationSpec,
     GeometryData,
     InitialConditionSpec,
     SetupData,
@@ -38,15 +39,19 @@ from ..storage import (
     frame_to_jsonable,
     latest_test_suite_file,
     list_simulation_files,
+    load_precomputed,
     load_test_geometry_group,
     load_setup,
     load_simulation,
     load_test_suite,
+    precomputed_exists,
+    save_precomputed,
     save_setup,
     save_simulation,
 )
+from ..precompute import estimate_precompute_memory, precompute_arrays, validate_precomputed
 from ..test_cases import generate_and_save_test_suite
-from .dialogs import ask_boundary_condition, ask_initial_condition, show_material_reference
+from .dialogs import ask_boundary_condition, ask_external_generation, ask_initial_condition, show_material_reference
 from .theme import FONT_MONO, FONT_TITLE, RETRO_ACCENT, RETRO_BG, RETRO_PANEL, apply_retro_theme
 
 
@@ -762,6 +767,10 @@ class SetupEditor(tk.Toplevel):
         self.latest_result: SimulationResultData | None = None
         self.hover_edge_id: str | None = None
         self.simulation_running = False
+        self.last_saved_path: str | None = None
+        self._external_generation: ExternalGenerationSpec = (
+            setup.parameters.external_generation if setup else ExternalGenerationSpec()
+        )
 
         root = tk.Frame(self, bg=RETRO_PANEL)
         root.pack(fill="both", expand=True, padx=8, pady=8)
@@ -787,8 +796,12 @@ class SetupEditor(tk.Toplevel):
         self.total_var = tk.StringVar(value=str(default_params.total_time))
         self.store_var = tk.StringVar(value=str(default_params.store_every))
         self.energy_gap_var = tk.StringVar(value=str(default_params.energy_gap))
+        self.energy_min_var = tk.StringVar(value=str(default_params.energy_min_factor))
         self.energy_max_var = tk.StringVar(value=str(default_params.energy_max_factor))
         self.energy_bins_var = tk.StringVar(value=str(default_params.num_energy_bins))
+        self.dynes_gamma_var = tk.StringVar(value=str(default_params.dynes_gamma))
+        self.gap_expression_var = tk.StringVar(value=default_params.gap_expression)
+        self.collision_solver_var = tk.StringVar(value=default_params.collision_solver)
         self.enable_diffusion_var = tk.BooleanVar(value=default_params.enable_diffusion)
         self.enable_recombination_var = tk.BooleanVar(value=default_params.enable_recombination)
         self.enable_scattering_var = tk.BooleanVar(value=default_params.enable_scattering)
@@ -809,17 +822,27 @@ class SetupEditor(tk.Toplevel):
         add_param("Total Time (ns)", self.total_var)
         add_param("Store Every N Steps", self.store_var)
         add_param("Energy Gap \u0394 (\u03bceV)", self.energy_gap_var)
+        add_param("Energy Min (\u00d7\u0394)", self.energy_min_var)
         add_param("Energy Max (\u00d7\u0394)", self.energy_max_var)
         add_param("Energy Bins", self.energy_bins_var)
+        add_param("Dynes Gamma \u0393 (\u03bceV)", self.dynes_gamma_var)
+        tk.Label(left, text="\u0394(x,y) Expression (empty=uniform)", bg=RETRO_PANEL).pack(anchor="w")
+        tk.Entry(left, textvariable=self.gap_expression_var, width=36).pack(anchor="w", pady=(0, 6))
 
         # --- Physics process toggles ---
         tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(8, 2))
         tk.Checkbutton(left, text="Enable Diffusion", variable=self.enable_diffusion_var, bg=RETRO_PANEL, anchor="w").pack(anchor="w")
         tk.Checkbutton(left, text="Enable Recombination", variable=self.enable_recombination_var, bg=RETRO_PANEL, anchor="w",
                         command=self._toggle_recomb_fields).pack(anchor="w")
-        self.scattering_cb = tk.Checkbutton(left, text="Enable Scattering (not yet implemented)", variable=self.enable_scattering_var,
-                                             bg=RETRO_PANEL, anchor="w", state="disabled")
+        self.scattering_cb = tk.Checkbutton(left, text="Enable Scattering", variable=self.enable_scattering_var,
+                                             bg=RETRO_PANEL, anchor="w")
         self.scattering_cb.pack(anchor="w")
+        tk.Label(left, text="Collision Solver", bg=RETRO_PANEL).pack(anchor="w")
+        self.collision_solver_menu = ttk.Combobox(
+            left, state="readonly", width=18, textvariable=self.collision_solver_var,
+            values=["forward_euler", "bdf"],
+        )
+        self.collision_solver_menu.pack(anchor="w", pady=(0, 4))
 
         # --- Recombination parameters (shown/hidden based on checkbox) ---
         self.recomb_frame = tk.Frame(left, bg=RETRO_PANEL)
@@ -837,10 +860,17 @@ class SetupEditor(tk.Toplevel):
             left, text="Material Reference Table...", width=30,
             command=self.show_material_reference,
         ).pack(anchor="w", pady=(6, 4))
+        tk.Button(
+            left, text="Pre-compute Arrays", width=30,
+            command=self.run_precompute,
+        ).pack(anchor="w", pady=4)
+        self.precompute_label = tk.Label(left, text="", bg=RETRO_PANEL, fg="#666666", justify="left", wraplength=320)
+        self.precompute_label.pack(anchor="w")
 
         tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(10, 4))
         tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=4)
         tk.Button(left, text="Initial Conditions...", width=30, command=self.edit_initial_conditions).pack(anchor="w", pady=4)
+        tk.Button(left, text="External Generation...", width=30, command=self.edit_external_generation).pack(anchor="w", pady=4)
         tk.Button(left, text="Set Unassigned -> Reflective", width=30, command=self.fill_unassigned_reflective).pack(
             anchor="w", pady=4
         )
@@ -884,8 +914,13 @@ class SetupEditor(tk.Toplevel):
         self.total_var.set(str(setup.parameters.total_time))
         self.store_var.set(str(setup.parameters.store_every))
         self.energy_gap_var.set(str(setup.parameters.energy_gap))
+        self.energy_min_var.set(str(setup.parameters.energy_min_factor))
         self.energy_max_var.set(str(setup.parameters.energy_max_factor))
         self.energy_bins_var.set(str(setup.parameters.num_energy_bins))
+        self.dynes_gamma_var.set(str(setup.parameters.dynes_gamma))
+        self.gap_expression_var.set(setup.parameters.gap_expression)
+        self.collision_solver_var.set(setup.parameters.collision_solver)
+        self._external_generation = setup.parameters.external_generation
         self.enable_diffusion_var.set(setup.parameters.enable_diffusion)
         self.enable_recombination_var.set(setup.parameters.enable_recombination)
         self.enable_scattering_var.set(setup.parameters.enable_scattering)
@@ -969,6 +1004,44 @@ class SetupEditor(tk.Toplevel):
 
         show_material_reference(self, on_select=on_select)
 
+    def run_precompute(self) -> None:
+        if self.geometry_data is None or self.mask is None:
+            messagebox.showerror("Cannot Pre-compute", "Import geometry first.", parent=self)
+            return
+        try:
+            setup = self.build_setup()
+        except Exception as exc:
+            messagebox.showerror("Pre-compute Failed", str(exc), parent=self)
+            return
+        if not self.last_saved_path:
+            messagebox.showinfo(
+                "Save First",
+                "Save the setup before pre-computing (needed for .npz sidecar file).",
+                parent=self,
+            )
+            return
+
+        from pathlib import Path
+        setup_path = Path(self.last_saved_path)
+        mask_snap = self.mask.copy()
+
+        def task_fn():
+            return precompute_arrays(mask_snap, setup.geometry.edges, setup.boundary_conditions, setup.parameters)
+
+        def on_success(arrays):
+            from pathlib import Path as P
+            npz_path = save_precomputed(P(self.last_saved_path), arrays)
+            n_spatial = int(np.sum(mask_snap))
+            NE = setup.parameters.num_energy_bins
+            is_uniform = bool(arrays.get("is_uniform", True))
+            mem = estimate_precompute_memory(n_spatial, NE, is_uniform)
+            self.precompute_label.configure(
+                text=f"Pre-computed: {npz_path.name} ({mem / 1024 / 1024:.1f} MB est.)"
+            )
+            messagebox.showinfo("Pre-compute Done", f"Saved: {npz_path}", parent=self)
+
+        self._run_background_task("Pre-compute", "Computing collision kernels...", task_fn, on_success)
+
     def use_intrinsic(self) -> None:
         try:
             mesh_size = self.parse_float("mesh size", self.mesh_var.get())
@@ -988,6 +1061,13 @@ class SetupEditor(tk.Toplevel):
         spec = ask_initial_condition(self, self.initial_condition)
         if spec is not None:
             self.initial_condition = spec
+            self.update_status()
+
+    def edit_external_generation(self) -> None:
+        current = getattr(self, "_external_generation", ExternalGenerationSpec())
+        spec = ask_external_generation(self, current)
+        if spec is not None:
+            self._external_generation = spec
             self.update_status()
 
     def fill_unassigned_reflective(self) -> None:
@@ -1136,14 +1216,19 @@ class SetupEditor(tk.Toplevel):
             mesh_size=geometry_mesh,
             store_every=max(1, self.parse_int("store_every", self.store_var.get())),
             energy_gap=self.parse_float("energy gap", self.energy_gap_var.get()),
+            energy_min_factor=self.parse_float("energy min factor", self.energy_min_var.get()),
             energy_max_factor=self.parse_float("energy max factor", self.energy_max_var.get()),
             num_energy_bins=max(1, self.parse_int("energy bins", self.energy_bins_var.get())),
+            dynes_gamma=self.parse_float("Dynes gamma", self.dynes_gamma_var.get()),
+            gap_expression=self.gap_expression_var.get().strip(),
+            collision_solver=self.collision_solver_var.get().strip() or "forward_euler",
             enable_diffusion=self.enable_diffusion_var.get(),
             enable_recombination=self.enable_recombination_var.get(),
             enable_scattering=self.enable_scattering_var.get(),
             tau_0=self.parse_float("τ₀", self.tau_0_var.get()),
             T_c=self.parse_float("T_c", self.T_c_var.get()),
             bath_temperature=self.parse_float("bath temperature", self.bath_temp_var.get()),
+            external_generation=self._external_generation,
         )
         return SetupData(
             setup_id=self.setup_id,
@@ -1162,6 +1247,7 @@ class SetupEditor(tk.Toplevel):
         except Exception as exc:
             messagebox.showerror("Save Failed", str(exc), parent=self)
             return
+        self.last_saved_path = str(path)
         messagebox.showinfo("Setup Saved", f"Saved setup:\n{path}", parent=self)
 
     def _run_background_task(
@@ -1220,6 +1306,28 @@ class SetupEditor(tk.Toplevel):
 
         mask_snapshot = self.mask.copy()
 
+        # Auto-load precomputed arrays if sidecar exists and is compatible
+        precomp_data = None
+        if self.last_saved_path:
+            from pathlib import Path
+            sp = Path(self.last_saved_path)
+            if precomputed_exists(sp):
+                try:
+                    candidate = load_precomputed(sp)
+                    n_spatial = int(np.sum(mask_snapshot))
+                    mismatch = validate_precomputed(candidate, setup.parameters, n_spatial)
+                    if mismatch:
+                        messagebox.showwarning(
+                            "Stale Pre-computed Data",
+                            f"Ignoring precomputed sidecar — parameters changed:\n{mismatch}\n\n"
+                            "Re-run Pre-compute Arrays to update.",
+                            parent=self,
+                        )
+                    else:
+                        precomp_data = candidate
+                except Exception:
+                    pass
+
         def task_fn():
             initial = build_initial_field(mask_snapshot, setup.initial_condition)
             # Compute energy weights for Fermi-Dirac initial condition
@@ -1236,7 +1344,7 @@ class SetupEditor(tk.Toplevel):
                     p.num_energy_bins,
                 )
                 temp_K = float(setup.initial_condition.params.get("temperature", 0.1))
-                e_weights = thermal_qp_weights(E_bins, p.energy_gap, temp_K)
+                e_weights = thermal_qp_weights(E_bins, p.energy_gap, temp_K, p.dynes_gamma)
             times, frames, mass, color_limits, energy_frames, energy_bins = run_2d_crank_nicolson(
                 mask=mask_snapshot,
                 edges=setup.geometry.edges,
@@ -1255,9 +1363,14 @@ class SetupEditor(tk.Toplevel):
                 enable_diffusion=p.enable_diffusion,
                 enable_recombination=p.enable_recombination,
                 enable_scattering=p.enable_scattering,
+                dynes_gamma=p.dynes_gamma,
+                collision_solver=p.collision_solver,
                 tau_0=p.tau_0,
                 T_c=p.T_c,
                 bath_temperature=p.bath_temperature,
+                external_generation=p.external_generation,
+                gap_expression=p.gap_expression,
+                precomputed=precomp_data,
             )
             serialized_energy_frames = None
             serialized_energy_bins = None

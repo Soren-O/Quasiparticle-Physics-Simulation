@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any
 
-from ..models import BoundaryCondition, InitialConditionSpec
+from ..models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec
 from .theme import FONT_MONO, RETRO_PANEL
 
 
@@ -509,6 +509,140 @@ def ask_initial_condition(
     controls.pack(fill="x", padx=10, pady=(4, 10))
     tk.Button(controls, text="Cancel", width=14, command=on_cancel).pack(side="right", padx=4)
     tk.Button(controls, text="Apply", width=14, command=on_apply).pack(side="right", padx=4)
+
+    window.transient(parent)
+    window.grab_set()
+    window.wait_window()
+    return result[0]
+
+
+def ask_external_generation(
+    parent: tk.Misc,
+    current: ExternalGenerationSpec,
+) -> ExternalGenerationSpec | None:
+    """Dialog for configuring external quasiparticle generation."""
+    window = tk.Toplevel(parent)
+    window.title("External Generation")
+    window.configure(bg=RETRO_PANEL)
+    window.geometry("640x480")
+
+    result: list[ExternalGenerationSpec | None] = [None]
+    mode_var = tk.StringVar(value=current.mode)
+    rate_var = tk.StringVar(value=str(current.rate))
+    pulse_start_var = tk.StringVar(value=str(current.pulse_start))
+    pulse_duration_var = tk.StringVar(value=str(current.pulse_duration))
+    pulse_rate_var = tk.StringVar(value=str(current.pulse_rate))
+    custom_params_var = tk.StringVar(value=json.dumps(current.custom_params or {}))
+
+    tk.Label(window, text="Mode:", bg=RETRO_PANEL).pack(anchor="w", padx=10, pady=(10, 4))
+    mode_menu = ttk.Combobox(
+        window, state="readonly", width=20,
+        values=["none", "constant", "pulse", "custom"],
+    )
+    mode_menu.set(mode_var.get())
+    mode_menu.pack(anchor="w", padx=10, pady=(0, 8))
+
+    container = tk.Frame(window, bg=RETRO_PANEL)
+    container.pack(fill="both", expand=True, padx=10, pady=6)
+
+    frames: dict[str, tk.Frame] = {}
+
+    # None frame
+    none_frame = tk.Frame(container, bg=RETRO_PANEL)
+    frames["none"] = none_frame
+    tk.Label(none_frame, text="No external generation.", bg=RETRO_PANEL).pack(anchor="w")
+
+    # Constant frame
+    const_frame = tk.Frame(container, bg=RETRO_PANEL)
+    frames["constant"] = const_frame
+    tk.Label(const_frame, text="Rate (\u03bceV\u207b\u00b9 \u03bcm\u207b\u00b2 ns\u207b\u00b9)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(const_frame, textvariable=rate_var, width=14).grid(row=0, column=1, sticky="w")
+
+    # Pulse frame
+    pulse_frame = tk.Frame(container, bg=RETRO_PANEL)
+    frames["pulse"] = pulse_frame
+    tk.Label(pulse_frame, text="Pulse Rate", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(pulse_frame, textvariable=pulse_rate_var, width=14).grid(row=0, column=1, sticky="w")
+    tk.Label(pulse_frame, text="Start Time (ns)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Entry(pulse_frame, textvariable=pulse_start_var, width=14).grid(row=1, column=1, sticky="w")
+    tk.Label(pulse_frame, text="Duration (ns)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
+    tk.Entry(pulse_frame, textvariable=pulse_duration_var, width=14).grid(row=2, column=1, sticky="w")
+
+    # Custom frame
+    custom_frame = tk.Frame(container, bg=RETRO_PANEL)
+    frames["custom"] = custom_frame
+    tk.Label(custom_frame, text="def _g_ext(E, x, y, t, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    tk.Label(custom_frame, text="    # E in \u03bceV, x/y normalized 0..1, t in ns", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    tk.Label(custom_frame, text="Body:", bg=RETRO_PANEL).pack(anchor="w", pady=(8, 2))
+    custom_text = tk.Text(custom_frame, width=70, height=8, font=FONT_MONO)
+    custom_text.pack(fill="x", expand=False)
+    custom_text.insert("1.0", current.custom_body or "return 0.0")
+    tk.Label(custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(8, 2))
+    tk.Entry(custom_frame, textvariable=custom_params_var, width=70).pack(anchor="w")
+
+    def show_frame(mode: str) -> None:
+        for f in frames.values():
+            f.pack_forget()
+        frames.get(mode, frames["none"]).pack(fill="both", expand=True, anchor="w")
+
+    def on_mode_change(*_args) -> None:
+        mode_var.set(mode_menu.get().strip().lower())
+        show_frame(mode_var.get())
+
+    mode_menu.bind("<<ComboboxSelected>>", on_mode_change)
+    show_frame(mode_var.get())
+
+    def parse_float(name: str, raw: str) -> float:
+        try:
+            return float(raw.strip())
+        except Exception:
+            raise ValueError(f"'{name}' must be numeric.")
+
+    def on_cancel() -> None:
+        result[0] = None
+        window.destroy()
+
+    def on_apply() -> None:
+        mode = mode_var.get().strip().lower()
+        try:
+            if mode == "none":
+                spec = ExternalGenerationSpec(mode="none")
+            elif mode == "constant":
+                spec = ExternalGenerationSpec(
+                    mode="constant",
+                    rate=parse_float("rate", rate_var.get()),
+                )
+            elif mode == "pulse":
+                spec = ExternalGenerationSpec(
+                    mode="pulse",
+                    pulse_rate=parse_float("pulse rate", pulse_rate_var.get()),
+                    pulse_start=parse_float("start time", pulse_start_var.get()),
+                    pulse_duration=parse_float("duration", pulse_duration_var.get()),
+                )
+            elif mode == "custom":
+                raw_params = custom_params_var.get().strip()
+                params = {}
+                if raw_params:
+                    params = json.loads(raw_params)
+                    if not isinstance(params, dict):
+                        raise ValueError("Custom params must be a JSON object.")
+                spec = ExternalGenerationSpec(
+                    mode="custom",
+                    custom_body=custom_text.get("1.0", "end").strip(),
+                    custom_params=params,
+                )
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+        except Exception as exc:
+            messagebox.showerror("Invalid Input", str(exc), parent=window)
+            return
+        result[0] = spec
+        window.destroy()
+
+    gen_controls = tk.Frame(window, bg=RETRO_PANEL)
+    gen_controls.pack(fill="x", padx=10, pady=(4, 10))
+    tk.Button(gen_controls, text="Cancel", width=14, command=on_cancel).pack(side="right", padx=4)
+    tk.Button(gen_controls, text="Apply", width=14, command=on_apply).pack(side="right", padx=4)
 
     window.transient(parent)
     window.grab_set()
