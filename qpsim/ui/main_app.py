@@ -623,18 +623,6 @@ class TestGeometryLanding(tk.Toplevel):
         self.preview_canvases: list[FigureCanvasTkAgg] = []
 
         groups = list(suite.geometry_groups)
-        if not groups and suite.cases:
-            groups = [
-                TestGeometryGroupData(
-                    geometry_id="legacy_default",
-                    title="Legacy Geometry",
-                    description="Legacy suite format",
-                    view_mode="line1d",
-                    preview_mask=[[1 for _ in range(max(1, len(suite.cases[0].x)))]] if suite.cases[0].x else [[1] * 32],
-                    cases=list(suite.cases),
-                )
-            ]
-
         if not groups:
             raise ValueError("No test geometries found in this suite.")
 
@@ -1033,8 +1021,6 @@ class SetupEditor(tk.Toplevel):
             )
             return
 
-        from pathlib import Path
-        setup_path = Path(self.last_saved_path)
         mask_snap = self.mask.copy()
 
         def task_fn():

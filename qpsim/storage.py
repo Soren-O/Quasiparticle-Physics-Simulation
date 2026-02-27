@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-def _to_bool(val: Any, default: bool) -> bool:
+def _to_bool(val: Any) -> bool:
     if isinstance(val, bool):
         return val
     if isinstance(val, str):
@@ -132,9 +132,9 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         dynes_gamma=float(params_raw.get("dynes_gamma", 0.0)),
         gap_expression=str(params_raw.get("gap_expression", "")),
         collision_solver=str(params_raw.get("collision_solver") or "forward_euler"),
-        enable_diffusion=_to_bool(params_raw.get("enable_diffusion", True), default=True),
-        enable_recombination=_to_bool(params_raw.get("enable_recombination", False), default=False),
-        enable_scattering=_to_bool(params_raw.get("enable_scattering", False), default=False),
+        enable_diffusion=_to_bool(params_raw.get("enable_diffusion", True)),
+        enable_recombination=_to_bool(params_raw.get("enable_recombination", False)),
+        enable_scattering=_to_bool(params_raw.get("enable_scattering", False)),
         tau_0=float(params_raw.get("tau_0", 440.0)),
         T_c=float(params_raw.get("T_c", 1.2)),
         bath_temperature=float(params_raw.get("bath_temperature", 0.1)),
@@ -244,10 +244,6 @@ def create_simulation_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
-def serialize_test_suite(suite: TestSuiteData) -> dict[str, Any]:
-    return asdict(suite)
-
-
 def _deserialize_test_case(case: dict[str, Any]) -> TestCaseResultData:
     return TestCaseResultData(
         case_id=case["case_id"],
@@ -316,41 +312,33 @@ def deserialize_test_suite(
     manifest_path: Path | None = None,
     load_group_cases: bool = True,
 ) -> TestSuiteData:
-    geometry_groups_raw = payload.get("geometry_groups", [])
-    if geometry_groups_raw:
-        geometry_groups: list[TestGeometryGroupData] = []
-        for group in geometry_groups_raw:
-            parsed_group = _deserialize_group_inline(group)
-            if (
-                load_group_cases
-                and not parsed_group.cases
-                and manifest_path is not None
-                and parsed_group.group_file
-            ):
-                try:
-                    parsed_group = load_test_geometry_group(manifest_path, parsed_group.geometry_id)
-                except Exception as exc:
-                    raise ValueError(
-                        f"Failed to load geometry group '{parsed_group.geometry_id}' "
-                        f"from sidecar '{parsed_group.group_file}'."
-                    ) from exc
-            geometry_groups.append(parsed_group)
-        cases: list[TestCaseResultData] = []
-        for group in geometry_groups:
-            cases.extend(group.cases)
-    else:
-        cases = [_deserialize_test_case(case) for case in payload.get("cases", [])]
-        # Backward compatibility for older suites that only stored a flat case list.
-        geometry_groups = [
-            TestGeometryGroupData(
-                geometry_id="legacy_default",
-                title="Legacy Test Geometry",
-                description="Imported from legacy suite format",
-                view_mode="line1d",
-                preview_mask=[[1 for _ in range(max(1, len(cases[0].x) if cases and cases[0].x else 32))]],
-                cases=cases,
-            )
-        ] if cases else []
+    geometry_groups_raw = payload.get("geometry_groups")
+    if not geometry_groups_raw:
+        raise ValueError(
+            "Test suite manifest missing 'geometry_groups'. "
+            "Legacy flat-case suite format is no longer supported."
+        )
+
+    geometry_groups: list[TestGeometryGroupData] = []
+    for group in geometry_groups_raw:
+        parsed_group = _deserialize_group_inline(group)
+        if (
+            load_group_cases
+            and not parsed_group.cases
+            and manifest_path is not None
+            and parsed_group.group_file
+        ):
+            try:
+                parsed_group = load_test_geometry_group(manifest_path, parsed_group.geometry_id)
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to load geometry group '{parsed_group.geometry_id}' "
+                    f"from sidecar '{parsed_group.group_file}'."
+                ) from exc
+        geometry_groups.append(parsed_group)
+    cases: list[TestCaseResultData] = []
+    for group in geometry_groups:
+        cases.extend(group.cases)
 
     return TestSuiteData(
         suite_id=payload["suite_id"],
@@ -366,11 +354,7 @@ def save_test_suite(suite: TestSuiteData, path: Path | None = None) -> Path:
         filename = f"test_suite_{suite.suite_id}.json"
         path = TEST_CASES_DIR / filename
     if not suite.geometry_groups:
-        payload = serialize_test_suite(suite)
-        metadata = dict(payload.get("metadata", {}))
-        metadata["format_version"] = max(TEST_SUITE_FORMAT_VERSION, int(metadata.get("format_version", 0)))
-        payload["metadata"] = metadata
-        return _write_json(path, payload)
+        raise ValueError("Test suite must contain at least one geometry group.")
 
     suite_dir = path.with_suffix("")
 

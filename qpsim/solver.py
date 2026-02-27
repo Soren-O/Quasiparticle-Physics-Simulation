@@ -613,7 +613,6 @@ def _apply_collision_nonuniform(
     n_spatial: int,
 ) -> None:
     """Apply collision step per spatial pixel with per-pixel kernels."""
-    NE = state.shape[0]
     for px in range(n_spatial):
         n_px = state[:, px]  # (NE,)
 

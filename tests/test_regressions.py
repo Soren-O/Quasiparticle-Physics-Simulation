@@ -9,7 +9,7 @@ import numpy as np
 
 from qpsim.geometry import connected_component_count, extract_edge_segments
 from qpsim.initial_conditions import build_initial_field
-from qpsim.models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec, SimulationParameters, TestCaseResultData, TestSuiteData, utc_now_iso
+from qpsim.models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec, SimulationParameters, TestSuiteData, utc_now_iso
 from qpsim.precompute import precompute_arrays, validate_precomputed
 from qpsim.solver import _bcs_density_of_states, _dynes_density_of_states, run_2d_crank_nicolson
 from qpsim.storage import (
@@ -67,60 +67,17 @@ class RegressionTests(unittest.TestCase):
         )
         self.assertEqual(connected_component_count(mask), 5)
 
-    def test_save_test_suite_clamps_format_version(self) -> None:
+    def test_save_test_suite_requires_geometry_groups(self) -> None:
         suite = TestSuiteData(
             suite_id="suite123",
             created_at=utc_now_iso(),
             cases=[],
             geometry_groups=[],
-            metadata={"format_version": 1},
+            metadata={"format_version": TEST_SUITE_FORMAT_VERSION},
         )
         with tempfile.TemporaryDirectory() as tmpdir:
-            out_path = save_test_suite(suite, path=Path(tmpdir) / "suite.json")
-            payload = json.loads(out_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["metadata"]["format_version"], TEST_SUITE_FORMAT_VERSION)
-
-    def test_save_test_suite_preserves_higher_format_version(self) -> None:
-        future_version = TEST_SUITE_FORMAT_VERSION + 2
-        suite = TestSuiteData(
-            suite_id="suite456",
-            created_at=utc_now_iso(),
-            cases=[],
-            geometry_groups=[],
-            metadata={"format_version": future_version},
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_path = save_test_suite(suite, path=Path(tmpdir) / "suite.json")
-            payload = json.loads(out_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["metadata"]["format_version"], future_version)
-
-    def test_save_test_suite_preserves_flat_cases_roundtrip(self) -> None:
-        suite = TestSuiteData(
-            suite_id="suite789",
-            created_at=utc_now_iso(),
-            cases=[
-                TestCaseResultData(
-                    case_id="legacy_case",
-                    title="Legacy",
-                    boundary_label="Reflective",
-                    formula_latex="u=1",
-                    initial_condition_latex="u=1",
-                    description="legacy flat format case",
-                    x=[0.5],
-                    times=[0.0],
-                    simulated=[[1.0]],
-                    analytic=[[1.0]],
-                    metadata={},
-                )
-            ],
-            geometry_groups=[],
-            metadata={"format_version": 1},
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_path = save_test_suite(suite, path=Path(tmpdir) / "suite.json")
-            loaded = load_test_suite(out_path)
-        self.assertEqual(len(loaded.cases), 1)
-        self.assertEqual(loaded.cases[0].case_id, "legacy_case")
+            with self.assertRaises(ValueError):
+                save_test_suite(suite, path=Path(tmpdir) / "suite.json")
 
     def test_load_test_suite_raises_on_missing_group_sidecar(self) -> None:
         payload = {
@@ -172,6 +129,33 @@ class RegressionTests(unittest.TestCase):
             suite = load_test_suite(path, load_group_cases=False)
         self.assertEqual(len(suite.geometry_groups), 1)
         self.assertEqual(suite.geometry_groups[0].geometry_id, "g1")
+
+    def test_load_test_suite_rejects_legacy_flat_case_format(self) -> None:
+        payload = {
+            "suite_id": "legacy_suite",
+            "created_at": utc_now_iso(),
+            "cases": [
+                {
+                    "case_id": "legacy_case",
+                    "title": "Legacy",
+                    "boundary_label": "Reflective",
+                    "formula_latex": "u=1",
+                    "initial_condition_latex": "u=1",
+                    "description": "legacy flat format case",
+                    "x": [0.5],
+                    "times": [0.0],
+                    "simulated": [[1.0]],
+                    "analytic": [[1.0]],
+                    "metadata": {},
+                }
+            ],
+            "metadata": {"format_version": 1},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "suite.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_test_suite(path)
 
     def test_reflective_uniform_field_is_stationary(self) -> None:
         mask = np.ones((2, 2), dtype=bool)
@@ -248,7 +232,7 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(bool(precomp["is_uniform"]))
 
         # Run with precomputed
-        _, frames_pre, mass_pre, _, _, _ = run_2d_crank_nicolson(
+        _, _, mass_pre, _, _, _ = run_2d_crank_nicolson(
             mask=mask, edges=edges, edge_conditions=edge_conditions,
             initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
             total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,
@@ -257,7 +241,7 @@ class RegressionTests(unittest.TestCase):
             precomputed=precomp,
         )
         # Run without precomputed
-        _, frames_dir, mass_dir, _, _, _ = run_2d_crank_nicolson(
+        _, _, mass_dir, _, _, _ = run_2d_crank_nicolson(
             mask=mask, edges=edges, edge_conditions=edge_conditions,
             initial_field=initial, diffusion_coefficient=6.0, dt=1.0,
             total_time=3.0, dx=1.0, store_every=1, energy_gap=180.0,

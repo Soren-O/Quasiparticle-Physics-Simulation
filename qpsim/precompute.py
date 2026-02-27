@@ -7,7 +7,6 @@ import numpy as np
 from .initial_conditions import evaluate_gap_expression
 from .models import BoundaryCondition, EdgeSegment, SimulationParameters
 from .solver import (
-    _KB_UEV_PER_K,
     _dynes_density_of_states,
     build_energy_grid,
     recombination_kernel,
@@ -58,28 +57,10 @@ def _make_fingerprint(params: SimulationParameters, mask: np.ndarray) -> np.ndar
     return np.array(values, dtype=float)
 
 
-def _make_legacy_fingerprint(params: SimulationParameters, n_spatial: int) -> np.ndarray:
-    """Legacy fingerprint format without geometry hash."""
-    values = [
-        params.energy_gap,
-        params.energy_min_factor,
-        params.energy_max_factor,
-        float(params.num_energy_bins),
-        params.dynes_gamma,
-        params.diffusion_coefficient,
-        params.tau_0,
-        params.T_c,
-        params.bath_temperature,
-        float(n_spatial),
-        _gap_expression_hash(params.gap_expression),
-    ]
-    return np.array(values, dtype=float)
-
-
 def validate_precomputed(
     precomputed: dict[str, Any],
     params: SimulationParameters,
-    mask: np.ndarray | int,
+    mask: np.ndarray,
 ) -> str | None:
     """Validate precomputed arrays against current parameters.
 
@@ -88,34 +69,17 @@ def validate_precomputed(
     stored = precomputed.get("fingerprint")
     if stored is None:
         return "Precomputed file has no fingerprint (created before compatibility checks)."
-
-    if isinstance(mask, np.ndarray):
-        stored_cmp = stored
-        current = _make_fingerprint(params, mask)
-        labels = [
-            "energy_gap", "energy_min_factor", "energy_max_factor",
-            "num_energy_bins", "dynes_gamma", "diffusion_coefficient",
-            "tau_0", "T_c", "bath_temperature", "n_spatial", "mask_hash", "gap_expression",
-        ]
-    else:
-        n_spatial = int(mask)
-        current = _make_legacy_fingerprint(params, n_spatial)
-        labels = [
-            "energy_gap", "energy_min_factor", "energy_max_factor",
-            "num_energy_bins", "dynes_gamma", "diffusion_coefficient",
-            "tau_0", "T_c", "bath_temperature", "n_spatial", "gap_expression",
-        ]
-        # Backward-compatible path: if caller passes only n_spatial, skip mask_hash comparison.
-        if stored.shape == (12,):
-            stored_cmp = np.delete(stored, 10)
-        else:
-            stored_cmp = stored
-
-    if stored_cmp.shape != current.shape:
-        return f"Fingerprint size mismatch: stored {stored_cmp.shape} vs current {current.shape}."
-    if not np.allclose(stored_cmp, current, rtol=1e-12, atol=1e-12):
+    current = _make_fingerprint(params, mask)
+    labels = [
+        "energy_gap", "energy_min_factor", "energy_max_factor",
+        "num_energy_bins", "dynes_gamma", "diffusion_coefficient",
+        "tau_0", "T_c", "bath_temperature", "n_spatial", "mask_hash", "gap_expression",
+    ]
+    if stored.shape != current.shape:
+        return f"Fingerprint size mismatch: stored {stored.shape} vs current {current.shape}."
+    if not np.allclose(stored, current, rtol=1e-12, atol=1e-12):
         diffs = []
-        for i, (s, c) in enumerate(zip(stored_cmp, current)):
+        for i, (s, c) in enumerate(zip(stored, current)):
             if abs(s - c) > 1e-12 * max(abs(s), abs(c), 1.0):
                 label = labels[i] if i < len(labels) else f"param[{i}]"
                 diffs.append(f"{label}: stored={s}, current={c}")

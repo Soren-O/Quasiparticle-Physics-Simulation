@@ -550,9 +550,6 @@ def _generate_polygon_donut_geometry_group(
 
 def _generate_recombination_test_group() -> TestGeometryGroupData:
     """Generate recombination test cases comparing simulation to analytic ODE solutions."""
-    # Boltzmann constant in μeV/K (must match solver._KB_UEV_PER_K)
-    kB = 86.17
-
     cases: list[TestCaseResultData] = []
 
     # ── Case 1: Pure 1/t Recombination Decay (T_bath=0) ──
@@ -577,7 +574,7 @@ def _generate_recombination_test_group() -> TestGeometryGroupData:
     edge_conds_1 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_1}
     init_field_1 = np.full((1, 1), n0_1, dtype=float)
 
-    times_1, frames_1, _, _, energy_frames_1, _ = run_2d_crank_nicolson(
+    times_1, _, _, _, energy_frames_1, _ = run_2d_crank_nicolson(
         mask=mask_1, edges=edges_1, edge_conditions=edge_conds_1,
         initial_field=init_field_1, diffusion_coefficient=1.0,
         dt=dt_1, total_time=total_time_1, dx=1.0, store_every=store_every_1,
@@ -636,7 +633,7 @@ def _generate_recombination_test_group() -> TestGeometryGroupData:
     total_time_2 = 200.0
     store_every_2 = 10
 
-    times_2, frames_2, _, _, energy_frames_2, _ = run_2d_crank_nicolson(
+    times_2, _, _, _, energy_frames_2, _ = run_2d_crank_nicolson(
         mask=mask_2, edges=edges_2, edge_conditions=edge_conds_2,
         initial_field=init_field_2, diffusion_coefficient=1.0,
         dt=dt_2, total_time=total_time_2, dx=1.0, store_every=store_every_2,
@@ -703,7 +700,7 @@ def _generate_recombination_test_group() -> TestGeometryGroupData:
     edge_conds_3 = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges_3}
     init_field_3 = np.full((1, 1), n0_3, dtype=float)
 
-    times_3, frames_3, _, _, energy_frames_3, _ = run_2d_crank_nicolson(
+    times_3, _, _, _, energy_frames_3, _ = run_2d_crank_nicolson(
         mask=mask_3, edges=edges_3, edge_conditions=edge_conds_3,
         initial_field=init_field_3, diffusion_coefficient=1.0,
         dt=dt_3, total_time=total_time_3, dx=1.0, store_every=store_every_3,
@@ -757,8 +754,6 @@ def _generate_recombination_test_group() -> TestGeometryGroupData:
 
 def _generate_scattering_test_group() -> TestGeometryGroupData:
     """Generate scattering test cases comparing simulation to analytic predictions."""
-    kB = 86.17  # μeV/K — must match solver._KB_UEV_PER_K
-
     cases: list[TestCaseResultData] = []
 
     # ── Case 1: Top-Bin Scattering Out (Exponential Decay) ──
