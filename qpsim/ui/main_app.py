@@ -2046,9 +2046,16 @@ class SetupEditor(tk.Toplevel):
                         area,
                     )
                 elif phonon_frames_raw is not None:
-                    energy_phonon_total = [
-                        float(np.nansum(frame[mask_snapshot]) * area) for frame in phonon_frames_raw
-                    ]
+                    if (
+                        isinstance(phonon_metadata, dict)
+                        and str(phonon_metadata.get("field_units", "")).strip().lower()
+                        == "integrated_occupation"
+                    ):
+                        energy_phonon_total = [
+                            float(np.nansum(frame[mask_snapshot]) * area) for frame in phonon_frames_raw
+                        ]
+                    else:
+                        energy_phonon_total = [0.0 for _ in times]
                 else:
                     energy_phonon_total = [0.0 for _ in times]
 

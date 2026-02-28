@@ -401,6 +401,37 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             precompute_arrays(mask, edges, edge_conditions, params)
 
+    def test_validate_precomputed_rejects_missing_required_payload(self) -> None:
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params)
+        precomp.pop("D_array", None)
+        mismatch = validate_precomputed(precomp, params, mask)
+        self.assertIsNotNone(mismatch)
+        self.assertIn("D_array", str(mismatch))
+
+    def test_precompute_validation_ignores_collision_only_parameter_changes(self) -> None:
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        params = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
+            tau_s=440.0, tau_r=440.0, T_c=1.2, bath_temperature=0.1,
+        )
+        precomp = precompute_arrays(mask, edges, edge_conditions, params)
+        params_changed = SimulationParameters(
+            diffusion_coefficient=6.0, dt=1.0, total_time=3.0, mesh_size=1.0,
+            energy_gap=180.0, energy_max_factor=5.0, num_energy_bins=5,
+            tau_s=900.0, tau_r=950.0, T_c=1.7, bath_temperature=0.4,
+        )
+        self.assertIsNone(validate_precomputed(precomp, params_changed, mask))
+
     def test_external_generation_constant_increases_mass(self) -> None:
         """Constant external generation should increase total quasiparticle mass."""
         mask = np.ones((3, 3), dtype=bool)
@@ -851,6 +882,32 @@ class RegressionTests(unittest.TestCase):
         D_spatial = np.ones(int(np.sum(mask)), dtype=float)
         with self.assertRaises(Exception):
             build_variable_diffusion_laplacian(mask, edges, edge_conditions, 1.0, D_spatial)
+
+    def test_scalar_mode_populates_phonon_history_out(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.ones(mask.shape, dtype=float)
+        phonon_out: dict = {}
+        times, _, _, _, _, _ = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=3.0,
+            dx=1.0,
+            store_every=1,
+            energy_gap=0.0,
+            enable_diffusion=True,
+            bath_temperature=0.12,
+            phonon_history_out=phonon_out,
+        )
+        self.assertIn("phonon_frames", phonon_out)
+        self.assertEqual(len(phonon_out["phonon_frames"]), len(times))
+        self.assertIsNone(phonon_out.get("phonon_energy_frames"))
+        self.assertEqual(phonon_out.get("phonon_metadata", {}).get("mode"), "fixed_temperature")
 
 
 if __name__ == "__main__":

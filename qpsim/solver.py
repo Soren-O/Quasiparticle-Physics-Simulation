@@ -1569,4 +1569,19 @@ def run_2d_crank_nicolson(
     max_val = float(np.nanmax(np.stack(frames)))
     if abs(max_val - min_val) < 1e-12:
         max_val = min_val + 1e-9
+    if phonon_history_out is not None:
+        ph_frames, ph_energy_frames, ph_bins, ph_meta = build_fixed_phonon_history(
+            mask=mask,
+            times=times,
+            bath_temperature=bath_temperature,
+            phonon_energy_bins=None,
+        )
+        phonon_history_out.update(
+            {
+                "phonon_frames": ph_frames,
+                "phonon_energy_frames": ph_energy_frames,
+                "phonon_energy_bins": ph_bins,
+                "phonon_metadata": ph_meta,
+            }
+        )
     return times, frames, mass, [min_val, max_val], None, None

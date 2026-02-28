@@ -33,7 +33,20 @@ def _gap_expression_hash(gap_expression: str) -> float:
     return float(int(hashlib.sha256(gap_expression.encode()).hexdigest()[:16], 16) % (2**53))
 
 
-def _make_fingerprint(params: SimulationParameters, mask: np.ndarray) -> np.ndarray:
+def _as_bool_scalar(value: Any) -> bool:
+    if isinstance(value, np.ndarray):
+        if value.size == 0:
+            return False
+        return bool(value.reshape(-1)[0])
+    return bool(value)
+
+
+def _make_fingerprint(
+    params: SimulationParameters,
+    mask: np.ndarray,
+    *,
+    include_collision_kernels: bool,
+) -> np.ndarray:
     """Create a numeric fingerprint of parameters relevant to precomputation.
 
     Stored as a 1D float array so it can be saved in .npz and compared on load.
@@ -47,14 +60,19 @@ def _make_fingerprint(params: SimulationParameters, mask: np.ndarray) -> np.ndar
         float(params.num_energy_bins),
         params.dynes_gamma,
         params.diffusion_coefficient,
-        float(params.tau_s if params.tau_s is not None else params.tau_0),
-        float(params.tau_r if params.tau_r is not None else params.tau_0),
-        params.T_c,
-        params.bath_temperature,
         float(n_spatial),
         _mask_hash(mask),
         float(gap_hash),
     ]
+    if include_collision_kernels:
+        values.extend(
+            [
+                float(params.tau_s if params.tau_s is not None else params.tau_0),
+                float(params.tau_r if params.tau_r is not None else params.tau_0),
+                params.T_c,
+                params.bath_temperature,
+            ]
+        )
     return np.array(values, dtype=float)
 
 
@@ -67,15 +85,57 @@ def validate_precomputed(
 
     Returns None if compatible, or a description string of the mismatch.
     """
-    stored = precomputed.get("fingerprint")
-    if stored is None:
-        return "Precomputed file has no fingerprint (created before compatibility checks)."
-    current = _make_fingerprint(params, mask)
+    for key in ("fingerprint", "E_bins", "gap_values", "is_uniform", "D_array"):
+        if key not in precomputed:
+            return f"Precomputed file missing required key '{key}'."
+
+    n_spatial = int(np.sum(mask))
+    n_energy = int(params.num_energy_bins)
+    try:
+        e_bins = np.asarray(precomputed.get("E_bins"), dtype=float).reshape(-1)
+    except Exception:
+        return "Precomputed key 'E_bins' is not a valid numeric array."
+    if e_bins.size != n_energy:
+        return f"E_bins length mismatch: stored {e_bins.size} vs current {n_energy}."
+    try:
+        gap_values = np.asarray(precomputed.get("gap_values"), dtype=float).reshape(-1)
+    except Exception:
+        return "Precomputed key 'gap_values' is not a valid numeric array."
+    if gap_values.size != n_spatial:
+        return f"gap_values length mismatch: stored {gap_values.size} vs current {n_spatial}."
+    try:
+        d_array = np.asarray(precomputed.get("D_array"), dtype=float)
+    except Exception:
+        return "Precomputed key 'D_array' is not a valid numeric array."
+    if d_array.shape != (n_energy, n_spatial):
+        return (
+            "D_array shape mismatch: "
+            f"stored {tuple(d_array.shape)} vs current {(n_energy, n_spatial)}."
+        )
+
+    try:
+        stored = np.asarray(precomputed.get("fingerprint"), dtype=float).reshape(-1)
+    except Exception:
+        return "Precomputed key 'fingerprint' is not a valid numeric array."
+    has_collision_payload = any(
+        key in precomputed
+        for key in ("K_r", "K_s", "rho_bins", "G_therm", "K_r_all", "K_s_all", "rho_all", "G_therm_all")
+    )
+    include_collision_kernels = _as_bool_scalar(
+        precomputed.get("include_collision_kernels", has_collision_payload)
+    )
+    current = _make_fingerprint(
+        params,
+        mask,
+        include_collision_kernels=include_collision_kernels,
+    )
     labels = [
         "energy_gap", "energy_min_factor", "energy_max_factor",
         "num_energy_bins", "dynes_gamma", "diffusion_coefficient",
-        "tau_s", "tau_r", "T_c", "bath_temperature", "n_spatial", "mask_hash", "gap_expression",
+        "n_spatial", "mask_hash", "gap_expression",
     ]
+    if include_collision_kernels:
+        labels.extend(["tau_s", "tau_r", "T_c", "bath_temperature"])
     if stored.shape != current.shape:
         return f"Fingerprint size mismatch: stored {stored.shape} vs current {current.shape}."
     if not np.allclose(stored, current, rtol=1e-12, atol=1e-12):
@@ -155,7 +215,12 @@ def precompute_arrays(
         D_array[i] = params.diffusion_coefficient * np.sqrt(np.maximum(0.0, 1.0 - ratio ** 2))
 
     result: dict[str, Any] = {
-        "fingerprint": _make_fingerprint(params, mask),
+        "fingerprint": _make_fingerprint(
+            params,
+            mask,
+            include_collision_kernels=include_collision_kernels,
+        ),
+        "include_collision_kernels": np.array(bool(include_collision_kernels)),
         "E_bins": E_bins,
         "gap_values": gap_values,
         "is_uniform": np.array(is_uniform),
