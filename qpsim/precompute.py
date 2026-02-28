@@ -92,19 +92,22 @@ def estimate_precompute_memory(
     n_spatial: int,
     n_energy: int,
     is_uniform: bool,
+    include_collision_kernels: bool = False,
 ) -> int:
     """Estimate memory in bytes for precomputed arrays."""
     float_bytes = 8
+    # Base payload: D(E, x), E bins, and gap map.
+    base = float_bytes * (n_energy * n_spatial + n_energy + n_spatial)
+    if not include_collision_kernels:
+        return base
     if is_uniform:
-        # K_r, K_s: NE×NE; rho_bins, G_therm: NE; D_array: NE×N_spatial
-        return float_bytes * (2 * n_energy ** 2 + 2 * n_energy + n_energy * n_spatial)
-    else:
-        # Per-spatial: K_r_all, K_s_all: N_spatial×NE×NE; rho_all, G_therm_all: N_spatial×NE
-        return float_bytes * (
-            2 * n_spatial * n_energy ** 2
-            + 2 * n_spatial * n_energy
-            + n_energy * n_spatial
-        )
+        # K_r, K_s: NE x NE; rho_bins, G_therm: NE
+        return base + float_bytes * (2 * n_energy ** 2 + 2 * n_energy)
+    # Per-spatial: K_r_all, K_s_all: N_spatial x NE x NE; rho_all, G_therm_all: N_spatial x NE
+    return base + float_bytes * (
+        2 * n_spatial * n_energy ** 2
+        + 2 * n_spatial * n_energy
+    )
 
 
 def precompute_arrays(
@@ -113,8 +116,10 @@ def precompute_arrays(
     edge_conditions: dict[str, BoundaryCondition],
     params: SimulationParameters,
     progress_callback: Callable[[str], None] | None = None,
+    *,
+    include_collision_kernels: bool = False,
 ) -> dict[str, Any]:
-    """Precompute collision kernels and diffusion arrays.
+    """Precompute diffusion arrays and optionally collision kernels.
 
     Returns a dict of numpy arrays suitable for .npz storage and solver consumption.
     """
@@ -143,7 +148,7 @@ def precompute_arrays(
 
     gamma = params.dynes_gamma
 
-    # D(E, x) = D₀ × √(1 − (Δ(x)/E)²)
+    # D(E, x) = D0 * sqrt(1 - (Delta(x)/E)^2)
     D_array = np.empty((NE, n_spatial), dtype=float)
     for i in range(NE):
         ratio = np.minimum(gap_values / E_bins[i], 1.0)
@@ -157,7 +162,7 @@ def precompute_arrays(
         "D_array": D_array,
     }
 
-    if is_uniform:
+    if include_collision_kernels and is_uniform:
         if progress_callback:
             progress_callback("Computing uniform kernels...")
         gap = float(unique_gaps[0])
@@ -173,7 +178,7 @@ def precompute_arrays(
         result["K_s"] = K_s
         result["rho_bins"] = rho_bins
         result["G_therm"] = G_therm
-    else:
+    elif include_collision_kernels:
         if progress_callback:
             progress_callback("Computing per-pixel kernels (caching by unique gap)...")
 
@@ -182,7 +187,6 @@ def precompute_arrays(
         rho_all = np.empty((n_spatial, NE), dtype=float)
         G_therm_all = np.empty((n_spatial, NE), dtype=float)
 
-        # Cache by unique gap value
         cache: dict[float, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
         for gap_val in unique_gaps:
             gap_f = float(gap_val)
@@ -209,6 +213,10 @@ def precompute_arrays(
         result["G_therm_all"] = G_therm_all
 
     if progress_callback:
-        progress_callback("Precomputation complete.")
+        progress_callback(
+            "Precomputation complete."
+            if include_collision_kernels
+            else "Precomputation complete (diffusion/gap arrays only)."
+        )
 
     return result

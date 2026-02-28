@@ -367,7 +367,8 @@ class RegressionTests(unittest.TestCase):
         )
         precomp = precompute_arrays(mask, edges, edge_conditions, params)
         self.assertFalse(bool(precomp["is_uniform"]))
-        self.assertIn("K_r_all", precomp)
+        self.assertNotIn("K_r_all", precomp)
+        self.assertIn("D_array", precomp)
 
         # Run with non-uniform precomputed
         initial = np.full(mask.shape, 1.0, dtype=float)
@@ -435,6 +436,7 @@ class RegressionTests(unittest.TestCase):
             energy_max_factor=5.0, num_energy_bins=5,
             enable_diffusion=False,
             external_generation=ext_gen,
+            enforce_pauli=False,
         )
         # Mass should increase during pulse and stabilize after
         self.assertGreater(mass[2], mass[0])  # During pulse
@@ -658,6 +660,7 @@ class RegressionTests(unittest.TestCase):
             energy_max_factor=5.0, num_energy_bins=5, enable_diffusion=True,
             gap_expression="return 180 + 10 * x",
             precomputed=precomp,
+            enforce_pauli=False,
         )
         # Dirichlet BC should push mass above zero
         self.assertGreater(mass[-1], 0.0)

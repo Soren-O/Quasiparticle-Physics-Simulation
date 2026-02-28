@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Callable
+from typing import Any, Callable
 import warnings
 
 import numpy as np
@@ -82,6 +82,31 @@ def build_energy_grid(
     dE = (E_max - E_min) / float(num_energy_bins)
     E_bins = E_min + (np.arange(num_energy_bins, dtype=float) + 0.5) * dE
     return E_bins, dE
+
+
+def integration_widths_from_centers(
+    centers: np.ndarray,
+    *,
+    fallback_width: float = 1.0,
+) -> np.ndarray:
+    """Return integration bin widths for monotonically increasing bin centers."""
+    bins = np.asarray(centers, dtype=float).reshape(-1)
+    if bins.size == 0:
+        raise ValueError("centers must be non-empty.")
+    if bins.size == 1:
+        return np.array([float(fallback_width)], dtype=float)
+    if np.any(~np.isfinite(bins)):
+        raise ValueError("centers must contain finite values.")
+    if np.any(np.diff(bins) <= 0):
+        raise ValueError("centers must be strictly increasing.")
+    edges = np.empty(bins.size + 1, dtype=float)
+    edges[1:-1] = 0.5 * (bins[:-1] + bins[1:])
+    edges[0] = bins[0] - 0.5 * (bins[1] - bins[0])
+    edges[-1] = bins[-1] + 0.5 * (bins[-1] - bins[-2])
+    widths = np.diff(edges)
+    if np.any(widths <= 0):
+        raise ValueError("Derived non-positive integration width from centers.")
+    return widths
 
 
 def _apply_boundary_contribution(
@@ -640,72 +665,6 @@ def _apply_time_relaxation_update(
     return np.maximum(updated, 0.0)
 
 
-def apply_collision_step_time_relaxation(
-    state: np.ndarray,
-    K_r: np.ndarray | None,
-    K_s: np.ndarray | None,
-    rho_bins: np.ndarray | None,
-    G_therm: np.ndarray | None,
-    dE: float,
-    dt: float,
-) -> None:
-    """Apply one BoltzPhlow time-relaxation collision step (uniform kernels)."""
-    gain = np.zeros_like(state)
-    loss_rate = np.zeros_like(state)
-
-    if K_r is not None and G_therm is not None:
-        Kr_dot_state = K_r @ state
-        loss_rate += 2.0 * dE * Kr_dot_state
-        gain += G_therm[:, None]
-
-    if K_s is not None and rho_bins is not None:
-        rho = rho_bins[:, None]
-        f = state / np.maximum(rho, 1e-30)
-        one_minus_f = np.maximum(1.0 - f, 0.0)
-        scat_in = dE * rho * one_minus_f * (K_s.T @ state)
-        scat_out_rate = dE * ((K_s * rho_bins[None, :]) @ one_minus_f)
-        gain += scat_in
-        loss_rate += scat_out_rate
-
-    state[:, :] = _apply_time_relaxation_update(state, gain, loss_rate, dt)
-
-
-def apply_collision_step_time_relaxation_nonuniform(
-    state: np.ndarray,
-    K_r_all: np.ndarray | None,
-    K_s_all: np.ndarray | None,
-    rho_all: np.ndarray | None,
-    G_therm_all: np.ndarray | None,
-    dE: float,
-    dt: float,
-    n_spatial: int,
-) -> None:
-    """Apply BoltzPhlow time-relaxation collision step (per-pixel kernels)."""
-    n_px = state.T  # [N_spatial, NE]
-    if n_px.shape[0] != n_spatial:
-        raise ValueError("Internal error: state shape does not match n_spatial.")
-
-    gain = np.zeros_like(n_px)
-    loss_rate = np.zeros_like(n_px)
-
-    if K_r_all is not None and G_therm_all is not None:
-        Kr_dot_n = np.einsum("pij,pj->pi", K_r_all, n_px, optimize=True)
-        loss_rate += 2.0 * dE * Kr_dot_n
-        gain += G_therm_all
-
-    if K_s_all is not None and rho_all is not None:
-        f = n_px / np.maximum(rho_all, 1e-30)
-        one_minus_f = np.maximum(1.0 - f, 0.0)
-        scat_in_core = np.einsum("pji,pj->pi", K_s_all, n_px, optimize=True)
-        scat_in = dE * rho_all * one_minus_f * scat_in_core
-        scat_out_rates = np.einsum("pij,pj,pj->pi", K_s_all, rho_all, one_minus_f, optimize=True)
-        gain += scat_in
-        loss_rate += dE * scat_out_rates
-
-    n_px[:, :] = _apply_time_relaxation_update(n_px, gain, loss_rate, dt)
-    state[:, :] = n_px.T
-
-
 def _build_phonon_frequency_map(
     E_bins: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -1068,9 +1027,10 @@ def run_2d_crank_nicolson(
     precomputed: dict | None = None,
     pauli_warn_threshold: float | None = 0.5,
     pauli_error_threshold: float | None = 1.0,
-    enforce_pauli: bool = False,
+    enforce_pauli: bool = True,
     pauli_density_floor: float = 1e-18,
     freeze_phonon_dynamics: bool = False,
+    phonon_history_out: dict[str, Any] | None = None,
     progress_callback: Callable[[float, np.ndarray], None] | None = None,
 ) -> tuple[list[float], list[np.ndarray], list[float], list[float],
            list[list[np.ndarray]] | None, np.ndarray | None]:
@@ -1088,6 +1048,9 @@ def run_2d_crank_nicolson(
       enable_recombination – include recombination/thermal-generation step
       enable_scattering   – include quasiparticle-phonon scattering step
 
+    If ``phonon_history_out`` is provided in energy-resolved mode, it is populated
+    with solver-generated phonon frames/energy frames and omega bins.
+
     Returns (times, frames, mass, color_limits, energy_frames_or_None, energy_bins_or_None).
     frames are always energy-integrated 2D arrays for viewer compatibility.
     """
@@ -1102,6 +1065,8 @@ def run_2d_crank_nicolson(
     n = int(np.sum(mask))
     if n == 0:
         raise ValueError("Geometry mask has no interior points.")
+    if phonon_history_out is not None:
+        phonon_history_out.clear()
     tau_s_eff = float(tau_s if tau_s is not None else tau_0)
     tau_r_eff = float(tau_r if tau_r is not None else tau_0)
     if enable_scattering and tau_s_eff <= 0:
@@ -1150,7 +1115,13 @@ def run_2d_crank_nicolson(
                 tau_0=tau_0, tau_s=tau_s_eff, tau_r=tau_r_eff,
                 T_c=T_c, bath_temperature=bath_temperature,
             )
-            precomputed = precompute_arrays(mask, edges, edge_conditions, _auto_params)
+            precomputed = precompute_arrays(
+                mask,
+                edges,
+                edge_conditions,
+                _auto_params,
+                include_collision_kernels=False,
+            )
 
         # Determine if we have precomputed arrays and whether gap is non-uniform
         has_precomp = precomputed is not None
@@ -1372,6 +1343,26 @@ def run_2d_crank_nicolson(
 
         _enforce_pauli(step_idx=0, time_ns=0.0)
 
+        phonon_frames_hist: list[np.ndarray] | None = None
+        phonon_energy_frames_hist: list[list[np.ndarray]] | None = None
+        phonon_bin_widths: np.ndarray | None = None
+        if phonon_history_out is not None and phonon_state is not None and omega_bins is not None:
+            phonon_frames_hist = []
+            phonon_energy_frames_hist = []
+            phonon_bin_widths = integration_widths_from_centers(omega_bins, fallback_width=dE)
+
+            def _record_phonon_snapshot() -> None:
+                if phonon_state is None or phonon_bin_widths is None:
+                    return
+                energy_slice = [reconstruct_field(mask, phonon_state[i]) for i in range(phonon_state.shape[0])]
+                integrated_occ = np.sum(phonon_state * phonon_bin_widths[:, None], axis=0)
+                phonon_energy_frames_hist.append(energy_slice)
+                phonon_frames_hist.append(reconstruct_field(mask, integrated_occ))
+
+            _record_phonon_snapshot()
+        else:
+            _record_phonon_snapshot = None
+
         # Initial energy-integrated field
         integrated = np.sum(state, axis=0) * dE
 
@@ -1493,6 +1484,8 @@ def run_2d_crank_nicolson(
                 energy_frames.append(
                     [reconstruct_field(mask, state[i]) for i in range(num_energy_bins)]
                 )
+                if _record_phonon_snapshot is not None:
+                    _record_phonon_snapshot()
                 mass.append(float(np.sum(integrated) * dx * dx))
                 if progress_callback is not None:
                     try:
@@ -1504,6 +1497,21 @@ def run_2d_crank_nicolson(
         max_val = float(np.nanmax(np.stack(frames)))
         if abs(max_val - min_val) < 1e-12:
             max_val = min_val + 1e-9
+        if phonon_history_out is not None:
+            phonon_history_out.clear()
+            if phonon_frames_hist is not None and phonon_energy_frames_hist is not None and omega_bins is not None:
+                phonon_history_out.update(
+                    {
+                        "phonon_frames": phonon_frames_hist,
+                        "phonon_energy_frames": phonon_energy_frames_hist,
+                        "phonon_energy_bins": np.asarray(omega_bins, dtype=float).copy(),
+                        "phonon_metadata": {
+                            "mode": "dynamic_local_coupled",
+                            "field_units": "integrated_occupation",
+                            "energy_frame_units": "occupation",
+                        },
+                    }
+                )
         return times, frames, mass, [min_val, max_val], energy_frames, E_bins
 
     # --- Legacy scalar mode (energy_gap == 0) ---

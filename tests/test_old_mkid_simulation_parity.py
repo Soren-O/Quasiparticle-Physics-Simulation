@@ -624,7 +624,7 @@ def test_nonuniform_gap_precompute_matches_legacy_per_pixel_kernels() -> None:
         T_c=T_c,
         bath_temperature=bath_temperature,
     )
-    pre = precompute_arrays(mask, edges, bcs, params)
+    pre = precompute_arrays(mask, edges, bcs, params, include_collision_kernels=True)
 
     assert bool(pre["is_uniform"]) is False
     E_bins = np.asarray(pre["E_bins"], dtype=float)

@@ -47,8 +47,8 @@ from ..models import (
 from ..paths import ROOT_DIR, SIMULATIONS_DIR, ensure_data_dirs
 from ..solver import (
     BoundaryAssignmentError,
-    build_fixed_phonon_history,
     build_energy_grid,
+    integration_widths_from_centers,
     run_2d_crank_nicolson,
 )
 from ..storage import (
@@ -1933,6 +1933,7 @@ class SetupEditor(tk.Toplevel):
                         spec=setup.initial_condition,
                         bath_temperature=p.bath_temperature,
                     )
+                phonon_history_sink: dict[str, object] | None = {} if p.export_phonon_history else None
                 times, frames, mass, color_limits, energy_frames, energy_bins = run_2d_crank_nicolson(
                     mask=mask_snapshot,
                     edges=setup.geometry.edges,
@@ -1962,6 +1963,7 @@ class SetupEditor(tk.Toplevel):
                     initial_condition_spec=setup.initial_condition,
                     gap_expression=p.gap_expression,
                     precomputed=precomp_data,
+                    phonon_history_out=phonon_history_sink,
                     progress_callback=_safe_emit_live_frame if live_queue is not None else None,
                 )
                 serialized_energy_frames = None
@@ -1980,36 +1982,37 @@ class SetupEditor(tk.Toplevel):
                 serialized_phonon_frames = None
                 serialized_phonon_energy_frames = None
                 serialized_phonon_energy_bins = None
-                if p.export_phonon_history:
-                    phonon_frames_raw, phonon_energy_frames_raw, phonon_energy_bins_raw, phonon_metadata = (
-                        build_fixed_phonon_history(
-                            mask=mask_snapshot,
-                            times=times,
-                            bath_temperature=p.bath_temperature,
-                            phonon_energy_bins=energy_bins,
-                        )
-                    )
-                    serialized_phonon_frames = [frame_to_jsonable(frame) for frame in phonon_frames_raw]
-                    if phonon_energy_frames_raw is not None:
+                if p.export_phonon_history and phonon_history_sink is not None:
+                    phonon_frames_raw = phonon_history_sink.get("phonon_frames")
+                    phonon_energy_frames_raw = phonon_history_sink.get("phonon_energy_frames")
+                    phonon_energy_bins_raw = phonon_history_sink.get("phonon_energy_bins")
+                    phonon_metadata = phonon_history_sink.get("phonon_metadata")
+                    if isinstance(phonon_frames_raw, list):
+                        serialized_phonon_frames = [frame_to_jsonable(frame) for frame in phonon_frames_raw]
+                    if isinstance(phonon_energy_frames_raw, list):
                         serialized_phonon_energy_frames = [
                             [frame_to_jsonable(omega_frame) for omega_frame in time_slice]
                             for time_slice in phonon_energy_frames_raw
                         ]
-                    if phonon_energy_bins_raw is not None:
+                    if isinstance(phonon_energy_bins_raw, np.ndarray):
                         serialized_phonon_energy_bins = phonon_energy_bins_raw.tolist()
 
                 def _integrated_energy_total(
                     frame_stack: list[list[np.ndarray]],
                     bins: np.ndarray,
-                    dE: float,
+                    widths: np.ndarray,
                     area: float,
                 ) -> list[float]:
                     totals: list[float] = []
                     for time_slice in frame_stack:
                         total = 0.0
                         for idx, e_val in enumerate(bins):
-                            total += float(np.nansum(time_slice[idx][mask_snapshot])) * float(e_val)
-                        totals.append(float(total * dE * area))
+                            total += (
+                                float(np.nansum(time_slice[idx][mask_snapshot]))
+                                * float(e_val)
+                                * float(widths[idx])
+                            )
+                        totals.append(float(total * area))
                     return totals
 
                 area = float(p.mesh_size * p.mesh_size)
@@ -2020,23 +2023,26 @@ class SetupEditor(tk.Toplevel):
                         p.energy_max_factor,
                         p.num_energy_bins,
                     )
+                    energy_widths = integration_widths_from_centers(
+                        np.asarray(energy_bins, dtype=float),
+                        fallback_width=float(dE_energy),
+                    )
                     energy_qp_total = _integrated_energy_total(
-                        energy_frames, np.asarray(energy_bins, dtype=float), float(dE_energy), area
+                        energy_frames, np.asarray(energy_bins, dtype=float), energy_widths, area
                     )
                 else:
                     energy_qp_total = [float(v) for v in mass]
 
                 if phonon_energy_frames_raw is not None and phonon_energy_bins_raw is not None and p.energy_gap > 0:
-                    _, dE_ph = build_energy_grid(
-                        p.energy_gap,
-                        p.energy_min_factor,
-                        p.energy_max_factor,
-                        p.num_energy_bins,
+                    phonon_bins_arr = np.asarray(phonon_energy_bins_raw, dtype=float)
+                    phonon_widths = integration_widths_from_centers(
+                        phonon_bins_arr,
+                        fallback_width=1.0,
                     )
                     energy_phonon_total = _integrated_energy_total(
                         phonon_energy_frames_raw,
-                        np.asarray(phonon_energy_bins_raw, dtype=float),
-                        float(dE_ph),
+                        phonon_bins_arr,
+                        phonon_widths,
                         area,
                     )
                 elif phonon_frames_raw is not None:
