@@ -37,7 +37,10 @@ class RegressionTests(unittest.TestCase):
 
     def test_custom_ic_vectorized_expression(self) -> None:
         mask = np.ones((32, 40), dtype=bool)
-        spec = InitialConditionSpec(kind="custom", custom_body="return x + 2.0 * y")
+        spec = InitialConditionSpec(
+            spatial_kind="custom",
+            spatial_custom_body="return x + 2.0 * y",
+        )
         field = build_initial_field(mask, spec)
 
         y_idx, x_idx = np.indices(mask.shape)
@@ -49,9 +52,9 @@ class RegressionTests(unittest.TestCase):
     def test_custom_ic_scalar_fallback_expression(self) -> None:
         mask = np.ones((24, 24), dtype=bool)
         spec = InitialConditionSpec(
-            kind="custom",
-            custom_body="return 1.0 if x > params.get('cutoff', 0.5) else 0.0",
-            custom_params={"cutoff": 0.5},
+            spatial_kind="custom",
+            spatial_custom_body="return 1.0 if x > params.get('cutoff', 0.5) else 0.0",
+            spatial_custom_params={"cutoff": 0.5},
         )
         field = build_initial_field(mask, spec)
 
@@ -63,8 +66,8 @@ class RegressionTests(unittest.TestCase):
     def test_custom_ic_rejects_unsafe_expression(self) -> None:
         mask = np.ones((8, 8), dtype=bool)
         spec = InitialConditionSpec(
-            kind="custom",
-            custom_body="__import__('os').system('echo unsafe')",
+            spatial_kind="custom",
+            spatial_custom_body="__import__('os').system('echo unsafe')",
         )
         with self.assertRaises(ValueError):
             build_initial_field(mask, spec)
@@ -488,8 +491,8 @@ class RegressionTests(unittest.TestCase):
                 external_generation=ext_gen,
             )
 
-    def test_boltzphlow_collision_solver_runs(self) -> None:
-        """BoltzPhlow time-relaxation collision solver should run and produce finite results."""
+    def test_coupled_collision_solver_runs(self) -> None:
+        """Coupled qp-phonon collision solver should run and produce finite results."""
         mask = np.ones((3, 3), dtype=bool)
         edges = extract_edge_segments(mask)
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
@@ -501,7 +504,7 @@ class RegressionTests(unittest.TestCase):
             total_time=6.0, dx=1.0, store_every=1, energy_gap=180.0,
             energy_max_factor=5.0, num_energy_bins=8,
             enable_diffusion=True, enable_recombination=True, enable_scattering=True,
-            collision_solver="boltzphlow_relaxation",
+            collision_solver="fischer_catelani_local",
             tau_0=440.0, T_c=1.2, bath_temperature=0.1,
         )
         self.assertAlmostEqual(times[-1], 6.0, places=10)
@@ -542,15 +545,15 @@ class RegressionTests(unittest.TestCase):
             self.assertTrue(np.isfinite(m))
             self.assertGreaterEqual(m, 0.0)
 
-    def test_fischer_catelani_aliases_normalize(self) -> None:
-        params = SimulationParameters(
-            diffusion_coefficient=6.0,
-            dt=1.0,
-            total_time=1.0,
-            mesh_size=1.0,
-            collision_solver="fischer_catelani",
-        )
-        self.assertEqual(params.collision_solver, "fischer_catelani_local")
+    def test_collision_solver_aliases_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            SimulationParameters(
+                diffusion_coefficient=6.0,
+                dt=1.0,
+                total_time=1.0,
+                mesh_size=1.0,
+                collision_solver="fischer_catelani",
+            )
 
     def test_fischer_catelani_pair_breaking_generates_quasiparticles(self) -> None:
         """With finite phonon bath occupation and no initial QPs, pair breaking should generate QPs."""
@@ -809,8 +812,8 @@ class RegressionTests(unittest.TestCase):
                 enable_diffusion=False,
             )
 
-    def test_boltzphlow_collision_non_negative(self) -> None:
-        """BoltzPhlow collision solver should never produce negative spectral densities."""
+    def test_collision_step_non_negative(self) -> None:
+        """Coupled collision solver should never produce negative spectral densities."""
         mask = np.ones((2, 2), dtype=bool)
         edges = extract_edge_segments(mask)
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
@@ -823,7 +826,7 @@ class RegressionTests(unittest.TestCase):
             total_time=50.0, dx=1.0, store_every=5, energy_gap=180.0,
             energy_max_factor=5.0, num_energy_bins=8,
             enable_diffusion=True, enable_recombination=True, enable_scattering=True,
-            collision_solver="boltzphlow_relaxation",
+            collision_solver="fischer_catelani_local",
             tau_0=440.0, T_c=1.2, bath_temperature=0.1,
         )
         self.assertIsNotNone(energy_frames)

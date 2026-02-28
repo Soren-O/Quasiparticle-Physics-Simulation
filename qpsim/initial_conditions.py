@@ -30,10 +30,6 @@ def _as_bool(value: Any) -> bool:
 
 def default_initial_condition() -> InitialConditionSpec:
     return InitialConditionSpec(
-        kind="gaussian",
-        params={"amplitude": 1.0, "x0": 0.5, "y0": 0.5, "sigma": 0.12},
-        custom_body=_DEFAULT_SPATIAL_CUSTOM_BODY,
-        custom_params={},
         spatial_kind="gaussian",
         spatial_params={"amplitude": 1.0, "x0": 0.5, "y0": 0.5, "sigma": 0.12},
         spatial_custom_body=_DEFAULT_SPATIAL_CUSTOM_BODY,
@@ -61,76 +57,46 @@ def default_initial_condition() -> InitialConditionSpec:
 
 def _resolve_spatial_spec(spec: InitialConditionSpec) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Return normalized QP spatial IC tuple (kind, params, custom_body, custom_params)."""
-    spatial_kind = str(getattr(spec, "spatial_kind", "") or "").strip().lower()
-    spatial_params = dict(getattr(spec, "spatial_params", {}) or {})
-    spatial_custom_body = str(
-        getattr(spec, "spatial_custom_body", "") or _DEFAULT_SPATIAL_CUSTOM_BODY
-    )
-    spatial_custom_params = dict(getattr(spec, "spatial_custom_params", {}) or {})
-
-    if spatial_kind == "fermi_dirac":
-        amplitude = float(spatial_params.get("amplitude", spatial_params.get("value", 1.0)))
-        spatial_kind = "uniform"
-        spatial_params = {"value": amplitude}
-
-    if spatial_kind:
-        return spatial_kind, spatial_params, spatial_custom_body, spatial_custom_params
-
-    # Legacy mapping
-    legacy_kind = str(getattr(spec, "kind", "gaussian") or "gaussian").strip().lower()
-    legacy_params = dict(getattr(spec, "params", {}) or {})
-    legacy_custom_body = str(
-        getattr(spec, "custom_body", "") or _DEFAULT_SPATIAL_CUSTOM_BODY
-    )
-    legacy_custom_params = dict(getattr(spec, "custom_params", {}) or {})
-    if legacy_kind == "fermi_dirac":
-        # Legacy fermi_dirac used a uniform spatial profile + thermal energy profile.
-        amplitude = float(legacy_params.get("amplitude", 1.0))
-        return "uniform", {"value": amplitude}, legacy_custom_body, legacy_custom_params
-    return legacy_kind, legacy_params, legacy_custom_body, legacy_custom_params
+    spatial_kind = str(spec.spatial_kind or "").strip().lower()
+    spatial_params = dict(spec.spatial_params or {})
+    spatial_custom_body = str(spec.spatial_custom_body or _DEFAULT_SPATIAL_CUSTOM_BODY)
+    spatial_custom_params = dict(spec.spatial_custom_params or {})
+    if not spatial_kind:
+        return (
+            "gaussian",
+            {"amplitude": 1.0, "x0": 0.5, "y0": 0.5, "sigma": 0.12},
+            _DEFAULT_SPATIAL_CUSTOM_BODY,
+            {},
+        )
+    return spatial_kind, spatial_params, spatial_custom_body, spatial_custom_params
 
 
 def _resolve_energy_spec(spec: InitialConditionSpec) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Return normalized QP energy IC tuple (kind, params, custom_body, custom_params)."""
-    energy_kind = str(getattr(spec, "energy_kind", "") or "").strip().lower()
-    energy_params = dict(getattr(spec, "energy_params", {}) or {})
-    energy_custom_body = str(getattr(spec, "energy_custom_body", "") or _DEFAULT_ENERGY_CUSTOM_BODY)
-    energy_custom_params = dict(getattr(spec, "energy_custom_params", {}) or {})
-    if energy_kind:
-        return energy_kind, energy_params, energy_custom_body, energy_custom_params
-
-    # Legacy mapping
-    legacy_kind = str(getattr(spec, "kind", "gaussian") or "gaussian").strip().lower()
-    legacy_params = dict(getattr(spec, "params", {}) or {})
-    if legacy_kind == "fermi_dirac":
-        return (
-            "fermi_dirac",
-            {"temperature": float(legacy_params.get("temperature", 0.1))},
-            _DEFAULT_ENERGY_CUSTOM_BODY,
-            {},
-        )
-    return "dos", {}, _DEFAULT_ENERGY_CUSTOM_BODY, {}
+    energy_kind = str(spec.energy_kind or "").strip().lower()
+    energy_params = dict(spec.energy_params or {})
+    energy_custom_body = str(spec.energy_custom_body or _DEFAULT_ENERGY_CUSTOM_BODY)
+    energy_custom_params = dict(spec.energy_custom_params or {})
+    if not energy_kind:
+        return "dos", {}, _DEFAULT_ENERGY_CUSTOM_BODY, {}
+    return energy_kind, energy_params, energy_custom_body, energy_custom_params
 
 
 def _resolve_phonon_spatial_spec(spec: InitialConditionSpec) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
-    kind = str(getattr(spec, "phonon_spatial_kind", "") or "").strip().lower()
-    params = dict(getattr(spec, "phonon_spatial_params", {}) or {})
-    custom_body = str(
-        getattr(spec, "phonon_spatial_custom_body", "") or _DEFAULT_PHONON_SPATIAL_CUSTOM_BODY
-    )
-    custom_params = dict(getattr(spec, "phonon_spatial_custom_params", {}) or {})
+    kind = str(spec.phonon_spatial_kind or "").strip().lower()
+    params = dict(spec.phonon_spatial_params or {})
+    custom_body = str(spec.phonon_spatial_custom_body or _DEFAULT_PHONON_SPATIAL_CUSTOM_BODY)
+    custom_params = dict(spec.phonon_spatial_custom_params or {})
     if kind:
         return kind, params, custom_body, custom_params
     return "uniform", {"value": 1.0}, _DEFAULT_PHONON_SPATIAL_CUSTOM_BODY, {}
 
 
 def _resolve_phonon_energy_spec(spec: InitialConditionSpec) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
-    kind = str(getattr(spec, "phonon_energy_kind", "") or "").strip().lower()
-    params = dict(getattr(spec, "phonon_energy_params", {}) or {})
-    custom_body = str(
-        getattr(spec, "phonon_energy_custom_body", "") or _DEFAULT_PHONON_ENERGY_CUSTOM_BODY
-    )
-    custom_params = dict(getattr(spec, "phonon_energy_custom_params", {}) or {})
+    kind = str(spec.phonon_energy_kind or "").strip().lower()
+    params = dict(spec.phonon_energy_params or {})
+    custom_body = str(spec.phonon_energy_custom_body or _DEFAULT_PHONON_ENERGY_CUSTOM_BODY)
+    custom_params = dict(spec.phonon_energy_custom_params or {})
     if kind:
         return kind, params, custom_body, custom_params
     return "bose_einstein", {}, _DEFAULT_PHONON_ENERGY_CUSTOM_BODY, {}
@@ -158,17 +124,17 @@ def resolve_phonon_energy_spec(spec: InitialConditionSpec) -> tuple[str, dict[st
 
 def resolve_qp_full_custom_spec(spec: InitialConditionSpec) -> tuple[bool, str, dict[str, Any]]:
     return (
-        _as_bool(getattr(spec, "qp_full_custom_enabled", False)),
-        str(getattr(spec, "qp_full_custom_body", "") or _DEFAULT_QP_FULL_CUSTOM_BODY),
-        dict(getattr(spec, "qp_full_custom_params", {}) or {}),
+        _as_bool(spec.qp_full_custom_enabled),
+        str(spec.qp_full_custom_body or _DEFAULT_QP_FULL_CUSTOM_BODY),
+        dict(spec.qp_full_custom_params or {}),
     )
 
 
 def resolve_phonon_full_custom_spec(spec: InitialConditionSpec) -> tuple[bool, str, dict[str, Any]]:
     return (
-        _as_bool(getattr(spec, "phonon_full_custom_enabled", False)),
-        str(getattr(spec, "phonon_full_custom_body", "") or _DEFAULT_PHONON_FULL_CUSTOM_BODY),
-        dict(getattr(spec, "phonon_full_custom_params", {}) or {}),
+        _as_bool(spec.phonon_full_custom_enabled),
+        str(spec.phonon_full_custom_body or _DEFAULT_PHONON_FULL_CUSTOM_BODY),
+        dict(spec.phonon_full_custom_params or {}),
     )
 
 
@@ -186,10 +152,6 @@ def canonicalize_initial_condition(spec: InitialConditionSpec) -> InitialConditi
     ph_full_enabled, ph_full_body, ph_full_params = resolve_phonon_full_custom_spec(spec)
 
     return InitialConditionSpec(
-        kind=spatial_kind,
-        params=dict(spatial_params),
-        custom_body=spatial_custom_body,
-        custom_params=dict(spatial_custom_params),
         spatial_kind=spatial_kind,
         spatial_params=dict(spatial_params),
         spatial_custom_body=spatial_custom_body,

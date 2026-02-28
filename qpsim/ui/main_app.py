@@ -1160,7 +1160,6 @@ class SetupEditor(tk.Toplevel):
         self.dynes_gamma_var = tk.StringVar(value=str(default_params.dynes_gamma))
         self.gap_expression_var = tk.StringVar(value=default_params.gap_expression)
         self.gap_map_status_var = tk.StringVar(value="")
-        self.collision_solver_var = tk.StringVar(value=default_params.collision_solver)
         self.enable_diffusion_var = tk.BooleanVar(value=default_params.enable_diffusion)
         self.enable_recombination_var = tk.BooleanVar(value=default_params.enable_recombination)
         self.enable_scattering_var = tk.BooleanVar(value=default_params.enable_scattering)
@@ -1258,7 +1257,6 @@ class SetupEditor(tk.Toplevel):
         self.dynes_gamma_var.set(str(setup.parameters.dynes_gamma))
         self.gap_expression_var.set(setup.parameters.gap_expression)
         self._refresh_gap_map_status()
-        self.collision_solver_var.set(setup.parameters.collision_solver)
         self._external_generation = setup.parameters.external_generation
         self.enable_diffusion_var.set(setup.parameters.enable_diffusion)
         self.enable_recombination_var.set(setup.parameters.enable_recombination)
@@ -1743,7 +1741,7 @@ class SetupEditor(tk.Toplevel):
             num_energy_bins=max(1, self.parse_int("energy bins", self.energy_bins_var.get())),
             dynes_gamma=self.parse_float("Dynes gamma", self.dynes_gamma_var.get()),
             gap_expression=self.gap_expression_var.get().strip(),
-            collision_solver=self.collision_solver_var.get().strip() or "fischer_catelani_local",
+            collision_solver="fischer_catelani_local",
             enable_diffusion=self.enable_diffusion_var.get(),
             enable_recombination=self.enable_recombination_var.get(),
             enable_scattering=self.enable_scattering_var.get(),

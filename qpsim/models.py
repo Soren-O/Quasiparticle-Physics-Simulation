@@ -12,22 +12,7 @@ BOUNDARY_KINDS = {
     "absorbing",
     "robin",
 }
-COLLISION_SOLVERS = {"boltzphlow_relaxation", "fischer_catelani_local"}
-LEGACY_COLLISION_SOLVER_ALIASES = {
-    "",
-    "forward_euler",
-    "bdf",
-    "time_relaxation",
-    "boltzphlow",
-    "boltzphlow_relaxation",
-}
-FISCHER_CATELANI_SOLVER_ALIASES = {
-    "fischer",
-    "catelani",
-    "fischer_catelani",
-    "fischer_catelani_local",
-    "boltzphlow_coupled_local",
-}
+COLLISION_SOLVERS = {"fischer_catelani_local"}
 EXTERNAL_GENERATION_MODES = {"none", "constant", "pulse", "custom"}
 
 
@@ -37,10 +22,6 @@ def utc_now_iso() -> str:
 
 def normalize_collision_solver_name(value: str) -> str:
     solver = str(value).strip().lower()
-    if solver in LEGACY_COLLISION_SOLVER_ALIASES:
-        return "boltzphlow_relaxation"
-    if solver in FISCHER_CATELANI_SOLVER_ALIASES:
-        return "fischer_catelani_local"
     if solver not in COLLISION_SOLVERS:
         allowed = ", ".join(sorted(COLLISION_SOLVERS))
         raise ValueError(
@@ -99,11 +80,7 @@ class GeometryData:
 
 @dataclass
 class InitialConditionSpec:
-    kind: str = "gaussian"
-    params: dict[str, float] = field(default_factory=dict)
-    custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
-    custom_params: dict[str, Any] = field(default_factory=dict)
-    # New split representation (preferred): spatial and energy initialization.
+    # Split representation for quasiparticle and phonon initialization.
     spatial_kind: str = ""
     spatial_params: dict[str, Any] = field(default_factory=dict)
     spatial_custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
@@ -166,7 +143,7 @@ class SimulationParameters:
     total_time: float                # ns
     mesh_size: float                 # μm (spatial grid spacing)
     store_every: int = 1
-    # Energy grid fields (energy_gap=0 disables energy dimension for legacy mode)
+    # Energy grid fields (energy_gap=0 disables energy dimension / scalar mode)
     energy_gap: float = 0.0          # Δ in μeV (0 = no energy dimension)
     energy_min_factor: float = 1.0   # E_min = factor × Δ (must be ≥ 1.0)
     energy_max_factor: float = 10.0  # E_max = factor × Δ
@@ -179,7 +156,7 @@ class SimulationParameters:
     enable_recombination: bool = False
     enable_scattering: bool = False
     # --- collision parameters ---
-    # Keep tau_0 as legacy/default source; resolve tau_s and tau_r in __post_init__.
+    # tau_0 acts as a convenience default for tau_s and tau_r.
     tau_0: float = 440.0
     tau_s: float | None = None
     tau_r: float | None = None
@@ -194,7 +171,7 @@ class SimulationParameters:
             self.tau_s = float(self.tau_0)
         if self.tau_r is None:
             self.tau_r = float(self.tau_0)
-        # Keep tau_0 synchronized for legacy readers.
+        # Keep tau_0 synchronized with tau_s/tau_r defaults.
         self.tau_0 = float(0.5 * (self.tau_s + self.tau_r))
         if self.dt <= 0:
             raise ValueError("dt must be positive.")

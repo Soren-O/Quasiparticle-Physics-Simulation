@@ -868,10 +868,6 @@ def ask_initial_condition(
             )
 
             spec = InitialConditionSpec(
-                kind=spatial_kind_val,
-                params=spatial_params_val,
-                custom_body=spatial_custom_body_val,
-                custom_params=spatial_custom_params_val,
                 spatial_kind=spatial_kind_val,
                 spatial_params=spatial_params_val,
                 spatial_custom_body=spatial_custom_body_val,

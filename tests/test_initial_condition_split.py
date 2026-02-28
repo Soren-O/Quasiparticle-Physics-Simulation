@@ -14,14 +14,12 @@ from qpsim.solver import build_energy_grid, run_2d_crank_nicolson
 from qpsim.storage import deserialize_setup
 
 
-def test_legacy_fermi_dirac_spatial_maps_to_uniform_field() -> None:
+def test_default_spatial_profile_builds_finite_field() -> None:
     mask = np.ones((3, 4), dtype=bool)
-    spec = InitialConditionSpec(
-        kind="fermi_dirac",
-        params={"amplitude": 2.5, "temperature": 0.12},
-    )
+    spec = canonicalize_initial_condition(InitialConditionSpec())
     field = build_initial_field(mask, spec)
-    assert np.allclose(field[mask], 2.5)
+    assert np.all(np.isfinite(field))
+    assert np.all(field[mask] >= 0.0)
 
 
 def test_split_energy_profile_fermi_dirac_returns_weights() -> None:
@@ -64,11 +62,11 @@ def test_split_energy_profile_uniform_honors_value() -> None:
     assert np.allclose(weights, 3.2)
 
 
-def test_canonicalize_legacy_custom_maps_to_split_fields() -> None:
+def test_canonicalize_preserves_split_custom_fields() -> None:
     spec = InitialConditionSpec(
-        kind="custom",
-        custom_body="return x + y",
-        custom_params={"alpha": 1.0},
+        spatial_kind="custom",
+        spatial_custom_body="return x + y",
+        spatial_custom_params={"alpha": 1.0},
     )
     normalized = canonicalize_initial_condition(spec)
     assert normalized.spatial_kind == "custom"
@@ -77,13 +75,13 @@ def test_canonicalize_legacy_custom_maps_to_split_fields() -> None:
     assert normalized.energy_kind == "dos"
 
 
-def test_deserialize_setup_legacy_fermi_dirac_ic_maps_to_split_fields() -> None:
+def test_deserialize_setup_split_ic_maps_to_split_fields() -> None:
     payload = {
-        "setup_id": "legacy123",
-        "name": "Legacy Setup",
+        "setup_id": "split123",
+        "name": "Split Setup",
         "created_at": "2026-01-01T00:00:00+00:00",
         "geometry": {
-            "name": "legacy-geom",
+            "name": "split-geom",
             "source_path": "",
             "layer": 0,
             "mesh_size": 1.0,
@@ -98,8 +96,10 @@ def test_deserialize_setup_legacy_fermi_dirac_ic_maps_to_split_fields() -> None:
             "mesh_size": 1.0,
         },
         "initial_condition": {
-            "kind": "fermi_dirac",
-            "params": {"amplitude": 1.8, "temperature": 0.2},
+            "spatial_kind": "uniform",
+            "spatial_params": {"value": 1.8},
+            "energy_kind": "fermi_dirac",
+            "energy_params": {"temperature": 0.2},
         },
     }
     setup = deserialize_setup(payload)

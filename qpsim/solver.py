@@ -73,7 +73,7 @@ def build_energy_grid(
     E_min = energy_min_factor * gap
     E_max = energy_max_factor * gap
     if num_energy_bins == 1:
-        # Keep legacy single-bin behavior by using a unit integration weight.
+        # Single-bin case uses a unit integration weight.
         center = 0.5 * (E_min + E_max)
         return np.array([center], dtype=float), 1.0
     if E_max <= E_min:
@@ -1155,7 +1155,7 @@ def run_2d_crank_nicolson(
         # Determine if we have precomputed arrays and whether gap is non-uniform
         has_precomp = precomputed is not None
         nonuniform_gap = has_precomp and not bool(precomputed.get("is_uniform", True))
-        collision_solver_name = normalize_collision_solver_name(collision_solver)
+        normalize_collision_solver_name(collision_solver)
 
         if has_precomp:
             D_array = precomputed["D_array"]  # (NE, N_spatial)
@@ -1202,18 +1202,9 @@ def run_2d_crank_nicolson(
                     else:
                         bin_operators_final.append(None)
 
-        # Collision kernel setup
-        K_r: np.ndarray | None = None
-        G_therm: np.ndarray | None = None
-        K_s: np.ndarray | None = None
+        # Collision kernel setup (Fischer/Catelani local coupled solver)
         rho_bins: np.ndarray | None = None
-        # Per-pixel collision arrays (non-uniform gap)
-        K_r_all: np.ndarray | None = None
-        K_s_all: np.ndarray | None = None
         rho_all: np.ndarray | None = None
-        G_therm_all: np.ndarray | None = None
-
-        # Fischer/Catelani local coupled solver arrays
         K_r0: np.ndarray | None = None
         K_s0: np.ndarray | None = None
         K_r0_all: np.ndarray | None = None
@@ -1224,91 +1215,56 @@ def run_2d_crank_nicolson(
         omega_idx_sum: np.ndarray | None = None
         diff_sign: np.ndarray | None = None
 
-        if collision_solver_name == "boltzphlow_relaxation":
-            if has_precomp and nonuniform_gap:
-                rho_all = precomputed.get("rho_all")
-                if enable_recombination:
-                    K_r_all = precomputed["K_r_all"]
-                    G_therm_all = precomputed["G_therm_all"]
-                if enable_scattering:
-                    K_s_all = precomputed["K_s_all"]
-            elif has_precomp:
-                rho_bins = precomputed.get("rho_bins")
-                if enable_recombination:
-                    K_r = precomputed["K_r"]
-                    G_therm = precomputed["G_therm"]
-                if enable_scattering:
-                    K_s = precomputed["K_s"]
-            else:
-                if enable_recombination:
-                    K_r = recombination_kernel(E_bins, gap, tau_r_eff, T_c, bath_temperature)
-                    n_eq = thermal_qp_weights(E_bins, gap, bath_temperature, dynes_gamma)
-                    G_therm = 2.0 * n_eq * dE * (K_r @ n_eq)
-                if enable_scattering:
-                    K_s = scattering_kernel(E_bins, gap, tau_s_eff, T_c, bath_temperature)
-                # rho is also needed for occupancy diagnostics.
-                rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
+        # Build local kernels with a dynamic phonon occupation n(ω,x,t).
+        omega_bins, omega_idx_diff, omega_idx_sum, diff_sign = _build_phonon_frequency_map(E_bins)
+        n_ph_eq = thermal_phonon_occupation(omega_bins, bath_temperature)
+        phonon_state = n_ph_eq[:, None] * np.ones((1, n), dtype=float)
+        if initial_condition_spec is not None:
+            from .initial_conditions import build_initial_phonon_energy_state
 
-            # Occupancy diagnostics also require rho arrays even if scattering is disabled.
-            if nonuniform_gap and rho_all is None and has_precomp:
-                gap_values = precomputed.get("gap_values")
-                if gap_values is not None:
-                    rho_all = np.empty((n, num_energy_bins), dtype=float)
-                    for px in range(n):
-                        rho_all[px] = _dynes_density_of_states(E_bins, float(gap_values[px]), dynes_gamma)
-            if (not nonuniform_gap) and rho_bins is None:
-                rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
-        else:
-            # Build local kernels with a dynamic phonon occupation n(ω,x,t).
-            omega_bins, omega_idx_diff, omega_idx_sum, diff_sign = _build_phonon_frequency_map(E_bins)
-            n_ph_eq = thermal_phonon_occupation(omega_bins, bath_temperature)
-            phonon_state = n_ph_eq[:, None] * np.ones((1, n), dtype=float)
-            if initial_condition_spec is not None:
-                from .initial_conditions import build_initial_phonon_energy_state
+            phonon_state = build_initial_phonon_energy_state(
+                mask=mask,
+                omega_bins=omega_bins,
+                spec=initial_condition_spec,
+                bath_temperature=bath_temperature,
+            )
 
-                phonon_state = build_initial_phonon_energy_state(
-                    mask=mask,
-                    omega_bins=omega_bins,
-                    spec=initial_condition_spec,
-                    bath_temperature=bath_temperature,
+        if nonuniform_gap:
+            gap_values = precomputed.get("gap_values") if has_precomp else None
+            if gap_values is None:
+                gap_values = np.full(n, gap, dtype=float)
+            rho_all = np.empty((n, num_energy_bins), dtype=float)
+            if enable_recombination:
+                K_r0_all = np.empty((n, num_energy_bins, num_energy_bins), dtype=float)
+            if enable_scattering:
+                K_s0_all = np.empty((n, num_energy_bins, num_energy_bins), dtype=float)
+            cache: dict[float, tuple[np.ndarray, np.ndarray | None, np.ndarray | None]] = {}
+            unique_gaps = np.unique(gap_values)
+            for g in unique_gaps:
+                g_f = float(g)
+                rho_g = _dynes_density_of_states(E_bins, g_f, dynes_gamma)
+                kr0_g = (
+                    recombination_kernel_base(E_bins, g_f, tau_r_eff, T_c)
+                    if enable_recombination else None
                 )
-
-            if nonuniform_gap:
-                gap_values = precomputed.get("gap_values") if has_precomp else None
-                if gap_values is None:
-                    gap_values = np.full(n, gap, dtype=float)
-                rho_all = np.empty((n, num_energy_bins), dtype=float)
-                if enable_recombination:
-                    K_r0_all = np.empty((n, num_energy_bins, num_energy_bins), dtype=float)
-                if enable_scattering:
-                    K_s0_all = np.empty((n, num_energy_bins, num_energy_bins), dtype=float)
-                cache: dict[float, tuple[np.ndarray, np.ndarray | None, np.ndarray | None]] = {}
-                unique_gaps = np.unique(gap_values)
-                for g in unique_gaps:
-                    g_f = float(g)
-                    rho_g = _dynes_density_of_states(E_bins, g_f, dynes_gamma)
-                    kr0_g = (
-                        recombination_kernel_base(E_bins, g_f, tau_r_eff, T_c)
-                        if enable_recombination else None
-                    )
-                    ks0_g = (
-                        scattering_kernel_base(E_bins, g_f, tau_s_eff, T_c)
-                        if enable_scattering else None
-                    )
-                    cache[g_f] = (rho_g, kr0_g, ks0_g)
-                for px in range(n):
-                    rho_g, kr0_g, ks0_g = cache[float(gap_values[px])]
-                    rho_all[px] = rho_g
-                    if enable_recombination and K_r0_all is not None and kr0_g is not None:
-                        K_r0_all[px] = kr0_g
-                    if enable_scattering and K_s0_all is not None and ks0_g is not None:
-                        K_s0_all[px] = ks0_g
-            else:
-                rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
-                if enable_recombination:
-                    K_r0 = recombination_kernel_base(E_bins, gap, tau_r_eff, T_c)
-                if enable_scattering:
-                    K_s0 = scattering_kernel_base(E_bins, gap, tau_s_eff, T_c)
+                ks0_g = (
+                    scattering_kernel_base(E_bins, g_f, tau_s_eff, T_c)
+                    if enable_scattering else None
+                )
+                cache[g_f] = (rho_g, kr0_g, ks0_g)
+            for px in range(n):
+                rho_g, kr0_g, ks0_g = cache[float(gap_values[px])]
+                rho_all[px] = rho_g
+                if enable_recombination and K_r0_all is not None and kr0_g is not None:
+                    K_r0_all[px] = kr0_g
+                if enable_scattering and K_s0_all is not None and ks0_g is not None:
+                    K_s0_all[px] = ks0_g
+        else:
+            rho_bins = _dynes_density_of_states(E_bins, gap, dynes_gamma)
+            if enable_recombination:
+                K_r0 = recombination_kernel_base(E_bins, gap, tau_r_eff, T_c)
+            if enable_scattering:
+                K_s0 = scattering_kernel_base(E_bins, gap, tau_s_eff, T_c)
 
         # Initialize energy-resolved QP state.
         if custom_qp_state is not None:
@@ -1436,17 +1392,6 @@ def run_2d_crank_nicolson(
 
         def _apply_collision(dt_col: float) -> None:
             if dt_col <= 0.0 or not collision_enabled:
-                return
-
-            if collision_solver_name == "boltzphlow_relaxation":
-                if nonuniform_gap:
-                    apply_collision_step_time_relaxation_nonuniform(
-                        state, K_r_all, K_s_all, rho_all, G_therm_all, dE, dt_col, n,
-                    )
-                    return
-                apply_collision_step_time_relaxation(
-                    state, K_r, K_s, rho_bins, G_therm, dE, dt_col,
-                )
                 return
 
             if phonon_state is None or omega_idx_diff is None or omega_idx_sum is None or diff_sign is None:

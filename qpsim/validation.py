@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from .geometry import extract_edge_segments
-from .models import BoundaryCondition, SimulationParameters
+from .models import BoundaryCondition, InitialConditionSpec, SimulationParameters
 from .solver import (
     build_energy_grid,
     run_2d_crank_nicolson,
@@ -18,6 +18,19 @@ from .solver import (
 # Boltzmann constant in μeV/K.
 # k_B = 8.617333262145e-5 eV/K = 86.17333262145 μeV/K.
 _KB_UEV_PER_K = 86.17333262145
+
+
+def _frozen_thermal_phonon_ic(bath_temperature: float) -> InitialConditionSpec:
+    return InitialConditionSpec(
+        spatial_kind="uniform",
+        spatial_params={"value": 1.0},
+        energy_kind="dos",
+        energy_params={},
+        phonon_spatial_kind="uniform",
+        phonon_spatial_params={"value": 1.0},
+        phonon_energy_kind="bose_einstein",
+        phonon_energy_params={"temperature": float(bath_temperature)},
+    )
 
 
 def _reflective_line_geometry(nx: int) -> tuple[np.ndarray, list, dict[str, BoundaryCondition]]:
@@ -129,11 +142,12 @@ def validate_thermal_stability(
         enable_recombination=True,
         enable_scattering=True,
         dynes_gamma=dynes_gamma,
-        collision_solver="boltzphlow_relaxation",
         tau_s=tau_s,
         tau_r=tau_r,
         T_c=T_c,
         bath_temperature=bath_temperature,
+        initial_condition_spec=_frozen_thermal_phonon_ic(bath_temperature),
+        freeze_phonon_dynamics=True,
     )
     if energy_frames is None:
         return {"passed": False, "max_relative_drift": float("inf"), "tolerance": tolerance}
@@ -217,10 +231,11 @@ def validate_pure_scattering(
         enable_recombination=False,
         enable_scattering=True,
         dynes_gamma=dynes_gamma,
-        collision_solver="boltzphlow_relaxation",
         tau_s=tau_s,
         T_c=T_c,
         bath_temperature=bath_temperature,
+        initial_condition_spec=_frozen_thermal_phonon_ic(bath_temperature),
+        freeze_phonon_dynamics=True,
     )
     drift = float(abs(mass[-1] - mass[0]) / max(1e-20, abs(mass[0])))
     return {"passed": drift <= tolerance, "mass_relative_drift": drift, "tolerance": tolerance}
@@ -256,10 +271,11 @@ def validate_pure_recombination(
         enable_recombination=True,
         enable_scattering=False,
         dynes_gamma=0.0,
-        collision_solver="boltzphlow_relaxation",
         tau_r=tau_r,
         T_c=T_c,
         bath_temperature=0.0,
+        initial_condition_spec=_frozen_thermal_phonon_ic(0.0),
+        freeze_phonon_dynamics=True,
     )
     nonincreasing = all(
         mass[i + 1] <= mass[i] + tolerance_nonincreasing for i in range(len(mass) - 1)

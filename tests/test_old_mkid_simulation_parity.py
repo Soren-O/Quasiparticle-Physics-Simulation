@@ -211,11 +211,13 @@ def test_collision_only_step_close_to_legacy_for_small_dt() -> None:
         enable_recombination=True,
         enable_scattering=True,
         dynes_gamma=0.0,
-        collision_solver="boltzphlow_relaxation",
+        collision_solver="fischer_catelani_local",
         tau_s=tau_s,
         tau_r=tau_r,
         T_c=T_c,
         bath_temperature=bath_temperature,
+        initial_condition_spec=_frozen_thermal_phonon_ic_spec(bath_temperature),
+        freeze_phonon_dynamics=True,
     )
 
     assert energy_frames is not None
@@ -613,7 +615,7 @@ def test_nonuniform_gap_precompute_matches_legacy_per_pixel_kernels() -> None:
         num_energy_bins=ne,
         dynes_gamma=dynes_gamma,
         gap_expression=gap_expression,
-        collision_solver="boltzphlow_relaxation",
+        collision_solver="fischer_catelani_local",
         enable_diffusion=True,
         enable_recombination=True,
         enable_scattering=True,
@@ -770,7 +772,7 @@ def test_nonuniform_gap_variable_diffusion_close_to_legacy() -> None:
         num_energy_bins=ne,
         dynes_gamma=dynes_gamma,
         gap_expression=f"return {gap0} * (1.0 + {slope} * (x - 0.5))",
-        collision_solver="boltzphlow_relaxation",
+        collision_solver="fischer_catelani_local",
         enable_diffusion=True,
         enable_recombination=False,
         enable_scattering=False,

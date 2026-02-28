@@ -155,13 +155,6 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
 
     ic_raw = payload.get("initial_condition", {})
     initial_condition_raw = InitialConditionSpec(
-        kind=ic_raw.get("kind", "gaussian"),
-        params=ic_raw.get("params", {}),
-        custom_body=ic_raw.get(
-            "custom_body",
-            "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)",
-        ),
-        custom_params=ic_raw.get("custom_params", {}),
         spatial_kind=ic_raw.get("spatial_kind", ""),
         spatial_params=ic_raw.get("spatial_params", {}),
         spatial_custom_body=ic_raw.get(
