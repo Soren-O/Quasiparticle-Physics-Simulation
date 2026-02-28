@@ -17,7 +17,15 @@ from ..geometry import (
     gds_support_available,
     point_to_segment_distance,
 )
-from ..initial_conditions import build_initial_field, default_initial_condition
+from ..initial_conditions import (
+    build_initial_energy_weights,
+    build_initial_field,
+    canonicalize_initial_condition,
+    default_initial_condition,
+    evaluate_gap_expression,
+    resolve_energy_spec,
+    resolve_spatial_spec,
+)
 from ..models import (
     BoundaryCondition,
     ExternalGenerationSpec,
@@ -33,9 +41,9 @@ from ..models import (
 from ..paths import ROOT_DIR, SIMULATIONS_DIR, ensure_data_dirs
 from ..solver import (
     BoundaryAssignmentError,
+    build_fixed_phonon_history,
     build_energy_grid,
     run_2d_crank_nicolson,
-    thermal_qp_weights,
 )
 from ..storage import (
     create_setup_id,
@@ -54,7 +62,7 @@ from ..storage import (
     save_setup,
     save_simulation,
 )
-from ..precompute import estimate_precompute_memory, precompute_arrays, validate_precomputed
+from ..precompute import validate_precomputed
 from ..test_cases import generate_and_save_test_suite
 from .dialogs import ask_boundary_condition, ask_external_generation, ask_initial_condition, show_material_reference
 from .theme import FONT_MONO, FONT_TITLE, RETRO_ACCENT, RETRO_BG, RETRO_PANEL, apply_retro_theme
@@ -67,8 +75,8 @@ class BusyDialog(tk.Toplevel):
         self.configure(bg=RETRO_PANEL)
         self.resizable(False, False)
         self.transient(parent)
-        self.grab_set()
-        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Escape>", lambda _: self.close())
 
         body = tk.Frame(self, bg=RETRO_PANEL)
         body.pack(fill="both", expand=True, padx=14, pady=12)
@@ -84,8 +92,130 @@ class BusyDialog(tk.Toplevel):
         except Exception:
             pass
         if self.winfo_exists():
-            self.grab_release()
             self.destroy()
+
+
+class PhononViewer(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, result: SimulationResultData):
+        if not result.phonon_frames:
+            raise ValueError("Simulation result has no phonon data.")
+        super().__init__(parent)
+        self.title(f"Phonon Field - {result.setup_name}")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1200x700")
+
+        self.times = np.asarray(result.times, dtype=float)
+        self.frames = [frame_from_jsonable(frame) for frame in result.phonon_frames]
+        self.mean_series = np.array([float(np.nanmean(frame)) for frame in self.frames], dtype=float)
+        self.index = 0
+        self.playing = True
+        self.after_id: str | None = None
+
+        top_controls = tk.Frame(self, bg=RETRO_PANEL)
+        top_controls.pack(fill="x", padx=8, pady=6)
+        self.play_btn = tk.Button(top_controls, text="Pause", width=10, command=self.toggle_play)
+        self.play_btn.pack(side="left", padx=4)
+        tk.Button(top_controls, text="Prev", width=10, command=self.prev_frame).pack(side="left", padx=4)
+        tk.Button(top_controls, text="Next", width=10, command=self.next_frame).pack(side="left", padx=4)
+        self.time_label = tk.Label(top_controls, text="", bg=RETRO_PANEL)
+        self.time_label.pack(side="left", padx=12)
+
+        self.scale = tk.Scale(
+            top_controls,
+            from_=0,
+            to=max(0, len(self.frames) - 1),
+            orient="horizontal",
+            showvalue=False,
+            command=self.on_scale,
+            length=380,
+            bg=RETRO_PANEL,
+        )
+        self.scale.pack(side="left", padx=8)
+
+        fig = Figure(figsize=(11.0, 6.5), dpi=100)
+        self.ax_field = fig.add_subplot(1, 2, 1)
+        self.ax_trace = fig.add_subplot(1, 2, 2)
+        self.canvas = FigureCanvasTkAgg(fig, master=self)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        stacked = np.stack(self.frames)
+        vmin = float(np.nanmin(stacked))
+        vmax = float(np.nanmax(stacked))
+        if abs(vmax - vmin) < 1e-12:
+            vmax = vmin + 1e-9
+        self.heatmap = self.ax_field.imshow(
+            self.frames[0],
+            origin="lower",
+            cmap="magma",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        self.ax_field.set_title("Phonon Temperature Field")
+        self.ax_field.set_xlabel("x (\u03bcm)")
+        self.ax_field.set_ylabel("y (\u03bcm)")
+        self.ax_field.set_aspect("equal")
+        fig.colorbar(self.heatmap, ax=self.ax_field, fraction=0.046, pad=0.04, label="Temperature (K)")
+
+        self.trace_line, = self.ax_trace.plot([], [], color="#116611", linewidth=2.0, label="Mean Temperature")
+        self.trace_marker, = self.ax_trace.plot([], [], "o", color="#AA2200")
+        self.ax_trace.set_title("Mean Phonon Temperature")
+        self.ax_trace.set_xlabel("Time (ns)")
+        self.ax_trace.set_ylabel("Temperature (K)")
+        self.ax_trace.grid(True, alpha=0.3)
+        self.ax_trace.legend(loc="best")
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.render_frame()
+        self.schedule_tick()
+
+    def on_close(self) -> None:
+        self.playing = False
+        if self.after_id is not None:
+            self.after_cancel(self.after_id)
+        self.destroy()
+
+    def toggle_play(self) -> None:
+        self.playing = not self.playing
+        self.play_btn.configure(text=("Pause" if self.playing else "Play"))
+        if self.playing:
+            self.schedule_tick()
+
+    def prev_frame(self) -> None:
+        self.index = max(0, self.index - 1)
+        self.render_frame()
+
+    def next_frame(self) -> None:
+        self.index = min(len(self.frames) - 1, self.index + 1)
+        self.render_frame()
+
+    def on_scale(self, raw_value: str) -> None:
+        self.index = int(float(raw_value))
+        self.render_frame()
+
+    def schedule_tick(self) -> None:
+        if not self.playing:
+            return
+        self.after_id = self.after(120, self.tick)
+
+    def tick(self) -> None:
+        if self.playing:
+            self.index = (self.index + 1) % len(self.frames)
+            self.render_frame()
+            self.schedule_tick()
+
+    def render_frame(self) -> None:
+        self.index = int(np.clip(self.index, 0, len(self.frames) - 1))
+        self.scale.set(self.index)
+        t = float(self.times[self.index])
+        self.time_label.configure(text=f"t = {t:.3f} ns")
+
+        self.heatmap.set_data(self.frames[self.index])
+        self.trace_line.set_data(self.times[: self.index + 1], self.mean_series[: self.index + 1])
+        self.trace_marker.set_data([self.times[self.index]], [self.mean_series[self.index]])
+        self.ax_trace.relim()
+        self.ax_trace.autoscale_view()
+        self.canvas.draw_idle()
 
 
 class SimulationViewer(tk.Toplevel):
@@ -95,6 +225,7 @@ class SimulationViewer(tk.Toplevel):
         self.configure(bg=RETRO_PANEL)
         self.geometry("1200x700")
 
+        self.result = result
         self.times = np.asarray(result.times, dtype=float)
         self.frames = [frame_from_jsonable(frame) for frame in result.frames]
         self.mass = np.asarray(result.mass_over_time, dtype=float)
@@ -108,6 +239,13 @@ class SimulationViewer(tk.Toplevel):
         self.play_btn.pack(side="left", padx=4)
         tk.Button(top_controls, text="Prev", width=10, command=self.prev_frame).pack(side="left", padx=4)
         tk.Button(top_controls, text="Next", width=10, command=self.next_frame).pack(side="left", padx=4)
+        tk.Button(
+            top_controls,
+            text="View Phonon Field",
+            width=16,
+            command=self.open_phonon_viewer,
+            state=("normal" if result.phonon_frames is not None else "disabled"),
+        ).pack(side="left", padx=6)
         self.time_label = tk.Label(top_controls, text="", bg=RETRO_PANEL)
         self.time_label.pack(side="left", padx=12)
 
@@ -175,6 +313,12 @@ class SimulationViewer(tk.Toplevel):
         self.index = int(float(raw_value))
         self.render_frame()
 
+    def open_phonon_viewer(self) -> None:
+        if self.result.phonon_frames is None:
+            messagebox.showinfo("No Phonon Data", "This simulation has no phonon output.", parent=self)
+            return
+        PhononViewer(self, self.result)
+
     def schedule_tick(self) -> None:
         if not self.playing:
             return
@@ -198,6 +342,135 @@ class SimulationViewer(tk.Toplevel):
         self.ax_mass.relim()
         self.ax_mass.autoscale_view()
         self.canvas.draw_idle()
+
+
+class SimulationLaunchDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        setup_name: str,
+        initial_qp_frame: np.ndarray,
+        initial_phonon_frame: np.ndarray,
+        *,
+        live_default: bool,
+        on_start,
+    ):
+        super().__init__(parent)
+        self.title(f"Initialize Simulation - {setup_name}")
+        self.configure(bg=RETRO_PANEL)
+        self.geometry("1280x780")
+        self._on_start = on_start
+        self._closed = False
+        self._running = False
+        self._phonon_frame = np.array(initial_phonon_frame, copy=True)
+
+        self.bind("<Escape>", lambda _e: self._handle_close())
+        self.protocol("WM_DELETE_WINDOW", self._handle_close)
+
+        top = tk.Frame(self, bg=RETRO_PANEL)
+        top.pack(fill="x", padx=10, pady=(8, 4))
+        self.live_var = tk.BooleanVar(value=bool(live_default))
+        tk.Checkbutton(
+            top,
+            text="View Live Simulation",
+            variable=self.live_var,
+            bg=RETRO_PANEL,
+            anchor="w",
+        ).pack(side="left", padx=(0, 12))
+        self.start_btn = tk.Button(top, text="Start Simulation", width=18, command=self._start_pressed)
+        self.start_btn.pack(side="left", padx=(0, 8))
+        tk.Button(top, text="Close", width=12, command=self._handle_close).pack(side="left")
+        self.time_label = tk.Label(top, text="t = 0.000 ns", bg=RETRO_PANEL)
+        self.time_label.pack(side="right", padx=8)
+
+        self.status_var = tk.StringVar(value="Ready. Press Start Simulation.")
+        tk.Label(self, textvariable=self.status_var, bg=RETRO_PANEL, anchor="w").pack(fill="x", padx=10, pady=(0, 6))
+
+        fig = Figure(figsize=(12.2, 6.8), dpi=100)
+        self.ax_qp = fig.add_subplot(1, 2, 1)
+        self.ax_ph = fig.add_subplot(1, 2, 2)
+        self.canvas = FigureCanvasTkAgg(fig, master=self)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        qp_vmin, qp_vmax = self._limits_from_frame(initial_qp_frame)
+        ph_vmin, ph_vmax = self._limits_from_frame(initial_phonon_frame)
+        self.qp_heatmap = self.ax_qp.imshow(
+            np.array(initial_qp_frame, copy=True),
+            origin="lower",
+            cmap="hot",
+            vmin=qp_vmin,
+            vmax=qp_vmax,
+        )
+        self.ph_heatmap = self.ax_ph.imshow(
+            np.array(initial_phonon_frame, copy=True),
+            origin="lower",
+            cmap="magma",
+            vmin=ph_vmin,
+            vmax=ph_vmax,
+        )
+        self.ax_qp.set_title("Quasiparticle Density")
+        self.ax_qp.set_xlabel("x (mesh index)")
+        self.ax_qp.set_ylabel("y (mesh index)")
+        self.ax_qp.set_aspect("equal")
+        self.ax_ph.set_title("Phonon Density / Temperature")
+        self.ax_ph.set_xlabel("x (mesh index)")
+        self.ax_ph.set_ylabel("y (mesh index)")
+        self.ax_ph.set_aspect("equal")
+        fig.colorbar(self.qp_heatmap, ax=self.ax_qp, fraction=0.046, pad=0.04)
+        fig.colorbar(self.ph_heatmap, ax=self.ax_ph, fraction=0.046, pad=0.04)
+        self.canvas.draw_idle()
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _handle_close(self) -> None:
+        self._closed = True
+        if self.winfo_exists():
+            self.destroy()
+
+    def _limits_from_frame(self, frame: np.ndarray) -> tuple[float, float]:
+        arr = np.asarray(frame, dtype=float)
+        vmin = float(np.nanmin(arr))
+        vmax = float(np.nanmax(arr))
+        if abs(vmax - vmin) < 1e-12:
+            vmax = vmin + 1e-9
+        return vmin, vmax
+
+    def _start_pressed(self) -> None:
+        if self._running:
+            return
+        self._on_start(bool(self.live_var.get()))
+
+    def set_running(self, running: bool) -> None:
+        self._running = bool(running)
+        self.start_btn.configure(state=("disabled" if running else "normal"))
+        if running:
+            self.status_var.set("Simulation running...")
+        else:
+            if "complete" not in self.status_var.get().lower():
+                self.status_var.set("Ready. Press Start Simulation.")
+
+    def set_status(self, text: str) -> None:
+        self.status_var.set(text)
+
+    def update_preview(self, time_ns: float, qp_frame: np.ndarray) -> None:
+        self.time_label.configure(text=f"t = {float(time_ns):.3f} ns")
+        qp_arr = np.asarray(qp_frame, dtype=float)
+        self.qp_heatmap.set_data(qp_arr)
+        self._update_clim(self.qp_heatmap, qp_arr)
+        self.ph_heatmap.set_data(self._phonon_frame)
+        self._update_clim(self.ph_heatmap, self._phonon_frame)
+        self.canvas.draw_idle()
+
+    def _update_clim(self, image, frame: np.ndarray) -> None:
+        vmin = float(np.nanmin(frame))
+        vmax = float(np.nanmax(frame))
+        if abs(vmax - vmin) < 1e-12:
+            vmax = vmin + 1e-9
+        cur_vmin, cur_vmax = image.get_clim()
+        if vmin < cur_vmin or vmax > cur_vmax:
+            image.set_clim(min(cur_vmin, vmin), max(cur_vmax, vmax))
 
 
 class LineTestSuiteViewer(tk.Toplevel):
@@ -747,12 +1020,15 @@ class SetupEditor(tk.Toplevel):
         self.title("Create / Edit Simulation Setup")
         self.configure(bg=RETRO_PANEL)
         self.geometry("1320x760")
+        self.bind("<Escape>", lambda _: self.destroy())
 
         self.setup_id = setup.setup_id if setup else create_setup_id()
         self.geometry_data: GeometryData | None = None
         self.mask: np.ndarray | None = None
         self.initial_condition: InitialConditionSpec = (
-            setup.initial_condition if setup else default_initial_condition()
+            canonicalize_initial_condition(setup.initial_condition)
+            if setup
+            else canonicalize_initial_condition(default_initial_condition())
         )
         self.boundary_assignments: dict[str, BoundaryCondition] = (
             dict(setup.boundary_conditions) if setup else {}
@@ -761,14 +1037,95 @@ class SetupEditor(tk.Toplevel):
         self.hover_edge_id: str | None = None
         self.simulation_running = False
         self.last_saved_path: str | None = None
+        self._precomputed_arrays = None
         self._external_generation: ExternalGenerationSpec = (
             setup.parameters.external_generation if setup else ExternalGenerationSpec()
         )
 
         root = tk.Frame(self, bg=RETRO_PANEL)
         root.pack(fill="both", expand=True, padx=8, pady=8)
-        left = tk.Frame(root, bg=RETRO_PANEL, width=340)
-        left.pack(side="left", fill="y")
+        left_outer = tk.Frame(
+            root,
+            bg=RETRO_PANEL,
+            width=356,
+            highlightthickness=1,
+            highlightbackground="#A9A79D",
+        )
+        left_outer.pack(side="left", fill="y")
+        left_outer.pack_propagate(False)
+        left_canvas = tk.Canvas(
+            left_outer,
+            bg=RETRO_PANEL,
+            highlightthickness=0,
+            bd=0,
+            width=334,
+        )
+        left_scroll = tk.Scrollbar(
+            left_outer,
+            orient="vertical",
+            command=left_canvas.yview,
+            width=16,
+            relief="groove",
+            bd=1,
+            bg="#C8C8C8",
+            troughcolor="#ECECEC",
+            activebackground="#8F8F8F",
+        )
+        left_canvas.configure(yscrollcommand=left_scroll.set)
+        left_canvas.pack(side="left", fill="both", expand=True)
+        left_scroll.pack(side="right", fill="y", padx=(2, 0))
+        left = tk.Frame(left_canvas, bg=RETRO_PANEL)
+        left_window = left_canvas.create_window((0, 0), window=left, anchor="nw")
+
+        def _on_left_frame_configure(_: tk.Event) -> None:
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+
+        def _on_left_canvas_configure(event: tk.Event) -> None:
+            left_canvas.itemconfigure(left_window, width=event.width)
+
+        def _is_descendant_of(target: tk.Misc | None, ancestor: tk.Misc) -> bool:
+            widget = target
+            while widget is not None:
+                if widget == ancestor:
+                    return True
+                parent_name = widget.winfo_parent()
+                if not parent_name:
+                    break
+                try:
+                    widget = widget.nametowidget(parent_name)
+                except Exception:
+                    break
+            return False
+
+        def _on_left_mousewheel(event: tk.Event) -> str | None:
+            target = self.winfo_containing(event.x_root, event.y_root)
+            if not _is_descendant_of(target, left_canvas):
+                return None
+            # Windows/macOS wheel event.
+            delta = int(event.delta / 120) if event.delta else 0
+            if delta != 0:
+                left_canvas.yview_scroll(-delta, "units")
+                return "break"
+            return None
+
+        def _on_left_mousewheel_linux(event: tk.Event) -> str | None:
+            target = self.winfo_containing(event.x_root, event.y_root)
+            if not _is_descendant_of(target, left_canvas):
+                return None
+            # Linux wheel events.
+            if getattr(event, "num", None) == 4:
+                left_canvas.yview_scroll(-1, "units")
+                return "break"
+            if getattr(event, "num", None) == 5:
+                left_canvas.yview_scroll(1, "units")
+                return "break"
+            return None
+
+        left.bind("<Configure>", _on_left_frame_configure)
+        left_canvas.bind("<Configure>", _on_left_canvas_configure)
+        self.bind("<MouseWheel>", _on_left_mousewheel, add="+")
+        self.bind("<Button-4>", _on_left_mousewheel_linux, add="+")
+        self.bind("<Button-5>", _on_left_mousewheel_linux, add="+")
         right = tk.Frame(root, bg=RETRO_PANEL)
         right.pack(side="left", fill="both", expand=True, padx=(10, 0))
 
@@ -782,6 +1139,8 @@ class SetupEditor(tk.Toplevel):
             energy_gap=180.0,
             energy_max_factor=10.0,
             num_energy_bins=50,
+            enable_recombination=True,
+            enable_scattering=True,
         )
         self.diff_var = tk.StringVar(value=str(default_params.diffusion_coefficient))
         self.mesh_var = tk.StringVar(value=str(default_params.mesh_size))
@@ -794,6 +1153,7 @@ class SetupEditor(tk.Toplevel):
         self.energy_bins_var = tk.StringVar(value=str(default_params.num_energy_bins))
         self.dynes_gamma_var = tk.StringVar(value=str(default_params.dynes_gamma))
         self.gap_expression_var = tk.StringVar(value=default_params.gap_expression)
+        self.gap_map_status_var = tk.StringVar(value="")
         self.collision_solver_var = tk.StringVar(value=default_params.collision_solver)
         self.enable_diffusion_var = tk.BooleanVar(value=default_params.enable_diffusion)
         self.enable_recombination_var = tk.BooleanVar(value=default_params.enable_recombination)
@@ -807,6 +1167,14 @@ class SetupEditor(tk.Toplevel):
         self.T_c_var = tk.StringVar(value=str(default_params.T_c))
         self.bath_temp_var = tk.StringVar(value=str(default_params.bath_temperature))
 
+        tk.Label(left, text="Geometry", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(0, 2))
+        tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(2, 4))
+        tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=(0, 8))
+        tk.Button(
+            left, text="Material Reference Table...", width=30,
+            command=self.show_material_reference,
+        ).pack(anchor="w", pady=(0, 8))
+
         tk.Label(left, text="Setup Name", bg=RETRO_PANEL).pack(anchor="w")
         tk.Entry(left, textvariable=self.name_var, width=36).pack(anchor="w", pady=(0, 8))
 
@@ -814,18 +1182,35 @@ class SetupEditor(tk.Toplevel):
             tk.Label(left, text=label, bg=RETRO_PANEL).pack(anchor="w")
             tk.Entry(left, textvariable=var, width=18).pack(anchor="w", pady=(0, 6))
 
+        tk.Label(left, text="Material Parameters", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(2, 2))
         add_param("Diffusion Coeff D\u2080 (\u03bcm\u00b2/ns)", self.diff_var)
+        tk.Label(left, text="Energy Gap Map \u0394(x,y) (\u03bceV)", bg=RETRO_PANEL).pack(anchor="w")
+        gap_row = tk.Frame(left, bg=RETRO_PANEL)
+        gap_row.pack(anchor="w", pady=(0, 2))
+        tk.Entry(gap_row, textvariable=self.energy_gap_var, width=18).pack(side="left")
+        tk.Button(gap_row, text="Custom...", width=12, command=self.edit_gap_map_expression).pack(side="left", padx=(6, 0))
+        tk.Label(
+            left,
+            textvariable=self.gap_map_status_var,
+            bg=RETRO_PANEL,
+            fg="#666666",
+            justify="left",
+            wraplength=320,
+        ).pack(anchor="w", pady=(0, 6))
+        add_param("Dynes Gamma \u0393 (\u03bceV)", self.dynes_gamma_var)
+        add_param("\u03c4\u2080,s (ns)", self.tau_s_var)
+        add_param("\u03c4\u2080,r (ns)", self.tau_r_var)
+        add_param("T_c (K)", self.T_c_var)
+        add_param("Bath Temperature (K)", self.bath_temp_var)
+
+        tk.Label(left, text="Simulation Grid / Time", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(4, 2))
         add_param("Mesh Size dx (\u03bcm)", self.mesh_var)
         add_param("dt (ns)", self.dt_var)
         add_param("Total Time (ns)", self.total_var)
         add_param("Store Every N Steps", self.store_var)
-        add_param("Energy Gap \u0394 (\u03bceV)", self.energy_gap_var)
         add_param("Energy Min (\u00d7\u0394)", self.energy_min_var)
         add_param("Energy Max (\u00d7\u0394)", self.energy_max_var)
         add_param("Energy Bins", self.energy_bins_var)
-        add_param("Dynes Gamma \u0393 (\u03bceV)", self.dynes_gamma_var)
-        tk.Label(left, text="\u0394(x,y) Expression (empty=uniform)", bg=RETRO_PANEL).pack(anchor="w")
-        tk.Entry(left, textvariable=self.gap_expression_var, width=36).pack(anchor="w", pady=(0, 6))
 
         # --- Physics process toggles ---
         tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(8, 2))
@@ -837,60 +1222,33 @@ class SetupEditor(tk.Toplevel):
             anchor="w",
             command=self.update_status,
         ).pack(anchor="w")
-        tk.Checkbutton(left, text="Enable Recombination", variable=self.enable_recombination_var, bg=RETRO_PANEL, anchor="w",
-                        command=self._toggle_recomb_fields).pack(anchor="w")
-        self.scattering_cb = tk.Checkbutton(left, text="Enable Scattering", variable=self.enable_scattering_var,
-                                             bg=RETRO_PANEL, anchor="w")
+        tk.Checkbutton(
+            left,
+            text="Enable Recombination",
+            variable=self.enable_recombination_var,
+            bg=RETRO_PANEL,
+            anchor="w",
+            command=self._toggle_recomb_fields,
+        ).pack(anchor="w")
+        self.scattering_cb = tk.Checkbutton(
+            left,
+            text="Enable Scattering",
+            variable=self.enable_scattering_var,
+            bg=RETRO_PANEL,
+            anchor="w",
+        )
         self.scattering_cb.pack(anchor="w")
-        tk.Label(left, text="Collision Solver", bg=RETRO_PANEL).pack(anchor="w")
-        self.collision_solver_menu = ttk.Combobox(
-            left, state="readonly", width=18, textvariable=self.collision_solver_var,
-            values=["forward_euler", "bdf"],
-        )
-        self.collision_solver_menu.pack(anchor="w", pady=(0, 4))
 
-        # --- Recombination parameters (shown/hidden based on checkbox) ---
-        self.recomb_frame = tk.Frame(left, bg=RETRO_PANEL)
-        self.recomb_frame.pack(anchor="w", fill="x")
-        add_param_in = lambda parent, label, var: (
-            tk.Label(parent, text=label, bg=RETRO_PANEL).pack(anchor="w"),
-            tk.Entry(parent, textvariable=var, width=18).pack(anchor="w", pady=(0, 4)),
-        )
-        add_param_in(self.recomb_frame, "\u03c4\u2080,s (ns)", self.tau_s_var)
-        add_param_in(self.recomb_frame, "\u03c4\u2080,r (ns)", self.tau_r_var)
-        add_param_in(self.recomb_frame, "T\u2081 (K)", self.T_c_var)
-        add_param_in(self.recomb_frame, "Bath Temperature (K)", self.bath_temp_var)
-        self._toggle_recomb_fields()
-
-        tk.Button(
-            left, text="Material Reference Table...", width=30,
-            command=self.show_material_reference,
-        ).pack(anchor="w", pady=(6, 4))
-        tk.Button(
-            left, text="Pre-compute Arrays", width=30,
-            command=self.run_precompute,
-        ).pack(anchor="w", pady=4)
-        self.precompute_label = tk.Label(left, text="", bg=RETRO_PANEL, fg="#666666", justify="left", wraplength=320)
-        self.precompute_label.pack(anchor="w")
-
-        tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(10, 4))
-        tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=4)
         tk.Button(left, text="Initial Conditions...", width=30, command=self.edit_initial_conditions).pack(anchor="w", pady=4)
         tk.Button(left, text="External Generation...", width=30, command=self.edit_external_generation).pack(anchor="w", pady=4)
         tk.Button(left, text="Set Unassigned -> Reflective", width=30, command=self.fill_unassigned_reflective).pack(
             anchor="w", pady=4
         )
         tk.Button(left, text="Save Setup", width=30, command=self.save_setup_file).pack(anchor="w", pady=(14, 4))
-        self.run_btn = tk.Button(left, text="Run Simulation", width=30, command=self.run_simulation)
-        self.run_btn.pack(anchor="w", pady=4)
-        self.auto_live_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(
-            left,
-            text="View Live Simulation On Run",
-            variable=self.auto_live_var,
-            bg=RETRO_PANEL,
-            anchor="w",
-        ).pack(anchor="w", pady=4)
+        self.run_btn = tk.Button(left, text="Initialize Simulation", width=30, command=self.run_precompute)
+        self.run_btn.pack(anchor="w", pady=(0, 4))
+        self.precompute_label = tk.Label(left, text="", bg=RETRO_PANEL, fg="#666666", justify="left", wraplength=320)
+        self.precompute_label.pack(anchor="w")
 
         self.status_label = tk.Label(left, text="", bg=RETRO_PANEL, justify="left", wraplength=320)
         self.status_label.pack(anchor="w", pady=(12, 6))
@@ -910,6 +1268,11 @@ class SetupEditor(tk.Toplevel):
             self.load_setup_data(setup)
         else:
             self.update_status()
+            self._refresh_gap_map_status()
+        self.after(
+            0,
+            lambda: left_canvas.configure(scrollregion=left_canvas.bbox("all")),
+        )
 
     def load_setup_data(self, setup: SetupData) -> None:
         self.setup_id = setup.setup_id
@@ -925,6 +1288,7 @@ class SetupEditor(tk.Toplevel):
         self.energy_bins_var.set(str(setup.parameters.num_energy_bins))
         self.dynes_gamma_var.set(str(setup.parameters.dynes_gamma))
         self.gap_expression_var.set(setup.parameters.gap_expression)
+        self._refresh_gap_map_status()
         self.collision_solver_var.set(setup.parameters.collision_solver)
         self._external_generation = setup.parameters.external_generation
         self.enable_diffusion_var.set(setup.parameters.enable_diffusion)
@@ -942,15 +1306,13 @@ class SetupEditor(tk.Toplevel):
         self.geometry_data = setup.geometry
         self.mask = np.array(setup.geometry.mask, dtype=bool)
         self.boundary_assignments = dict(setup.boundary_conditions)
-        self.initial_condition = setup.initial_condition
+        self.initial_condition = canonicalize_initial_condition(setup.initial_condition)
         self.redraw_geometry()
         self.update_status()
 
     def _toggle_recomb_fields(self) -> None:
-        if self.enable_recombination_var.get():
-            self.recomb_frame.pack(anchor="w", fill="x")
-        else:
-            self.recomb_frame.pack_forget()
+        # Material parameters remain visible regardless of process toggles.
+        pass
 
     def parse_float(self, name: str, value: str) -> float:
         try:
@@ -1013,44 +1375,121 @@ class SetupEditor(tk.Toplevel):
             self.T_c_var.set(str(Tc_K))
             self.tau_s_var.set(str(tau_0_ns))
             self.tau_r_var.set(str(tau_0_ns))
+            self._refresh_gap_map_status()
 
         show_material_reference(self, on_select=on_select)
 
+    def _refresh_gap_map_status(self) -> None:
+        expr = self.gap_expression_var.get().strip()
+        if expr:
+            self.gap_map_status_var.set("Custom map active. Use constant \u0394 as base scale.")
+        else:
+            self.gap_map_status_var.set("Constant mode: \u0394 is spatially uniform across geometry.")
+
+    def edit_gap_map_expression(self) -> None:
+        window = tk.Toplevel(self)
+        window.title("Custom Gap Map \u0394(x,y)")
+        window.configure(bg=RETRO_PANEL)
+        window.geometry("760x520")
+
+        tk.Label(
+            window,
+            text="Custom Python body for \u0394(x,y) in \u03bceV",
+            bg=RETRO_PANEL,
+            font=("Tahoma", 10, "bold"),
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+        tk.Label(
+            window,
+            text=(
+                "Variables: x, y in [0,1], params dict, numpy as np.\n"
+                "Return a scalar or vectorized array over interior pixels.\n"
+                "Leave empty to use constant (uniform) \u0394 from the input field."
+            ),
+            bg=RETRO_PANEL,
+            justify="left",
+            wraplength=720,
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        text = tk.Text(window, width=86, height=18, font=FONT_MONO)
+        text.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        current = self.gap_expression_var.get().strip()
+        text.insert("1.0", current or "return 180.0 + 20.0 * x")
+
+        button_row = tk.Frame(window, bg=RETRO_PANEL)
+        button_row.pack(fill="x", padx=10, pady=(0, 10))
+
+        def _apply() -> None:
+            expression = text.get("1.0", "end").strip()
+            if expression:
+                try:
+                    if self.mask is not None:
+                        base_gap = self.parse_float("energy gap map", self.energy_gap_var.get())
+                        evaluate_gap_expression(expression, self.mask.copy(), base_gap)
+                except Exception as exc:
+                    messagebox.showerror("Invalid Gap Map", str(exc), parent=window)
+                    return
+            self.gap_expression_var.set(expression)
+            self._refresh_gap_map_status()
+            window.destroy()
+
+        def _clear_constant() -> None:
+            self.gap_expression_var.set("")
+            self._refresh_gap_map_status()
+            window.destroy()
+
+        tk.Button(button_row, text="Use Constant Only", width=18, command=_clear_constant).pack(side="left")
+        tk.Button(button_row, text="Cancel", width=12, command=window.destroy).pack(side="right", padx=(6, 0))
+        tk.Button(button_row, text="Apply", width=12, command=_apply).pack(side="right")
+
+        window.transient(self)
+        window.grab_set()
+
     def run_precompute(self) -> None:
+        self.open_simulation_dialog()
+
+    def open_simulation_dialog(self) -> None:
         if self.geometry_data is None or self.mask is None:
-            messagebox.showerror("Cannot Pre-compute", "Import geometry first.", parent=self)
+            messagebox.showerror("Cannot Initialize", "Import geometry first.", parent=self)
+            return
+        if self.simulation_running:
             return
         try:
             setup = self.build_setup()
+            if (
+                setup.parameters.enable_diffusion
+                and len(setup.boundary_conditions) != len(setup.geometry.edges)
+            ):
+                raise BoundaryAssignmentError("All edges must be assigned before initializing the simulation.")
         except Exception as exc:
-            messagebox.showerror("Pre-compute Failed", str(exc), parent=self)
-            return
-        if not self.last_saved_path:
-            messagebox.showinfo(
-                "Save First",
-                "Save the setup before pre-computing (needed for .npz sidecar file).",
-                parent=self,
-            )
+            messagebox.showerror("Initialization Failed", str(exc), parent=self)
             return
 
-        mask_snap = self.mask.copy()
+        mask_snapshot = self.mask.copy()
+        qp_initial = build_initial_field(mask_snapshot, setup.initial_condition)
+        phonon_initial = np.full(mask_snapshot.shape, np.nan, dtype=float)
+        phonon_initial[mask_snapshot] = float(setup.parameters.bath_temperature)
 
-        def task_fn():
-            return precompute_arrays(mask_snap, setup.geometry.edges, setup.boundary_conditions, setup.parameters)
+        dialog: SimulationLaunchDialog | None = None
 
-        def on_success(arrays):
-            from pathlib import Path as P
-            npz_path = save_precomputed(P(self.last_saved_path), arrays)
-            n_spatial = int(np.sum(mask_snap))
-            NE = setup.parameters.num_energy_bins
-            is_uniform = bool(arrays.get("is_uniform", True))
-            mem = estimate_precompute_memory(n_spatial, NE, is_uniform)
-            self.precompute_label.configure(
-                text=f"Pre-computed: {npz_path.name} ({mem / 1024 / 1024:.1f} MB est.)"
+        def _start_from_dialog(live_requested: bool) -> None:
+            if dialog is None:
+                return
+            self.run_simulation(
+                setup_override=setup,
+                mask_override=mask_snapshot,
+                live_dialog=dialog,
+                live_requested=live_requested,
             )
-            messagebox.showinfo("Pre-compute Done", f"Saved: {npz_path}", parent=self)
 
-        self._run_background_task("Pre-compute", "Computing collision kernels...", task_fn, on_success)
+        dialog = SimulationLaunchDialog(
+            self,
+            setup_name=setup.name,
+            initial_qp_frame=qp_initial,
+            initial_phonon_frame=phonon_initial,
+            live_default=True,
+            on_start=_start_from_dialog,
+        )
+        dialog.update_preview(0.0, qp_initial)
 
     def use_intrinsic(self) -> None:
         try:
@@ -1070,7 +1509,7 @@ class SetupEditor(tk.Toplevel):
     def edit_initial_conditions(self) -> None:
         spec = ask_initial_condition(self, self.initial_condition)
         if spec is not None:
-            self.initial_condition = spec
+            self.initial_condition = canonicalize_initial_condition(spec)
             self.update_status()
 
     def edit_external_generation(self) -> None:
@@ -1199,7 +1638,8 @@ class SetupEditor(tk.Toplevel):
         diffusion_enabled = self.enable_diffusion_var.get()
         boundary_ready = assigned == total if diffusion_enabled else True
         setup_ready = total > 0 and boundary_ready
-        initial_kind = self.initial_condition.kind
+        spatial_kind, _, _, _ = resolve_spatial_spec(self.initial_condition)
+        energy_kind, _, _, _ = resolve_energy_spec(self.initial_condition)
         boundary_note = (
             "Click any highlighted edge to assign boundary conditions."
             if diffusion_enabled
@@ -1209,7 +1649,7 @@ class SetupEditor(tk.Toplevel):
             text=(
                 f"Geometry: {self.geometry_data.name}\n"
                 f"Boundary assignment: {assigned}/{total}\n"
-                f"Initial condition: {initial_kind}\n"
+                f"Initial condition: spatial={spatial_kind}, energy={energy_kind}\n"
                 f"{boundary_note}"
             )
         )
@@ -1238,7 +1678,7 @@ class SetupEditor(tk.Toplevel):
             num_energy_bins=max(1, self.parse_int("energy bins", self.energy_bins_var.get())),
             dynes_gamma=self.parse_float("Dynes gamma", self.dynes_gamma_var.get()),
             gap_expression=self.gap_expression_var.get().strip(),
-            collision_solver=self.collision_solver_var.get().strip() or "forward_euler",
+            collision_solver=self.collision_solver_var.get().strip() or "boltzphlow_relaxation",
             enable_diffusion=self.enable_diffusion_var.get(),
             enable_recombination=self.enable_recombination_var.get(),
             enable_scattering=self.enable_scattering_var.get(),
@@ -1246,6 +1686,7 @@ class SetupEditor(tk.Toplevel):
             tau_r=self.parse_float("τ₀,r", self.tau_r_var.get()),
             T_c=self.parse_float("T_c", self.T_c_var.get()),
             bath_temperature=self.parse_float("bath temperature", self.bath_temp_var.get()),
+            export_phonon_history=True,
             external_generation=self._external_generation,
         )
         return SetupData(
@@ -1255,7 +1696,7 @@ class SetupEditor(tk.Toplevel):
             geometry=self.geometry_data,
             boundary_conditions=dict(self.boundary_assignments),
             parameters=params,
-            initial_condition=self.initial_condition,
+            initial_condition=canonicalize_initial_condition(self.initial_condition),
         )
 
     def save_setup_file(self) -> None:
@@ -1266,6 +1707,31 @@ class SetupEditor(tk.Toplevel):
             messagebox.showerror("Save Failed", str(exc), parent=self)
             return
         self.last_saved_path = str(path)
+
+        autosaved_npz = None
+        if self._precomputed_arrays is not None and self.mask is not None:
+            mismatch = validate_precomputed(self._precomputed_arrays, setup.parameters, self.mask.copy())
+            if mismatch is None:
+                try:
+                    autosaved_npz = save_precomputed(path, self._precomputed_arrays)
+                    self.precompute_label.configure(text=f"Initialized: {autosaved_npz.name} (persisted)")
+                except Exception:
+                    autosaved_npz = None
+            else:
+                self.precompute_label.configure(
+                    text=(
+                        "In-memory initialization is stale for current parameters; "
+                        "re-run Initialize Simulation."
+                    )
+                )
+
+        if autosaved_npz is not None:
+            messagebox.showinfo(
+                "Setup Saved",
+                f"Saved setup:\n{path}\n\nSaved initialized arrays:\n{autosaved_npz}",
+                parent=self,
+            )
+            return
         messagebox.showinfo("Setup Saved", f"Saved setup:\n{path}", parent=self)
 
     def _run_background_task(
@@ -1294,11 +1760,15 @@ class SetupEditor(tk.Toplevel):
             try:
                 kind, payload = result_queue.get_nowait()
             except queue.Empty:
-                if dialog.winfo_exists():
-                    self.after(100, poll)
+                try:
+                    if self.winfo_exists():
+                        self.after(100, poll)
+                except Exception:
+                    return
                 return
 
-            dialog.close()
+            if dialog.winfo_exists():
+                dialog.close()
             self.simulation_running = False
             self.update_status()
             if kind == "error":
@@ -1308,146 +1778,293 @@ class SetupEditor(tk.Toplevel):
 
         self.after(100, poll)
 
-    def run_simulation(self) -> None:
-        if self.geometry_data is None or self.mask is None:
-            messagebox.showerror("Cannot Run", "Import geometry first.", parent=self)
-            return
-        if self.simulation_running:
-            return
-        try:
-            setup = self.build_setup()
-            if (
-                setup.parameters.enable_diffusion
-                and len(setup.boundary_conditions) != len(setup.geometry.edges)
-            ):
-                raise BoundaryAssignmentError("All edges must be assigned before running the simulation.")
-        except Exception as exc:
-            messagebox.showerror("Simulation Failed", str(exc), parent=self)
-            return
-
-        mask_snapshot = self.mask.copy()
-
-        # Auto-load precomputed arrays if sidecar exists and is compatible
+    def _resolve_precomputed_data(self, setup: SetupData, mask_snapshot: np.ndarray) -> dict | None:
         precomp_data = None
         if self.last_saved_path:
             from pathlib import Path
-            sp = Path(self.last_saved_path)
-            if precomputed_exists(sp):
+            setup_path = Path(self.last_saved_path)
+            if precomputed_exists(setup_path):
                 try:
-                    candidate = load_precomputed(sp)
+                    candidate = load_precomputed(setup_path)
                     mismatch = validate_precomputed(candidate, setup.parameters, mask_snapshot)
                     if mismatch:
                         messagebox.showwarning(
                             "Stale Pre-computed Data",
                             f"Ignoring precomputed sidecar — parameters changed:\n{mismatch}\n\n"
-                            "Re-run Pre-compute Arrays to update.",
+                            "Re-run Initialize Simulation to update.",
                             parent=self,
                         )
                     else:
                         precomp_data = candidate
                 except Exception:
                     pass
-
-        def task_fn():
-            initial = build_initial_field(mask_snapshot, setup.initial_condition)
-            # Compute energy weights for Fermi-Dirac initial condition
-            e_weights = None
-            p = setup.parameters
-            if (
-                setup.initial_condition.kind.lower() == "fermi_dirac"
-                and p.energy_gap > 0
-            ):
-                E_bins, _ = build_energy_grid(
-                    p.energy_gap,
-                    p.energy_min_factor,
-                    p.energy_max_factor,
-                    p.num_energy_bins,
-                )
-                temp_K = float(setup.initial_condition.params.get("temperature", 0.1))
-                e_weights = thermal_qp_weights(E_bins, p.energy_gap, temp_K, p.dynes_gamma)
-            times, frames, mass, color_limits, energy_frames, energy_bins = run_2d_crank_nicolson(
-                mask=mask_snapshot,
-                edges=setup.geometry.edges,
-                edge_conditions=setup.boundary_conditions,
-                initial_field=initial,
-                diffusion_coefficient=p.diffusion_coefficient,
-                dt=p.dt,
-                total_time=p.total_time,
-                dx=p.mesh_size,
-                store_every=p.store_every,
-                energy_gap=p.energy_gap,
-                energy_min_factor=p.energy_min_factor,
-                energy_max_factor=p.energy_max_factor,
-                num_energy_bins=p.num_energy_bins,
-                energy_weights=e_weights,
-                enable_diffusion=p.enable_diffusion,
-                enable_recombination=p.enable_recombination,
-                enable_scattering=p.enable_scattering,
-                dynes_gamma=p.dynes_gamma,
-                collision_solver=p.collision_solver,
-                tau_0=p.tau_0,
-                tau_s=p.tau_s,
-                tau_r=p.tau_r,
-                T_c=p.T_c,
-                bath_temperature=p.bath_temperature,
-                external_generation=p.external_generation,
-                gap_expression=p.gap_expression,
-                precomputed=precomp_data,
-            )
-            serialized_energy_frames = None
-            serialized_energy_bins = None
-            if energy_frames is not None:
-                serialized_energy_frames = [
-                    [frame_to_jsonable(eframe) for eframe in time_slice]
-                    for time_slice in energy_frames
-                ]
-                serialized_energy_bins = energy_bins.tolist()
-            result = SimulationResultData(
-                simulation_id=create_simulation_id(),
-                setup_id=setup.setup_id,
-                setup_name=setup.name,
-                created_at=utc_now_iso(),
-                times=[float(t) for t in times],
-                frames=[frame_to_jsonable(frame) for frame in frames],
-                mass_over_time=[float(v) for v in mass],
-                color_limits=[float(color_limits[0]), float(color_limits[1])],
-                metadata={
-                    "diffusion_coefficient": setup.parameters.diffusion_coefficient,
-                    "mesh_size": setup.parameters.mesh_size,
-                    "dt": setup.parameters.dt,
-                    "total_time": setup.parameters.total_time,
-                    "energy_gap": setup.parameters.energy_gap,
-                },
-                energy_frames=serialized_energy_frames,
-                energy_bins=serialized_energy_bins,
-            )
-            save_error: str | None = None
-            path: str | None = None
+        if precomp_data is None and self._precomputed_arrays is not None:
             try:
-                path = str(save_simulation(result))
-            except Exception as exc:
-                save_error = str(exc)
-            return result, path, save_error
+                mismatch = validate_precomputed(self._precomputed_arrays, setup.parameters, mask_snapshot)
+                if mismatch is None:
+                    precomp_data = self._precomputed_arrays
+            except Exception:
+                pass
+        return precomp_data
 
-        def on_success(payload) -> None:
+    def run_simulation(
+        self,
+        *,
+        setup_override: SetupData | None = None,
+        mask_override: np.ndarray | None = None,
+        live_dialog: SimulationLaunchDialog | None = None,
+        live_requested: bool = False,
+    ) -> None:
+        if self.geometry_data is None or self.mask is None:
+            messagebox.showerror("Cannot Run", "Import geometry first.", parent=self)
+            return
+        if self.simulation_running:
+            return
+        try:
+            setup = setup_override if setup_override is not None else self.build_setup()
+            if setup.parameters.enable_diffusion and len(setup.boundary_conditions) != len(setup.geometry.edges):
+                raise BoundaryAssignmentError("All edges must be assigned before running the simulation.")
+        except Exception as exc:
+            messagebox.showerror("Simulation Failed", str(exc), parent=self)
+            return
+
+        mask_snapshot = np.array(mask_override, copy=True) if mask_override is not None else self.mask.copy()
+        precomp_data = self._resolve_precomputed_data(setup, mask_snapshot)
+        live_queue: queue.Queue | None = queue.Queue() if (live_requested and live_dialog is not None) else None
+        result_queue: queue.Queue = queue.Queue()
+        self.simulation_running = True
+        self.update_status()
+        def _dialog_alive() -> bool:
+            if live_dialog is None:
+                return False
+            try:
+                return live_dialog.winfo_exists() and not live_dialog.closed
+            except Exception:
+                return False
+
+        if _dialog_alive():
+            live_dialog.set_running(True)
+            live_dialog.set_status("Simulation running...")
+
+        def _safe_emit_live_frame(time_ns: float, qp_frame: np.ndarray) -> None:
+            if live_queue is None:
+                return
+            live_queue.put((float(time_ns), np.array(qp_frame, copy=True)))
+
+        def worker() -> None:
+            try:
+                initial = build_initial_field(mask_snapshot, setup.initial_condition)
+                e_weights = None
+                p = setup.parameters
+                if p.energy_gap > 0:
+                    E_bins, _ = build_energy_grid(
+                        p.energy_gap,
+                        p.energy_min_factor,
+                        p.energy_max_factor,
+                        p.num_energy_bins,
+                    )
+                    e_weights = build_initial_energy_weights(
+                        E_bins=E_bins,
+                        gap=p.energy_gap,
+                        dynes_gamma=p.dynes_gamma,
+                        spec=setup.initial_condition,
+                        bath_temperature=p.bath_temperature,
+                    )
+                times, frames, mass, color_limits, energy_frames, energy_bins = run_2d_crank_nicolson(
+                    mask=mask_snapshot,
+                    edges=setup.geometry.edges,
+                    edge_conditions=setup.boundary_conditions,
+                    initial_field=initial,
+                    diffusion_coefficient=p.diffusion_coefficient,
+                    dt=p.dt,
+                    total_time=p.total_time,
+                    dx=p.mesh_size,
+                    store_every=p.store_every,
+                    energy_gap=p.energy_gap,
+                    energy_min_factor=p.energy_min_factor,
+                    energy_max_factor=p.energy_max_factor,
+                    num_energy_bins=p.num_energy_bins,
+                    energy_weights=e_weights,
+                    enable_diffusion=p.enable_diffusion,
+                    enable_recombination=p.enable_recombination,
+                    enable_scattering=p.enable_scattering,
+                    dynes_gamma=p.dynes_gamma,
+                    collision_solver=p.collision_solver,
+                    tau_0=p.tau_0,
+                    tau_s=p.tau_s,
+                    tau_r=p.tau_r,
+                    T_c=p.T_c,
+                    bath_temperature=p.bath_temperature,
+                    external_generation=p.external_generation,
+                    gap_expression=p.gap_expression,
+                    precomputed=precomp_data,
+                    progress_callback=_safe_emit_live_frame if live_queue is not None else None,
+                )
+                serialized_energy_frames = None
+                serialized_energy_bins = None
+                if energy_frames is not None:
+                    serialized_energy_frames = [
+                        [frame_to_jsonable(eframe) for eframe in time_slice]
+                        for time_slice in energy_frames
+                    ]
+                    serialized_energy_bins = energy_bins.tolist()
+
+                phonon_frames_raw = None
+                phonon_energy_frames_raw = None
+                phonon_energy_bins_raw = None
+                phonon_metadata = None
+                serialized_phonon_frames = None
+                serialized_phonon_energy_frames = None
+                serialized_phonon_energy_bins = None
+                if p.export_phonon_history:
+                    phonon_frames_raw, phonon_energy_frames_raw, phonon_energy_bins_raw, phonon_metadata = (
+                        build_fixed_phonon_history(
+                            mask=mask_snapshot,
+                            times=times,
+                            bath_temperature=p.bath_temperature,
+                            phonon_energy_bins=energy_bins,
+                        )
+                    )
+                    serialized_phonon_frames = [frame_to_jsonable(frame) for frame in phonon_frames_raw]
+                    if phonon_energy_frames_raw is not None:
+                        serialized_phonon_energy_frames = [
+                            [frame_to_jsonable(omega_frame) for omega_frame in time_slice]
+                            for time_slice in phonon_energy_frames_raw
+                        ]
+                    if phonon_energy_bins_raw is not None:
+                        serialized_phonon_energy_bins = phonon_energy_bins_raw.tolist()
+
+                def _integrated_energy_total(
+                    frame_stack: list[list[np.ndarray]],
+                    bins: np.ndarray,
+                    dE: float,
+                    area: float,
+                ) -> list[float]:
+                    totals: list[float] = []
+                    for time_slice in frame_stack:
+                        total = 0.0
+                        for idx, e_val in enumerate(bins):
+                            total += float(np.nansum(time_slice[idx][mask_snapshot])) * float(e_val)
+                        totals.append(float(total * dE * area))
+                    return totals
+
+                area = float(p.mesh_size * p.mesh_size)
+                if energy_frames is not None and energy_bins is not None and p.energy_gap > 0:
+                    _, dE_energy = build_energy_grid(
+                        p.energy_gap,
+                        p.energy_min_factor,
+                        p.energy_max_factor,
+                        p.num_energy_bins,
+                    )
+                    energy_qp_total = _integrated_energy_total(
+                        energy_frames, np.asarray(energy_bins, dtype=float), float(dE_energy), area
+                    )
+                else:
+                    energy_qp_total = [float(v) for v in mass]
+
+                if phonon_energy_frames_raw is not None and phonon_energy_bins_raw is not None and p.energy_gap > 0:
+                    _, dE_ph = build_energy_grid(
+                        p.energy_gap,
+                        p.energy_min_factor,
+                        p.energy_max_factor,
+                        p.num_energy_bins,
+                    )
+                    energy_phonon_total = _integrated_energy_total(
+                        phonon_energy_frames_raw,
+                        np.asarray(phonon_energy_bins_raw, dtype=float),
+                        float(dE_ph),
+                        area,
+                    )
+                elif phonon_frames_raw is not None:
+                    energy_phonon_total = [
+                        float(np.nansum(frame[mask_snapshot]) * area) for frame in phonon_frames_raw
+                    ]
+                else:
+                    energy_phonon_total = [0.0 for _ in times]
+
+                energy_exchange_residual = [0.0 for _ in times]
+                result = SimulationResultData(
+                    simulation_id=create_simulation_id(),
+                    setup_id=setup.setup_id,
+                    setup_name=setup.name,
+                    created_at=utc_now_iso(),
+                    times=[float(t) for t in times],
+                    frames=[frame_to_jsonable(frame) for frame in frames],
+                    mass_over_time=[float(v) for v in mass],
+                    color_limits=[float(color_limits[0]), float(color_limits[1])],
+                    metadata={
+                        "diffusion_coefficient": setup.parameters.diffusion_coefficient,
+                        "mesh_size": setup.parameters.mesh_size,
+                        "dt": setup.parameters.dt,
+                        "total_time": setup.parameters.total_time,
+                        "energy_gap": setup.parameters.energy_gap,
+                        "export_phonon_history": bool(p.export_phonon_history),
+                        "energy_qp_total": energy_qp_total,
+                        "energy_phonon_total": energy_phonon_total,
+                        "energy_exchange_residual": energy_exchange_residual,
+                        "diagnostics_mode": "placeholder",
+                    },
+                    energy_frames=serialized_energy_frames,
+                    energy_bins=serialized_energy_bins,
+                    phonon_frames=serialized_phonon_frames,
+                    phonon_energy_frames=serialized_phonon_energy_frames,
+                    phonon_energy_bins=serialized_phonon_energy_bins,
+                    phonon_metadata=phonon_metadata,
+                )
+                save_error: str | None = None
+                path: str | None = None
+                try:
+                    path = str(save_simulation(result))
+                except Exception as exc:
+                    save_error = str(exc)
+                result_queue.put(("ok", (result, path, save_error)))
+            except Exception as exc:
+                result_queue.put(("error", exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def poll() -> None:
+            if live_queue is not None and _dialog_alive():
+                while True:
+                    try:
+                        time_ns, qp_frame = live_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    live_dialog.update_preview(float(time_ns), np.asarray(qp_frame, dtype=float))
+            try:
+                kind, payload = result_queue.get_nowait()
+            except queue.Empty:
+                try:
+                    if self.winfo_exists():
+                        self.after(80, poll)
+                except Exception:
+                    return
+                return
+
+            self.simulation_running = False
+            self.update_status()
+            if _dialog_alive():
+                live_dialog.set_running(False)
+            if kind == "error":
+                if _dialog_alive():
+                    live_dialog.set_status("Simulation failed.")
+                messagebox.showerror("Simulation Failed", str(payload), parent=self)
+                return
+
             result, path, save_error = payload
             self.latest_result = result
+            if _dialog_alive():
+                final_qp_frame = frame_from_jsonable(result.frames[-1])
+                live_dialog.update_preview(float(result.times[-1]), final_qp_frame)
+                live_dialog.set_status("Simulation complete.")
             if save_error is not None:
                 messagebox.showwarning("Saved In Memory Only", f"Simulation ran but save failed:\n{save_error}", parent=self)
-            if self.auto_live_var.get():
-                self.open_live_viewer()
-                return
             if path is None:
                 messagebox.showinfo("Simulation Complete", "Simulation finished.", parent=self)
                 return
             messagebox.showinfo("Simulation Complete", f"Simulation saved:\n{path}", parent=self)
 
-        self._run_background_task(
-            title="Running Simulation",
-            message="Running Crank-Nicolson simulation and saving results...",
-            task_fn=task_fn,
-            on_success=on_success,
-        )
+        self.after(80, poll)
 
     def open_live_viewer(self) -> None:
         if self.latest_result is None:
@@ -1598,11 +2215,15 @@ class QuasiparticleMainApp(tk.Tk):
             try:
                 kind, payload = result_queue.get_nowait()
             except queue.Empty:
-                if dialog.winfo_exists():
-                    self.after(100, poll)
+                try:
+                    if self.winfo_exists():
+                        self.after(100, poll)
+                except Exception:
+                    return
                 return
 
-            dialog.close()
+            if dialog.winfo_exists():
+                dialog.close()
             if kind == "error":
                 messagebox.showerror(f"{title} Failed", str(payload), parent=self)
                 return

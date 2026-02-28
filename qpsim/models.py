@@ -12,7 +12,15 @@ BOUNDARY_KINDS = {
     "absorbing",
     "robin",
 }
-COLLISION_SOLVERS = {"forward_euler", "bdf"}
+COLLISION_SOLVERS = {"boltzphlow_relaxation"}
+LEGACY_COLLISION_SOLVER_ALIASES = {
+    "",
+    "forward_euler",
+    "bdf",
+    "time_relaxation",
+    "boltzphlow",
+    "boltzphlow_relaxation",
+}
 EXTERNAL_GENERATION_MODES = {"none", "constant", "pulse", "custom"}
 
 
@@ -22,8 +30,8 @@ def utc_now_iso() -> str:
 
 def normalize_collision_solver_name(value: str) -> str:
     solver = str(value).strip().lower()
-    if not solver:
-        return "forward_euler"
+    if solver in LEGACY_COLLISION_SOLVER_ALIASES:
+        return "boltzphlow_relaxation"
     if solver not in COLLISION_SOLVERS:
         allowed = ", ".join(sorted(COLLISION_SOLVERS))
         raise ValueError(
@@ -86,6 +94,15 @@ class InitialConditionSpec:
     params: dict[str, float] = field(default_factory=dict)
     custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
     custom_params: dict[str, Any] = field(default_factory=dict)
+    # New split representation (preferred): spatial and energy initialization.
+    spatial_kind: str = ""
+    spatial_params: dict[str, Any] = field(default_factory=dict)
+    spatial_custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
+    spatial_custom_params: dict[str, Any] = field(default_factory=dict)
+    energy_kind: str = ""  # dos / fermi_dirac / uniform / custom
+    energy_params: dict[str, Any] = field(default_factory=dict)
+    energy_custom_body: str = "return np.ones_like(E)"
+    energy_custom_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -130,7 +147,7 @@ class SimulationParameters:
     num_energy_bins: int = 50        # number of energy bins
     dynes_gamma: float = 0.0         # Dynes broadening Γ in μeV (0 = pure BCS)
     gap_expression: str = ""         # spatial gap Δ(x,y) expression (empty = uniform energy_gap)
-    collision_solver: str = "forward_euler"  # "forward_euler" or "bdf"
+    collision_solver: str = "boltzphlow_relaxation"
     # --- physics process toggles ---
     enable_diffusion: bool = True
     enable_recombination: bool = False
@@ -142,6 +159,7 @@ class SimulationParameters:
     tau_r: float | None = None
     T_c: float = 1.2                      # critical temperature in K
     bath_temperature: float = 0.1         # phonon bath temperature in K
+    export_phonon_history: bool = False   # store fixed-temperature phonon arrays in simulation output
     external_generation: ExternalGenerationSpec = field(default_factory=ExternalGenerationSpec)
 
     def __post_init__(self) -> None:
@@ -200,6 +218,10 @@ class SimulationResultData:
     color_limits: list[float]
     metadata: dict[str, Any] = field(default_factory=dict)
     energy_frames: list[list[list[list[float | None]]]] | None = None  # full 3D [time][energy][y][x]
+    phonon_frames: list[list[list[float | None]]] | None = None  # fixed-temperature phonon map [time][y][x]
+    phonon_energy_frames: list[list[list[list[float | None]]]] | None = None  # full 3D [time][omega][y][x]
+    phonon_energy_bins: list[float] | None = None
+    phonon_metadata: dict[str, Any] | None = None
     energy_bins: list[float] | None = None        # energy bin centers in μeV
 
 

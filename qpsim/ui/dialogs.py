@@ -5,6 +5,11 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any
 
+from ..initial_conditions import (
+    canonicalize_initial_condition,
+    resolve_energy_spec,
+    resolve_spatial_spec,
+)
 from ..models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec
 from .theme import FONT_MONO, RETRO_PANEL
 
@@ -318,35 +323,64 @@ def ask_initial_condition(
     window = tk.Toplevel(parent)
     window.title("Initial Conditions")
     window.configure(bg=RETRO_PANEL)
-    window.geometry("700x560")
+    window.geometry("820x700")
 
     result: list[InitialConditionSpec | None] = [None]
-    kind_var = tk.StringVar(value=current.kind.lower())
+    canonical_current = canonicalize_initial_condition(current)
+    spatial_kind, spatial_params, spatial_custom_body, spatial_custom_params = resolve_spatial_spec(
+        canonical_current
+    )
+    energy_kind, energy_params, energy_custom_body, energy_custom_params = resolve_energy_spec(canonical_current)
+    if spatial_kind not in {"gaussian", "uniform", "point", "custom"}:
+        spatial_kind = "gaussian"
+    if energy_kind not in {"dos", "fermi_dirac", "uniform", "custom"}:
+        energy_kind = "dos"
 
-    gaussian_amp = tk.StringVar(value=str(current.params.get("amplitude", 1.0)))
-    gaussian_x0 = tk.StringVar(value=str(current.params.get("x0", 0.5)))
-    gaussian_y0 = tk.StringVar(value=str(current.params.get("y0", 0.5)))
-    gaussian_sigma = tk.StringVar(value=str(current.params.get("sigma", 0.12)))
+    spatial_kind_var = tk.StringVar(value=spatial_kind or "gaussian")
+    energy_kind_var = tk.StringVar(value=energy_kind or "dos")
 
-    uniform_value = tk.StringVar(value=str(current.params.get("value", 1.0)))
-    point_value = tk.StringVar(value=str(current.params.get("value", 1.0)))
-    point_x0 = tk.StringVar(value=str(current.params.get("x0", 0.5)))
-    point_y0 = tk.StringVar(value=str(current.params.get("y0", 0.5)))
+    gaussian_amp = tk.StringVar(value=str(spatial_params.get("amplitude", 1.0)))
+    gaussian_x0 = tk.StringVar(value=str(spatial_params.get("x0", 0.5)))
+    gaussian_y0 = tk.StringVar(value=str(spatial_params.get("y0", 0.5)))
+    gaussian_sigma = tk.StringVar(value=str(spatial_params.get("sigma", 0.12)))
 
-    custom_params_var = tk.StringVar(value=json.dumps(current.custom_params or {}))
+    uniform_value = tk.StringVar(value=str(spatial_params.get("value", 1.0)))
+    point_value = tk.StringVar(value=str(spatial_params.get("value", 1.0)))
+    point_x0 = tk.StringVar(value=str(spatial_params.get("x0", 0.5)))
+    point_y0 = tk.StringVar(value=str(spatial_params.get("y0", 0.5)))
 
-    tk.Label(window, text="Type:", bg=RETRO_PANEL).pack(anchor="w", padx=10, pady=(10, 4))
-    kind_menu = ttk.Combobox(window, state="readonly", width=28, values=["gaussian", "uniform", "point", "fermi_dirac", "custom"])
-    kind_menu.set(kind_var.get())
-    kind_menu.pack(anchor="w", padx=10, pady=(0, 8))
+    spatial_custom_params_var = tk.StringVar(value=json.dumps(spatial_custom_params or {}))
+    energy_custom_params_var = tk.StringVar(value=json.dumps(energy_custom_params or {}))
+    energy_fd_temp_var = tk.StringVar(value=str(energy_params.get("temperature", 0.1)))
+    energy_uniform_value_var = tk.StringVar(value=str(energy_params.get("value", 1.0)))
+
+    tk.Label(window, text="Configure spatial and energy initial profiles independently.", bg=RETRO_PANEL).pack(
+        anchor="w", padx=10, pady=(10, 8)
+    )
+
+    top_row = tk.Frame(window, bg=RETRO_PANEL)
+    top_row.pack(fill="x", padx=10, pady=(0, 8))
+    tk.Label(top_row, text="Spatial Profile:", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w", padx=(0, 6))
+    spatial_menu = ttk.Combobox(top_row, state="readonly", width=18, values=["gaussian", "uniform", "point", "custom"])
+    spatial_menu.set(spatial_kind_var.get())
+    spatial_menu.grid(row=0, column=1, sticky="w", padx=(0, 14))
+    tk.Label(top_row, text="Energy Profile:", bg=RETRO_PANEL).grid(row=0, column=2, sticky="w", padx=(0, 6))
+    energy_menu = ttk.Combobox(top_row, state="readonly", width=18, values=["dos", "fermi_dirac", "uniform", "custom"])
+    energy_menu.set(energy_kind_var.get())
+    energy_menu.grid(row=0, column=3, sticky="w")
 
     container = tk.Frame(window, bg=RETRO_PANEL)
     container.pack(fill="both", expand=True, padx=10, pady=6)
+    spatial_box = tk.LabelFrame(container, text="Spatial Profile", bg=RETRO_PANEL)
+    spatial_box.pack(fill="x", pady=(0, 8))
+    energy_box = tk.LabelFrame(container, text="Energy Profile", bg=RETRO_PANEL)
+    energy_box.pack(fill="both", expand=True)
 
-    frames: dict[str, tk.Frame] = {}
+    spatial_frames: dict[str, tk.Frame] = {}
+    energy_frames: dict[str, tk.Frame] = {}
 
-    gauss_frame = tk.Frame(container, bg=RETRO_PANEL)
-    frames["gaussian"] = gauss_frame
+    gauss_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
+    spatial_frames["gaussian"] = gauss_frame
     tk.Label(gauss_frame, text="amplitude", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_amp, width=12).grid(row=0, column=1, sticky="w")
     tk.Label(gauss_frame, text="x0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
@@ -356,13 +390,13 @@ def ask_initial_condition(
     tk.Label(gauss_frame, text="sigma", bg=RETRO_PANEL).grid(row=3, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_sigma, width=12).grid(row=3, column=1, sticky="w")
 
-    uniform_frame = tk.Frame(container, bg=RETRO_PANEL)
-    frames["uniform"] = uniform_frame
+    uniform_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
+    spatial_frames["uniform"] = uniform_frame
     tk.Label(uniform_frame, text="value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(uniform_frame, textvariable=uniform_value, width=12).grid(row=0, column=1, sticky="w")
 
-    point_frame = tk.Frame(container, bg=RETRO_PANEL)
-    frames["point"] = point_frame
+    point_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
+    spatial_frames["point"] = point_frame
     tk.Label(point_frame, text="value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_value, width=12).grid(row=0, column=1, sticky="w")
     tk.Label(point_frame, text="x0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
@@ -370,74 +404,69 @@ def ask_initial_condition(
     tk.Label(point_frame, text="y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_y0, width=12).grid(row=2, column=1, sticky="w")
 
-    fd_amp = tk.StringVar(value=str(current.params.get("amplitude", 1.0)))
-    fd_temp = tk.StringVar(value=str(current.params.get("temperature", 0.1)))
-    fd_frame = tk.Frame(container, bg=RETRO_PANEL)
-    frames["fermi_dirac"] = fd_frame
-    tk.Label(fd_frame, text="amplitude (spatial density)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
-    tk.Entry(fd_frame, textvariable=fd_amp, width=12).grid(row=0, column=1, sticky="w")
-    tk.Label(fd_frame, text="temperature (K)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
-    tk.Entry(fd_frame, textvariable=fd_temp, width=12).grid(row=1, column=1, sticky="w")
+    spatial_custom_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
+    spatial_frames["custom"] = spatial_custom_frame
+    tk.Label(spatial_custom_frame, text="def user_expression(x, y, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    spatial_custom_text = tk.Text(spatial_custom_frame, width=94, height=8, font=FONT_MONO)
+    spatial_custom_text.pack(fill="x", expand=False)
+    spatial_custom_text.insert("1.0", spatial_custom_body)
+    tk.Label(spatial_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(spatial_custom_frame, textvariable=spatial_custom_params_var, width=94).pack(anchor="w")
+
+    dos_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
+    energy_frames["dos"] = dos_frame
+    tk.Label(dos_frame, text="Use default DOS-based energy weighting.", bg=RETRO_PANEL).pack(anchor="w")
+
+    fd_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
+    energy_frames["fermi_dirac"] = fd_frame
+    tk.Label(fd_frame, text="temperature (K)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(fd_frame, textvariable=energy_fd_temp_var, width=12).grid(row=0, column=1, sticky="w")
     tk.Label(
         fd_frame,
-        text=(
-            "Spatially uniform. Energy distribution set by the thermal\n"
-            "Bogoliubov quasiparticle occupation:\n"
-            "  n(E) \u221d N_s(E) \u00d7 f(E, T)\n"
-            "  N_s(E) = E / \u221a(E\u00b2 \u2212 \u0394\u00b2)   (BCS density of states)\n"
-            "  f(E, T) = 1 / (exp(E / k_B T) + 1)\n"
-            "where E is the quasiparticle excitation energy (\u2265 \u0394)."
-        ),
+        text="Thermal profile: n(E) proportional to N_s(E) * f(E,T).",
         bg=RETRO_PANEL,
         justify="left",
         font=FONT_MONO,
-    ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+    ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-    custom_frame = tk.Frame(container, bg=RETRO_PANEL)
-    frames["custom"] = custom_frame
-    tk.Label(
-        custom_frame,
-        text="Fixed scaffold (not editable):",
-        bg=RETRO_PANEL,
-    ).pack(anchor="w")
-    tk.Label(
-        custom_frame,
-        text="def user_expression(x, y, params):",
-        bg=RETRO_PANEL,
-        justify="left",
-        font=FONT_MONO,
-    ).pack(anchor="w")
-    tk.Label(
-        custom_frame,
-        text="    # x and y are normalized coordinates in [0, 1]",
-        bg=RETRO_PANEL,
-        justify="left",
-        font=FONT_MONO,
-    ).pack(anchor="w")
-    tk.Label(
-        custom_frame,
-        text="Editable body:",
-        bg=RETRO_PANEL,
-    ).pack(anchor="w", pady=(8, 2))
-    custom_text = tk.Text(custom_frame, width=78, height=12, font=FONT_MONO)
-    custom_text.pack(fill="x", expand=False)
-    custom_text.insert("1.0", current.custom_body or "return 0.0")
+    energy_uniform_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
+    energy_frames["uniform"] = energy_uniform_frame
+    tk.Label(energy_uniform_frame, text="value (relative weight)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(energy_uniform_frame, textvariable=energy_uniform_value_var, width=12).grid(row=0, column=1, sticky="w")
 
-    tk.Label(custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(8, 2))
-    tk.Entry(custom_frame, textvariable=custom_params_var, width=78).pack(anchor="w")
+    energy_custom_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
+    energy_frames["custom"] = energy_custom_frame
+    tk.Label(energy_custom_frame, text="def energy_profile(E, gap, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    energy_custom_text = tk.Text(energy_custom_frame, width=94, height=8, font=FONT_MONO)
+    energy_custom_text.pack(fill="x", expand=False)
+    energy_custom_text.insert("1.0", energy_custom_body)
+    tk.Label(energy_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(energy_custom_frame, textvariable=energy_custom_params_var, width=94).pack(anchor="w")
 
-    def show_frame(kind: str) -> None:
-        for frame in frames.values():
+    def show_spatial_frame(kind: str) -> None:
+        for frame in spatial_frames.values():
             frame.pack_forget()
-        frames[kind].pack(fill="both", expand=True, anchor="w")
+        spatial_frames[kind].pack(fill="x", expand=False, anchor="w", padx=6, pady=6)
 
-    def on_type_change(*_args) -> None:
-        kind = kind_menu.get().strip().lower()
-        kind_var.set(kind)
-        show_frame(kind)
+    def show_energy_frame(kind: str) -> None:
+        for frame in energy_frames.values():
+            frame.pack_forget()
+        energy_frames[kind].pack(fill="x", expand=False, anchor="w", padx=6, pady=6)
 
-    kind_menu.bind("<<ComboboxSelected>>", on_type_change)
-    show_frame(kind_var.get())
+    def on_spatial_change(*_args) -> None:
+        kind = spatial_menu.get().strip().lower()
+        spatial_kind_var.set(kind)
+        show_spatial_frame(kind)
+
+    def on_energy_change(*_args) -> None:
+        kind = energy_menu.get().strip().lower()
+        energy_kind_var.set(kind)
+        show_energy_frame(kind)
+
+    spatial_menu.bind("<<ComboboxSelected>>", on_spatial_change)
+    energy_menu.bind("<<ComboboxSelected>>", on_energy_change)
+    show_spatial_frame(spatial_kind_var.get())
+    show_energy_frame(energy_kind_var.get())
 
     def on_cancel() -> None:
         result[0] = None
@@ -450,59 +479,84 @@ def ask_initial_condition(
             raise ValueError(f"'{name}' must be numeric.")
 
     def on_apply() -> None:
-        kind = kind_var.get().strip().lower()
+        spatial_kind_val = spatial_kind_var.get().strip().lower()
+        energy_kind_val = energy_kind_var.get().strip().lower()
         try:
-            if kind == "gaussian":
-                spec = InitialConditionSpec(
-                    kind="gaussian",
-                    params={
-                        "amplitude": parse_float("amplitude", gaussian_amp.get()),
-                        "x0": parse_float("x0", gaussian_x0.get()),
-                        "y0": parse_float("y0", gaussian_y0.get()),
-                        "sigma": parse_float("sigma", gaussian_sigma.get()),
-                    },
-                )
-            elif kind == "uniform":
-                spec = InitialConditionSpec(
-                    kind="uniform",
-                    params={"value": parse_float("value", uniform_value.get())},
-                )
-            elif kind == "point":
-                spec = InitialConditionSpec(
-                    kind="point",
-                    params={
-                        "value": parse_float("value", point_value.get()),
-                        "x0": parse_float("x0", point_x0.get()),
-                        "y0": parse_float("y0", point_y0.get()),
-                    },
-                )
-            elif kind == "fermi_dirac":
-                spec = InitialConditionSpec(
-                    kind="fermi_dirac",
-                    params={
-                        "amplitude": parse_float("amplitude", fd_amp.get()),
-                        "temperature": parse_float("temperature", fd_temp.get()),
-                    },
-                )
-            elif kind == "custom":
-                raw_params = custom_params_var.get().strip()
-                custom_params = {}
-                if raw_params:
-                    custom_params = json.loads(raw_params)
-                    if not isinstance(custom_params, dict):
-                        raise ValueError("Custom params must be a JSON object.")
-                spec = InitialConditionSpec(
-                    kind="custom",
-                    params={},
-                    custom_body=custom_text.get("1.0", "end").strip(),
-                    custom_params=custom_params,
-                )
+            if spatial_kind_val == "gaussian":
+                spatial_params_val = {
+                    "amplitude": parse_float("amplitude", gaussian_amp.get()),
+                    "x0": parse_float("x0", gaussian_x0.get()),
+                    "y0": parse_float("y0", gaussian_y0.get()),
+                    "sigma": parse_float("sigma", gaussian_sigma.get()),
+                }
+                spatial_custom_body_val = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
+                spatial_custom_params_val: dict[str, Any] = {}
+            elif spatial_kind_val == "uniform":
+                spatial_params_val = {"value": parse_float("value", uniform_value.get())}
+                spatial_custom_body_val = "return 1.0"
+                spatial_custom_params_val = {}
+            elif spatial_kind_val == "point":
+                spatial_params_val = {
+                    "value": parse_float("value", point_value.get()),
+                    "x0": parse_float("x0", point_x0.get()),
+                    "y0": parse_float("y0", point_y0.get()),
+                }
+                spatial_custom_body_val = "return 0.0"
+                spatial_custom_params_val = {}
+            elif spatial_kind_val == "custom":
+                raw_spatial_params = spatial_custom_params_var.get().strip()
+                spatial_custom_params_val = {}
+                if raw_spatial_params:
+                    spatial_custom_params_val = json.loads(raw_spatial_params)
+                    if not isinstance(spatial_custom_params_val, dict):
+                        raise ValueError("Spatial custom params must be a JSON object.")
+                spatial_params_val = {}
+                spatial_custom_body_val = spatial_custom_text.get("1.0", "end").strip()
             else:
-                raise ValueError(f"Unsupported initial condition type: {kind}")
+                raise ValueError(f"Unsupported spatial initial condition type: {spatial_kind_val}")
+
+            if energy_kind_val == "dos":
+                energy_params_val: dict[str, Any] = {}
+                energy_custom_body_val = "return np.ones_like(E)"
+                energy_custom_params_val: dict[str, Any] = {}
+            elif energy_kind_val == "fermi_dirac":
+                energy_params_val = {"temperature": parse_float("temperature", energy_fd_temp_var.get())}
+                energy_custom_body_val = "return np.ones_like(E)"
+                energy_custom_params_val = {}
+            elif energy_kind_val == "uniform":
+                energy_params_val = {"value": parse_float("value", energy_uniform_value_var.get())}
+                energy_custom_body_val = "return np.ones_like(E)"
+                energy_custom_params_val = {}
+            elif energy_kind_val == "custom":
+                raw_energy_params = energy_custom_params_var.get().strip()
+                energy_custom_params_val = {}
+                if raw_energy_params:
+                    energy_custom_params_val = json.loads(raw_energy_params)
+                    if not isinstance(energy_custom_params_val, dict):
+                        raise ValueError("Energy custom params must be a JSON object.")
+                energy_params_val = {}
+                energy_custom_body_val = energy_custom_text.get("1.0", "end").strip()
+            else:
+                raise ValueError(f"Unsupported energy initial condition type: {energy_kind_val}")
+
+            spec = InitialConditionSpec(
+                kind=spatial_kind_val,
+                params=spatial_params_val,
+                custom_body=spatial_custom_body_val,
+                custom_params=spatial_custom_params_val,
+                spatial_kind=spatial_kind_val,
+                spatial_params=spatial_params_val,
+                spatial_custom_body=spatial_custom_body_val,
+                spatial_custom_params=spatial_custom_params_val,
+                energy_kind=energy_kind_val,
+                energy_params=energy_params_val,
+                energy_custom_body=energy_custom_body_val,
+                energy_custom_params=energy_custom_params_val,
+            )
         except Exception as exc:
             messagebox.showerror("Invalid Initial Condition", str(exc), parent=window)
             return
-        result[0] = spec
+        result[0] = canonicalize_initial_condition(spec)
         window.destroy()
 
     controls = tk.Frame(window, bg=RETRO_PANEL)
@@ -648,4 +702,3 @@ def ask_external_generation(
     window.grab_set()
     window.wait_window()
     return result[0]
-

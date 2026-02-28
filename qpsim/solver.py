@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Callable
 import warnings
 
 import numpy as np
@@ -320,6 +321,85 @@ def _dynes_density_of_states(E: np.ndarray, gap: float, gamma: float) -> np.ndar
 _KB_UEV_PER_K = 86.17333262145
 
 
+def thermal_phonon_occupation(
+    omega_bins: np.ndarray,
+    temperature: float,
+) -> np.ndarray:
+    """Thermal Bose-Einstein phonon occupation n_BE(omega, T)."""
+    omega = np.asarray(omega_bins, dtype=float)
+    if omega.ndim != 1:
+        raise ValueError("omega_bins must be a 1D array.")
+    if np.any(~np.isfinite(omega)):
+        raise ValueError("omega_bins must contain only finite values.")
+    if np.any(omega < 0):
+        raise ValueError("omega_bins must be non-negative.")
+    if temperature <= 0:
+        return np.zeros_like(omega)
+
+    kT = _KB_UEV_PER_K * float(temperature)
+    exponent = np.minimum(omega / max(kT, 1e-30), 500.0)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        occ = 1.0 / (np.exp(exponent) - 1.0)
+    occ[~np.isfinite(occ)] = 0.0
+    return np.maximum(occ, 0.0)
+
+
+def build_fixed_phonon_history(
+    *,
+    mask: np.ndarray,
+    times: list[float] | np.ndarray,
+    bath_temperature: float,
+    phonon_energy_bins: np.ndarray | None = None,
+) -> tuple[list[np.ndarray], list[list[np.ndarray]] | None, np.ndarray | None, dict[str, float | str | bool]]:
+    """Build fixed-temperature phonon outputs aligned to stored simulation times.
+
+    Returns:
+      phonon_frames: [time][y][x] temperature maps in K
+      phonon_energy_frames: [time][omega][y][x] Bose occupations, or None
+      phonon_energy_bins: 1D omega bins in μeV, or None
+      phonon_metadata: metadata payload describing scaffold mode
+    """
+    mask_bool = np.asarray(mask, dtype=bool)
+    n_spatial = int(np.sum(mask_bool))
+    if n_spatial == 0:
+        raise ValueError("Geometry mask has no interior points.")
+
+    n_frames = len(times)
+    if n_frames <= 0:
+        raise ValueError("times must contain at least one stored timepoint.")
+
+    temp_values = np.full(n_spatial, float(bath_temperature), dtype=float)
+    base_temp_frame = reconstruct_field(mask_bool, temp_values)
+    phonon_frames = [base_temp_frame.copy() for _ in range(n_frames)]
+
+    energy_frames: list[list[np.ndarray]] | None = None
+    energy_bins_out: np.ndarray | None = None
+    if phonon_energy_bins is not None:
+        energy_bins_out = np.asarray(phonon_energy_bins, dtype=float).copy()
+        if energy_bins_out.ndim != 1:
+            raise ValueError("phonon_energy_bins must be a 1D array.")
+        if np.any(~np.isfinite(energy_bins_out)):
+            raise ValueError("phonon_energy_bins must contain only finite values.")
+        if np.any(energy_bins_out < 0):
+            raise ValueError("phonon_energy_bins must be non-negative.")
+
+        n_be = thermal_phonon_occupation(energy_bins_out, float(bath_temperature))
+        base_energy_frames = [
+            reconstruct_field(mask_bool, np.full(n_spatial, float(occ), dtype=float))
+            for occ in n_be
+        ]
+        energy_frames = [[frame.copy() for frame in base_energy_frames] for _ in range(n_frames)]
+
+    phonon_metadata: dict[str, float | str | bool] = {
+        "mode": "fixed_temperature",
+        "phonon_temperature_K": float(bath_temperature),
+        "field_units": "K",
+        "energy_frame_units": "occupation",
+        "omega_bins_match_qp_energy_bins": bool(phonon_energy_bins is not None),
+    }
+    return phonon_frames, energy_frames, energy_bins_out, phonon_metadata
+
+
 def thermal_qp_weights(
     E_bins: np.ndarray,
     gap: float,
@@ -524,7 +604,35 @@ def _collision_rhs(
     return rhs
 
 
-def apply_collision_step_bdf(
+def _apply_time_relaxation_update(
+    n: np.ndarray,
+    gain: np.ndarray,
+    loss_rate: np.ndarray,
+    dt: float,
+) -> np.ndarray:
+    """BoltzPhlow time-relaxation update for dn/dt = gain - loss_rate*n.
+
+    Uses an exponential relaxation update with frozen gain/loss over the step:
+      n(t+dt) = exp(-mu*dt) n(t) + (1-exp(-mu*dt)) * P/mu
+    where mu >= loss_rate and P = gain + (mu-loss_rate)*n.
+
+    Choosing mu = loss_rate recovers the first-order time-relaxation method and
+    preserves non-negativity when gain >= 0.
+    """
+    mu = np.maximum(loss_rate, 0.0)
+    p_term = np.maximum(gain + (mu - loss_rate) * n, 0.0)
+
+    decay = np.exp(-mu * dt)
+    coeff = np.empty_like(mu)
+    small = mu < 1e-14
+    coeff[~small] = (1.0 - decay[~small]) / mu[~small]
+    coeff[small] = dt
+
+    updated = decay * n + coeff * p_term
+    return np.maximum(updated, 0.0)
+
+
+def apply_collision_step_time_relaxation(
     state: np.ndarray,
     K_r: np.ndarray | None,
     K_s: np.ndarray | None,
@@ -532,113 +640,61 @@ def apply_collision_step_bdf(
     G_therm: np.ndarray | None,
     dE: float,
     dt: float,
-) -> int:
-    """Apply one BDF collision step using scipy.integrate.solve_ivp per spatial pixel.
+) -> None:
+    """Apply one BoltzPhlow time-relaxation collision step (uniform kernels)."""
+    gain = np.zeros_like(state)
+    loss_rate = np.zeros_like(state)
 
-    Falls back to forward Euler (with non-negativity clamp) for any pixel where
-    BDF fails to converge.  Modifies *state* in-place.
+    if K_r is not None and G_therm is not None:
+        Kr_dot_state = K_r @ state
+        loss_rate += 2.0 * dE * Kr_dot_state
+        gain += G_therm[:, None]
 
-    Returns the number of pixels that fell back to forward Euler.
-    """
-    from scipy.integrate import solve_ivp
+    if K_s is not None and rho_bins is not None:
+        rho = rho_bins[:, None]
+        f = state / np.maximum(rho, 1e-30)
+        one_minus_f = np.maximum(1.0 - f, 0.0)
+        scat_in = dE * rho * one_minus_f * (K_s.T @ state)
+        scat_out_rate = dE * ((K_s * rho_bins[None, :]) @ one_minus_f)
+        gain += scat_in
+        loss_rate += scat_out_rate
 
-    NE, n_spatial = state.shape
-    fallbacks = 0
-    for px in range(n_spatial):
-        n0 = state[:, px].copy()
-
-        def rhs_fn(t, y):
-            return _collision_rhs(y, K_r, K_s, rho_bins, G_therm, dE)
-
-        try:
-            sol = solve_ivp(rhs_fn, (0, dt), n0, method="BDF", rtol=1e-6, atol=1e-10)
-            if sol.success:
-                state[:, px] = np.maximum(sol.y[:, -1], 0.0)
-            else:
-                fallbacks += 1
-                state[:, px] = np.maximum(n0 + dt * _collision_rhs(n0, K_r, K_s, rho_bins, G_therm, dE), 0.0)
-        except Exception:
-            fallbacks += 1
-            state[:, px] = np.maximum(n0 + dt * _collision_rhs(n0, K_r, K_s, rho_bins, G_therm, dE), 0.0)
-    return fallbacks
+    state[:, :] = _apply_time_relaxation_update(state, gain, loss_rate, dt)
 
 
-def apply_collision_step_bdf_nonuniform(
+def apply_collision_step_time_relaxation_nonuniform(
     state: np.ndarray,
     K_r_all: np.ndarray | None,
     K_s_all: np.ndarray | None,
     rho_all: np.ndarray | None,
     G_therm_all: np.ndarray | None,
-    dE: float,
-    dt: float,
-    n_spatial: int,
-) -> int:
-    """BDF collision step with per-pixel kernels (non-uniform gap).
-
-    Modifies *state* in-place.  Returns fallback count.
-    """
-    from scipy.integrate import solve_ivp
-
-    fallbacks = 0
-    for px in range(n_spatial):
-        n0 = state[:, px].copy()
-        kr = K_r_all[px] if K_r_all is not None else None
-        ks = K_s_all[px] if K_s_all is not None else None
-        rho = rho_all[px] if rho_all is not None else None
-        gt = G_therm_all[px] if G_therm_all is not None else None
-
-        def rhs_fn(t, y, _kr=kr, _ks=ks, _rho=rho, _gt=gt):
-            return _collision_rhs(y, _kr, _ks, _rho, _gt, dE)
-
-        try:
-            sol = solve_ivp(rhs_fn, (0, dt), n0, method="BDF", rtol=1e-6, atol=1e-10)
-            if sol.success:
-                state[:, px] = np.maximum(sol.y[:, -1], 0.0)
-            else:
-                fallbacks += 1
-                state[:, px] = np.maximum(n0 + dt * _collision_rhs(n0, kr, ks, rho, gt, dE), 0.0)
-        except Exception:
-            fallbacks += 1
-            state[:, px] = np.maximum(n0 + dt * _collision_rhs(n0, kr, ks, rho, gt, dE), 0.0)
-    return fallbacks
-
-
-def _apply_collision_nonuniform(
-    state: np.ndarray,
-    K_r_all: np.ndarray | None,
-    K_s_all: np.ndarray | None,
-    rho_all: np.ndarray | None,
-    G_therm_all: np.ndarray | None,
-    enable_recombination: bool,
-    enable_scattering: bool,
     dE: float,
     dt: float,
     n_spatial: int,
 ) -> None:
-    """Apply collision step with per-pixel kernels using vectorized batch ops."""
-    # Work in [N_spatial, NE] layout for batched einsum contractions.
-    n_px = state.T  # view, shape (N_spatial, NE)
+    """Apply BoltzPhlow time-relaxation collision step (per-pixel kernels)."""
+    n_px = state.T  # [N_spatial, NE]
     if n_px.shape[0] != n_spatial:
         raise ValueError("Internal error: state shape does not match n_spatial.")
 
-    if enable_recombination and K_r_all is not None and G_therm_all is not None:
-        # Kr_dot_n[p, i] = sum_j K_r_all[p, i, j] * n_px[p, j]
-        Kr_dot_n = np.einsum("pij,pj->pi", K_r_all, n_px, optimize=True)
-        recomb_rate = 2.0 * n_px * dE * Kr_dot_n
-        n_px = n_px + dt * (G_therm_all - recomb_rate)
+    gain = np.zeros_like(n_px)
+    loss_rate = np.zeros_like(n_px)
 
-    if enable_scattering and K_s_all is not None and rho_all is not None:
+    if K_r_all is not None and G_therm_all is not None:
+        Kr_dot_n = np.einsum("pij,pj->pi", K_r_all, n_px, optimize=True)
+        loss_rate += 2.0 * dE * Kr_dot_n
+        gain += G_therm_all
+
+    if K_s_all is not None and rho_all is not None:
         f = n_px / np.maximum(rho_all, 1e-30)
         one_minus_f = np.maximum(1.0 - f, 0.0)
-        # scat_in[p, i] = dE * rho[p, i]*(1-f[p, i]) * sum_j K_s[p, j, i] * n[p, j]
         scat_in_core = np.einsum("pji,pj->pi", K_s_all, n_px, optimize=True)
         scat_in = dE * rho_all * one_minus_f * scat_in_core
-        # scat_out[p, i] = n[p, i] * dE * sum_j K_s[p, i, j] * rho[p, j] * (1-f[p, j])
         scat_out_rates = np.einsum("pij,pj,pj->pi", K_s_all, rho_all, one_minus_f, optimize=True)
-        scat_out = n_px * dE * scat_out_rates
-        n_px = n_px + dt * (scat_in - scat_out)
+        gain += scat_in
+        loss_rate += dE * scat_out_rates
 
-    np.maximum(n_px, 0.0, out=n_px)
+    n_px[:, :] = _apply_time_relaxation_update(n_px, gain, loss_rate, dt)
     state[:, :] = n_px.T
 
 
@@ -782,7 +838,7 @@ def run_2d_crank_nicolson(
     enable_recombination: bool = False,
     enable_scattering: bool = False,
     dynes_gamma: float = 0.0,
-    collision_solver: str = "forward_euler",
+    collision_solver: str = "boltzphlow_relaxation",
     tau_0: float = 440.0,
     tau_s: float | None = None,
     tau_r: float | None = None,
@@ -795,6 +851,7 @@ def run_2d_crank_nicolson(
     pauli_error_threshold: float | None = 1.0,
     enforce_pauli: bool = False,
     pauli_density_floor: float = 1e-18,
+    progress_callback: Callable[[float, np.ndarray], None] | None = None,
 ) -> tuple[list[float], list[np.ndarray], list[float], list[float],
            list[list[np.ndarray]] | None, np.ndarray | None]:
     """Run 2D Crank-Nicolson diffusion, optionally energy-resolved.
@@ -869,13 +926,7 @@ def run_2d_crank_nicolson(
         # Determine if we have precomputed arrays and whether gap is non-uniform
         has_precomp = precomputed is not None
         nonuniform_gap = has_precomp and not bool(precomputed.get("is_uniform", True))
-        use_bdf = normalize_collision_solver_name(collision_solver) == "bdf"
-        if enable_scattering and not use_bdf:
-            warnings.warn(
-                "Forward Euler collision solver can be unstable for stiff scattering dynamics. "
-                "Use collision_solver='bdf' for better robustness.",
-                stacklevel=2,
-            )
+        _ = normalize_collision_solver_name(collision_solver)
 
         if has_precomp:
             D_array = precomputed["D_array"]  # (NE, N_spatial)
@@ -1070,38 +1121,28 @@ def run_2d_crank_nicolson(
             [reconstruct_field(mask, state[i]) for i in range(num_energy_bins)]
         ]
         mass: list[float] = [float(np.sum(integrated) * dx * dx)]
+        if progress_callback is not None:
+            try:
+                progress_callback(0.0, np.array(frames[0], copy=True))
+            except Exception:
+                pass
 
         current_time = 0.0
-        bdf_fallback_total = 0
         collision_enabled = bool(enable_recombination or enable_scattering)
 
         def _apply_collision(dt_col: float) -> None:
-            nonlocal bdf_fallback_total
             if dt_col <= 0.0 or not collision_enabled:
                 return
 
             if nonuniform_gap:
-                if use_bdf:
-                    bdf_fallback_total += apply_collision_step_bdf_nonuniform(
-                        state, K_r_all, K_s_all, rho_all, G_therm_all, dE, dt_col, n,
-                    )
-                else:
-                    _apply_collision_nonuniform(
-                        state, K_r_all, K_s_all, rho_all, G_therm_all,
-                        enable_recombination, enable_scattering, dE, dt_col, n,
-                    )
-                return
-
-            if use_bdf:
-                bdf_fallback_total += apply_collision_step_bdf(
-                    state, K_r, K_s, rho_bins, G_therm, dE, dt_col,
+                apply_collision_step_time_relaxation_nonuniform(
+                    state, K_r_all, K_s_all, rho_all, G_therm_all, dE, dt_col, n,
                 )
                 return
 
-            if enable_recombination and K_r is not None and G_therm is not None:
-                apply_recombination_step(state, K_r, G_therm, dE, dt_col)
-            if enable_scattering and K_s is not None and rho_bins is not None:
-                apply_scattering_step(state, K_s, rho_bins, dE, dt_col)
+            apply_collision_step_time_relaxation(
+                state, K_r, K_s, rho_bins, G_therm, dE, dt_col,
+            )
 
         def _apply_diffusion(dt_diff: float, is_final_step: bool) -> None:
             if dt_diff <= 0.0 or not enable_diffusion:
@@ -1157,18 +1198,17 @@ def run_2d_crank_nicolson(
             if step % store_every == 0 or step == total_steps:
                 integrated = np.sum(state, axis=0) * dE
                 times.append(float(current_time))
-                frames.append(reconstruct_field(mask, integrated))
+                current_frame = reconstruct_field(mask, integrated)
+                frames.append(current_frame)
                 energy_frames.append(
                     [reconstruct_field(mask, state[i]) for i in range(num_energy_bins)]
                 )
                 mass.append(float(np.sum(integrated) * dx * dx))
-
-        if bdf_fallback_total > 0:
-            warnings.warn(
-                f"BDF collision solver fell back to forward Euler for "
-                f"{bdf_fallback_total} pixel-steps. Consider reducing dt.",
-                stacklevel=2,
-            )
+                if progress_callback is not None:
+                    try:
+                        progress_callback(float(current_time), np.array(current_frame, copy=True))
+                    except Exception:
+                        pass
 
         min_val = float(np.nanmin(np.stack(frames)))
         max_val = float(np.nanmax(np.stack(frames)))
@@ -1191,6 +1231,11 @@ def run_2d_crank_nicolson(
     times = [0.0]
     frames = [reconstruct_field(mask, interior_values)]
     mass = [float(np.sum(interior_values) * dx * dx)]
+    if progress_callback is not None:
+        try:
+            progress_callback(0.0, np.array(frames[0], copy=True))
+        except Exception:
+            pass
 
     current = interior_values
     current_time = 0.0
@@ -1216,6 +1261,11 @@ def run_2d_crank_nicolson(
             frame = reconstruct_field(mask, current)
             frames.append(frame)
             mass.append(float(np.sum(current) * dx * dx))
+            if progress_callback is not None:
+                try:
+                    progress_callback(float(current_time), np.array(frame, copy=True))
+                except Exception:
+                    pass
 
     min_val = float(np.nanmin(np.stack(frames)))
     max_val = float(np.nanmax(np.stack(frames)))

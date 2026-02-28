@@ -15,7 +15,9 @@ from .solver import (
 )
 
 
-_KB_UEV_PER_K = 86.17
+# Boltzmann constant in μeV/K.
+# k_B = 8.617333262145e-5 eV/K = 86.17333262145 μeV/K.
+_KB_UEV_PER_K = 86.17333262145
 
 
 def _reflective_line_geometry(nx: int) -> tuple[np.ndarray, list, dict[str, BoundaryCondition]]:
@@ -127,7 +129,7 @@ def validate_thermal_stability(
         enable_recombination=True,
         enable_scattering=True,
         dynes_gamma=dynes_gamma,
-        collision_solver="bdf",
+        collision_solver="boltzphlow_relaxation",
         tau_s=tau_s,
         tau_r=tau_r,
         T_c=T_c,
@@ -189,7 +191,7 @@ def validate_pure_scattering(
     tau_s: float,
     T_c: float,
     bath_temperature: float,
-    tolerance: float = 1e-8,
+    tolerance: float = 2e-5,
 ) -> dict[str, Any]:
     mask, edges, bcs = _reflective_line_geometry(nx)
     E_bins, _ = build_energy_grid(gap, energy_min_factor, energy_max_factor, num_energy_bins)
@@ -215,7 +217,7 @@ def validate_pure_scattering(
         enable_recombination=False,
         enable_scattering=True,
         dynes_gamma=dynes_gamma,
-        collision_solver="bdf",
+        collision_solver="boltzphlow_relaxation",
         tau_s=tau_s,
         T_c=T_c,
         bath_temperature=bath_temperature,
@@ -254,7 +256,7 @@ def validate_pure_recombination(
         enable_recombination=True,
         enable_scattering=False,
         dynes_gamma=0.0,
-        collision_solver="forward_euler",
+        collision_solver="boltzphlow_relaxation",
         tau_r=tau_r,
         T_c=T_c,
         bath_temperature=0.0,

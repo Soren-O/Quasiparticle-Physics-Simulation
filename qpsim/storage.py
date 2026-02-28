@@ -32,6 +32,7 @@ from .models import (
     TestSuiteData,
     utc_now_iso,
 )
+from .initial_conditions import canonicalize_initial_condition
 from .paths import SETUPS_DIR, SIMULATIONS_DIR, TEST_CASES_DIR, ensure_data_dirs
 
 TEST_SUITE_FORMAT_VERSION = 3
@@ -131,7 +132,7 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         num_energy_bins=int(params_raw.get("num_energy_bins", 50)),
         dynes_gamma=float(params_raw.get("dynes_gamma", 0.0)),
         gap_expression=str(params_raw.get("gap_expression", "")),
-        collision_solver=str(params_raw.get("collision_solver") or "forward_euler"),
+        collision_solver=str(params_raw.get("collision_solver") or "boltzphlow_relaxation"),
         enable_diffusion=_to_bool(params_raw.get("enable_diffusion", True)),
         enable_recombination=_to_bool(params_raw.get("enable_recombination", False)),
         enable_scattering=_to_bool(params_raw.get("enable_scattering", False)),
@@ -148,11 +149,12 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
         ),
         T_c=float(params_raw.get("T_c", 1.2)),
         bath_temperature=float(params_raw.get("bath_temperature", 0.1)),
+        export_phonon_history=_to_bool(params_raw.get("export_phonon_history", False)),
         external_generation=_deserialize_external_generation(params_raw.get("external_generation")),
     )
 
     ic_raw = payload.get("initial_condition", {})
-    initial_condition = InitialConditionSpec(
+    initial_condition_raw = InitialConditionSpec(
         kind=ic_raw.get("kind", "gaussian"),
         params=ic_raw.get("params", {}),
         custom_body=ic_raw.get(
@@ -160,7 +162,19 @@ def deserialize_setup(payload: dict[str, Any]) -> SetupData:
             "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)",
         ),
         custom_params=ic_raw.get("custom_params", {}),
+        spatial_kind=ic_raw.get("spatial_kind", ""),
+        spatial_params=ic_raw.get("spatial_params", {}),
+        spatial_custom_body=ic_raw.get(
+            "spatial_custom_body",
+            "",
+        ),
+        spatial_custom_params=ic_raw.get("spatial_custom_params", {}),
+        energy_kind=ic_raw.get("energy_kind", ""),
+        energy_params=ic_raw.get("energy_params", {}),
+        energy_custom_body=ic_raw.get("energy_custom_body", ""),
+        energy_custom_params=ic_raw.get("energy_custom_params", {}),
     )
+    initial_condition = canonicalize_initial_condition(initial_condition_raw)
 
     return SetupData(
         setup_id=payload["setup_id"],
@@ -230,6 +244,12 @@ def deserialize_simulation(payload: dict[str, Any]) -> SimulationResultData:
         metadata=payload.get("metadata", {}),
         energy_frames=payload.get("energy_frames"),
         energy_bins=[float(v) for v in payload["energy_bins"]] if payload.get("energy_bins") else None,
+        phonon_frames=payload.get("phonon_frames"),
+        phonon_energy_frames=payload.get("phonon_energy_frames"),
+        phonon_energy_bins=[
+            float(v) for v in payload["phonon_energy_bins"]
+        ] if payload.get("phonon_energy_bins") else None,
+        phonon_metadata=payload.get("phonon_metadata"),
     )
 
 

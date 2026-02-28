@@ -267,6 +267,36 @@ class RegressionTests(unittest.TestCase):
         )
         self.assertAlmostEqual(times[-1], 1.0, places=12)
 
+    def test_solver_progress_callback_receives_stored_frames(self) -> None:
+        mask = np.ones((2, 2), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.ones(mask.shape, dtype=float)
+        callback_times: list[float] = []
+        callback_frames: list[np.ndarray] = []
+
+        def _progress_callback(time_ns: float, frame: np.ndarray) -> None:
+            callback_times.append(float(time_ns))
+            callback_frames.append(np.array(frame, copy=True))
+
+        times, frames, _, _, _, _ = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=1.0,
+            dt=0.1,
+            total_time=0.3,
+            dx=1.0,
+            store_every=1,
+            progress_callback=_progress_callback,
+        )
+        self.assertEqual(len(callback_times), len(times))
+        self.assertAlmostEqual(callback_times[0], 0.0, places=12)
+        self.assertAlmostEqual(callback_times[-1], times[-1], places=12)
+        self.assertEqual(len(callback_frames), len(frames))
+        self.assertTrue(np.allclose(np.nan_to_num(callback_frames[-1]), np.nan_to_num(frames[-1])))
+
 
     def test_dynes_dos_gamma_zero_matches_bcs(self) -> None:
         """Dynes DOS with gamma=0 should match BCS DOS exactly."""
@@ -458,8 +488,8 @@ class RegressionTests(unittest.TestCase):
                 external_generation=ext_gen,
             )
 
-    def test_bdf_collision_solver_runs(self) -> None:
-        """BDF collision solver should run and produce finite results."""
+    def test_boltzphlow_collision_solver_runs(self) -> None:
+        """BoltzPhlow time-relaxation collision solver should run and produce finite results."""
         mask = np.ones((3, 3), dtype=bool)
         edges = extract_edge_segments(mask)
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
@@ -471,7 +501,7 @@ class RegressionTests(unittest.TestCase):
             total_time=6.0, dx=1.0, store_every=1, energy_gap=180.0,
             energy_max_factor=5.0, num_energy_bins=8,
             enable_diffusion=True, enable_recombination=True, enable_scattering=True,
-            collision_solver="bdf",
+            collision_solver="boltzphlow_relaxation",
             tau_0=440.0, T_c=1.2, bath_temperature=0.1,
         )
         self.assertAlmostEqual(times[-1], 6.0, places=10)
@@ -705,8 +735,8 @@ class RegressionTests(unittest.TestCase):
                 enable_diffusion=False,
             )
 
-    def test_forward_euler_collision_non_negative(self) -> None:
-        """Forward Euler collision should never produce negative spectral densities."""
+    def test_boltzphlow_collision_non_negative(self) -> None:
+        """BoltzPhlow collision solver should never produce negative spectral densities."""
         mask = np.ones((2, 2), dtype=bool)
         edges = extract_edge_segments(mask)
         edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
@@ -719,7 +749,7 @@ class RegressionTests(unittest.TestCase):
             total_time=50.0, dx=1.0, store_every=5, energy_gap=180.0,
             energy_max_factor=5.0, num_energy_bins=8,
             enable_diffusion=True, enable_recombination=True, enable_scattering=True,
-            collision_solver="forward_euler",
+            collision_solver="boltzphlow_relaxation",
             tau_0=440.0, T_c=1.2, bath_temperature=0.1,
         )
         self.assertIsNotNone(energy_frames)
