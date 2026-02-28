@@ -20,10 +20,16 @@ from ..geometry import (
 from ..initial_conditions import (
     build_initial_energy_weights,
     build_initial_field,
+    build_initial_phonon_spatial_field,
+    build_initial_qp_energy_state,
     canonicalize_initial_condition,
     default_initial_condition,
     evaluate_gap_expression,
     resolve_energy_spec,
+    resolve_phonon_energy_spec,
+    resolve_phonon_full_custom_spec,
+    resolve_phonon_spatial_spec,
+    resolve_qp_full_custom_spec,
     resolve_spatial_spec,
 )
 from ..models import (
@@ -1167,53 +1173,21 @@ class SetupEditor(tk.Toplevel):
         self.T_c_var = tk.StringVar(value=str(default_params.T_c))
         self.bath_temp_var = tk.StringVar(value=str(default_params.bath_temperature))
 
-        tk.Label(left, text="Geometry", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(0, 2))
-        tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(2, 4))
-        tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=(0, 8))
-        tk.Button(
-            left, text="Material Reference Table...", width=30,
-            command=self.show_material_reference,
-        ).pack(anchor="w", pady=(0, 8))
+        tk.Label(left, text="Setup Name", bg=RETRO_PANEL).pack(anchor="w", pady=(0, 2))
+        tk.Entry(left, textvariable=self.name_var, width=36).pack(anchor="w", pady=(0, 10))
 
-        tk.Label(left, text="Setup Name", bg=RETRO_PANEL).pack(anchor="w")
-        tk.Entry(left, textvariable=self.name_var, width=36).pack(anchor="w", pady=(0, 8))
+        tk.Button(left, text="Import .GDS Geometry", width=30, command=self.import_gds).pack(anchor="w", pady=(0, 4))
+        tk.Button(left, text="Use Intrinsic Test Geometry", width=30, command=self.use_intrinsic).pack(anchor="w", pady=(0, 10))
+        tk.Button(left, text="Material Setup", width=30, command=self.open_material_setup).pack(anchor="w", pady=(0, 4))
+        tk.Button(left, text="Simulation Parameters", width=30, command=self.open_simulation_parameters).pack(anchor="w", pady=(0, 8))
 
-        def add_param(label: str, var: tk.StringVar) -> None:
-            tk.Label(left, text=label, bg=RETRO_PANEL).pack(anchor="w")
-            tk.Entry(left, textvariable=var, width=18).pack(anchor="w", pady=(0, 6))
+        tk.Button(left, text="Initial Conditions", width=30, command=self.edit_initial_conditions).pack(anchor="w", pady=4)
+        tk.Button(left, text="External Generation", width=30, command=self.edit_external_generation).pack(anchor="w", pady=4)
+        tk.Button(left, text="Set b.c.s to reflective", width=30, command=self.fill_unassigned_reflective).pack(
+            anchor="w", pady=(4, 10)
+        )
 
-        tk.Label(left, text="Material Parameters", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(2, 2))
-        add_param("Diffusion Coeff D\u2080 (\u03bcm\u00b2/ns)", self.diff_var)
-        tk.Label(left, text="Energy Gap Map \u0394(x,y) (\u03bceV)", bg=RETRO_PANEL).pack(anchor="w")
-        gap_row = tk.Frame(left, bg=RETRO_PANEL)
-        gap_row.pack(anchor="w", pady=(0, 2))
-        tk.Entry(gap_row, textvariable=self.energy_gap_var, width=18).pack(side="left")
-        tk.Button(gap_row, text="Custom...", width=12, command=self.edit_gap_map_expression).pack(side="left", padx=(6, 0))
-        tk.Label(
-            left,
-            textvariable=self.gap_map_status_var,
-            bg=RETRO_PANEL,
-            fg="#666666",
-            justify="left",
-            wraplength=320,
-        ).pack(anchor="w", pady=(0, 6))
-        add_param("Dynes Gamma \u0393 (\u03bceV)", self.dynes_gamma_var)
-        add_param("\u03c4\u2080,s (ns)", self.tau_s_var)
-        add_param("\u03c4\u2080,r (ns)", self.tau_r_var)
-        add_param("T_c (K)", self.T_c_var)
-        add_param("Bath Temperature (K)", self.bath_temp_var)
-
-        tk.Label(left, text="Simulation Grid / Time", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(4, 2))
-        add_param("Mesh Size dx (\u03bcm)", self.mesh_var)
-        add_param("dt (ns)", self.dt_var)
-        add_param("Total Time (ns)", self.total_var)
-        add_param("Store Every N Steps", self.store_var)
-        add_param("Energy Min (\u00d7\u0394)", self.energy_min_var)
-        add_param("Energy Max (\u00d7\u0394)", self.energy_max_var)
-        add_param("Energy Bins", self.energy_bins_var)
-
-        # --- Physics process toggles ---
-        tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(8, 2))
+        tk.Label(left, text="Physics Processes", bg=RETRO_PANEL, font=("Tahoma", 9, "bold")).pack(anchor="w", pady=(0, 2))
         tk.Checkbutton(
             left,
             text="Enable Diffusion",
@@ -1239,12 +1213,7 @@ class SetupEditor(tk.Toplevel):
         )
         self.scattering_cb.pack(anchor="w")
 
-        tk.Button(left, text="Initial Conditions...", width=30, command=self.edit_initial_conditions).pack(anchor="w", pady=4)
-        tk.Button(left, text="External Generation...", width=30, command=self.edit_external_generation).pack(anchor="w", pady=4)
-        tk.Button(left, text="Set Unassigned -> Reflective", width=30, command=self.fill_unassigned_reflective).pack(
-            anchor="w", pady=4
-        )
-        tk.Button(left, text="Save Setup", width=30, command=self.save_setup_file).pack(anchor="w", pady=(14, 4))
+        tk.Button(left, text="Save Setup", width=30, command=self.save_setup_file).pack(anchor="w", pady=(12, 4))
         self.run_btn = tk.Button(left, text="Initialize Simulation", width=30, command=self.run_precompute)
         self.run_btn.pack(anchor="w", pady=(0, 4))
         self.precompute_label = tk.Label(left, text="", bg=RETRO_PANEL, fg="#666666", justify="left", wraplength=320)
@@ -1313,6 +1282,79 @@ class SetupEditor(tk.Toplevel):
     def _toggle_recomb_fields(self) -> None:
         # Material parameters remain visible regardless of process toggles.
         pass
+
+    def _add_labeled_popup_entry(
+        self,
+        parent: tk.Misc,
+        label: str,
+        var: tk.StringVar,
+    ) -> None:
+        tk.Label(parent, text=label, bg=RETRO_PANEL).pack(anchor="w")
+        tk.Entry(parent, textvariable=var, width=24).pack(anchor="w", pady=(0, 6))
+
+    def open_material_setup(self) -> None:
+        window = tk.Toplevel(self)
+        window.title("Material Setup")
+        window.configure(bg=RETRO_PANEL)
+        window.geometry("560x560")
+
+        body = tk.Frame(window, bg=RETRO_PANEL)
+        body.pack(fill="both", expand=True, padx=12, pady=12)
+
+        tk.Button(
+            body,
+            text="Material Reference Table...",
+            width=30,
+            command=self.show_material_reference,
+        ).pack(anchor="w", pady=(0, 10))
+
+        self._add_labeled_popup_entry(body, "Diffusion Coeff D\u2080 (\u03bcm\u00b2/ns)", self.diff_var)
+        tk.Label(body, text="Energy Gap Map \u0394(x,y) (\u03bceV)", bg=RETRO_PANEL).pack(anchor="w")
+        gap_row = tk.Frame(body, bg=RETRO_PANEL)
+        gap_row.pack(anchor="w", pady=(0, 2))
+        tk.Entry(gap_row, textvariable=self.energy_gap_var, width=24).pack(side="left")
+        tk.Button(gap_row, text="Custom...", width=12, command=self.edit_gap_map_expression).pack(side="left", padx=(6, 0))
+        tk.Label(
+            body,
+            textvariable=self.gap_map_status_var,
+            bg=RETRO_PANEL,
+            fg="#666666",
+            justify="left",
+            wraplength=500,
+        ).pack(anchor="w", pady=(0, 8))
+
+        self._add_labeled_popup_entry(body, "Dynes Gamma \u0393 (\u03bceV)", self.dynes_gamma_var)
+        self._add_labeled_popup_entry(body, "\u03c4\u2080,s (ns)", self.tau_s_var)
+        self._add_labeled_popup_entry(body, "\u03c4\u2080,r (ns)", self.tau_r_var)
+        self._add_labeled_popup_entry(body, "T_c (K)", self.T_c_var)
+        self._add_labeled_popup_entry(body, "Bath Temperature (K)", self.bath_temp_var)
+
+        tk.Button(body, text="Close", width=14, command=window.destroy).pack(anchor="e", pady=(8, 0))
+
+        window.transient(self)
+        window.grab_set()
+
+    def open_simulation_parameters(self) -> None:
+        window = tk.Toplevel(self)
+        window.title("Simulation Parameters")
+        window.configure(bg=RETRO_PANEL)
+        window.geometry("500x420")
+
+        body = tk.Frame(window, bg=RETRO_PANEL)
+        body.pack(fill="both", expand=True, padx=12, pady=12)
+
+        self._add_labeled_popup_entry(body, "Mesh Size dx (\u03bcm)", self.mesh_var)
+        self._add_labeled_popup_entry(body, "dt (ns)", self.dt_var)
+        self._add_labeled_popup_entry(body, "Total Time (ns)", self.total_var)
+        self._add_labeled_popup_entry(body, "Store Every N Steps", self.store_var)
+        self._add_labeled_popup_entry(body, "Energy Min (\u00d7\u0394)", self.energy_min_var)
+        self._add_labeled_popup_entry(body, "Energy Max (\u00d7\u0394)", self.energy_max_var)
+        self._add_labeled_popup_entry(body, "Energy Bins", self.energy_bins_var)
+
+        tk.Button(body, text="Close", width=14, command=window.destroy).pack(anchor="e", pady=(8, 0))
+
+        window.transient(self)
+        window.grab_set()
 
     def parse_float(self, name: str, value: str) -> float:
         try:
@@ -1466,8 +1508,26 @@ class SetupEditor(tk.Toplevel):
 
         mask_snapshot = self.mask.copy()
         qp_initial = build_initial_field(mask_snapshot, setup.initial_condition)
+        if setup.parameters.energy_gap > 0.0:
+            E_bins_preview, dE_preview = build_energy_grid(
+                setup.parameters.energy_gap,
+                setup.parameters.energy_min_factor,
+                setup.parameters.energy_max_factor,
+                setup.parameters.num_energy_bins,
+            )
+            qp_full_preview = build_initial_qp_energy_state(
+                mask_snapshot,
+                E_bins_preview,
+                setup.initial_condition,
+            )
+            if qp_full_preview is not None:
+                qp_initial = np.zeros(mask_snapshot.shape, dtype=float)
+                qp_initial[mask_snapshot] = np.sum(qp_full_preview, axis=0) * float(dE_preview)
         phonon_initial = np.full(mask_snapshot.shape, np.nan, dtype=float)
-        phonon_initial[mask_snapshot] = float(setup.parameters.bath_temperature)
+        phonon_spatial = build_initial_phonon_spatial_field(mask_snapshot, setup.initial_condition)
+        phonon_initial[mask_snapshot] = (
+            np.asarray(phonon_spatial[mask_snapshot], dtype=float) * float(setup.parameters.bath_temperature)
+        )
 
         dialog: SimulationLaunchDialog | None = None
 
@@ -1640,6 +1700,10 @@ class SetupEditor(tk.Toplevel):
         setup_ready = total > 0 and boundary_ready
         spatial_kind, _, _, _ = resolve_spatial_spec(self.initial_condition)
         energy_kind, _, _, _ = resolve_energy_spec(self.initial_condition)
+        qp_full_enabled, _, _ = resolve_qp_full_custom_spec(self.initial_condition)
+        ph_spatial_kind, _, _, _ = resolve_phonon_spatial_spec(self.initial_condition)
+        ph_energy_kind, _, _, _ = resolve_phonon_energy_spec(self.initial_condition)
+        ph_full_enabled, _, _ = resolve_phonon_full_custom_spec(self.initial_condition)
         boundary_note = (
             "Click any highlighted edge to assign boundary conditions."
             if diffusion_enabled
@@ -1649,7 +1713,8 @@ class SetupEditor(tk.Toplevel):
             text=(
                 f"Geometry: {self.geometry_data.name}\n"
                 f"Boundary assignment: {assigned}/{total}\n"
-                f"Initial condition: spatial={spatial_kind}, energy={energy_kind}\n"
+                f"QP IC: spatial={spatial_kind}, energy={energy_kind}, full_xyz={'on' if qp_full_enabled else 'off'}\n"
+                f"Phonon IC: spatial={ph_spatial_kind}, energy={ph_energy_kind}, full_xyz={'on' if ph_full_enabled else 'off'}\n"
                 f"{boundary_note}"
             )
         )
@@ -1678,7 +1743,7 @@ class SetupEditor(tk.Toplevel):
             num_energy_bins=max(1, self.parse_int("energy bins", self.energy_bins_var.get())),
             dynes_gamma=self.parse_float("Dynes gamma", self.dynes_gamma_var.get()),
             gap_expression=self.gap_expression_var.get().strip(),
-            collision_solver=self.collision_solver_var.get().strip() or "boltzphlow_relaxation",
+            collision_solver=self.collision_solver_var.get().strip() or "fischer_catelani_local",
             enable_diffusion=self.enable_diffusion_var.get(),
             enable_recombination=self.enable_recombination_var.get(),
             enable_scattering=self.enable_scattering_var.get(),
@@ -1896,6 +1961,7 @@ class SetupEditor(tk.Toplevel):
                     T_c=p.T_c,
                     bath_temperature=p.bath_temperature,
                     external_generation=p.external_generation,
+                    initial_condition_spec=setup.initial_condition,
                     gap_expression=p.gap_expression,
                     precomputed=precomp_data,
                     progress_callback=_safe_emit_live_frame if live_queue is not None else None,

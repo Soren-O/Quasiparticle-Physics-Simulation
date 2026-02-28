@@ -509,6 +509,80 @@ class RegressionTests(unittest.TestCase):
             self.assertTrue(np.isfinite(m))
             self.assertGreaterEqual(m, 0.0)
 
+    def test_fischer_catelani_collision_solver_runs(self) -> None:
+        """Local coupled qp-phonon collision solver should run and produce finite results."""
+        mask = np.ones((3, 3), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.full(mask.shape, 1.0, dtype=float)
+
+        times, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=3.0,
+            dx=1.0,
+            store_every=1,
+            energy_gap=180.0,
+            energy_max_factor=5.0,
+            num_energy_bins=8,
+            enable_diffusion=True,
+            enable_recombination=True,
+            enable_scattering=True,
+            collision_solver="fischer_catelani_local",
+            tau_0=440.0,
+            T_c=1.2,
+            bath_temperature=0.1,
+        )
+        self.assertAlmostEqual(times[-1], 3.0, places=10)
+        for m in mass:
+            self.assertTrue(np.isfinite(m))
+            self.assertGreaterEqual(m, 0.0)
+
+    def test_fischer_catelani_aliases_normalize(self) -> None:
+        params = SimulationParameters(
+            diffusion_coefficient=6.0,
+            dt=1.0,
+            total_time=1.0,
+            mesh_size=1.0,
+            collision_solver="fischer_catelani",
+        )
+        self.assertEqual(params.collision_solver, "fischer_catelani_local")
+
+    def test_fischer_catelani_pair_breaking_generates_quasiparticles(self) -> None:
+        """With finite phonon bath occupation and no initial QPs, pair breaking should generate QPs."""
+        mask = np.ones((1, 1), dtype=bool)
+        edges = extract_edge_segments(mask)
+        edge_conditions = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
+        initial = np.zeros(mask.shape, dtype=float)
+
+        _, _, mass, _, _, _ = run_2d_crank_nicolson(
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+            initial_field=initial,
+            diffusion_coefficient=6.0,
+            dt=0.05,
+            total_time=0.5,
+            dx=1.0,
+            store_every=1,
+            energy_gap=180.0,
+            energy_min_factor=1.0,
+            energy_max_factor=3.0,
+            num_energy_bins=12,
+            enable_diffusion=False,
+            enable_recombination=True,
+            enable_scattering=False,
+            collision_solver="fischer_catelani_local",
+            tau_0=440.0,
+            T_c=1.2,
+            bath_temperature=0.8,
+        )
+        self.assertGreater(mass[-1], 0.0)
+
     def test_scattering_and_recombination_combined(self) -> None:
         """Scattering + recombination together should run without error and conserve mass reasonably."""
         mask = np.ones((3, 3), dtype=bool)

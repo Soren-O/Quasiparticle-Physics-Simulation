@@ -8,7 +8,12 @@ import numpy as np
 import pytest
 
 from qpsim.geometry import extract_edge_segments
-from qpsim.models import BoundaryCondition, ExternalGenerationSpec, SimulationParameters
+from qpsim.models import (
+    BoundaryCondition,
+    ExternalGenerationSpec,
+    InitialConditionSpec,
+    SimulationParameters,
+)
 from qpsim.precompute import precompute_arrays
 from qpsim.solver import (
     build_energy_grid,
@@ -56,6 +61,19 @@ def _reflective_line_geometry(nx: int) -> tuple[np.ndarray, list, dict[str, Boun
     edges = extract_edge_segments(mask)
     bcs = {edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges}
     return mask, edges, bcs
+
+
+def _frozen_thermal_phonon_ic_spec(bath_temperature: float) -> InitialConditionSpec:
+    return InitialConditionSpec(
+        spatial_kind="uniform",
+        spatial_params={"value": 1.0},
+        energy_kind="dos",
+        energy_params={},
+        phonon_spatial_kind="uniform",
+        phonon_spatial_params={"value": 1.0},
+        phonon_energy_kind="bose_einstein",
+        phonon_energy_params={"temperature": float(bath_temperature)},
+    )
 
 
 def test_kernels_match_legacy_mkid_simulation_constant_gap() -> None:
@@ -208,6 +226,128 @@ def test_collision_only_step_close_to_legacy_for_small_dt() -> None:
     max_ref = float(np.max(np.abs(state_old)))
     rel = max_abs / max(1e-30, max_ref)
     assert rel < 2e-4
+
+
+@pytest.mark.parametrize(
+    ("bath_temperature", "k", "steps", "profile_kind", "tol"),
+    [
+        (0.00, 3, 1, "flat", 3e-4),
+        (0.10, 7, 6, "gaussian", 6e-4),
+        (0.20, 12, 8, "skewed", 9e-4),
+    ],
+)
+def test_fischer_frozen_phonons_collision_only_matches_legacy_fixed_bath(
+    bath_temperature: float,
+    k: int,
+    steps: int,
+    profile_kind: str,
+    tol: float,
+) -> None:
+    """Frozen thermal phonons in coupled solver should reproduce legacy fixed-bath collisions."""
+    old = _import_old_qp_simulator()
+
+    gap = 180.0
+    energy_min_factor = 1.0
+    energy_max_factor = 3.0
+    ne = 18
+    nx = 32
+    D0 = 6.0
+
+    tau_s = 400.0
+    tau_r = 500.0
+    T_c = 1.2
+    dt = 0.001
+
+    x = (np.arange(nx, dtype=float) + 0.5) / nx
+    if profile_kind == "flat":
+        profile = np.full(nx, 1.1e-6, dtype=float)
+    elif profile_kind == "gaussian":
+        profile = 8e-7 + 2.1e-6 * np.exp(-((x - 0.37) ** 2) / (2.0 * 0.09**2))
+    elif profile_kind == "skewed":
+        profile = 5e-7 + 1.9e-6 * (0.2 + 0.8 * x**1.5)
+    else:
+        raise ValueError(f"Unsupported profile kind '{profile_kind}'.")
+
+    # Legacy setup (eV)
+    gap_eV = gap * 1e-6
+    material = old.MaterialParameters(
+        tau_s=tau_s,
+        tau_r=tau_r,
+        D_0=D0,
+        T_c=T_c,
+        gamma=0.0,
+        N_0=1.0,
+    )
+    sim_params = old.SimulationParameters(
+        nx=nx,
+        ne=ne,
+        nt=1000,
+        L=float(nx),
+        T=1.0,
+        E_min=energy_min_factor * gap_eV,
+        E_max=energy_max_factor * gap_eV,
+        verbose=False,
+    )
+    sim = old.QuasiparticleSimulator(
+        material,
+        sim_params,
+        gap_function=lambda x_: gap_eV,
+        T_bath=bath_temperature,
+    )
+    sim.initialize("zero")
+    sim.n_density[:] = 0.0
+    sim.n_density[:, k] = profile
+
+    for _ in range(steps):
+        sim.n_density = sim.scattering.scattering_step(
+            sim.n_density,
+            sim.n_thermal,
+            dt,
+            sim.sim_params.dE,
+        )
+    state_old = sim.n_density.T.copy()  # (NE, nx)
+
+    # Current setup (μeV)
+    mask, edges, bcs = _reflective_line_geometry(nx)
+    _, dE = build_energy_grid(gap, energy_min_factor, energy_max_factor, ne)
+    weights = np.zeros(ne, dtype=float)
+    weights[k] = 1.0
+    initial_field = (profile * dE)[None, :]
+
+    _, _, _, _, energy_frames, _ = run_2d_crank_nicolson(
+        mask=mask,
+        edges=edges,
+        edge_conditions=bcs,
+        initial_field=initial_field,
+        diffusion_coefficient=D0,
+        dt=dt,
+        total_time=steps * dt,
+        dx=1.0,
+        store_every=max(1, steps),
+        energy_gap=gap,
+        energy_min_factor=energy_min_factor,
+        energy_max_factor=energy_max_factor,
+        num_energy_bins=ne,
+        energy_weights=weights,
+        enable_diffusion=False,
+        enable_recombination=True,
+        enable_scattering=True,
+        dynes_gamma=0.0,
+        collision_solver="fischer_catelani_local",
+        tau_s=tau_s,
+        tau_r=tau_r,
+        T_c=T_c,
+        bath_temperature=bath_temperature,
+        initial_condition_spec=_frozen_thermal_phonon_ic_spec(bath_temperature),
+        freeze_phonon_dynamics=True,
+    )
+    assert energy_frames is not None
+    state_new = np.array([frame[0, :] for frame in energy_frames[-1]], dtype=float)
+
+    max_abs = float(np.max(np.abs(state_new - state_old)))
+    max_ref = float(np.max(np.abs(state_old)))
+    rel = max_abs / max(1e-30, max_ref)
+    assert rel < tol
 
 
 def test_diffusion_only_step_matches_legacy_crank_nicolson() -> None:

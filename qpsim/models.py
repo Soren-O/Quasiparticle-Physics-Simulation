@@ -12,7 +12,7 @@ BOUNDARY_KINDS = {
     "absorbing",
     "robin",
 }
-COLLISION_SOLVERS = {"boltzphlow_relaxation"}
+COLLISION_SOLVERS = {"boltzphlow_relaxation", "fischer_catelani_local"}
 LEGACY_COLLISION_SOLVER_ALIASES = {
     "",
     "forward_euler",
@@ -20,6 +20,13 @@ LEGACY_COLLISION_SOLVER_ALIASES = {
     "time_relaxation",
     "boltzphlow",
     "boltzphlow_relaxation",
+}
+FISCHER_CATELANI_SOLVER_ALIASES = {
+    "fischer",
+    "catelani",
+    "fischer_catelani",
+    "fischer_catelani_local",
+    "boltzphlow_coupled_local",
 }
 EXTERNAL_GENERATION_MODES = {"none", "constant", "pulse", "custom"}
 
@@ -32,6 +39,8 @@ def normalize_collision_solver_name(value: str) -> str:
     solver = str(value).strip().lower()
     if solver in LEGACY_COLLISION_SOLVER_ALIASES:
         return "boltzphlow_relaxation"
+    if solver in FISCHER_CATELANI_SOLVER_ALIASES:
+        return "fischer_catelani_local"
     if solver not in COLLISION_SOLVERS:
         allowed = ", ".join(sorted(COLLISION_SOLVERS))
         raise ValueError(
@@ -103,6 +112,23 @@ class InitialConditionSpec:
     energy_params: dict[str, Any] = field(default_factory=dict)
     energy_custom_body: str = "return np.ones_like(E)"
     energy_custom_params: dict[str, Any] = field(default_factory=dict)
+    # Optional non-separable QP initializer F_qp(x, y, E).
+    qp_full_custom_enabled: bool = False
+    qp_full_custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02) * np.exp(-E / 500.0)"
+    qp_full_custom_params: dict[str, Any] = field(default_factory=dict)
+    # Phonon initializer (mirrors split spatial/energy structure).
+    phonon_spatial_kind: str = ""  # gaussian / uniform / point / custom
+    phonon_spatial_params: dict[str, Any] = field(default_factory=dict)
+    phonon_spatial_custom_body: str = "return 1.0"
+    phonon_spatial_custom_params: dict[str, Any] = field(default_factory=dict)
+    phonon_energy_kind: str = ""  # bose_einstein / uniform / custom
+    phonon_energy_params: dict[str, Any] = field(default_factory=dict)
+    phonon_energy_custom_body: str = "return np.ones_like(E)"
+    phonon_energy_custom_params: dict[str, Any] = field(default_factory=dict)
+    # Optional non-separable phonon initializer F_ph(x, y, omega).
+    phonon_full_custom_enabled: bool = False
+    phonon_full_custom_body: str = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02) * np.exp(-E / 500.0)"
+    phonon_full_custom_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -147,7 +173,7 @@ class SimulationParameters:
     num_energy_bins: int = 50        # number of energy bins
     dynes_gamma: float = 0.0         # Dynes broadening Γ in μeV (0 = pure BCS)
     gap_expression: str = ""         # spatial gap Δ(x,y) expression (empty = uniform energy_gap)
-    collision_solver: str = "boltzphlow_relaxation"
+    collision_solver: str = "fischer_catelani_local"
     # --- physics process toggles ---
     enable_diffusion: bool = True
     enable_recombination: bool = False

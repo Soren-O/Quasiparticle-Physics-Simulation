@@ -8,6 +8,10 @@ from typing import Any
 from ..initial_conditions import (
     canonicalize_initial_condition,
     resolve_energy_spec,
+    resolve_phonon_energy_spec,
+    resolve_phonon_full_custom_spec,
+    resolve_phonon_spatial_spec,
+    resolve_qp_full_custom_spec,
     resolve_spatial_spec,
 )
 from ..models import BoundaryCondition, ExternalGenerationSpec, InitialConditionSpec
@@ -323,7 +327,7 @@ def ask_initial_condition(
     window = tk.Toplevel(parent)
     window.title("Initial Conditions")
     window.configure(bg=RETRO_PANEL)
-    window.geometry("820x700")
+    window.geometry("940x760")
 
     result: list[InitialConditionSpec | None] = [None]
     canonical_current = canonicalize_initial_condition(current)
@@ -331,10 +335,22 @@ def ask_initial_condition(
         canonical_current
     )
     energy_kind, energy_params, energy_custom_body, energy_custom_params = resolve_energy_spec(canonical_current)
+    ph_spatial_kind, ph_spatial_params, ph_spatial_custom_body, ph_spatial_custom_params = (
+        resolve_phonon_spatial_spec(canonical_current)
+    )
+    ph_energy_kind, ph_energy_params, ph_energy_custom_body, ph_energy_custom_params = (
+        resolve_phonon_energy_spec(canonical_current)
+    )
+    qp_full_enabled, qp_full_body, qp_full_params = resolve_qp_full_custom_spec(canonical_current)
+    ph_full_enabled, ph_full_body, ph_full_params = resolve_phonon_full_custom_spec(canonical_current)
     if spatial_kind not in {"gaussian", "uniform", "point", "custom"}:
         spatial_kind = "gaussian"
     if energy_kind not in {"dos", "fermi_dirac", "uniform", "custom"}:
         energy_kind = "dos"
+    if ph_spatial_kind not in {"gaussian", "uniform", "point", "custom"}:
+        ph_spatial_kind = "uniform"
+    if ph_energy_kind not in {"bose_einstein", "uniform", "custom"}:
+        ph_energy_kind = "bose_einstein"
 
     spatial_kind_var = tk.StringVar(value=spatial_kind or "gaussian")
     energy_kind_var = tk.StringVar(value=energy_kind or "dos")
@@ -353,12 +369,49 @@ def ask_initial_condition(
     energy_custom_params_var = tk.StringVar(value=json.dumps(energy_custom_params or {}))
     energy_fd_temp_var = tk.StringVar(value=str(energy_params.get("temperature", 0.1)))
     energy_uniform_value_var = tk.StringVar(value=str(energy_params.get("value", 1.0)))
+    qp_full_enabled_var = tk.BooleanVar(value=bool(qp_full_enabled))
+    qp_full_params_var = tk.StringVar(value=json.dumps(qp_full_params or {}))
 
-    tk.Label(window, text="Configure spatial and energy initial profiles independently.", bg=RETRO_PANEL).pack(
+    ph_spatial_kind_var = tk.StringVar(value=ph_spatial_kind or "uniform")
+    ph_energy_kind_var = tk.StringVar(value=ph_energy_kind or "bose_einstein")
+    ph_gaussian_amp = tk.StringVar(value=str(ph_spatial_params.get("amplitude", 1.0)))
+    ph_gaussian_x0 = tk.StringVar(value=str(ph_spatial_params.get("x0", 0.5)))
+    ph_gaussian_y0 = tk.StringVar(value=str(ph_spatial_params.get("y0", 0.5)))
+    ph_gaussian_sigma = tk.StringVar(value=str(ph_spatial_params.get("sigma", 0.12)))
+    ph_uniform_value = tk.StringVar(value=str(ph_spatial_params.get("value", 1.0)))
+    ph_point_value = tk.StringVar(value=str(ph_spatial_params.get("value", 1.0)))
+    ph_point_x0 = tk.StringVar(value=str(ph_spatial_params.get("x0", 0.5)))
+    ph_point_y0 = tk.StringVar(value=str(ph_spatial_params.get("y0", 0.5)))
+    ph_spatial_custom_params_var = tk.StringVar(value=json.dumps(ph_spatial_custom_params or {}))
+    ph_energy_temp_var = tk.StringVar(value=str(ph_energy_params.get("temperature", 0.1)))
+    ph_energy_uniform_value_var = tk.StringVar(value=str(ph_energy_params.get("value", 1.0)))
+    ph_energy_custom_params_var = tk.StringVar(value=json.dumps(ph_energy_custom_params or {}))
+    ph_full_enabled_var = tk.BooleanVar(value=bool(ph_full_enabled))
+    ph_full_params_var = tk.StringVar(value=json.dumps(ph_full_params or {}))
+
+    tk.Label(
+        window,
+        text=(
+            "Set initial distributions for quasiparticles and phonons. "
+            "Use the full non-separable profile only when you need F(x, y, E), not f(x, y) * g(E)."
+        ),
+        bg=RETRO_PANEL,
+        justify="left",
+        wraplength=900,
+    ).pack(anchor="w", padx=10, pady=(10, 0))
+
+    notebook = ttk.Notebook(window)
+    notebook.pack(fill="both", expand=True, padx=10, pady=(8, 8))
+    qp_tab = tk.Frame(notebook, bg=RETRO_PANEL)
+    ph_tab = tk.Frame(notebook, bg=RETRO_PANEL)
+    notebook.add(qp_tab, text="Quasiparticles")
+    notebook.add(ph_tab, text="Phonons")
+
+    tk.Label(qp_tab, text="Configure quasiparticle spatial and energy profiles.", bg=RETRO_PANEL).pack(
         anchor="w", padx=10, pady=(10, 8)
     )
 
-    top_row = tk.Frame(window, bg=RETRO_PANEL)
+    top_row = tk.Frame(qp_tab, bg=RETRO_PANEL)
     top_row.pack(fill="x", padx=10, pady=(0, 8))
     tk.Label(top_row, text="Spatial Profile:", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w", padx=(0, 6))
     spatial_menu = ttk.Combobox(top_row, state="readonly", width=18, values=["gaussian", "uniform", "point", "custom"])
@@ -369,45 +422,47 @@ def ask_initial_condition(
     energy_menu.set(energy_kind_var.get())
     energy_menu.grid(row=0, column=3, sticky="w")
 
-    container = tk.Frame(window, bg=RETRO_PANEL)
+    container = tk.Frame(qp_tab, bg=RETRO_PANEL)
     container.pack(fill="both", expand=True, padx=10, pady=6)
-    spatial_box = tk.LabelFrame(container, text="Spatial Profile", bg=RETRO_PANEL)
+    spatial_box = tk.LabelFrame(container, text="QP Spatial Profile", bg=RETRO_PANEL)
     spatial_box.pack(fill="x", pady=(0, 8))
-    energy_box = tk.LabelFrame(container, text="Energy Profile", bg=RETRO_PANEL)
-    energy_box.pack(fill="both", expand=True)
+    energy_box = tk.LabelFrame(container, text="QP Energy Profile", bg=RETRO_PANEL)
+    energy_box.pack(fill="x", pady=(0, 8))
+    qp_full_box = tk.LabelFrame(container, text="QP Full Non-separable Profile F(x, y, E)", bg=RETRO_PANEL)
+    qp_full_box.pack(fill="both", expand=True)
 
     spatial_frames: dict[str, tk.Frame] = {}
     energy_frames: dict[str, tk.Frame] = {}
 
     gauss_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
     spatial_frames["gaussian"] = gauss_frame
-    tk.Label(gauss_frame, text="amplitude", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Label(gauss_frame, text="Amplitude", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_amp, width=12).grid(row=0, column=1, sticky="w")
-    tk.Label(gauss_frame, text="x0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Label(gauss_frame, text="X0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_x0, width=12).grid(row=1, column=1, sticky="w")
-    tk.Label(gauss_frame, text="y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
+    tk.Label(gauss_frame, text="Y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_y0, width=12).grid(row=2, column=1, sticky="w")
-    tk.Label(gauss_frame, text="sigma", bg=RETRO_PANEL).grid(row=3, column=0, sticky="w")
+    tk.Label(gauss_frame, text="Sigma", bg=RETRO_PANEL).grid(row=3, column=0, sticky="w")
     tk.Entry(gauss_frame, textvariable=gaussian_sigma, width=12).grid(row=3, column=1, sticky="w")
 
     uniform_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
     spatial_frames["uniform"] = uniform_frame
-    tk.Label(uniform_frame, text="value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Label(uniform_frame, text="Value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(uniform_frame, textvariable=uniform_value, width=12).grid(row=0, column=1, sticky="w")
 
     point_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
     spatial_frames["point"] = point_frame
-    tk.Label(point_frame, text="value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Label(point_frame, text="Value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_value, width=12).grid(row=0, column=1, sticky="w")
-    tk.Label(point_frame, text="x0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Label(point_frame, text="X0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_x0, width=12).grid(row=1, column=1, sticky="w")
-    tk.Label(point_frame, text="y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
+    tk.Label(point_frame, text="Y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
     tk.Entry(point_frame, textvariable=point_y0, width=12).grid(row=2, column=1, sticky="w")
 
     spatial_custom_frame = tk.Frame(spatial_box, bg=RETRO_PANEL)
     spatial_frames["custom"] = spatial_custom_frame
     tk.Label(spatial_custom_frame, text="def user_expression(x, y, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
-    spatial_custom_text = tk.Text(spatial_custom_frame, width=94, height=8, font=FONT_MONO)
+    spatial_custom_text = tk.Text(spatial_custom_frame, width=98, height=8, font=FONT_MONO)
     spatial_custom_text.pack(fill="x", expand=False)
     spatial_custom_text.insert("1.0", spatial_custom_body)
     tk.Label(spatial_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
@@ -419,7 +474,7 @@ def ask_initial_condition(
 
     fd_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
     energy_frames["fermi_dirac"] = fd_frame
-    tk.Label(fd_frame, text="temperature (K)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Label(fd_frame, text="Temperature (K)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(fd_frame, textvariable=energy_fd_temp_var, width=12).grid(row=0, column=1, sticky="w")
     tk.Label(
         fd_frame,
@@ -431,17 +486,42 @@ def ask_initial_condition(
 
     energy_uniform_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
     energy_frames["uniform"] = energy_uniform_frame
-    tk.Label(energy_uniform_frame, text="value (relative weight)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Label(energy_uniform_frame, text="Value (Relative Weight)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
     tk.Entry(energy_uniform_frame, textvariable=energy_uniform_value_var, width=12).grid(row=0, column=1, sticky="w")
 
     energy_custom_frame = tk.Frame(energy_box, bg=RETRO_PANEL)
     energy_frames["custom"] = energy_custom_frame
     tk.Label(energy_custom_frame, text="def energy_profile(E, gap, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
-    energy_custom_text = tk.Text(energy_custom_frame, width=94, height=8, font=FONT_MONO)
+    energy_custom_text = tk.Text(energy_custom_frame, width=98, height=8, font=FONT_MONO)
     energy_custom_text.pack(fill="x", expand=False)
     energy_custom_text.insert("1.0", energy_custom_body)
     tk.Label(energy_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
     tk.Entry(energy_custom_frame, textvariable=energy_custom_params_var, width=94).pack(anchor="w")
+
+    qp_full_toggle_frame = tk.Frame(qp_full_box, bg=RETRO_PANEL)
+    qp_full_toggle_frame.pack(fill="x", padx=6, pady=(6, 2))
+    qp_full_check = tk.Checkbutton(
+        qp_full_toggle_frame,
+        text="Enable Full Non-Separable QP Profile F(x, y, E)",
+        variable=qp_full_enabled_var,
+        bg=RETRO_PANEL,
+        anchor="w",
+    )
+    qp_full_check.pack(anchor="w")
+    tk.Label(
+        qp_full_toggle_frame,
+        text="Requires Spatial=Custom and Energy=Custom. Overrides separable f(x, y) * g(E).",
+        bg=RETRO_PANEL,
+        fg="#666666",
+        justify="left",
+    ).pack(anchor="w", pady=(2, 0))
+    qp_full_frame = tk.Frame(qp_full_box, bg=RETRO_PANEL)
+    tk.Label(qp_full_frame, text="def full_profile(x, y, E, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    qp_full_text = tk.Text(qp_full_frame, width=98, height=8, font=FONT_MONO)
+    qp_full_text.pack(fill="x", expand=False)
+    qp_full_text.insert("1.0", qp_full_body)
+    tk.Label(qp_full_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(qp_full_frame, textvariable=qp_full_params_var, width=94).pack(anchor="w")
 
     def show_spatial_frame(kind: str) -> None:
         for frame in spatial_frames.values():
@@ -463,10 +543,175 @@ def ask_initial_condition(
         energy_kind_var.set(kind)
         show_energy_frame(kind)
 
+    def refresh_qp_full_mode() -> None:
+        eligible = spatial_kind_var.get() == "custom" and energy_kind_var.get() == "custom"
+        qp_full_check.configure(state=("normal" if eligible else "disabled"))
+        if not eligible:
+            qp_full_enabled_var.set(False)
+        if eligible and qp_full_enabled_var.get():
+            qp_full_frame.pack(fill="x", expand=False, anchor="w", padx=6, pady=(2, 6))
+        else:
+            qp_full_frame.pack_forget()
+
     spatial_menu.bind("<<ComboboxSelected>>", on_spatial_change)
     energy_menu.bind("<<ComboboxSelected>>", on_energy_change)
+    qp_full_enabled_var.trace_add("write", lambda *_args: refresh_qp_full_mode())
     show_spatial_frame(spatial_kind_var.get())
     show_energy_frame(energy_kind_var.get())
+    refresh_qp_full_mode()
+
+    # Phonon tab
+    tk.Label(ph_tab, text="Configure phonon spatial and energy profiles.", bg=RETRO_PANEL).pack(
+        anchor="w", padx=10, pady=(10, 8)
+    )
+    ph_top_row = tk.Frame(ph_tab, bg=RETRO_PANEL)
+    ph_top_row.pack(fill="x", padx=10, pady=(0, 8))
+    tk.Label(ph_top_row, text="Spatial Profile:", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w", padx=(0, 6))
+    ph_spatial_menu = ttk.Combobox(
+        ph_top_row,
+        state="readonly",
+        width=18,
+        values=["gaussian", "uniform", "point", "custom"],
+    )
+    ph_spatial_menu.set(ph_spatial_kind_var.get())
+    ph_spatial_menu.grid(row=0, column=1, sticky="w", padx=(0, 14))
+    tk.Label(ph_top_row, text="Energy Profile:", bg=RETRO_PANEL).grid(row=0, column=2, sticky="w", padx=(0, 6))
+    ph_energy_menu = ttk.Combobox(
+        ph_top_row,
+        state="readonly",
+        width=18,
+        values=["bose_einstein", "uniform", "custom"],
+    )
+    ph_energy_menu.set(ph_energy_kind_var.get())
+    ph_energy_menu.grid(row=0, column=3, sticky="w")
+
+    ph_container = tk.Frame(ph_tab, bg=RETRO_PANEL)
+    ph_container.pack(fill="both", expand=True, padx=10, pady=6)
+    ph_spatial_box = tk.LabelFrame(ph_container, text="Phonon Spatial Profile", bg=RETRO_PANEL)
+    ph_spatial_box.pack(fill="x", pady=(0, 8))
+    ph_energy_box = tk.LabelFrame(ph_container, text="Phonon Energy Profile", bg=RETRO_PANEL)
+    ph_energy_box.pack(fill="x", pady=(0, 8))
+    ph_full_box = tk.LabelFrame(ph_container, text="Phonon Full Non-separable Profile F(x, y, E)", bg=RETRO_PANEL)
+    ph_full_box.pack(fill="both", expand=True)
+
+    ph_spatial_frames: dict[str, tk.Frame] = {}
+    ph_energy_frames: dict[str, tk.Frame] = {}
+
+    ph_gauss_frame = tk.Frame(ph_spatial_box, bg=RETRO_PANEL)
+    ph_spatial_frames["gaussian"] = ph_gauss_frame
+    tk.Label(ph_gauss_frame, text="Amplitude", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(ph_gauss_frame, textvariable=ph_gaussian_amp, width=12).grid(row=0, column=1, sticky="w")
+    tk.Label(ph_gauss_frame, text="X0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Entry(ph_gauss_frame, textvariable=ph_gaussian_x0, width=12).grid(row=1, column=1, sticky="w")
+    tk.Label(ph_gauss_frame, text="Y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
+    tk.Entry(ph_gauss_frame, textvariable=ph_gaussian_y0, width=12).grid(row=2, column=1, sticky="w")
+    tk.Label(ph_gauss_frame, text="Sigma", bg=RETRO_PANEL).grid(row=3, column=0, sticky="w")
+    tk.Entry(ph_gauss_frame, textvariable=ph_gaussian_sigma, width=12).grid(row=3, column=1, sticky="w")
+
+    ph_uniform_frame = tk.Frame(ph_spatial_box, bg=RETRO_PANEL)
+    ph_spatial_frames["uniform"] = ph_uniform_frame
+    tk.Label(ph_uniform_frame, text="Value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(ph_uniform_frame, textvariable=ph_uniform_value, width=12).grid(row=0, column=1, sticky="w")
+
+    ph_point_frame = tk.Frame(ph_spatial_box, bg=RETRO_PANEL)
+    ph_spatial_frames["point"] = ph_point_frame
+    tk.Label(ph_point_frame, text="Value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(ph_point_frame, textvariable=ph_point_value, width=12).grid(row=0, column=1, sticky="w")
+    tk.Label(ph_point_frame, text="X0 (0..1)", bg=RETRO_PANEL).grid(row=1, column=0, sticky="w")
+    tk.Entry(ph_point_frame, textvariable=ph_point_x0, width=12).grid(row=1, column=1, sticky="w")
+    tk.Label(ph_point_frame, text="Y0 (0..1)", bg=RETRO_PANEL).grid(row=2, column=0, sticky="w")
+    tk.Entry(ph_point_frame, textvariable=ph_point_y0, width=12).grid(row=2, column=1, sticky="w")
+
+    ph_spatial_custom_frame = tk.Frame(ph_spatial_box, bg=RETRO_PANEL)
+    ph_spatial_frames["custom"] = ph_spatial_custom_frame
+    tk.Label(ph_spatial_custom_frame, text="def user_expression(x, y, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    ph_spatial_custom_text = tk.Text(ph_spatial_custom_frame, width=98, height=6, font=FONT_MONO)
+    ph_spatial_custom_text.pack(fill="x", expand=False)
+    ph_spatial_custom_text.insert("1.0", ph_spatial_custom_body)
+    tk.Label(ph_spatial_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(ph_spatial_custom_frame, textvariable=ph_spatial_custom_params_var, width=94).pack(anchor="w")
+
+    ph_be_frame = tk.Frame(ph_energy_box, bg=RETRO_PANEL)
+    ph_energy_frames["bose_einstein"] = ph_be_frame
+    tk.Label(ph_be_frame, text="Temperature (K)", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(ph_be_frame, textvariable=ph_energy_temp_var, width=12).grid(row=0, column=1, sticky="w")
+    tk.Label(ph_be_frame, text="Thermal Bose-Einstein profile n(omega,T).", bg=RETRO_PANEL, justify="left", font=FONT_MONO).grid(
+        row=1, column=0, columnspan=2, sticky="w", pady=(6, 0)
+    )
+
+    ph_energy_uniform_frame = tk.Frame(ph_energy_box, bg=RETRO_PANEL)
+    ph_energy_frames["uniform"] = ph_energy_uniform_frame
+    tk.Label(ph_energy_uniform_frame, text="Value", bg=RETRO_PANEL).grid(row=0, column=0, sticky="w")
+    tk.Entry(ph_energy_uniform_frame, textvariable=ph_energy_uniform_value_var, width=12).grid(row=0, column=1, sticky="w")
+
+    ph_energy_custom_frame = tk.Frame(ph_energy_box, bg=RETRO_PANEL)
+    ph_energy_frames["custom"] = ph_energy_custom_frame
+    tk.Label(ph_energy_custom_frame, text="def energy_profile(E, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    ph_energy_custom_text = tk.Text(ph_energy_custom_frame, width=98, height=6, font=FONT_MONO)
+    ph_energy_custom_text.pack(fill="x", expand=False)
+    ph_energy_custom_text.insert("1.0", ph_energy_custom_body)
+    tk.Label(ph_energy_custom_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(ph_energy_custom_frame, textvariable=ph_energy_custom_params_var, width=94).pack(anchor="w")
+
+    ph_full_toggle_frame = tk.Frame(ph_full_box, bg=RETRO_PANEL)
+    ph_full_toggle_frame.pack(fill="x", padx=6, pady=(6, 2))
+    ph_full_check = tk.Checkbutton(
+        ph_full_toggle_frame,
+        text="Enable Full Non-Separable Phonon Profile F(x, y, E)",
+        variable=ph_full_enabled_var,
+        bg=RETRO_PANEL,
+        anchor="w",
+    )
+    ph_full_check.pack(anchor="w")
+    tk.Label(ph_full_toggle_frame, text="Requires Spatial=Custom and Energy=Custom. Overrides separable f(x, y) * g(E).", bg=RETRO_PANEL, fg="#666666").pack(
+        anchor="w", pady=(2, 0)
+    )
+    ph_full_frame = tk.Frame(ph_full_box, bg=RETRO_PANEL)
+    tk.Label(ph_full_frame, text="def full_profile(x, y, E, params):", bg=RETRO_PANEL, font=FONT_MONO).pack(anchor="w")
+    ph_full_text = tk.Text(ph_full_frame, width=98, height=8, font=FONT_MONO)
+    ph_full_text.pack(fill="x", expand=False)
+    ph_full_text.insert("1.0", ph_full_body)
+    tk.Label(ph_full_frame, text="Custom params (JSON dict):", bg=RETRO_PANEL).pack(anchor="w", pady=(6, 2))
+    tk.Entry(ph_full_frame, textvariable=ph_full_params_var, width=94).pack(anchor="w")
+
+    def show_ph_spatial_frame(kind: str) -> None:
+        for frame in ph_spatial_frames.values():
+            frame.pack_forget()
+        ph_spatial_frames[kind].pack(fill="x", expand=False, anchor="w", padx=6, pady=6)
+
+    def show_ph_energy_frame(kind: str) -> None:
+        for frame in ph_energy_frames.values():
+            frame.pack_forget()
+        ph_energy_frames[kind].pack(fill="x", expand=False, anchor="w", padx=6, pady=6)
+
+    def refresh_ph_full_mode() -> None:
+        eligible = ph_spatial_kind_var.get() == "custom" and ph_energy_kind_var.get() == "custom"
+        ph_full_check.configure(state=("normal" if eligible else "disabled"))
+        if not eligible:
+            ph_full_enabled_var.set(False)
+        if eligible and ph_full_enabled_var.get():
+            ph_full_frame.pack(fill="x", expand=False, anchor="w", padx=6, pady=(2, 6))
+        else:
+            ph_full_frame.pack_forget()
+
+    def on_ph_spatial_change(*_args) -> None:
+        kind = ph_spatial_menu.get().strip().lower()
+        ph_spatial_kind_var.set(kind)
+        show_ph_spatial_frame(kind)
+        refresh_ph_full_mode()
+
+    def on_ph_energy_change(*_args) -> None:
+        kind = ph_energy_menu.get().strip().lower()
+        ph_energy_kind_var.set(kind)
+        show_ph_energy_frame(kind)
+        refresh_ph_full_mode()
+
+    ph_spatial_menu.bind("<<ComboboxSelected>>", on_ph_spatial_change)
+    ph_energy_menu.bind("<<ComboboxSelected>>", on_ph_energy_change)
+    ph_full_enabled_var.trace_add("write", lambda *_args: refresh_ph_full_mode())
+    show_ph_spatial_frame(ph_spatial_kind_var.get())
+    show_ph_energy_frame(ph_energy_kind_var.get())
+    refresh_ph_full_mode()
 
     def on_cancel() -> None:
         result[0] = None
@@ -477,6 +722,15 @@ def ask_initial_condition(
             return float(raw.strip())
         except Exception:
             raise ValueError(f"'{name}' must be numeric.")
+
+    def parse_json_dict(name: str, raw: str) -> dict[str, Any]:
+        text = raw.strip()
+        if not text:
+            return {}
+        value = json.loads(text)
+        if not isinstance(value, dict):
+            raise ValueError(f"{name} must be a JSON object.")
+        return value
 
     def on_apply() -> None:
         spatial_kind_val = spatial_kind_var.get().strip().lower()
@@ -504,12 +758,10 @@ def ask_initial_condition(
                 spatial_custom_body_val = "return 0.0"
                 spatial_custom_params_val = {}
             elif spatial_kind_val == "custom":
-                raw_spatial_params = spatial_custom_params_var.get().strip()
-                spatial_custom_params_val = {}
-                if raw_spatial_params:
-                    spatial_custom_params_val = json.loads(raw_spatial_params)
-                    if not isinstance(spatial_custom_params_val, dict):
-                        raise ValueError("Spatial custom params must be a JSON object.")
+                spatial_custom_params_val = parse_json_dict(
+                    "QP spatial custom params",
+                    spatial_custom_params_var.get(),
+                )
                 spatial_params_val = {}
                 spatial_custom_body_val = spatial_custom_text.get("1.0", "end").strip()
             else:
@@ -528,16 +780,92 @@ def ask_initial_condition(
                 energy_custom_body_val = "return np.ones_like(E)"
                 energy_custom_params_val = {}
             elif energy_kind_val == "custom":
-                raw_energy_params = energy_custom_params_var.get().strip()
-                energy_custom_params_val = {}
-                if raw_energy_params:
-                    energy_custom_params_val = json.loads(raw_energy_params)
-                    if not isinstance(energy_custom_params_val, dict):
-                        raise ValueError("Energy custom params must be a JSON object.")
+                energy_custom_params_val = parse_json_dict(
+                    "QP energy custom params",
+                    energy_custom_params_var.get(),
+                )
                 energy_params_val = {}
                 energy_custom_body_val = energy_custom_text.get("1.0", "end").strip()
             else:
                 raise ValueError(f"Unsupported energy initial condition type: {energy_kind_val}")
+
+            qp_full_enabled_val = bool(qp_full_enabled_var.get())
+            if qp_full_enabled_val and not (
+                spatial_kind_val == "custom" and energy_kind_val == "custom"
+            ):
+                raise ValueError(
+                    "QP full profile mode requires both QP spatial and QP energy profiles to be custom."
+                )
+            qp_full_body_val = qp_full_text.get("1.0", "end").strip()
+            qp_full_params_val = parse_json_dict(
+                "QP full custom params",
+                qp_full_params_var.get(),
+            )
+
+            ph_spatial_kind_val = ph_spatial_kind_var.get().strip().lower()
+            ph_energy_kind_val = ph_energy_kind_var.get().strip().lower()
+
+            if ph_spatial_kind_val == "gaussian":
+                ph_spatial_params_val = {
+                    "amplitude": parse_float("phonon amplitude", ph_gaussian_amp.get()),
+                    "x0": parse_float("phonon x0", ph_gaussian_x0.get()),
+                    "y0": parse_float("phonon y0", ph_gaussian_y0.get()),
+                    "sigma": parse_float("phonon sigma", ph_gaussian_sigma.get()),
+                }
+                ph_spatial_custom_body_val = "return np.exp(-((x-0.5)**2 + (y-0.5)**2) / 0.02)"
+                ph_spatial_custom_params_val: dict[str, Any] = {}
+            elif ph_spatial_kind_val == "uniform":
+                ph_spatial_params_val = {"value": parse_float("phonon value", ph_uniform_value.get())}
+                ph_spatial_custom_body_val = "return 1.0"
+                ph_spatial_custom_params_val = {}
+            elif ph_spatial_kind_val == "point":
+                ph_spatial_params_val = {
+                    "value": parse_float("phonon point value", ph_point_value.get()),
+                    "x0": parse_float("phonon point x0", ph_point_x0.get()),
+                    "y0": parse_float("phonon point y0", ph_point_y0.get()),
+                }
+                ph_spatial_custom_body_val = "return 0.0"
+                ph_spatial_custom_params_val = {}
+            elif ph_spatial_kind_val == "custom":
+                ph_spatial_params_val = {}
+                ph_spatial_custom_body_val = ph_spatial_custom_text.get("1.0", "end").strip()
+                ph_spatial_custom_params_val = parse_json_dict(
+                    "Phonon spatial custom params",
+                    ph_spatial_custom_params_var.get(),
+                )
+            else:
+                raise ValueError(f"Unsupported phonon spatial initial condition type: {ph_spatial_kind_val}")
+
+            if ph_energy_kind_val == "bose_einstein":
+                ph_energy_params_val = {"temperature": parse_float("phonon temperature", ph_energy_temp_var.get())}
+                ph_energy_custom_body_val = "return np.ones_like(E)"
+                ph_energy_custom_params_val: dict[str, Any] = {}
+            elif ph_energy_kind_val == "uniform":
+                ph_energy_params_val = {"value": parse_float("phonon value", ph_energy_uniform_value_var.get())}
+                ph_energy_custom_body_val = "return np.ones_like(E)"
+                ph_energy_custom_params_val = {}
+            elif ph_energy_kind_val == "custom":
+                ph_energy_params_val = {}
+                ph_energy_custom_body_val = ph_energy_custom_text.get("1.0", "end").strip()
+                ph_energy_custom_params_val = parse_json_dict(
+                    "Phonon energy custom params",
+                    ph_energy_custom_params_var.get(),
+                )
+            else:
+                raise ValueError(f"Unsupported phonon energy initial condition type: {ph_energy_kind_val}")
+
+            ph_full_enabled_val = bool(ph_full_enabled_var.get())
+            if ph_full_enabled_val and not (
+                ph_spatial_kind_val == "custom" and ph_energy_kind_val == "custom"
+            ):
+                raise ValueError(
+                    "Phonon full profile mode requires both phonon spatial and phonon energy profiles to be custom."
+                )
+            ph_full_body_val = ph_full_text.get("1.0", "end").strip()
+            ph_full_params_val = parse_json_dict(
+                "Phonon full custom params",
+                ph_full_params_var.get(),
+            )
 
             spec = InitialConditionSpec(
                 kind=spatial_kind_val,
@@ -552,6 +880,20 @@ def ask_initial_condition(
                 energy_params=energy_params_val,
                 energy_custom_body=energy_custom_body_val,
                 energy_custom_params=energy_custom_params_val,
+                qp_full_custom_enabled=qp_full_enabled_val,
+                qp_full_custom_body=qp_full_body_val,
+                qp_full_custom_params=qp_full_params_val,
+                phonon_spatial_kind=ph_spatial_kind_val,
+                phonon_spatial_params=ph_spatial_params_val,
+                phonon_spatial_custom_body=ph_spatial_custom_body_val,
+                phonon_spatial_custom_params=ph_spatial_custom_params_val,
+                phonon_energy_kind=ph_energy_kind_val,
+                phonon_energy_params=ph_energy_params_val,
+                phonon_energy_custom_body=ph_energy_custom_body_val,
+                phonon_energy_custom_params=ph_energy_custom_params_val,
+                phonon_full_custom_enabled=ph_full_enabled_val,
+                phonon_full_custom_body=ph_full_body_val,
+                phonon_full_custom_params=ph_full_params_val,
             )
         except Exception as exc:
             messagebox.showerror("Invalid Initial Condition", str(exc), parent=window)
@@ -560,7 +902,7 @@ def ask_initial_condition(
         window.destroy()
 
     controls = tk.Frame(window, bg=RETRO_PANEL)
-    controls.pack(fill="x", padx=10, pady=(4, 10))
+    controls.pack(fill="x", padx=10, pady=(2, 10))
     tk.Button(controls, text="Cancel", width=14, command=on_cancel).pack(side="right", padx=4)
     tk.Button(controls, text="Apply", width=14, command=on_apply).pack(side="right", padx=4)
 
