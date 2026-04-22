@@ -1,0 +1,100 @@
+"""Tests for qpsim.collisions.pair_breaking_photon."""
+
+from __future__ import annotations
+
+import warnings
+
+import numpy as np
+from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
+from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.physics.spectral import SpectralContext
+
+
+def _setup(gap: float = 180.0, num: int = 40):
+    E, _ = build_energy_grid(
+        gap=gap, energy_min_factor=1.01, energy_max_factor=6.0, num_energy_bins=num
+    )
+    dE = integration_widths_from_centers(E)
+    ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+    return ctx
+
+
+class TestShapesAndNullCases:
+    def test_output_shapes(self) -> None:
+        ctx = _setup()
+        NE = ctx.E.size
+        f = np.zeros(NE)
+        f[10] = 0.5
+        dE = float(ctx.dE[0])
+        gain, loss = pair_breaking_photon_collision_rates(
+            f, ctx, omega_PB=10 * dE, n_bar_PB=1.0, c_phot_PB=1.0,
+        )
+        assert gain.shape == (NE,)
+        assert loss.shape == (NE,)
+
+    def test_zero_omega_returns_zero(self) -> None:
+        ctx = _setup()
+        f = 0.1 * np.ones(ctx.E.size)
+        gain, loss = pair_breaking_photon_collision_rates(
+            f, ctx, omega_PB=0.0, n_bar_PB=1.0, c_phot_PB=1.0,
+        )
+        np.testing.assert_allclose(gain, 0.0)
+        np.testing.assert_allclose(loss, 0.0)
+
+    def test_zero_f_zero_nbar_gives_zero_gain(self) -> None:
+        # f = 0 ⇒ no QPs to scatter/recombine; n_bar = 0 ⇒ no photons
+        # available for absorption. Gain vanishes. The loss-rate
+        # coefficient retains the spontaneous-emission (recombination)
+        # term ∝ (1 + n_bar), but loss · f is trivially zero.
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        f = np.zeros(ctx.E.size)
+        gain, _ = pair_breaking_photon_collision_rates(
+            f, ctx, omega_PB=10 * dE, n_bar_PB=0.0, c_phot_PB=1.0,
+        )
+        np.testing.assert_allclose(gain, 0.0)
+
+
+class TestCommensurateWarning:
+    def test_warns_when_off_grid(self) -> None:
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        f = 0.1 * np.ones(ctx.E.size)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            pair_breaking_photon_collision_rates(
+                f, ctx, omega_PB=10 * dE + 0.4 * dE, n_bar_PB=1.0, c_phot_PB=1.0,
+            )
+        assert any("not grid-commensurate" in str(w.message) for w in caught)
+
+
+class TestPhysicalConsistency:
+    def test_pair_generation_from_photons_only(self) -> None:
+        # f = 0 everywhere, but n_bar > 0 and ω_PB > 2Δ: photons should
+        # generate QP pairs at reflection partners, producing positive gain.
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        NE = ctx.E.size
+        f = np.zeros(NE)
+        # Pick ω_PB so that ω_PB > 2Δ within our grid (Δ = 180, 2Δ ≈ 360 μeV).
+        # dE ≈ (6·180 − 180·1.01) / 40 ≈ 22.5, so m ≈ 20 gives ω_PB ≈ 450 μeV.
+        gain, _ = pair_breaking_photon_collision_rates(
+            f, ctx, omega_PB=20 * dE, n_bar_PB=1.0, c_phot_PB=1.0,
+        )
+        # At least one bin should see pair-generation gain.
+        assert np.any(gain > 0)
+
+    def test_below_2delta_no_pair_generation(self) -> None:
+        # ω_PB < 2Δ: reflection partner E_j = ω_PB − E_i < Δ ⇒ no pairs.
+        # Should still have scattering contribution but no generation.
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        NE = ctx.E.size
+        # 2Δ ≈ 360; use ω_PB = 5·dE ≈ 112.5 < 2Δ = 360.
+        f = np.full(NE, 0.01)
+        # Run just to ensure it doesn't crash and output is finite.
+        gain, loss = pair_breaking_photon_collision_rates(
+            f, ctx, omega_PB=5 * dE, n_bar_PB=1.0, c_phot_PB=1.0,
+        )
+        assert np.all(np.isfinite(gain))
+        assert np.all(np.isfinite(loss))
