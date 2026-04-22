@@ -2,15 +2,15 @@
 
 Ported (Gate 2):
 - anderson.py — Type-I Anderson extrapolation helper
+- crank_nicolson.py — Crank–Nicolson operator builder for parabolic solves
 - etd.py — ETD1 exponential-Euler stepper (ETD2 coming per Build Handoff)
 - newton_steady_state.py — Newton with analytical Jacobian for f
 - picard.py — generic Picard + Anderson fixed-point iteration
+- spectral_flow_tvd.py — TVD finite-volume advection for spectral-flow
+- ssprk.py — SSPRK(2,2) second-order TVD time stepper
 
-Planned (New Framework Plan §5, later in Gate 2):
+Planned (New Framework Plan §5, Gate 2 port-time upgrades):
 - coupled_newton.py — joint (f, n_ph) Newton (unlocks F23 ratio=10)
-- crank_nicolson.py — Crank–Nicolson diffusion substep
-- spectral_flow_tvd.py — TVD finite volume
-- ssprk.py — SSPRK(2,2) time stepper
 """
 
 # Note: newton_solve_f is *not* re-exported here because it imports
@@ -20,12 +20,18 @@ Planned (New Framework Plan §5, later in Gate 2):
 #     from qpsim.solvers.newton_steady_state import newton_solve_f
 
 from qpsim.solvers.anderson import anderson_extrapolate
+from qpsim.solvers.crank_nicolson import build_cn_operators
 from qpsim.solvers.etd import etd1_step
 from qpsim.solvers.picard import PicardInfo, picard_iterate
+from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
+from qpsim.solvers.ssprk import ssprk22_step
 
 __all__ = [
     "PicardInfo",
+    "advect_spectral_flow",
     "anderson_extrapolate",
+    "build_cn_operators",
     "etd1_step",
     "picard_iterate",
+    "ssprk22_step",
 ]
