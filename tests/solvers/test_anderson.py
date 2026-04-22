@@ -23,16 +23,35 @@ class TestAndersonExtrapolate:
         assert result is not None
         assert result.shape == (5,)
 
-    def test_non_negative_output(self) -> None:
-        # Output is clipped to ≥ 0 (correct for non-negative fields).
+    def test_clip_non_negative_projects_output(self) -> None:
+        # With clip_non_negative=True, the output is projected to ≥ 0.
         rng = np.random.default_rng(1)
         x = rng.standard_normal(4)
         gx = rng.standard_normal(4)
         X_hist = [rng.standard_normal(4) for _ in range(3)]
         G_hist = [rng.standard_normal(4) for _ in range(3)]
-        result = anderson_extrapolate(x, gx, X_hist, G_hist, depth=3)
+        result = anderson_extrapolate(
+            x, gx, X_hist, G_hist, depth=3, clip_non_negative=True,
+        )
         assert result is not None
         assert np.all(result >= 0.0)
+
+    def test_default_does_not_clip(self) -> None:
+        # Default is clip_non_negative=False. For a problem whose exact
+        # extrapolated value is negative, the output must preserve the
+        # sign rather than snap to 0.
+        def g(x: np.ndarray) -> np.ndarray:
+            return 0.5 * x - 1.0  # fixed point at x = -2
+
+        x0 = np.zeros(1)
+        x1 = g(x0)
+        x2 = g(x1)
+        x3 = g(x2)
+        result = anderson_extrapolate(
+            x3, g(x3), [x0, x1], [g(x0), g(x1)], depth=2,
+        )
+        assert result is not None
+        assert result[0] < 0.0  # reached a negative iterate
 
     def test_accelerates_linear_contraction(self) -> None:
         # For a linear contraction, Anderson should produce an iterate

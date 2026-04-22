@@ -49,11 +49,8 @@ class TestPicardIterate:
         assert info_aa.n_iter <= info_plain.n_iter
 
     def test_multidim_fixed_point(self) -> None:
-        # Note on sign: anderson_extrapolate clips its output to ≥ 0
-        # (it's specialized for phonon occupations). Using a non-
-        # negative fixed point keeps the generic test honest.
         A = 0.3 * np.array([[1.0, 0.1], [0.2, 1.0]])
-        b = np.array([1.0, 1.0])
+        b = np.array([1.0, -1.0])
 
         def g(x: np.ndarray) -> np.ndarray:
             return A @ x + b
@@ -64,3 +61,17 @@ class TestPicardIterate:
         assert info.converged
         expected = np.linalg.solve(np.eye(2) - A, b)
         np.testing.assert_allclose(x_star, expected, atol=1e-10)
+
+    def test_negative_fixed_point_with_anderson(self) -> None:
+        # Regression: with the default clip_non_negative=False, Anderson
+        # must handle fixed points with negative components. G(x) = 0.5x − 1
+        # has fixed point x = −2. A previous version clipped Anderson
+        # iterates to ≥ 0 unconditionally and stalled here at 0.
+        def g(x: np.ndarray) -> np.ndarray:
+            return 0.5 * x - 1.0
+
+        x_star, info = picard_iterate(
+            np.array([0.0]), g, mixing=1.0, anderson_depth=5, tol=1e-12, max_iter=100,
+        )
+        assert info.converged
+        np.testing.assert_allclose(x_star, [-2.0], atol=1e-10)

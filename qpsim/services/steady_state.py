@@ -193,9 +193,14 @@ def solve_steady_state(
             return f
 
         # Step 4: next Picard iterate (optionally Anderson-accelerated).
+        # Phonon occupations are non-negative — pass clip_non_negative=True
+        # so Anderson doesn't wander into unphysical territory.
         n_ph_mixed = (1.0 - picard_mixing) * n_ph + picard_mixing * n_ph_new
         if use_anderson:
-            n_ph_aa = anderson_extrapolate(n_ph, n_ph_mixed, X_hist, G_hist, anderson_depth)
+            n_ph_aa = anderson_extrapolate(
+                n_ph, n_ph_mixed, X_hist, G_hist, anderson_depth,
+                clip_non_negative=True,
+            )
             X_hist.append(n_ph.copy())
             G_hist.append(n_ph_mixed.copy())
             if len(X_hist) > anderson_depth + 1:

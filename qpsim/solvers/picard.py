@@ -49,6 +49,7 @@ def picard_iterate(
     anderson_depth: int = 0,
     tol: float = 1e-10,
     max_iter: int = 200,
+    clip_non_negative: bool = False,
 ) -> tuple[np.ndarray, PicardInfo]:
     """Run Picard iteration on the fixed-point map ``G``.
 
@@ -69,6 +70,11 @@ def picard_iterate(
         Relative-L∞ tolerance on the iterate change.
     max_iter
         Hard cap on iterations.
+    clip_non_negative
+        If ``True``, Anderson-accelerated iterates are projected onto
+        ``≥ 0`` elementwise. Only enable this for problems whose fixed
+        point is known to be non-negative (e.g. phonon occupations).
+        Default ``False``; see :func:`anderson_extrapolate`.
 
     Returns
     -------
@@ -97,7 +103,10 @@ def picard_iterate(
             return x_mixed, PicardInfo(n_iter=it, converged=True, final_residual=final_residual)
 
         if use_anderson:
-            x_aa = anderson_extrapolate(x, x_mixed, X_hist, G_hist, anderson_depth)
+            x_aa = anderson_extrapolate(
+                x, x_mixed, X_hist, G_hist, anderson_depth,
+                clip_non_negative=clip_non_negative,
+            )
             X_hist.append(x.copy())
             G_hist.append(x_mixed.copy())
             if len(X_hist) > anderson_depth + 1:

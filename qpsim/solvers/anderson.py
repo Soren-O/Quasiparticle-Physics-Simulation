@@ -19,6 +19,8 @@ def anderson_extrapolate(
     X_hist: list[np.ndarray],
     G_hist: list[np.ndarray],
     depth: int,
+    *,
+    clip_non_negative: bool = False,
 ) -> np.ndarray | None:
     """Type-I Anderson extrapolation on the raw fixed-point map.
 
@@ -29,8 +31,21 @@ def anderson_extrapolate(
     returns ``None`` when history is insufficient or the least-squares
     solve is degenerate.
 
-    The output is clipped to ``≥ 0`` elementwise, which is correct for
-    non-negative fields such as phonon occupations.
+    Parameters
+    ----------
+    x, gx
+        Current iterate and its fixed-point-map image.
+    X_hist, G_hist
+        Histories of previous iterates and their images.
+    depth
+        Maximum history window size to use.
+    clip_non_negative
+        If ``True``, the returned iterate is projected onto ``≥ 0``
+        elementwise. Set this only when the fixed point is known to be
+        non-negative (e.g. phonon occupations). The default ``False``
+        is the mathematically-correct choice for arbitrary fixed-point
+        problems — clipping breaks convergence to any fixed point with
+        a negative component.
     """
     m = min(depth, len(X_hist))
     if m < 2:
@@ -56,4 +71,6 @@ def anderson_extrapolate(
     dG_mat = np.column_stack(dG) if len(dG) > 1 else dG[0][:, None]
 
     x_aa = gx - dG_mat @ theta
-    return np.maximum(x_aa, 0.0)
+    if clip_non_negative:
+        return np.maximum(x_aa, 0.0)
+    return x_aa
