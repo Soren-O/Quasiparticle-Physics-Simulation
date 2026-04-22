@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from qpsim.physics.spectral import (
     SpectralContext,
     bcs_density_of_states,

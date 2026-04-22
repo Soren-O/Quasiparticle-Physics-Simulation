@@ -51,6 +51,19 @@ extend-exclude = ["validation/baselines"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # Scientific-notation identifiers. Physics demands E_bins, T_c, K_plus, NE,
+    # Delta, etc.; PEP 8 lowercase would be worse than useless.
+    "N802",  # function-name-not-lowercase (e.g. K_plus() accessors)
+    "N803",  # invalid-argument-name (E_bins, T_c, T_bath, N_q)
+    "N806",  # non-lowercase-variable-in-function (E, NE, K_s0, kBTc)
+    "N815",  # mixed-case-variable-in-class (K_plus, K_minus properties)
+    # Ambiguous-unicode rules fire on Greek letters and en-dashes in
+    # docstrings/comments. We write physics notation on purpose.
+    "RUF001",  # ambiguous-unicode-in-string
+    "RUF002",  # ambiguous-unicode-in-docstring
+    "RUF003",  # ambiguous-unicode-in-comment
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["E501"]
@@ -60,6 +73,10 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
 python_version = "3.13"
 strict = true
 files = ["qpsim"]
+# numpy operations frequently return ndarray[Any, Any] which trips
+# strict mode; the no-any-return flag is mostly false-positive in
+# scientific code that returns arrays.
+disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
 module = ["scipy.*", "yaml", "matplotlib.*"]

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
-
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 
@@ -22,7 +23,7 @@ class TestCalibrateGap:
     def test_gap_monotonically_decreases_with_T(self) -> None:
         cals = [calibrate_gap(T_c=1.2, T_bath=T) for T in (0.0, 0.3, 0.6, 0.9, 1.1)]
         deltas = [c.delta_eq for c in cals]
-        for a, b in zip(deltas, deltas[1:]):
+        for a, b in pairwise(deltas):
             assert a >= b - 1e-12
 
     def test_rejects_non_positive_Tc(self) -> None:

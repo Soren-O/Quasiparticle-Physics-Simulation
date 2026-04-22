@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from qpsim.grid.energy_grid import (
     build_energy_grid,
     integration_widths_from_centers,

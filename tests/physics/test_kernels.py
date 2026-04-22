@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics.kernels import (
     recombination_kernel,

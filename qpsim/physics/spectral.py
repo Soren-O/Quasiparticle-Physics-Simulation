@@ -19,7 +19,7 @@ from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 def bcs_density_of_states(E: np.ndarray, gap: float) -> np.ndarray:
     """BCS density of states ρ(E) = E / √(E² − Δ²) for E > Δ, else 0."""
     rho = np.zeros_like(E, dtype=float)
-    valid = E > gap
+    valid = gap < E
     rho[valid] = E[valid] / np.sqrt(E[valid] ** 2 - gap ** 2)
     return rho
 
@@ -184,4 +184,4 @@ class SpectralContext:
             self._D_E = np.zeros_like(E)
 
         epsilon = self._active_margin_factor * float(np.mean(self._dE))
-        self._active_mask = E >= (gap + epsilon)
+        self._active_mask = (gap + epsilon) <= E
