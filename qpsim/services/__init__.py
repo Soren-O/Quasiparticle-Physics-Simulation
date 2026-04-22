@@ -1,8 +1,14 @@
 """Orchestration — user-facing entry points.
 
-Modules planned (New Framework Plan §5):
-- steady_state.py — run_steady_state, run_sc_gap, run_nbar_loop
+Ported (Gate 2):
+- steady_state.py — solve_steady_state (thermal-phonon + finite-τ_l paths)
+
+Planned (New Framework Plan §5):
 - transient.py — run_time_dependent
 - parametric_sweep.py — sweep over (T_B, n̄, P_read, …)
 - rate_equation.py — Marchegiani rate-equation module
 """
+
+from qpsim.services.steady_state import solve_steady_state
+
+__all__ = ["solve_steady_state"]

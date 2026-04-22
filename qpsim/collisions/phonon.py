@@ -13,10 +13,8 @@ with the numba acceleration path dropped. Provides:
   ``compute_phonon_source_sink``: the dynamic-phonon coupling pieces
   used when ``n_ph(ω, t)`` is a live dynamical variable.
 - ``apply_phonon_collision``: ETD1 step that combines the above for the
-  thermal-bath case.
-
-The ``_etd1_step`` helper will migrate to ``qpsim.solvers.etd`` when
-the ETD2 upgrade lands (Build Handoff commitment).
+  thermal-bath case. The stepper itself lives in ``qpsim.solvers.etd``;
+  the ETD2 upgrade is a committed Gate 2 port-time change.
 """
 
 from __future__ import annotations
@@ -29,6 +27,7 @@ from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
 from qpsim.physics.kernels import scattering_kernel_base as _scattering_kernel_base
 from qpsim.physics.spectral import SpectralContext
+from qpsim.solvers.etd import etd1_step
 
 
 class CoherenceAssignment(Enum):
@@ -296,30 +295,6 @@ def phonon_collision_rates(
     return gain, loss_rate
 
 
-def _etd1_step(
-    f: np.ndarray,
-    gain: np.ndarray,
-    loss_rate: np.ndarray,
-    dt: float,
-) -> np.ndarray:
-    """Exponential-Euler (ETD1) step for ``df/dt = gain − loss_rate · f``.
-
-    Preserves ``0 ≤ f ≤ 1`` when ``gain ≥ 0``. Will migrate to
-    ``qpsim.solvers.etd`` with the ETD2 upgrade (Build Handoff).
-    """
-    mu = np.maximum(loss_rate, 0.0)
-    p_term = np.maximum(gain + (mu - loss_rate) * f, 0.0)
-
-    decay = np.exp(-mu * dt)
-    coeff = np.empty_like(mu)
-    small = mu < 1e-14
-    coeff[~small] = (1.0 - decay[~small]) / mu[~small]
-    coeff[small] = dt
-
-    updated = decay * f + coeff * p_term
-    return np.clip(updated, 0.0, 1.0)
-
-
 def apply_phonon_collision(
     f: np.ndarray,
     ctx: SpectralContext,
@@ -343,4 +318,4 @@ def apply_phonon_collision(
         enable_scattering=enable_scattering,
         enable_recombination=enable_recombination,
     )
-    return _etd1_step(f, gain, loss_rate, dt)
+    return etd1_step(f, gain, loss_rate, dt)
