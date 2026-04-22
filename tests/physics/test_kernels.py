@@ -1,0 +1,93 @@
+"""Tests for qpsim.physics.kernels — phonon kernels and thermal occupation."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from qpsim.constants import KB_UEV_PER_K
+from qpsim.physics.kernels import (
+    recombination_kernel,
+    recombination_kernel_base,
+    scattering_kernel,
+    scattering_kernel_base,
+    thermal_phonon_occupation,
+)
+
+
+class TestThermalPhononOccupation:
+    def test_zero_at_T_zero(self) -> None:
+        assert np.all(thermal_phonon_occupation(np.array([1.0, 2.0]), 0.0) == 0.0)
+
+    def test_high_T_limit(self) -> None:
+        # n_BE(ω, T → ∞) ≈ kT/ω.
+        omega = np.array([1.0])
+        T = 1e6
+        kT = KB_UEV_PER_K * T
+        got = thermal_phonon_occupation(omega, T)
+        np.testing.assert_allclose(got, kT / omega, rtol=1e-3)
+
+    def test_non_negative(self) -> None:
+        occ = thermal_phonon_occupation(np.linspace(0.0, 10.0, 50), 1.0)
+        assert np.all(occ >= 0)
+
+    def test_rejects_negative_omega(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            thermal_phonon_occupation(np.array([-1.0]), 1.0)
+
+
+class TestKernelsBase:
+    def test_shapes(self) -> None:
+        E = np.linspace(1.01, 5.0, 8)
+        K_r = recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        K_s = scattering_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        assert K_r.shape == (8, 8)
+        assert K_s.shape == (8, 8)
+
+    def test_scattering_diagonal_zero(self) -> None:
+        E = np.linspace(1.01, 5.0, 8)
+        K_s = scattering_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        np.testing.assert_allclose(np.diag(K_s), 0.0)
+
+    def test_recombination_symmetric(self) -> None:
+        # Depends on (E_i + E_j)² and K⁺ — both symmetric under i↔j.
+        E = np.linspace(1.01, 5.0, 8)
+        K_r = recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        np.testing.assert_allclose(K_r, K_r.T, atol=1e-14)
+
+    def test_uses_precomputed_coherence(self) -> None:
+        # Passing ctx.K_plus should reproduce the default K⁺ path.
+        E = np.linspace(1.01, 5.0, 6)
+        from qpsim.physics.spectral import coherence_factor_plus
+
+        K_p = coherence_factor_plus(E, gap=1.0)
+        K_r_default = recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        K_r_with_coh = recombination_kernel_base(
+            E, gap=1.0, tau_0=1.0, T_c=1.2, coherence_factor=K_p
+        )
+        np.testing.assert_allclose(K_r_default, K_r_with_coh)
+
+
+class TestKernelsWithPhonon:
+    def test_zero_T_recombination_matches_base(self) -> None:
+        # At T = 0, N_p = 1 everywhere ⇒ K^r = K₀ʳ.
+        E = np.linspace(1.01, 5.0, 6)
+        K_r0 = recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        K_r = recombination_kernel(E, gap=1.0, tau_0=1.0, T_c=1.2, bath_temperature=0.0)
+        np.testing.assert_allclose(K_r, K_r0)
+
+    def test_zero_T_scattering_emission_only(self) -> None:
+        # At T = 0, absorption vanishes ⇒ K^s zero where E_i < E_j.
+        E = np.linspace(1.01, 5.0, 6)
+        K_s = scattering_kernel(E, gap=1.0, tau_0=1.0, T_c=1.2, bath_temperature=0.0)
+        for i in range(6):
+            for j in range(i + 1, 6):
+                assert K_s[i, j] == 0.0
+
+    def test_finite_T_recombination_exceeds_base(self) -> None:
+        # At T > 0, N_p > 1 for all off-zero ω ⇒ K^r > K₀ʳ elementwise.
+        E = np.linspace(1.01, 5.0, 6)
+        K_r0 = recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+        K_r = recombination_kernel(E, gap=1.0, tau_0=1.0, T_c=1.2, bath_temperature=0.5)
+        assert np.all(K_r >= K_r0 - 1e-14)
+        assert np.any(K_r > K_r0 + 1e-12)
