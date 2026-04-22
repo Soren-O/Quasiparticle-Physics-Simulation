@@ -124,18 +124,16 @@ AMM is adequate.
 
 The $\tau_l \approx 4d/(\eta s)$ result traces to three primary papers:
 
-- **Little 1959** (`docs/references/little_1959.pdf`). The
-  acoustic-mismatch model for the Kapitza boundary resistance between
-  two elastic media. Source of the $\eta_\perp = 4Z_1 Z_2 / (Z_1+Z_2)^2$
-  formula and the angle-averaging machinery.
-- **Eisenmenger 1976** (`docs/references/eisenmenger_1976.pdf`). Phonon
-  trapping in superconducting tunnel junctions. Works out the
-  film-geometry multi-bounce physics and establishes the $4d/(\eta s)$
-  scaling.
-- **Kaplan 1979** (`docs/references/kaplan_1979.pdf`). Applies the
-  acoustic-escape model to thin-film superconductors relevant to
-  detector physics; this is the reference that Fischer–Catelani 2023
-  Appendix A Eq. (A5) cites for $\tau_l$.
+- **Little 1959.** The acoustic-mismatch model for the Kapitza boundary
+  resistance between two elastic media. Source of the
+  $\eta_\perp = 4Z_1 Z_2 / (Z_1+Z_2)^2$ formula and the angle-averaging
+  machinery.
+- **Eisenmenger 1976.** Phonon trapping in superconducting tunnel
+  junctions. Works out the film-geometry multi-bounce physics and
+  establishes the $4d/(\eta s)$ scaling.
+- **Kaplan 1979.** Applies the acoustic-escape model to thin-film
+  superconductors relevant to detector physics; this is the reference
+  that Fischer–Catelani 2023 Appendix A Eq. (A5) cites for $\tau_l$.
 
 **Essential distinction: Kaplan 1976 ≠ Kaplan 1979.**
 
@@ -152,40 +150,45 @@ common mistake.
 
 ---
 
-## 5. Numerical example: Al on sapphire (Fischer 2023 parameters)
+## 5. Numerical example: Al on sapphire
 
-Film parameters (Fischer & Catelani 2023 Table II):
+Canonical parameter set (Fischer & Catelani 2023 Table II + Ref. 26):
 
-- $d = 90$ nm (the v1 Gate 4 benchmark uses a film from that
-  parameter family; Fischer's own baseline is $d = 63$ nm and gives
-  $\tau_l \approx 170$ ps).
-- $\eta \approx 0.2$ (Al/Al$_2$O$_3$, angle-averaged AMM, Fischer 2023
-  Ref. 26).
+- $d = 63$ nm (Al film thickness).
+- $\eta \approx 0.2$ (Al/Al$_2$O$_3$, angle-averaged AMM).
+- $s \approx 5000$ m/s (effective sound velocity; between
+  $s_T = 3040$ m/s transverse and $s_L = 6420$ m/s longitudinal;
+  the Debye average is $s_D \approx 3200$ m/s).
 
-Sound velocities in Al: $s_L = 6420$ m/s (longitudinal),
-$s_T = 3040$ m/s (transverse). The Debye average is
-$s_D \approx 3200$ m/s.
+Evaluating $\tau_l = 4d/(\eta s)$:
+$$
+\tau_l = \frac{4 \times 63\,\mathrm{nm}}{0.2 \times 5000\,\mathrm{m/s}}
+     \approx 252\ \mathrm{ps}.
+$$
 
-Evaluating $\tau_l = 4d/(\eta s)$ for $d = 90$ nm and $\eta = 0.2$:
+Fischer reports $\tau_l = 170$ ps; the formula lands within ~1.5× of
+that value, which is the expected agreement given the geometric-prefactor
+ambiguity (§2, factor-of-4 angular averaging) and the choice of $s$.
+Tightening would require resolving the full AMM angle integral (Open
+Question 1) and pinning $s$ to a specific mode or the Debye average.
 
-- **Transverse** ($s_T = 3040$ m/s):
-  $\tau_l = 4 \times 90\,\text{nm} / (0.2 \times 3040\,\text{m/s})
-       = 3.6\times 10^{-7} / 608 \approx 592$ ps.
-- **Longitudinal** ($s_L = 6420$ m/s):
-  $\tau_l = 4 \times 90\,\text{nm} / (0.2 \times 6420\,\text{m/s})
-       \approx 280$ ps.
-- **Debye-averaged** ($s_D = 3200$ m/s):
-  $\tau_l \approx 563$ ps.
+For arbitrary $(d, \eta, s)$, apply the formula directly. Representative
+values:
 
-For the Fischer baseline $d = 63$ nm with an effective
-$s \approx 5000$ m/s (between $s_D$ and $s_L$) and $\eta = 0.2$:
-$\tau_l \approx 252$ ps; Fischer reports $\tau_l = 170$ ps
-(consistent within the geometric prefactor ambiguity and the
-$s$ choice).
+| Film                               | $\tau_l$ (ps) |
+|------------------------------------|---------------|
+| Al/Al$_2$O$_3$, $d=63$ nm, $s=5000$ m/s   | 252           |
+| Al/Al$_2$O$_3$, $d=100$ nm, $s_D=3200$ m/s | 625           |
+| Nb/Si, $d=100$ nm, $\eta=0.25$, $s=5200$ m/s | 308           |
 
-The v1 validation suite should reproduce Fischer's $\tau_l = 170$ ps at
-$d = 63$ nm under the documented $\eta$, $s$, and angular-averaging
-convention (see §6 below for the reabsorption consistency check).
+Sanity check of the *formula*: these canonical $(d, \eta, s)$ inputs
+reproduce Fischer's published $\tau_l \approx 170$ ps to within ~1.5×,
+confirming the acoustic-escape derivation lands in the right numerical
+neighborhood. This is independent of the Gate 4 parity chain, which
+uses the Ph0-constant-$\tau_l$ mode (with Fischer's numerical
+$\tau_l$ supplied directly as a scalar) to reproduce the reference
+implementation's output bit-for-bit — see
+`validation/baselines/README.md`.
 
 ---
 
@@ -207,7 +210,7 @@ $\zeta = 1 + \tau_l/\tau_{\mathrm{PB}}$ encodes?
    variable. Committing to evolve $n_{ph}$ explicitly **and** to
    renormalize $\tau_0 \to \tau_0\,\zeta$ on the QP side would indeed
    double-count. The Gate 0 decision forbids this mixed configuration;
-   the construction-time validator rejects it.
+   the `PhononState` constructor (Gate 2 deliverable) shall reject it.
 
 2. **$\tau_l$ and $\tau_{\mathrm{PB}}$ act on different physics.**
    These two timescales appear in different terms of different
@@ -246,7 +249,8 @@ For v1 code, the practical rule is simple:
 | PDE backends (T2, T3) with Ph0 | **No** (forbidden) | **Yes** |
 | Rate-equation service (M25-style) | **Yes** | **No** |
 
-Mixed configurations are construction-time errors.
+Specified behavior: mixed configurations shall be rejected at
+`PhononState` construction time.
 
 ---
 
@@ -308,15 +312,14 @@ quantitative simulations:
 
 ## References
 
-- Little 1959 — AMM Kapitza resistance (`docs/references/little_1959.pdf`).
-- Eisenmenger 1976 — phonon trapping in tunnel junctions
-  (`docs/references/eisenmenger_1976.pdf`).
-- Kaplan 1979 — $\tau_l \approx 4d/(\eta s)$ for thin superconducting
-  films (`docs/references/kaplan_1979.pdf`).
-- Kaplan 1976 — **distinct**; gives $\tau_{\mathrm{PB}}(\omega)$, not
-  $\tau_l$ (`docs/references/kaplan_1976.pdf`).
-- Fischer & Catelani 2023 — Appendix A Eq. (A5) for $\tau_l$ and Eq.
-  (A2) for $\tau_{\mathrm{PB}}$
-  (`docs/references/fischer_catelani_2023.pdf`).
+- Little 1959 — AMM Kapitza resistance between two elastic media.
+- Eisenmenger 1976 — phonon trapping in superconducting tunnel
+  junctions; establishes the $4d/(\eta s)$ scaling.
+- Kaplan et al. 1979 — acoustic escape $\tau_l \approx 4d/(\eta s)$ for
+  thin superconducting films.
+- Kaplan et al. 1976 — **distinct**; gives the bulk BCS
+  $\tau_{\mathrm{PB}}(\omega)$ via $S_+(\omega/\Delta)$, **not** $\tau_l$.
+- Fischer & Catelani 2023 — Appendix A Eq. (A5) for $\tau_l$ and
+  Eq. (A2) for $\tau_{\mathrm{PB}}$.
 - `Phonon_Model_Decisions.md` — committed decisions D1–D5 and the
   three-timescale glossary.

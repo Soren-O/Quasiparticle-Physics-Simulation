@@ -44,35 +44,42 @@ The framework reserves three phonon tiers, matching the QP tier hierarchy
 - **Ph1 — lateral transport.** Adds an in-plane transport operator
   (diffusion $D_{ph}\nabla^2 n_{ph}$ with $D_{ph} = sd/3$ as the tentative
   default, or ballistic streaming $s\hat{\mathbf q}\cdot\nabla n_{ph}$).
-  Deferred to v2. The Ph1 interface is stubbed in v1; the transport
-  operator is a no-op.
+  Deferred to v2. The Ph1 transport operator is specified to degrade to
+  a no-op for v1 backends, so switching Ph0 → Ph1 is forward-compatible
+  once real transport lands.
 - **Ph2 — explicit substrate kinetics.** Couples film and substrate
   phonons at the interface; required for phonon-detector simulations.
   Deferred to v3.
 
-v1 implements Ph0 only. Ph1/Ph2 hooks exist but resolve to Ph0 behavior.
+v1 scope targets Ph0. Ph1 and Ph2 are specified here so the state
+representation can carry them without restructuring later, but neither
+is implemented in v1.
 
 ---
 
 ## Committed decisions (D1–D5)
 
-### D1 — Functional form of $\tau_l$
+### D1 — How $\tau_l$ is specified
 
-**Committed:** ship both a constant-$\tau_l$ mode and an acoustic-escape
-mode. The acoustic-escape model is:
-$$
-\tau_l(\omega) \approx \frac{4d}{\eta(\omega)\, s},
-$$
-with $d$ the film thickness, $\eta$ the angle-averaged acoustic-mismatch
-transmission coefficient, and $s$ the (Debye-averaged) sound velocity.
-Frequency dependence of $\eta$ is permitted; for v1 a frequency-independent
-$\eta$ from the acoustic-mismatch model (AMM) is the default.
+Two equally first-class modes for supplying $\tau_l(\omega)$. The
+caller picks at `PhononState` construction time; the framework picks
+no default.
 
-Justification: the constant-$\tau_l$ mode reproduces the Fischer–Catelani
-2023 convention exactly and is required for the Gate 4 bit-identical
-acceptance test. The acoustic-escape mode is needed for multi-material
-comparisons (Al/sapphire vs Al/Si vs Nb/Si) where $\tau_l$ varies by
-geometry, and is derived in `Phonon_Escape_Time.md`.
+- **Constant mode.** Caller supplies a scalar $\tau_l$, tiled across
+  the phonon frequency grid. Closed-form, no material parameters
+  required. Matches the Fischer–Catelani 2023 convention and the
+  current reference implementation.
+- **Acoustic-escape mode.** $\tau_l(\omega) \approx 4d/(\eta(\omega)\,s)$,
+  derived in `Phonon_Escape_Time.md`. Computes $\tau_l$ from `Material`
+  fields (film thickness $d$, substrate transmission $\eta$, sound
+  velocity $s$). Appropriate when the caller wants $\tau_l$ to track
+  geometry changes (multi-material sweeps, thickness sweeps).
+  Frequency dependence of $\eta$ is permitted; a frequency-independent
+  $\eta$ from the acoustic-mismatch model (AMM) is the minimal concrete
+  form.
+
+Same underlying equation in either case — only the numerical value of
+$\tau_l$ differs.
 
 ### D2 — Phonon source/sink evaluation
 
@@ -102,9 +109,10 @@ conservation of e-ph exchange).
 
 ### D4 — Ph1 transport operator (tentative, deferred)
 
-**Committed for v1 scaffolding:** the Ph1 transport-operator interface
-exists and is a no-op. When Ph1 is implemented (v2), the default closure
-is isotropic diffusion with
+**Specified for v1:** the Ph1 transport operator shall degrade to a
+no-op so that backends can advertise "Ph1-compatible" without depending
+on a real implementation. When Ph1 is implemented (v2), the planned
+default closure is isotropic diffusion with
 $$
 D_{ph} = \frac{s\, d}{3},
 $$
@@ -113,9 +121,9 @@ Ballistic streaming remains under consideration for epitaxial/specular
 films.
 
 Justification: v1 deliverables (Fischer-style MKID reproductions) do not
-require lateral phonon transport, so the operator is stubbed. The
-diffusion closure is the pragmatic engineering default; the ballistic
-option is revisited when Ph1 lands.
+require lateral phonon transport, so the operator is specified as
+trivial in v1. The diffusion closure is the pragmatic engineering
+default; the ballistic option is revisited when Ph1 lands.
 
 ### D5 — Sound velocity in the `Material` dataclass
 
@@ -149,10 +157,10 @@ reabsorption is already contained in the $(1-f(E))(1-f(\omega-E))\,n(\omega)$
 absorption term of $I_{qp\to ph}$; multiplying the recombination rate by
 $\zeta$ on top of a dynamic $n_{ph}$ solve double-counts this physics.
 
-Construction-time validation rejects mixed configurations (dynamic
-$n_{ph}$ + $\zeta$-renormalized $\tau_0$). The $\zeta$ route remains
-available in the separate rate-equation service (M25 module) where
-$n_{ph}$ is not tracked dynamically.
+Specified behavior: the `PhononState` constructor (Gate 2) shall reject
+mixed configurations (dynamic $n_{ph}$ + $\zeta$-renormalized $\tau_0$).
+The $\zeta$ route remains available in the separate rate-equation
+service (M25 module) where $n_{ph}$ is not tracked dynamically.
 
 ### Kaplan 1976 fixes $\tau_{PB}$, not $\tau_l$
 
@@ -206,9 +214,8 @@ and is derived in `Phonon_Escape_Time.md`.
 - `Phonon_Escape_Time.md` — derivation of $\tau_l \approx 4d/(\eta s)$,
   reference chain (Kaplan 1979, Eisenmenger 1976, Little 1959), numerical
   example for Al on sapphire, and the double-counting argument.
-- Kaplan 1976 (`docs/references/kaplan_1976.pdf`, to be copied) — source
-  of $\tau_{\mathrm{PB}}(\omega)$ via $S_+(\omega/\Delta)$.
-- Fischer & Catelani 2023 (`docs/references/fischer_catelani_2023.pdf`,
-  to be copied) — MKID synthesis, Appendix A ties $\tau_{PB}$ (Eq. A2)
-  and $\tau_l$ (Eq. A5) together; Table I parameter set is the v1
-  acceptance-test baseline.
+- Kaplan et al. 1976 — source of $\tau_{\mathrm{PB}}(\omega)$ via
+  $S_+(\omega/\Delta)$.
+- Fischer & Catelani 2023 — MKID synthesis; Appendix A ties $\tau_{PB}$
+  (Eq. A2) and $\tau_l$ (Eq. A5) together; Table I parameter set is the
+  v1 acceptance-test baseline.

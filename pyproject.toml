@@ -41,6 +41,7 @@ packages = ["qpsim"]
 testpaths = ["tests", "validation"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = ["-ra", "--strict-markers"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100

@@ -9,11 +9,12 @@ escape), Ph1 (ballistic), Ph2 (diffusive substrate).
 
 ## Status
 
-**Gate 1 skeleton — no physics implemented yet.** The reference
-implementation that this repo supersedes lives at
-`~/Documents/Quasiparticle Simulation/Active Code/qpsim/` and stays
-frozen as the source of parity baselines. Build plan at
-`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`.
+**Gate 1 skeleton — no physics implemented yet.** The scalar-backend
+reference implementation this repo supersedes stays frozen in a
+separate tree (author's local path: `Quasiparticle Simulation/Active
+Code/qpsim/`) and is the source of parity baselines. The full build
+plan is `New Framework Plan.md` in that same tree's
+`Documentation/Current/`.
 
 ### Gate roadmap (New Framework Plan §7)
 
