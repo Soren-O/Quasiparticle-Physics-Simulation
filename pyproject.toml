@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qpsim"
+version = "0.1.0.dev0"
+description = "Nonequilibrium superconductor kinetics framework"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Soren Ormseth", email = "sorenormseth@gmail.com" }]
+requires-python = ">=3.13"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "matplotlib>=3.9",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["qpsim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "validation"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = ["-ra", "--strict-markers"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["qpsim", "tests", "validation"]
+extend-exclude = ["validation/baselines"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+"validation/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["qpsim"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "yaml", "matplotlib.*"]
+ignore_missing_imports = true
