@@ -274,6 +274,11 @@ def build_variable_diffusion_laplacian(
     D_arr = np.asarray(D_spatial, dtype=float)
     if D_arr.ndim != 1:
         raise ValueError("D_spatial must be a 1D array.")
+    if np.any(D_arr < 0.0):
+        raise ValueError(
+            "D_spatial must be non-negative everywhere; negative entries "
+            "would construct an anti-diffusive operator."
+        )
 
     index_map, coords = mask_to_index(mask)
     n = len(coords)

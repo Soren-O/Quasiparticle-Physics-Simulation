@@ -80,6 +80,22 @@ class TestSubGapSampling:
         assert T_star == pytest.approx(T_true, rel=5e-3)
 
 
+class TestLowerBound:
+    def test_never_returns_below_T_bath(self) -> None:
+        # A mildly-depleted pair-breaking band (n_ph at 0.05 K while
+        # T_bath = 0.1 K). The fit should clamp to T_bath, not slip
+        # below.
+        gap = 180.0
+        omega = np.linspace(2.0 * gap, 10.0 * gap, 200)
+        T_bath = 0.1
+        n_ph = thermal_phonon_occupation(omega, 0.05)  # colder than bath
+
+        T_star = effective_phonon_temperature(
+            n_ph, omega, gap, T_bath=T_bath,
+        )
+        assert T_star >= T_bath
+
+
 class TestEdgeCases:
     def test_all_zero_returns_T_bath(self) -> None:
         gap = 180.0

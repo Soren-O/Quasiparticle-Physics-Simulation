@@ -233,6 +233,17 @@ class T3DiffusionBackend:
             last_solved = solved
 
             delta_raw = solve_gap(calibration, solved.f, solved.spectral.E)
+            if delta_raw <= 0.0:
+                # The current occupation no longer supports a superconducting
+                # solution; collapse to the normal state directly. Under-relaxing
+                # zero against the previous gap would have drifted us to a
+                # spurious tiny-Δ "almost-superconducting" fixed point.
+                raise RuntimeError(
+                    "Self-consistent gap collapsed: solve_gap returned Δ=0 at "
+                    f"iteration with |f|_max={float(solved.f.max()):.3e}. "
+                    "The drive has exceeded the pair-breaking threshold; "
+                    "this solver does not yet support the normal state."
+                )
             final_delta = (
                 (1.0 - gap_under_relaxation) * solved.gap
                 + gap_under_relaxation * delta_raw

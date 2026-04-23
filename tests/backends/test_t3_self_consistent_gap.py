@@ -133,3 +133,22 @@ class TestSelfConsistentGapPath:
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
             )
+
+    def test_gap_collapse_raises_instead_of_drifting(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Force solve_gap to report collapse. Without the explicit
+        # delta_raw <= 0 guard, under-relaxation would drift toward a
+        # spurious tiny Δ > 0 instead of raising.
+        from qpsim.backends import t3_diffusion as t3_mod
+
+        state = _build_state(T_bath=0.3, num_energy=40)
+        monkeypatch.setattr(t3_mod, "solve_gap", lambda *args, **kwargs: 0.0)
+        with pytest.raises(RuntimeError, match="gap collapsed"):
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+                self_consistent_gap=True,
+                gap_tol=1e-6,
+                gap_max_iter=4,
+            )

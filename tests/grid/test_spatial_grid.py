@@ -188,3 +188,13 @@ class TestBuildVariableDiffusionLaplacian:
             build_variable_diffusion_laplacian(
                 mask, edges, edge_conditions, dx=0.0, D_spatial=np.ones(9),
             )
+
+    def test_rejects_negative_D_spatial(self) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
+        D_bad = np.ones(9)
+        D_bad[4] = -1.0  # flip one cell negative
+        with pytest.raises(ValueError, match="non-negative"):
+            build_variable_diffusion_laplacian(
+                mask, edges, edge_conditions, dx=1.0, D_spatial=D_bad,
+            )

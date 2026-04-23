@@ -91,9 +91,12 @@ def effective_phonon_temperature(
         return float(np.sum(weights * (log_ratio - mean_lr) ** 2))
 
     upper = float(T_max) if T_max is not None else 100.0 * T_bath
+    # Lower bound is T_bath itself: the bath always populates the
+    # pair-breaking modes at at least the BE(T_bath) level, so any
+    # ``T_* < T_bath`` would be a fitting artifact, not physics.
     result = minimize_scalar(
         _weighted_variance_of_log_ratio,
-        bounds=(0.5 * T_bath, upper),
+        bounds=(T_bath, upper),
         method="bounded",
     )
     return float(result.x)
