@@ -1,23 +1,23 @@
 """Numerical solvers (tier-agnostic).
 
-Ported (Gate 2):
+Ported / written (Gate 2):
 - anderson.py — Type-I Anderson extrapolation helper
+- coupled_newton.py — joint (f, n_ph) Newton (unlocks F23 ratio=10)
 - crank_nicolson.py — Crank–Nicolson operator builder for parabolic solves
 - etd.py — ETD1 (exponential Euler) and ETD2 (Heun-type second-order)
 - newton_steady_state.py — Newton with analytical Jacobian for f
 - picard.py — generic Picard + Anderson fixed-point iteration
 - spectral_flow_tvd.py — TVD finite-volume advection for spectral-flow
 - ssprk.py — SSPRK(2,2) second-order TVD time stepper
-
-Planned (New Framework Plan §5, Gate 2 port-time upgrades):
-- coupled_newton.py — joint (f, n_ph) Newton (unlocks F23 ratio=10)
 """
 
-# Note: newton_solve_f is *not* re-exported here because it imports
-# from qpsim.collisions.phonon, and qpsim.collisions.phonon imports
-# etd1_step from qpsim.solvers.etd. Pulling it into this __init__
-# would trigger a circular import. Use:
+# Note: newton_solve_f and coupled_newton_solve are *not* re-exported
+# here because both import from qpsim.collisions.phonon, and
+# qpsim.collisions.phonon imports etd2_step from qpsim.solvers.etd.
+# Pulling either into this __init__ would trigger a circular import.
+# Use the submodule directly:
 #     from qpsim.solvers.newton_steady_state import newton_solve_f
+#     from qpsim.solvers.coupled_newton import coupled_newton_solve
 
 from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.crank_nicolson import build_cn_operators
