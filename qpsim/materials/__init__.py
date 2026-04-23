@@ -1,7 +1,12 @@
 """Material descriptors and YAML-backed database.
 
-Modules planned (New Framework Plan §5):
-- database.py — Material dataclass, YAML loader
-- substrate.py — Substrate descriptor (Si, Al₂O₃, …)
-- data/ — YAML files: Al.yaml, Nb.yaml, TiN.yaml, Fischer_2023_Al.yaml
+Ported (Gate 2 task 11):
+- substrate.py — Substrate dataclass (name + optional acoustic props)
+- database.py — Material dataclass, load_material, list_materials
+- data/ — initial YAMLs: Al.yaml, Nb.yaml, TiN.yaml
 """
+
+from qpsim.materials.database import Material, list_materials, load_material
+from qpsim.materials.substrate import Substrate
+
+__all__ = ["Material", "Substrate", "list_materials", "load_material"]

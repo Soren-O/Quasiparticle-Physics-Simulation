@@ -1,0 +1,16 @@
+# Niobium on silicon — generic starter values.
+name: Nb
+Delta_0: 1500.0      # μeV (Δ(0) ≈ 1.5 meV for Nb)
+T_c: 9.25            # K
+tau_0: 0.149         # ns (Kaplan 1976 for Nb — much faster than Al)
+D_0: 25.0            # μm²/ns
+v_F: 1.37e6          # m/s
+rho_F: 5.4e28        # J⁻¹ m⁻³
+sound_velocity_longitudinal: 5100.0
+sound_velocity_transverse: 2100.0
+film_thickness: 100.0
+substrate_transmission_eta: 0.25      # Nb/Si AMM estimate
+substrate:
+  name: Si
+  density: 2329.0
+  sound_velocity: 8433.0

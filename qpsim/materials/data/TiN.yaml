@@ -1,0 +1,18 @@
+# TiN on silicon — generic starter values.
+# Note: TiN gap depends strongly on deposition parameters; adjust Delta_0
+# and T_c to match your specific film.
+name: TiN
+Delta_0: 700.0       # μeV (typical for ~40 nm films)
+T_c: 4.5             # K
+tau_0: 0.5           # ns (varies with film quality)
+D_0: 10.0            # μm²/ns (highly disordered; low diffusion)
+v_F: 1.0e6           # m/s
+rho_F: 3.8e28        # J⁻¹ m⁻³
+sound_velocity_longitudinal: 9200.0
+sound_velocity_transverse: 5800.0
+film_thickness: 40.0
+substrate_transmission_eta: 0.4       # TiN/Si AMM
+substrate:
+  name: Si
+  density: 2329.0
+  sound_velocity: 8433.0

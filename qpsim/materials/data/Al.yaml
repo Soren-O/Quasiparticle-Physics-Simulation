@@ -1,0 +1,17 @@
+# Aluminum on sapphire — generic starter values.
+# Calibrate to your specific device parameters before quantitative work.
+name: Al
+Delta_0: 180.0       # T=0 gap in μeV (typical Al: 175-190)
+T_c: 1.18            # K
+tau_0: 438.0         # ns (Kaplan 1976 for Al)
+D_0: 60.0            # μm²/ns (normal-state; depends on resistivity)
+v_F: 1.36e6          # m/s (Fermi velocity in Al)
+rho_F: 1.74e28       # J⁻¹ m⁻³ (single-spin DOS at Fermi level)
+sound_velocity_longitudinal: 6420.0   # m/s
+sound_velocity_transverse: 3040.0     # m/s
+film_thickness: 90.0           # nm
+substrate_transmission_eta: 0.2       # Al/Al₂O₃ angle-averaged AMM
+substrate:
+  name: Al2O3
+  density: 3980.0
+  sound_velocity: 10800.0
