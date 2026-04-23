@@ -5,12 +5,19 @@ Ported (Gate 2):
 
 Ported (Gate 3):
 - nbar_loop.py — self-consistent n̄(P_read) fixed-point iteration
+- transient.py — run_time_dependent driver for f(E, t) under frozen n_ph
 
 Planned (New Framework Plan §5):
-- transient.py — run_time_dependent
 - parametric_sweep.py — sweep over (T_B, n̄, P_read, …)
 - rate_equation.py — Marchegiani rate-equation module
 """
+
+# Note: run_time_dependent / TransientResult / TransientSnapshot are *not*
+# re-exported here because qpsim.services.transient imports from
+# qpsim.backends.t3_diffusion, which in turn imports from
+# qpsim.services.steady_state. Pulling transient into this __init__ would
+# create a circular import at package load time. Import directly:
+#     from qpsim.services.transient import run_time_dependent
 
 from qpsim.services.nbar_loop import (
     NbarLoopIteration,
