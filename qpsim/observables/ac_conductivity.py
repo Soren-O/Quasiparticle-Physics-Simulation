@@ -47,6 +47,8 @@ def compute_ac_conductivity(
     """
     if omega_0 <= 0:
         raise ValueError("omega_0 must be positive.")
+    if n_subgap <= 0:
+        raise ValueError("n_subgap must be a positive integer.")
     if ctx.dynes_gamma > 0:
         raise ValueError(
             "Mattis-Bardeen observables assume pure BCS spectral functions. "

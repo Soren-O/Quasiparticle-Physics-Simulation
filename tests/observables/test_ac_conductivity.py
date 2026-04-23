@@ -42,6 +42,32 @@ class TestComputeAcConductivity:
         with pytest.raises(ValueError, match="Dynes"):
             compute_ac_conductivity(f, ctx_dynes, omega_0=1.0)
 
+    def test_rejects_zero_n_subgap(self) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="n_subgap"):
+            compute_ac_conductivity(f, ctx, omega_0=1.0, n_subgap=0)
+
+    def test_rejects_negative_n_subgap(self) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="n_subgap"):
+            compute_ac_conductivity(f, ctx, omega_0=1.0, n_subgap=-10)
+
+    def test_n_subgap_propagates_from_quality_factor(self) -> None:
+        # Bad n_subgap must also be caught when the call arrives via
+        # compute_quality_factor (the delegating caller).
+        from qpsim.observables.quality_factor import compute_quality_factor
+
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="n_subgap"):
+            compute_quality_factor(f, ctx, omega_0=1.0, alpha=0.1, n_subgap=0)
+
+    def test_n_subgap_propagates_from_frequency_shift(self) -> None:
+        from qpsim.observables.frequency_shift import compute_frequency_shift
+
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="n_subgap"):
+            compute_frequency_shift(f, f, ctx, omega_0=1.0, alpha=0.1, n_subgap=0)
+
     def test_returns_finite_thermal(self) -> None:
         ctx, f = _thermal_ctx_and_f()
         s1, s2 = compute_ac_conductivity(f, ctx, omega_0=1.0)
