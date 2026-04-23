@@ -16,11 +16,6 @@ Two regimes:
   A branch-collapse guard resets the phonon state to the last known
   physical-branch configuration if the Anderson path converges to the
   thermal branch.
-
-Porting note: ``_phonon_steady_state`` below is the Ph0 local-bath
-phonon-balance formula. It will move to
-``qpsim.phonon_models.ph0_local`` when that module is written in
-Gate 2 task 11; until then it lives here next to its only caller.
 """
 
 from __future__ import annotations
@@ -29,10 +24,10 @@ import numpy as np
 
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
-    compute_phonon_source_sink,
     phonon_occupation_matrices_from_state,
 )
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
+from qpsim.phonon_models.ph0_local import phonon_steady_state
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.anderson import anderson_extrapolate
@@ -157,7 +152,7 @@ def solve_steady_state(
         )
 
         # Step 3: n_ph steady state from converged f.
-        n_ph_new = _phonon_steady_state(
+        n_ph_new = phonon_steady_state(
             f, ctx, K_s0, K_r0,
             omega_bins, omega_idx_diff, omega_idx_sum, diff_sign,
             T_bath, phonon_escape_time,
@@ -214,59 +209,6 @@ def solve_steady_state(
         f"Picard iteration did not converge in {max_picard_iter} iterations. "
         f"Final max |G(n_ph) − n_ph| / n_ph = {max_rel_change:.2e}"
     )
-
-
-def _phonon_steady_state(
-    f: np.ndarray,
-    ctx: SpectralContext,
-    K_s0: np.ndarray | None,
-    K_r0: np.ndarray | None,
-    omega_bins: np.ndarray,
-    omega_idx_diff: np.ndarray,
-    omega_idx_sum: np.ndarray,
-    diff_sign: np.ndarray,
-    T_bath: float,
-    phonon_escape_time: float,
-) -> np.ndarray:
-    """Solve for ``n_ph`` at phonon steady state given ``f``.
-
-    The Ph0 phonon equation at steady state is
-
-        0 = a_ph[f] + b_ph[f] · n_ph + (n_th − n_ph) / τ_l,
-
-    where ``(a_ph, b_ph)`` are the affine coefficients from the e-ph
-    source-sink on the QP distribution and ``τ_l`` is the bath-escape
-    time.
-
-    * ``τ_l = 0`` (no substrate coupling) collapses the equation to
-      ``n_ph = −a_ph / b_ph``.
-    * ``τ_l > 0`` gives ``n_ph = (a_ph + n_th/τ_l) / (1/τ_l − b_ph)``.
-
-    Negative or numerically indeterminate entries are clipped to zero.
-
-    This helper will move to :mod:`qpsim.phonon_models.ph0_local` when
-    that module is written in Gate 2 task 11.
-    """
-    n_omega = len(omega_bins)
-    a_ph, b_ph = compute_phonon_source_sink(
-        f, ctx, K_s0, K_r0,
-        omega_idx_diff, omega_idx_sum, diff_sign, n_omega,
-    )
-
-    if phonon_escape_time == 0.0:
-        denom = b_ph.copy()
-        safe = np.abs(denom) > 1e-30
-        n_ph = np.zeros(n_omega)
-        n_ph[safe] = -a_ph[safe] / denom[safe]
-    else:
-        inv_tau_l = 1.0 / phonon_escape_time
-        n_th = thermal_phonon_occupation(omega_bins, T_bath)
-        denom = inv_tau_l - b_ph
-        safe = np.abs(denom) > 1e-30
-        n_ph = np.zeros(n_omega)
-        n_ph[safe] = (a_ph[safe] + inv_tau_l * n_th[safe]) / denom[safe]
-
-    return np.maximum(n_ph, 0.0)
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
