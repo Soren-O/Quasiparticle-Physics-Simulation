@@ -92,6 +92,7 @@ class T3DiffusionBackend:
         state: T3DiffusionState,
         *,
         method: str = "picard",
+        self_consistent_gap: bool = False,
         use_thermal_phonons: bool = False,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
@@ -104,6 +105,9 @@ class T3DiffusionBackend:
         coupled_newton_tol: float = 1e-10,
         coupled_newton_max_iter: int = 50,
         coupled_newton_fd_step: float = 1e-8,
+        gap_tol: float = 1e-6,
+        gap_max_iter: int = 20,
+        gap_under_relaxation: float = 0.5,
     ) -> T3DiffusionState:
         """Solve for the steady-state ``f(E)`` and return an updated state.
 
@@ -131,6 +135,15 @@ class T3DiffusionBackend:
             Use coupled Newton for the strong-bottleneck regime
             (``τ_l/τ_PB ≳ 10``) where Picard + Anderson stalls.
             Ignored when ``use_thermal_phonons=True``.
+        self_consistent_gap
+            When ``True``, wraps the fixed-gap steady-state solve in an
+            outer fixed-point iteration on ``Δ``. Each outer step solves
+            ``f`` (and, if applicable, ``n_ph``) at the current gap,
+            updates ``Δ`` via :func:`qpsim.physics.gap_equation.solve_gap`,
+            and repeats until the relative gap change is below
+            ``gap_tol``. The final state is re-solved once more at the
+            converged gap so ``f``/``n_ph`` and ``Δ`` are exactly
+            consistent.
         use_thermal_phonons
             ``True`` pins ``n_ph`` at the substrate Bose-Einstein
             distribution and runs Newton-only on ``f`` (no Picard, no
@@ -146,6 +159,9 @@ class T3DiffusionBackend:
             Picard path controls.
         coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
             Coupled-Newton path controls.
+        gap_tol, gap_max_iter, gap_under_relaxation
+            Outer self-consistent-gap loop controls. Ignored when
+            ``self_consistent_gap=False``.
         """
         if use_thermal_phonons and method == "coupled_newton":
             raise ValueError(
@@ -154,7 +170,141 @@ class T3DiffusionBackend:
                 "method='coupled_newton' has nothing to solve for. "
                 "Use method='picard' (default) with use_thermal_phonons=True."
             )
+        if gap_tol <= 0:
+            raise ValueError("gap_tol must be positive.")
+        if gap_max_iter <= 0:
+            raise ValueError("gap_max_iter must be positive.")
+        if not (0.0 < gap_under_relaxation <= 1.0):
+            raise ValueError(
+                "gap_under_relaxation must lie in the interval (0, 1]."
+            )
 
+        if not self_consistent_gap:
+            return self._steady_state_fixed_gap(
+                state,
+                method=method,
+                use_thermal_phonons=use_thermal_phonons,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                newton_tol=newton_tol,
+                newton_max_iter=newton_max_iter,
+                picard_tol=picard_tol,
+                picard_max_iter=picard_max_iter,
+                picard_mixing=picard_mixing,
+                anderson_depth=anderson_depth,
+                coupled_newton_tol=coupled_newton_tol,
+                coupled_newton_max_iter=coupled_newton_max_iter,
+                coupled_newton_fd_step=coupled_newton_fd_step,
+            )
+
+        if state.material.T_c <= 0:
+            raise ValueError(
+                "state.material.T_c must be positive for self-consistent-gap solves."
+            )
+        if state.T_bath >= state.material.T_c:
+            raise ValueError(
+                "self-consistent-gap steady state requires T_bath < T_c; "
+                f"got T_bath={state.T_bath} K and T_c={state.material.T_c} K."
+            )
+
+        calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
+        current = state
+        final_delta = float(state.gap)
+        last_solved: T3DiffusionState | None = None
+        last_rel_change = float("inf")
+
+        for _ in range(gap_max_iter):
+            solved = self._steady_state_fixed_gap(
+                current,
+                method=method,
+                use_thermal_phonons=use_thermal_phonons,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                newton_tol=newton_tol,
+                newton_max_iter=newton_max_iter,
+                picard_tol=picard_tol,
+                picard_max_iter=picard_max_iter,
+                picard_mixing=picard_mixing,
+                anderson_depth=anderson_depth,
+                coupled_newton_tol=coupled_newton_tol,
+                coupled_newton_max_iter=coupled_newton_max_iter,
+                coupled_newton_fd_step=coupled_newton_fd_step,
+            )
+            last_solved = solved
+
+            delta_raw = solve_gap(calibration, solved.f, solved.spectral.E)
+            final_delta = (
+                (1.0 - gap_under_relaxation) * solved.gap
+                + gap_under_relaxation * delta_raw
+            )
+            last_rel_change = abs(final_delta - solved.gap) / max(abs(solved.gap), 1e-30)
+
+            if last_rel_change < gap_tol:
+                break
+
+            current = replace(
+                solved,
+                gap=final_delta,
+                spectral=self._rebuild_spectral_context(
+                    solved.spectral, new_gap=final_delta,
+                ),
+            )
+        else:
+            raise RuntimeError(
+                "Self-consistent gap iteration did not converge in "
+                f"{gap_max_iter} iterations. Final |Δ_new - Δ| / Δ = "
+                f"{last_rel_change:.2e}."
+            )
+
+        if last_solved is None:
+            raise RuntimeError("Internal error: no steady-state solve was performed.")
+
+        if abs(final_delta - last_solved.gap) < 1e-14:
+            return last_solved
+
+        final_state = replace(
+            last_solved,
+            gap=final_delta,
+            spectral=self._rebuild_spectral_context(
+                last_solved.spectral, new_gap=final_delta,
+            ),
+        )
+        return self._steady_state_fixed_gap(
+            final_state,
+            method=method,
+            use_thermal_phonons=use_thermal_phonons,
+            photon_params=photon_params,
+            pb_photon_params=pb_photon_params,
+            newton_tol=newton_tol,
+            newton_max_iter=newton_max_iter,
+            picard_tol=picard_tol,
+            picard_max_iter=picard_max_iter,
+            picard_mixing=picard_mixing,
+            anderson_depth=anderson_depth,
+            coupled_newton_tol=coupled_newton_tol,
+            coupled_newton_max_iter=coupled_newton_max_iter,
+            coupled_newton_fd_step=coupled_newton_fd_step,
+        )
+
+    def _steady_state_fixed_gap(
+        self,
+        state: T3DiffusionState,
+        *,
+        method: str,
+        use_thermal_phonons: bool,
+        photon_params: dict[str, float] | None,
+        pb_photon_params: dict[str, float] | None,
+        newton_tol: float,
+        newton_max_iter: int,
+        picard_tol: float,
+        picard_max_iter: int,
+        picard_mixing: float,
+        anderson_depth: int,
+        coupled_newton_tol: float,
+        coupled_newton_max_iter: int,
+        coupled_newton_fd_step: float,
+    ) -> T3DiffusionState:
+        """Inner steady-state solve at fixed ``Δ``."""
         self._validate_gate2_scope(state.phonon)
 
         K_s0 = build_scattering_kernel_base(
@@ -243,6 +393,23 @@ class T3DiffusionBackend:
             tau_l=np.full((1, omega_conv.size), tau_l_scalar),
         )
         return replace(state, f=f_new, phonon=new_phonon)
+
+    @staticmethod
+    def _rebuild_spectral_context(
+        spectral: SpectralContext,
+        *,
+        new_gap: float,
+    ) -> SpectralContext:
+        """Clone ``spectral`` at a new gap, preserving all non-gap config."""
+        return SpectralContext(
+            E_bins=spectral.E,
+            dE_bins=spectral.dE,
+            gap=new_gap,
+            dynes_gamma=spectral.dynes_gamma,
+            diffusion_coefficient=spectral.diffusion_coefficient,
+            rebuild_tolerance=spectral.rebuild_tolerance,
+            active_margin_factor=spectral.active_margin_factor,
+        )
 
     def apply_collisions(
         self,
@@ -362,14 +529,8 @@ class T3DiffusionBackend:
         # SpectralContext: the caller may have set a custom
         # diffusion_coefficient (not just material.D_0), dynes_gamma,
         # rebuild_tolerance, or active_margin_factor. Only Δ changes.
-        new_spectral = SpectralContext(
-            E_bins=state.spectral.E,
-            dE_bins=state.spectral.dE,
-            gap=new_gap,
-            dynes_gamma=state.spectral.dynes_gamma,
-            diffusion_coefficient=state.spectral.diffusion_coefficient,
-            rebuild_tolerance=state.spectral.rebuild_tolerance,
-            active_margin_factor=state.spectral.active_margin_factor,
+        new_spectral = self._rebuild_spectral_context(
+            state.spectral, new_gap=new_gap,
         )
 
         rho_new = new_spectral.rho

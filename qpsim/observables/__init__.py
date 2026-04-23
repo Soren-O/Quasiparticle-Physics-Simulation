@@ -14,12 +14,20 @@ Planned (New Framework Plan §5):
 from qpsim.observables.ac_conductivity import compute_ac_conductivity
 from qpsim.observables.density import qp_fraction, qp_number_density
 from qpsim.observables.frequency_shift import compute_frequency_shift
+from qpsim.observables.gap_suppression import (
+    GapSuppressionResult,
+    compute_gap_suppression,
+    gap_suppression_from_deltas,
+)
 from qpsim.observables.quality_factor import compute_quality_factor
 
 __all__ = [
+    "GapSuppressionResult",
     "compute_ac_conductivity",
     "compute_frequency_shift",
+    "compute_gap_suppression",
     "compute_quality_factor",
+    "gap_suppression_from_deltas",
     "qp_fraction",
     "qp_number_density",
 ]
