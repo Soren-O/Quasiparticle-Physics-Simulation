@@ -34,8 +34,11 @@ htmlcov/
 *.swp
 *.swo
 
-# Run outputs that validation / scripts may drop
+# Run outputs that validation / scripts may drop. Pinned baseline plots
+# under validation/baselines/ are reference artifacts and *are* tracked.
 *.png
 *.pdf
 !docs/**/*.png
 !docs/**/*.pdf
+!validation/baselines/**/*.png
+!validation/baselines/**/*.pdf
