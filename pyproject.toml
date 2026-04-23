@@ -40,8 +40,11 @@ packages = ["qpsim"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "validation"]
 python_files = ["test_*.py", "*_test.py"]
-addopts = ["-ra", "--strict-markers"]
+addopts = ["-ra", "--strict-markers", "-m", "not slow"]
 pythonpath = ["."]
+markers = [
+    "slow: long-running validation tests (opt in with `pytest -m slow`)",
+]
 
 [tool.ruff]
 line-length = 100

@@ -92,6 +92,7 @@ class T3DiffusionBackend:
         state: T3DiffusionState,
         *,
         method: str = "picard",
+        use_thermal_phonons: bool = False,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         newton_tol: float = 1e-14,
@@ -107,11 +108,10 @@ class T3DiffusionBackend:
         """Solve for the steady-state ``f(E)`` and return an updated state.
 
         Rebuilds the e-ph kernels from the current
-        :class:`SpectralContext` and Material, extracts the (scalar)
-        ``τ_l`` from the PhononState, and dispatches to the requested
-        solver. The returned state has both ``f`` and ``phonon`` updated;
-        ``phonon`` is rebuilt on the physics ``ω`` grid with the
-        converged ``n_ph`` and a tiled scalar ``τ_l``.
+        :class:`SpectralContext` and Material, and dispatches to the
+        requested solver. The returned state has both ``f`` and
+        ``phonon`` updated; ``phonon`` is rebuilt on the physics ``ω``
+        grid.
 
         Gate 2 scope requires the input ``state.phonon`` to have
         ``n_branch = 1``, ``n_spatial = 1``, and constant
@@ -130,15 +130,31 @@ class T3DiffusionBackend:
             :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`.
             Use coupled Newton for the strong-bottleneck regime
             (``τ_l/τ_PB ≳ 10``) where Picard + Anderson stalls.
+            Ignored when ``use_thermal_phonons=True``.
+        use_thermal_phonons
+            ``True`` pins ``n_ph`` at the substrate Bose-Einstein
+            distribution and runs Newton-only on ``f`` (no Picard, no
+            coupled system). This is Fischer's ``τ_l=0`` limit —
+            physically, the thermalization timescale is instantaneous
+            so the phonon field is always at the bath. Mutually
+            exclusive with ``method="coupled_newton"``.
         photon_params, pb_photon_params
             Optional photon channel dicts.
         newton_tol, newton_max_iter
-            Inner Newton controls (Picard path only).
+            Inner Newton controls (used by Picard and thermal-phonon paths).
         picard_tol, picard_max_iter, picard_mixing, anderson_depth
             Picard path controls.
         coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
             Coupled-Newton path controls.
         """
+        if use_thermal_phonons and method == "coupled_newton":
+            raise ValueError(
+                "use_thermal_phonons=True pins n_ph at Bose-Einstein, so the "
+                "(f, n_ph) system reduces to Newton-on-f alone; "
+                "method='coupled_newton' has nothing to solve for. "
+                "Use method='picard' (default) with use_thermal_phonons=True."
+            )
+
         self._validate_gate2_scope(state.phonon)
 
         K_s0 = build_scattering_kernel_base(
@@ -154,7 +170,20 @@ class T3DiffusionBackend:
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
 
-        if method == "picard":
+        if use_thermal_phonons:
+            # Newton-only shortcut: solve_steady_state routes to newton_solve_f
+            # when phonon_escape_time=None, with n_ph held at Bose-Einstein.
+            f_new = solve_steady_state(
+                state.spectral, K_s0, K_r0, state.T_bath,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                initial_guess=state.f,
+                tol=newton_tol, max_iter=newton_max_iter,
+                phonon_escape_time=None,
+            )
+            omega_conv, _, _, _ = build_phonon_frequency_map(state.spectral.E)
+            n_ph_conv = thermal_phonon_occupation(omega_conv, state.T_bath)
+        elif method == "picard":
             phonon_out: dict[str, np.ndarray] = {}
             f_new = solve_steady_state(
                 state.spectral,
