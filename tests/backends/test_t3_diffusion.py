@@ -79,25 +79,98 @@ class TestT3DiffusionBackendSteadyState:
         new_state = backend.steady_state(state)
         np.testing.assert_allclose(new_state.f, f_FD, atol=1e-4)
 
-    def test_returns_new_state_with_updated_f(self) -> None:
+    def test_returns_new_state_with_updated_f_and_phonon(self) -> None:
         state = _build_state(T_bath=0.3)
         backend = T3DiffusionBackend()
         new_state = backend.steady_state(state)
-        # All other fields are identical to the input state.
+        # Scalar / reference-identity fields unchanged.
         assert new_state.tier == Tier.T3_DIFFUSION
         assert new_state.gap == state.gap
         assert new_state.T_bath == state.T_bath
         assert new_state.material is state.material
         assert new_state.spectral is state.spectral
-        assert new_state.phonon is state.phonon
-        # f is a fresh array.
+        # f and phonon are freshly built to reflect the solver output.
         assert new_state.f is not state.f
+        assert new_state.phonon is not state.phonon
+
+    def test_returned_phonon_has_converged_n_ph(self) -> None:
+        # The input state seeds n_ph = 0, but a thermal solve at
+        # T_bath > 0 must converge to a non-zero n_ph close to the
+        # Bose-Einstein distribution.
+        from qpsim.physics.kernels import thermal_phonon_occupation
+
+        state = _build_state(T_bath=0.3)
+        backend = T3DiffusionBackend()
+        new_state = backend.steady_state(state)
+
+        # Non-zero; not the stale input.
+        assert not np.allclose(new_state.phonon.n_ph, 0.0)
+
+        # At thermal equilibrium, n_ph should match n_BE on the physics grid.
+        omega = new_state.phonon.omega_bins[0]
+        n_th = thermal_phonon_occupation(omega, state.T_bath)
+        np.testing.assert_allclose(new_state.phonon.n_ph[0, :, 0], n_th, atol=1e-10)
+
+    def test_returned_phonon_is_on_physics_omega_grid(self) -> None:
+        # Verify the input ω grid was ignored and the output reflects
+        # the physics grid (pair-sum / pair-difference of E).
+        from qpsim.collisions.phonon import build_phonon_frequency_map
+
+        state = _build_state(T_bath=0.3)
+        backend = T3DiffusionBackend()
+        new_state = backend.steady_state(state)
+
+        expected_omega, _, _, _ = build_phonon_frequency_map(state.spectral.E)
+        np.testing.assert_allclose(new_state.phonon.omega_bins[0], expected_omega)
 
     def test_f_preserved_shape(self) -> None:
         state = _build_state(T_bath=0.3, num_energy=25)
         backend = T3DiffusionBackend()
         new_state = backend.steady_state(state)
         assert new_state.f.shape == state.f.shape
+
+
+class TestT3DiffusionBackendScopeValidation:
+    def test_rejects_multi_branch(self) -> None:
+        state = _build_state()
+        state.phonon = PhononState(  # type: ignore[misc]
+            n_ph=np.zeros((2, state.phonon.n_omega, 1)),
+            omega_bins=np.tile(state.phonon.omega_bins[0], (2, 1)),
+            tau_l=np.full((2, state.phonon.n_omega), 0.25),
+            model=state.phonon.model,
+            branches=[
+                PhononBranchSpec(name="longitudinal"),
+                PhononBranchSpec(name="transverse"),
+            ],
+        )
+        with pytest.raises(ValueError, match="single-branch"):
+            T3DiffusionBackend().steady_state(state)
+
+    def test_rejects_multi_spatial(self) -> None:
+        state = _build_state()
+        state.phonon = PhononState(  # type: ignore[misc]
+            n_ph=np.zeros((1, state.phonon.n_omega, 3)),
+            omega_bins=state.phonon.omega_bins,
+            tau_l=state.phonon.tau_l,
+            model=state.phonon.model,
+            branches=state.phonon.branches,
+        )
+        with pytest.raises(ValueError, match="spatially-homogeneous"):
+            T3DiffusionBackend().steady_state(state)
+
+    def test_rejects_non_constant_tau_l(self) -> None:
+        state = _build_state()
+        # Non-uniform τ_l(ω).
+        varied = np.linspace(0.1, 0.5, state.phonon.n_omega).reshape(1, -1)
+        state.phonon = PhononState(  # type: ignore[misc]
+            n_ph=state.phonon.n_ph,
+            omega_bins=state.phonon.omega_bins,
+            tau_l=varied,
+            model=state.phonon.model,
+            branches=state.phonon.branches,
+        )
+        with pytest.raises(ValueError, match="constant-τ_l"):
+            T3DiffusionBackend().steady_state(state)
 
 
 class TestT3DiffusionState:
