@@ -30,8 +30,10 @@ from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononState
 from qpsim.physics.gap_equation import calibrate_gap, solve_gap
+from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
+from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.etd import etd2_step
 from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 
@@ -89,6 +91,7 @@ class T3DiffusionBackend:
         self,
         state: T3DiffusionState,
         *,
+        method: str = "picard",
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         newton_tol: float = 1e-14,
@@ -97,18 +100,18 @@ class T3DiffusionBackend:
         picard_max_iter: int = 200,
         picard_mixing: float = 0.3,
         anderson_depth: int = 0,
+        coupled_newton_tol: float = 1e-10,
+        coupled_newton_max_iter: int = 50,
+        coupled_newton_fd_step: float = 1e-8,
     ) -> T3DiffusionState:
         """Solve for the steady-state ``f(E)`` and return an updated state.
 
         Rebuilds the e-ph kernels from the current
         :class:`SpectralContext` and Material, extracts the (scalar)
-        ``τ_l`` from the PhononState, and delegates to
-        :func:`qpsim.services.steady_state.solve_steady_state`. The
-        returned state has both ``f`` and ``phonon`` updated; ``phonon``
-        is rebuilt on the physics ``ω`` grid (the pair-sum / pair-
-        difference grid derived from ``state.spectral.E`` via
-        :func:`qpsim.collisions.phonon.build_phonon_frequency_map`)
-        with the converged ``n_ph`` and a tiled scalar ``τ_l``.
+        ``τ_l`` from the PhononState, and dispatches to the requested
+        solver. The returned state has both ``f`` and ``phonon`` updated;
+        ``phonon`` is rebuilt on the physics ``ω`` grid with the
+        converged ``n_ph`` and a tiled scalar ``τ_l``.
 
         Gate 2 scope requires the input ``state.phonon`` to have
         ``n_branch = 1``, ``n_spatial = 1``, and constant
@@ -120,16 +123,21 @@ class T3DiffusionBackend:
         state
             Initial T3 state; ``state.f`` is the Newton/Picard initial
             guess.
-        photon_params
-            Optional sub-gap photon dict
-            ``{"omega_0", "n_bar", "c_phot"}``.
-        pb_photon_params
-            Optional pair-breaking photon dict
-            ``{"omega_PB", "n_bar_PB", "c_phot_PB"}``.
+        method
+            ``"picard"`` (default) — the Newton + Picard orchestrator
+            from :func:`qpsim.services.steady_state.solve_steady_state`.
+            ``"coupled_newton"`` — the monolithic coupled Newton from
+            :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`.
+            Use coupled Newton for the strong-bottleneck regime
+            (``τ_l/τ_PB ≳ 10``) where Picard + Anderson stalls.
+        photon_params, pb_photon_params
+            Optional photon channel dicts.
         newton_tol, newton_max_iter
-            Inner Newton controls.
+            Inner Newton controls (Picard path only).
         picard_tol, picard_max_iter, picard_mixing, anderson_depth
-            Outer Picard controls for the finite-``τ_l`` path.
+            Picard path controls.
+        coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
+            Coupled-Newton path controls.
         """
         self._validate_gate2_scope(state.phonon)
 
@@ -146,32 +154,59 @@ class T3DiffusionBackend:
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
 
-        phonon_out: dict[str, np.ndarray] = {}
-        f_new = solve_steady_state(
-            state.spectral,
-            K_s0,
-            K_r0,
-            state.T_bath,
-            photon_params=photon_params,
-            pb_photon_params=pb_photon_params,
-            initial_guess=state.f,
-            tol=newton_tol,
-            max_iter=newton_max_iter,
-            phonon_escape_time=tau_l_scalar,
-            max_picard_iter=picard_max_iter,
-            picard_tol=picard_tol,
-            picard_mixing=picard_mixing,
-            anderson_depth=anderson_depth,
-            phonon_out=phonon_out,
-        )
+        if method == "picard":
+            phonon_out: dict[str, np.ndarray] = {}
+            f_new = solve_steady_state(
+                state.spectral,
+                K_s0,
+                K_r0,
+                state.T_bath,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                initial_guess=state.f,
+                tol=newton_tol,
+                max_iter=newton_max_iter,
+                phonon_escape_time=tau_l_scalar,
+                max_picard_iter=picard_max_iter,
+                picard_tol=picard_tol,
+                picard_mixing=picard_mixing,
+                anderson_depth=anderson_depth,
+                phonon_out=phonon_out,
+            )
+            n_ph_conv = phonon_out["n_ph"]
+            omega_conv = phonon_out["omega_bins"]
+        elif method == "coupled_newton":
+            omega_conv, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
+                state.spectral.E
+            )
+            # Seed n_ph from state if it's already on the physics grid,
+            # else start from thermal.
+            if (
+                state.phonon.omega_bins.shape == (1, omega_conv.size)
+                and np.allclose(state.phonon.omega_bins[0], omega_conv)
+            ):
+                n_ph_init = state.phonon.n_ph[0, :, 0].copy()
+            else:
+                n_ph_init = thermal_phonon_occupation(omega_conv, state.T_bath)
+            f_new, n_ph_conv = coupled_newton_solve(
+                state.spectral, state.f, n_ph_init,
+                omega_bins=omega_conv,
+                omega_idx_diff=idx_diff,
+                omega_idx_sum=idx_sum,
+                diff_sign=diff_sign,
+                K_s0=K_s0, K_r0=K_r0,
+                T_bath=state.T_bath, tau_l=tau_l_scalar,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                tol=coupled_newton_tol,
+                max_iter=coupled_newton_max_iter,
+                fd_step=coupled_newton_fd_step,
+            )
+        else:
+            raise ValueError(
+                f"Unknown method {method!r}. Use 'picard' or 'coupled_newton'."
+            )
 
-        # Rebuild the phonon state on the physics ω grid with the
-        # converged n_ph. The input state's omega_bins / n_ph are not
-        # used by the solver — the Picard loop builds its own ω grid
-        # from the QP energy grid — so the returned PhononState must
-        # reflect what the physics actually computed.
-        n_ph_conv = phonon_out["n_ph"]
-        omega_conv = phonon_out["omega_bins"]
         new_phonon = replace(
             state.phonon,
             n_ph=n_ph_conv.reshape(1, -1, 1),
@@ -294,12 +329,18 @@ class T3DiffusionBackend:
             active_mask=state.spectral.active_mask,
         )
 
+        # Preserve every non-gap configuration from the incoming
+        # SpectralContext: the caller may have set a custom
+        # diffusion_coefficient (not just material.D_0), dynes_gamma,
+        # rebuild_tolerance, or active_margin_factor. Only Δ changes.
         new_spectral = SpectralContext(
             E_bins=state.spectral.E,
             dE_bins=state.spectral.dE,
             gap=new_gap,
             dynes_gamma=state.spectral.dynes_gamma,
-            diffusion_coefficient=float(state.material.D_0),
+            diffusion_coefficient=state.spectral.diffusion_coefficient,
+            rebuild_tolerance=state.spectral.rebuild_tolerance,
+            active_margin_factor=state.spectral.active_margin_factor,
         )
 
         rho_new = new_spectral.rho

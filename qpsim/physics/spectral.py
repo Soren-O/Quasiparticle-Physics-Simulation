@@ -155,6 +155,21 @@ class SpectralContext:
     def dynes_gamma(self) -> float:
         return self._dynes_gamma
 
+    @property
+    def diffusion_coefficient(self) -> float:
+        """Normal-state diffusion coefficient D₀ (0 disables D(E))."""
+        return self._D0
+
+    @property
+    def rebuild_tolerance(self) -> float:
+        """Relative-Δ threshold for :meth:`maybe_rebuild`."""
+        return self._rebuild_tolerance
+
+    @property
+    def active_margin_factor(self) -> float:
+        """Fractional margin above Δ used to set :attr:`active_mask`."""
+        return self._active_margin_factor
+
     def maybe_rebuild(self, new_gap: float) -> bool:
         """Rebuild iff |Δ − Δ_new|/|Δ| > ``rebuild_tolerance``. Returns True on rebuild."""
         rel_change = abs(new_gap - self._gap) / max(abs(self._gap), 1e-30)
