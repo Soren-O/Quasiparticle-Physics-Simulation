@@ -1,21 +1,26 @@
 """Fischer 2023 Fig 3 finite-τ_l reproduction — Ph0-constant phonon model.
 
-Exercises the Picard path through ``T3DiffusionBackend.steady_state``
-at four non-trivial τ_l values:
+Exercises ``T3DiffusionBackend.steady_state`` at five non-trivial τ_l
+values:
 
-    τ_l / τ_0^PB ∈ {0.5, 1, 2, 5}
+    τ_l / τ_0^PB ∈ {0.5, 1, 2, 5, 10}
 
 where ``τ_0^PB`` is Kaplan's characteristic phonon pair-breaking time,
 computed numerically from the low-temperature limit of
 ``compute_phonon_source_sink``. The ``τ_l/τ_0^PB = 0`` case is in
-:mod:`validation.fischer_2023.fig3_tau_l_zero` (Newton-only). Ratio
-10 is known not to converge through Picard + Anderson at this scale
-(Roadmap Phase 2.1) and is expected to land once we wire coupled
-Newton into the continuation.
+:mod:`validation.fischer_2023.fig3_tau_l_zero` (Newton-only). Ratios
+0.5 through 5 use the Picard orchestrator; the ``τ_l/τ_0^PB = 10``
+strong-bottleneck case cannot converge through Picard + Anderson
+(Roadmap Phase 2.1: the Picard map is non-contractile and orbits
+the physical fixed point at ~1e-7 residual). That case uses the
+coupled-Newton solver on the joint ``(f, n_ph)`` vector, seeded
+from the ratio-5 converged state.
 
 Continuation strategy mirrors the legacy script: each ratio seeds
-from the previous ratio's converged ``f``, which is essential for
-Picard to stabilize at ratios ≳ 2.
+from the previous ratio's converged ``(f, n_ph)``, which is essential
+for Picard to stabilize at ratios ≳ 2 and for coupled Newton to pick
+up the physical branch at ratio 10 (the trivial ``f = 0`` branch is
+a second fixed point in the strong-bottleneck regime).
 
 Fischer, Catelani — Phys. Rev. Applied 19, 054087 (2023), Table I:
 same parameters as :mod:`fig3_tau_l_zero`. Grid: 810 bins (Chapter 3
@@ -63,22 +68,23 @@ E_MIN_FACTOR = 1.0
 E_MAX_FACTOR = 10.0
 NUM_BINS = 810  # Ch. 3 thesis convention per NFP §6.4.1
 
-TAU_L_RATIOS: tuple[float, ...] = (0.5, 1.0, 2.0, 5.0)
+TAU_L_RATIOS: tuple[float, ...] = (0.5, 1.0, 2.0, 5.0, 10.0)
 """Target ratios pinned in the baseline CSV.
 
 The ``0`` case is handled in :mod:`fig3_tau_l_zero` (Newton-only).
-Higher ratios (10) fail through Picard + Anderson at this scale
-(Roadmap 2.1) and are expected to land once coupled Newton is
-integrated into the continuation.
+Ratio 10 uses coupled Newton (see ``_solver_method`` below); ratios
+0.5-5 use Picard.
 """
 
-_CONTINUATION_RATIOS: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 4.0, 5.0)
+_CONTINUATION_RATIOS: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0)
 """Continuation schedule including intermediate ratios 3 and 4.
 
 Picard at ratio 5 cannot converge by seeding from ratio 2 directly —
 the jump is too large and the iteration orbits the physical branch.
 The extra 3 and 4 solves are cheap (they converge quickly from the
-prior ratio's seed) and reliably carry the continuation to 5.
+prior ratio's seed) and reliably carry the continuation to 5. The
+final step (5 → 10) switches solvers (coupled Newton) because
+Picard cannot traverse this bifurcation.
 """
 
 
@@ -134,8 +140,20 @@ def _compute_tau_0_pb(
     return float(1.0 / -b_ph[first_idx])
 
 
-def _initial_state(material: Material, f_FD: np.ndarray, tau_l_scalar: float) -> T3DiffusionState:
-    """Build a T3 state with the given τ_l scalar and Fermi-Dirac seed."""
+def _initial_state(
+    material: Material,
+    f_seed: np.ndarray,
+    tau_l_scalar: float,
+    *,
+    n_ph_seed: np.ndarray | None = None,
+) -> T3DiffusionState:
+    """Build a T3 state with the given τ_l scalar, ``f`` seed, and ``n_ph`` seed.
+
+    ``n_ph_seed`` defaults to the bath thermal occupation (equilibrium
+    start). Pass a converged phonon array from the previous continuation
+    step to hand both ``(f, n_ph)`` forward — required for coupled
+    Newton at ratio 10 to pick up the physical branch.
+    """
     E, _ = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
@@ -145,15 +163,17 @@ def _initial_state(material: Material, f_FD: np.ndarray, tau_l_scalar: float) ->
     dE = integration_widths_from_centers(E)
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
     omega, _, _, _ = build_phonon_frequency_map(E)
+    if n_ph_seed is None:
+        n_ph_seed = thermal_phonon_occupation(omega, T_BATH)
     phonon = PhononState(
-        n_ph=thermal_phonon_occupation(omega, T_BATH).reshape(1, -1, 1),
+        n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), tau_l_scalar),
         model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     return T3DiffusionState(
-        f=f_FD.copy(),
+        f=f_seed.copy(),
         gap=DELTA_0,
         spectral=spectral,
         phonon=phonon,
@@ -162,16 +182,18 @@ def _initial_state(material: Material, f_FD: np.ndarray, tau_l_scalar: float) ->
     )
 
 
-def _solver_knobs(ratio: float) -> dict[str, float | int]:
-    """Pick Picard / Anderson parameters that converge at each ratio.
+def _solver_method(ratio: float) -> str:
+    """Ratio 10 uses coupled Newton; everything else uses Picard."""
+    return "coupled_newton" if ratio > 5.0 else "picard"
 
-    Matches the legacy script's convention: Anderson is enabled only
-    for ratios *strictly greater than* 5 (Anderson can over-extrapolate
-    at the boundary and stall the iteration). Mixing is under-relaxed
-    to 0.15 above ratio 2.
+
+def _solver_knobs(ratio: float) -> dict[str, float | int]:
+    """Picard / Anderson parameters that converge at each Picard ratio.
+
+    Mixing is under-relaxed to 0.15 above ratio 2. Ratio 10 uses the
+    coupled-Newton path instead; its knobs live in
+    :func:`_coupled_newton_knobs`.
     """
-    if ratio > 5.0:
-        return {"picard_mixing": 0.5, "anderson_depth": 10}
     if ratio > 2.0:
         return {"picard_mixing": 0.15, "anderson_depth": 0}
     return {"picard_mixing": 0.3, "anderson_depth": 0}
@@ -207,41 +229,62 @@ def run() -> Fig3FiniteResult:
         spectral, K_r0, idx_diff, idx_sum, diff_sign, omega_bins,
     )
 
-    # Fermi-Dirac seed for the first ratio.
+    # Fermi-Dirac seed for the first ratio; n_ph seed is bath thermal.
     kT = KB_UEV_PER_K * T_BATH
     f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
     backend = T3DiffusionBackend()
     f_seed = f_FD
+    n_ph_seed: np.ndarray | None = None
     f_by_ratio: dict[float, np.ndarray] = {}
 
     photon_params = {"omega_0": OMEGA_0, "n_bar": N_BAR, "c_phot": C_PHOT}
 
     for ratio in _CONTINUATION_RATIOS:
         tau_l = ratio * tau_0_pb
-        state = _initial_state(material, f_seed, tau_l)
-        knobs = _solver_knobs(ratio)
+        state = _initial_state(material, f_seed, tau_l, n_ph_seed=n_ph_seed)
+        method = _solver_method(ratio)
         is_target = ratio in TAU_L_RATIOS
         tag = "→ target" if is_target else "(continuation)"
-        print(
-            f"  τ_l/τ_0^PB = {ratio:<4g} {tag}  "
-            f"(mixing={knobs['picard_mixing']}, AA={knobs['anderson_depth']})",
-            flush=True,
-        )
-        converged = backend.steady_state(
-            state,
-            method="picard",
-            photon_params=photon_params,
-            picard_tol=1e-8,
-            picard_max_iter=10000,
-            picard_mixing=float(knobs["picard_mixing"]),
-            anderson_depth=int(knobs["anderson_depth"]),
-            newton_tol=1e-12,
-            newton_max_iter=500,
-        )
+
+        if method == "picard":
+            knobs = _solver_knobs(ratio)
+            print(
+                f"  τ_l/τ_0^PB = {ratio:<4g} {tag}  picard "
+                f"(mixing={knobs['picard_mixing']}, AA={knobs['anderson_depth']})",
+                flush=True,
+            )
+            converged = backend.steady_state(
+                state,
+                method="picard",
+                photon_params=photon_params,
+                picard_tol=1e-8,
+                picard_max_iter=10000,
+                picard_mixing=float(knobs["picard_mixing"]),
+                anderson_depth=int(knobs["anderson_depth"]),
+                newton_tol=1e-12,
+                newton_max_iter=500,
+            )
+        else:
+            print(
+                f"  τ_l/τ_0^PB = {ratio:<4g} {tag}  coupled_newton "
+                f"(seeded from prior-ratio (f, n_ph))",
+                flush=True,
+            )
+            converged = backend.steady_state(
+                state,
+                method="coupled_newton",
+                photon_params=photon_params,
+                coupled_newton_tol=1e-10,
+                coupled_newton_max_iter=50,
+                coupled_newton_fd_step=1e-8,
+            )
+
         if is_target:
             f_by_ratio[ratio] = converged.f.copy()
-        f_seed = converged.f  # continuation: seed next ratio with this one
+        # Continuation: hand both f and n_ph forward.
+        f_seed = converged.f
+        n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
 
     return Fig3FiniteResult(
         E=E,
