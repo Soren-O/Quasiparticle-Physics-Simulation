@@ -1,21 +1,14 @@
 """T3 backend: isotropic dirty-limit diffusion (scalar occupation).
 
 Composes the pieces from earlier Gate 2 commits into a working
-steady-state solver:
-
-* :mod:`qpsim.physics.spectral` — :class:`SpectralContext` for the
-  gap-dependent DOS / coherence matrices / diffusion coefficient.
-* :mod:`qpsim.collisions.phonon` — kernel builders with coherence-
-  assignment wiring.
-* :mod:`qpsim.services.steady_state` — the Newton + Picard
-  orchestrator that handles both the thermal-phonon limit and the
-  finite-``τ_l`` Picard iteration.
+backend with both steady-state and transient time-evolution paths.
 
 Scope for Gate 2: spatially-homogeneous runs (``N_spatial = 1``), a
 scalar gap, the e-phonon integral, and optional sub-gap / PB photon
-channels via ``photon_params`` / ``pb_photon_params``. Transient
-evolution (``step``, ``apply_collisions``, ``apply_transport``,
-``apply_gap_update``) lands with the Strang + ETD2 upgrades in task 12.
+channels via ``photon_params`` / ``pb_photon_params``. The transient
+``step()`` uses a symmetric 3-operator Strang split with
+``apply_transport`` as a no-op for ``N_spatial = 1`` (real spatial
+diffusion lands at Gate 5).
 """
 
 from __future__ import annotations
@@ -25,14 +18,22 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from qpsim.backends.base import Tier
+from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
 from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
     build_recombination_kernel_base,
     build_scattering_kernel_base,
+    phonon_collision_rates,
+    phonon_occupation_matrices_from_state,
 )
+from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononState
+from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
+from qpsim.solvers.etd import etd2_step
+from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 
 _TAU_L_UNIFORMITY_RTOL = 1e-10
 
@@ -179,6 +180,167 @@ class T3DiffusionBackend:
         )
         return replace(state, f=f_new, phonon=new_phonon)
 
+    def apply_collisions(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+        *,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
+    ) -> T3DiffusionState:
+        """One ETD2 collision substep on ``f`` with ``n_ph`` frozen.
+
+        Builds the e-ph kernels + the phonon occupation matrices from
+        ``state.phonon.n_ph``, wraps optional photon channels into the
+        ``rhs`` closure, and runs
+        :func:`qpsim.solvers.etd.etd2_step`. Returns a new state with
+        updated ``f``; the phonon field is unchanged (transient phonon
+        dynamics are out of Gate 2 scope — for coupled ``(f, n_ph)``
+        steady state use :func:`steady_state` or
+        :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`).
+        """
+        self._validate_gate2_scope(state.phonon)
+        self._validate_phonon_on_physics_grid(state)
+
+        K_s0 = build_scattering_kernel_base(
+            state.spectral, tau_0=state.material.tau_0, T_c=state.material.T_c,
+        )
+        K_r0 = build_recombination_kernel_base(
+            state.spectral, tau_0=state.material.tau_0, T_c=state.material.T_c,
+        )
+
+        _, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(state.spectral.E)
+        n_ph_1d = state.phonon.n_ph[0, :, 0]
+        N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
+            n_ph_1d, idx_diff, idx_sum, diff_sign,
+        )
+
+        def rhs(f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            gain, loss = phonon_collision_rates(
+                f, state.spectral, K_s0, K_r0, state.T_bath,
+                N_p_override=N_p, N_emit_override=N_emit, N_abs_override=N_abs,
+            )
+            if photon_params is not None:
+                gp, lp = sub_gap_photon_collision_rates(
+                    f, state.spectral,
+                    photon_params["omega_0"],
+                    photon_params["n_bar"],
+                    photon_params["c_phot"],
+                )
+                gain = gain + gp
+                loss = loss + lp
+            if pb_photon_params is not None:
+                gp, lp = pair_breaking_photon_collision_rates(
+                    f, state.spectral,
+                    pb_photon_params["omega_PB"],
+                    pb_photon_params["n_bar_PB"],
+                    pb_photon_params["c_phot_PB"],
+                )
+                gain = gain + gp
+                loss = loss + lp
+            return gain, loss
+
+        f_new = etd2_step(state.f, rhs, dt)
+        return replace(state, f=f_new)
+
+    def apply_transport(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+    ) -> T3DiffusionState:
+        """QP spatial transport substep — a no-op for v1 homogeneous.
+
+        Gate 2 treats the film as spatially homogeneous (``N_spatial = 1``,
+        ``state.f`` is 1D over energy only). The real T3 diffusion operator
+        — Crank-Nicolson on the Laplacian with an energy-dependent ``D(E)``
+        — lands at Gate 5 when the spatial grid is wired up.
+        """
+        if state.f.ndim != 1:
+            raise NotImplementedError(
+                "T3 spatial transport is not implemented yet; "
+                "state.f must be 1D (homogeneous) in Gate 2. "
+                "Full Usadel / LEGACY diffusion lands at Gate 5."
+            )
+        return state
+
+    def apply_gap_update(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+    ) -> T3DiffusionState:
+        """Advance Δ via ``solve_gap`` and advect ``ρ·f`` via spectral flow.
+
+        1. Solve for the new gap from the current ``f`` (reference-
+           subtracted BCS).
+        2. If Δ moved, compute ``Δ̇ = (Δ_new − Δ_old) / dt`` and apply
+           one TVD+SSPRK step on the conserved variable ``u = ρ · f``.
+        3. Rebuild the :class:`SpectralContext` at the new Δ and recover
+           ``f = u / ρ_new`` above the new gap edge (clipped to [0, 1]).
+        """
+        if dt <= 0:
+            return state
+
+        calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
+        new_gap = solve_gap(calibration, state.f, state.spectral.E)
+
+        if abs(new_gap - state.gap) < 1e-14:
+            return state
+
+        gap_dot = (new_gap - state.gap) / dt
+        u_old = state.spectral.rho * state.f
+        u_new = advect_spectral_flow(
+            u_old, state.spectral.E, state.spectral.dE,
+            gap=state.gap, gap_dot=gap_dot, dt=dt,
+            active_mask=state.spectral.active_mask,
+        )
+
+        new_spectral = SpectralContext(
+            E_bins=state.spectral.E,
+            dE_bins=state.spectral.dE,
+            gap=new_gap,
+            dynes_gamma=state.spectral.dynes_gamma,
+            diffusion_coefficient=float(state.material.D_0),
+        )
+
+        rho_new = new_spectral.rho
+        f_new = np.zeros_like(u_new)
+        mask = rho_new > 1e-30
+        f_new[mask] = u_new[mask] / rho_new[mask]
+        f_new = np.clip(f_new, 0.0, 1.0)
+
+        return replace(state, gap=new_gap, spectral=new_spectral, f=f_new)
+
+    def step(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+        *,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
+    ) -> T3DiffusionState:
+        """One symmetric-Strang time step.
+
+        Three-operator split with gap/transport as the "outer"
+        half-step operators and collisions as the "inner" full-step
+        operator:
+
+            gap/2, transport/2, collisions(dt), transport/2, gap/2
+
+        For ``N_spatial = 1`` (Gate 2 scope), ``apply_transport`` is a
+        no-op so the effective step reduces to
+        ``gap/2, collisions(dt), gap/2``.
+        """
+        s = self.apply_gap_update(state, dt / 2)
+        s = self.apply_transport(s, dt / 2)
+        s = self.apply_collisions(
+            s, dt,
+            photon_params=photon_params,
+            pb_photon_params=pb_photon_params,
+        )
+        s = self.apply_transport(s, dt / 2)
+        s = self.apply_gap_update(s, dt / 2)
+        return s
+
     @staticmethod
     def _validate_gate2_scope(phonon: PhononState) -> None:
         """Reject PhononState shapes the Gate 2 T3 backend can't handle.
@@ -206,4 +368,29 @@ class T3DiffusionBackend:
                 "every entry of state.phonon.tau_l must be equal. "
                 "Frequency-dependent τ_l(ω) needs solve_steady_state to "
                 "accept an array, which is a post-Gate-4 upgrade."
+            )
+
+    @staticmethod
+    def _validate_phonon_on_physics_grid(state: T3DiffusionState) -> None:
+        """Ensure ``state.phonon.omega_bins`` matches the QP-derived ω grid.
+
+        ``apply_collisions`` consumes ``state.phonon.n_ph`` directly, so
+        the ω grid it lives on must match the pair-sum / pair-difference
+        grid that :func:`build_phonon_frequency_map` derives from
+        ``state.spectral.E``. (``steady_state`` rebuilds the grid
+        internally and returns a phonon on the physics grid; the usual
+        workflow is ``steady_state`` first, then transient ``step``s.)
+        """
+        expected, _, _, _ = build_phonon_frequency_map(state.spectral.E)
+        if state.phonon.omega_bins.shape != (1, expected.size):
+            raise ValueError(
+                f"state.phonon.omega_bins shape {state.phonon.omega_bins.shape} "
+                f"does not match physics grid shape (1, {expected.size}) derived "
+                "from state.spectral.E. Run backend.steady_state(state) first, or "
+                "build PhononState on the physics ω grid."
+            )
+        if not np.allclose(state.phonon.omega_bins[0], expected):
+            raise ValueError(
+                "state.phonon.omega_bins does not match the physics ω grid "
+                "(pair-sum / pair-diff of state.spectral.E)."
             )
