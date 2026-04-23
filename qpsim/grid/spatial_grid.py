@@ -263,14 +263,28 @@ def build_variable_diffusion_laplacian(
     interior face to preserve discrete conservation. BC contributions
     are scaled by the boundary-cell's local ``D_p``.
 
-    ``D_spatial`` is a 1D array of length ``N`` indexed by interior
-    point (matching ``mask_to_index``).
+    ``D_spatial`` must be a 1D array of length ``N`` (the interior-point
+    count), indexed the same as the output of :func:`mask_to_index`.
     """
     if dx <= 0:
         raise ValueError("dx must be positive.")
+    if mask.ndim != 2:
+        raise ValueError("mask must be 2D.")
+
+    D_arr = np.asarray(D_spatial, dtype=float)
+    if D_arr.ndim != 1:
+        raise ValueError("D_spatial must be a 1D array.")
 
     index_map, coords = mask_to_index(mask)
     n = len(coords)
+    if n == 0:
+        raise ValueError("Geometry mask has no interior points.")
+    if D_arr.shape[0] != n:
+        raise ValueError(
+            f"D_spatial length {D_arr.shape[0]} does not match "
+            f"interior-point count {n}."
+        )
+
     face_bc = _build_face_bc_lookup(edges, edge_conditions)
     inv_dx2 = 1.0 / (dx * dx)
     inv_dx = 1.0 / dx
@@ -282,12 +296,12 @@ def build_variable_diffusion_laplacian(
     ny, nx = mask.shape
 
     for p, (row, col) in enumerate(coords):
-        D_p = D_spatial[p]
+        D_p = D_arr[p]
         for direction, (dr, dc) in _DIR_OFFSETS.items():
             nr, nc = row + dr, col + dc
             if 0 <= nr < ny and 0 <= nc < nx and mask[nr, nc]:
                 q = int(index_map[nr, nc])
-                D_q = D_spatial[q]
+                D_q = D_arr[q]
                 D_face = 2.0 * D_p * D_q / max(D_p + D_q, 1e-30)
                 rows.append(p)
                 cols.append(p)

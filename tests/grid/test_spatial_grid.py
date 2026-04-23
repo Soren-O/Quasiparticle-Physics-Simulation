@@ -148,3 +148,43 @@ class TestBuildVariableDiffusionLaplacian:
             mask, edges, edge_conditions, dx=1.0
         )
         np.testing.assert_allclose(L_var.toarray(), (D_val * L_const).toarray(), atol=1e-12)
+
+    def test_rejects_empty_mask(self) -> None:
+        mask = np.zeros((3, 3), dtype=bool)
+        with pytest.raises(ValueError, match="no interior points"):
+            build_variable_diffusion_laplacian(
+                mask, edges=[], edge_conditions={}, dx=1.0, D_spatial=np.array([])
+            )
+
+    def test_rejects_non_2d_mask(self) -> None:
+        with pytest.raises(ValueError, match="mask must be 2D"):
+            build_variable_diffusion_laplacian(
+                np.array([True, True]), edges=[], edge_conditions={}, dx=1.0,
+                D_spatial=np.ones(2),
+            )
+
+    def test_rejects_non_1d_D_spatial(self) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
+        with pytest.raises(ValueError, match="D_spatial must be a 1D array"):
+            build_variable_diffusion_laplacian(
+                mask, edges, edge_conditions, dx=1.0,
+                D_spatial=np.ones((3, 3)),
+            )
+
+    def test_rejects_wrong_length_D_spatial(self) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
+        with pytest.raises(ValueError, match="does not match interior-point count"):
+            build_variable_diffusion_laplacian(
+                mask, edges, edge_conditions, dx=1.0,
+                D_spatial=np.ones(8),  # should be 9
+            )
+
+    def test_rejects_non_positive_dx(self) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
+        with pytest.raises(ValueError, match="dx must be positive"):
+            build_variable_diffusion_laplacian(
+                mask, edges, edge_conditions, dx=0.0, D_spatial=np.ones(9),
+            )
