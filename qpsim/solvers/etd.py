@@ -1,11 +1,18 @@
 """Exponential-integrator time steppers for the collision operator.
 
-Currently provides only ETD1 (exponential Euler, first-order). The
-ETD2 upgrade (second-order exponential midpoint) is a committed Gate 2
-port-time change — see the Build Handoff.
+Provides ``etd1_step`` (first-order exponential Euler) and
+``etd2_step`` (second-order Heun-type ETD). Both are specialized to
+``∂_t x = gain(x) − loss_rate(x) · x`` with ``loss_rate ≥ 0``; the
+linear relaxation in ``loss_rate`` is handled exactly, and the
+nonlinear ``gain`` is discretized to first- or second-order.
+
+ETD2 is the committed port-time upgrade from the Build Handoff —
+``apply_phonon_collision`` in :mod:`qpsim.collisions.phonon` uses it.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 import numpy as np
 
@@ -40,3 +47,45 @@ def etd1_step(
 
     updated = decay * f + coeff * p_term
     return np.clip(updated, 0.0, 1.0)
+
+
+def etd2_step(
+    f: np.ndarray,
+    rhs: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]],
+    dt: float,
+) -> np.ndarray:
+    """Heun-type ETD2 step for ``df/dt = gain(f) − loss_rate(f) · f``.
+
+    Two-stage predictor-corrector with the linear ``e^{−μ dt}``
+    relaxation handled exactly at each stage:
+
+    1. Predictor — run one ``etd1_step`` with ``(gain_n, loss_n) = rhs(f)``.
+    2. Corrector — evaluate ``(gain_p, loss_p) = rhs(f_pred)``, then
+       run a second ``etd1_step`` on the original ``f`` with the
+       averaged rates ``½(gain_n + gain_p)`` and ``½(loss_n + loss_p)``.
+
+    Second-order accurate in ``dt`` for general ``gain(f)`` /
+    ``loss_rate(f)``; reduces to ``etd1_step`` exactly when the rates
+    are frozen (linear problem).
+
+    Parameters
+    ----------
+    f
+        Initial occupation, shape ``(NE,)``.
+    rhs
+        Callable ``rhs(f) → (gain, loss_rate)``, each shape ``(NE,)``.
+        Invoked twice per step.
+    dt
+        Time step (ns).
+
+    Returns
+    -------
+    np.ndarray
+        Updated occupation, clipped to ``[0, 1]``.
+    """
+    gain_n, loss_n = rhs(f)
+    f_pred = etd1_step(f, gain_n, loss_n, dt)
+    gain_p, loss_p = rhs(f_pred)
+    gain_avg = 0.5 * (gain_n + gain_p)
+    loss_avg = 0.5 * (loss_n + loss_p)
+    return etd1_step(f, gain_avg, loss_avg, dt)

@@ -12,9 +12,10 @@ with the numba acceleration path dropped. Provides:
   ``phonon_occupation_matrices_from_state``,
   ``compute_phonon_source_sink``: the dynamic-phonon coupling pieces
   used when ``n_ph(ω, t)`` is a live dynamical variable.
-- ``apply_phonon_collision``: ETD1 step that combines the above for the
-  thermal-bath case. The stepper itself lives in ``qpsim.solvers.etd``;
-  the ETD2 upgrade is a committed Gate 2 port-time change.
+- ``apply_phonon_collision``: ETD2 step that combines the above for the
+  thermal-bath case. Both steppers (ETD1 and ETD2) live in
+  ``qpsim.solvers.etd``; this wrapper uses the second-order form per
+  the Build Handoff's committed port-time upgrade.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
 from qpsim.physics.kernels import scattering_kernel_base as _scattering_kernel_base
 from qpsim.physics.spectral import SpectralContext
-from qpsim.solvers.etd import etd1_step
+from qpsim.solvers.etd import etd2_step
 
 
 class CoherenceAssignment(Enum):
@@ -306,16 +307,19 @@ def apply_phonon_collision(
     enable_scattering: bool = True,
     enable_recombination: bool = True,
 ) -> np.ndarray:
-    """One ETD1 collision step at a single spatial pixel (thermal bath).
+    """One ETD2 collision step at a single spatial pixel (thermal bath).
 
-    Convenience wrapper: calls ``phonon_collision_rates`` with the
-    thermal-bath phonon factors, then applies one ``_etd1_step``. For
-    the dynamic-phonon case, callers assemble the step explicitly using
-    ``phonon_collision_rates`` with ``N_*_override`` arguments.
+    Convenience wrapper: defines a ``rhs(f) = phonon_collision_rates(f)``
+    closure and runs one Heun-type second-order exponential step
+    (:func:`qpsim.solvers.etd.etd2_step`). For the dynamic-phonon case,
+    callers assemble the step explicitly using ``phonon_collision_rates``
+    with ``N_*_override`` arguments.
     """
-    gain, loss_rate = phonon_collision_rates(
-        f, ctx, K_s0, K_r0, T_bath,
-        enable_scattering=enable_scattering,
-        enable_recombination=enable_recombination,
-    )
-    return etd1_step(f, gain, loss_rate, dt)
+    def rhs(f_state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return phonon_collision_rates(
+            f_state, ctx, K_s0, K_r0, T_bath,
+            enable_scattering=enable_scattering,
+            enable_recombination=enable_recombination,
+        )
+
+    return etd2_step(f, rhs, dt)

@@ -3,7 +3,7 @@
 Ported (Gate 2):
 - anderson.py — Type-I Anderson extrapolation helper
 - crank_nicolson.py — Crank–Nicolson operator builder for parabolic solves
-- etd.py — ETD1 exponential-Euler stepper (ETD2 coming per Build Handoff)
+- etd.py — ETD1 (exponential Euler) and ETD2 (Heun-type second-order)
 - newton_steady_state.py — Newton with analytical Jacobian for f
 - picard.py — generic Picard + Anderson fixed-point iteration
 - spectral_flow_tvd.py — TVD finite-volume advection for spectral-flow
@@ -21,7 +21,7 @@ Planned (New Framework Plan §5, Gate 2 port-time upgrades):
 
 from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.crank_nicolson import build_cn_operators
-from qpsim.solvers.etd import etd1_step
+from qpsim.solvers.etd import etd1_step, etd2_step
 from qpsim.solvers.picard import PicardInfo, picard_iterate
 from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 from qpsim.solvers.ssprk import ssprk22_step
@@ -32,6 +32,7 @@ __all__ = [
     "anderson_extrapolate",
     "build_cn_operators",
     "etd1_step",
+    "etd2_step",
     "picard_iterate",
     "ssprk22_step",
 ]
