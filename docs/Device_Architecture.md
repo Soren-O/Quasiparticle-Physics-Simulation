@@ -204,19 +204,25 @@ class ExternalFlux:
     Units are ``1/ns`` to match the rest of the T3 stack (not Hz).
     Converters from Stage-A-style Hz rates live in the Junction
     implementation, not in the ExternalFlux contract.
+
+    Shape matches the current T3 state layout: v1 is ``(NE,)``
+    because Gate-2 T3 is lumped-0D (single spatial cell). When
+    Gate 5 adds spatial T3, both fields broaden to ``(NE, NR)``
+    and ``target_cells`` becomes a meaningful mask. v1 ships with
+    a shape check that accepts ``(NE,)`` and optionally
+    ``(NE, 1)`` (transparent squeeze) so the contract is forward-
+    compatible without premature spatial plumbing.
     """
-    gain: np.ndarray          # ≥ 0 everywhere. Shape (NE, NR) for T3.
+    gain: np.ndarray          # ≥ 0 everywhere. Shape (NE,) in v1.
                               # Additive source rate, units 1/ns.
-    loss_rate: np.ndarray     # ≥ 0 everywhere. Shape (NE, NR) for T3.
+    loss_rate: np.ndarray     # ≥ 0 everywhere. Shape (NE,) in v1.
                               # Multiplier on f in the damping term,
                               # so the RHS contribution is -loss_rate*f,
                               # units 1/ns.
     target_cells: np.ndarray | None = None
-                              # Optional boolean mask (NR,) selecting
-                              # which spatial cells receive the flux;
-                              # None = all cells. Junctions on a 1D
-                              # film geometry use this to localize
-                              # the coupling to the junction cell.
+                              # Optional boolean mask (NR,) for spatial
+                              # T3; IGNORED in v1 (0D has one cell).
+                              # Reserved for Gate 5.
     diagnostics: dict[str, float] = field(default_factory=dict)
                               # Junction name, total injected current,
                               # etc. — passed to the solver logs.
@@ -235,16 +241,37 @@ class ExternalFlux:
 When ``external_flux=None`` (the default), the code path is bit-
 for-bit identical to today. All 360+ Gate-3 tests remain green.
 
-#### 2.2.3 Regression test for Phase 2
+#### 2.2.3 Regression tests for Phase 2
 
-* Zero flux: existing Fischer reproductions unchanged.
-* Constant gain only (no loss): steady state ``f = gain / r`` for
-  a pure-recombination region — compare to closed form.
-* Gain and loss that match a detailed-balance thermal source at T:
-  steady state ``f = f_FD(T)`` — compare to Fermi-Dirac.
-* Conservation: ``∫ ∂_t f dE`` at steady state under a non-zero
-  ``ExternalFlux`` balances the junction current diagnostic to
-  machine precision.
+The Phase 2 surface is *just* the new RHS term. To test it cleanly
+without tangling with the (nonlinear in f, via cross-bin partners)
+collision kernels, the contract tests run with
+``enable_recombination=False, enable_scattering=False,
+enable_photon_scattering=False`` so only the ExternalFlux term
+plus the spectral-flow term is live:
+
+* **Zero flux identity**: ``ExternalFlux=None`` ⇒ bit-for-bit match
+  with today's Gate-3 Fischer validations across the full T3 test
+  suite.
+* **Linear ODE closed form**: collision kernels disabled,
+  ``ExternalFlux(gain=g(E), loss_rate=r(E))`` with constant ``g, r``.
+  Steady state is ``f(E) = g(E) / r(E)`` by direct construction of
+  the ODE ``df/dt = g − r f``. Compare to float64 precision.
+* **Detailed-balance ansatz**: with kernels disabled, set
+  ``gain, loss_rate`` such that ``gain/loss_rate = f_FD(E, T_bath)``
+  pointwise in E. Steady state is Fermi-Dirac by construction.
+  This is the same linear-ODE test as above — the point is that
+  the contract *supports* a detailed-balance setup.
+* **Conservation under injection**: with kernels disabled,
+  ``∂_t n_qp`` from ExternalFlux equals
+  ``4 ρ_F ∫ ρ(E) (gain − loss_rate · f) dE`` — a linear identity
+  checked directly; confirms that the observable-level
+  conservation law is wired consistently with the Fischer-
+  convention normalization.
+
+Nonlinear behavior with collisions on is exercised in Phase 3
+(two-region device reaching thermal equilibrium), where the
+invariant is architecturally richer.
 
 ### 2.3 Backend choice is per-Region
 
@@ -325,36 +352,63 @@ class Junction:
 
 #### 3.2.1 Boundary-current normalization (critical for conservation)
 
-A junction between two regions transports QPs across a contact
-area ``A_junction``; internally, each region's ``f(E, r)`` is
-density per state per cell. Converting a junction current ``I_J(E)``
-(tunneling events per second per unit energy) into an
-``ExternalFlux.gain(E, r)`` (rate of f-change per cell, in 1/ns)
-requires explicit normalization. The framework fixes this as
-follows:
+A junction transports QPs between two regions. Converting a
+**per-energy-bin tunneling rate** ``I_J(E)`` (events/(time · E-bin))
+into an ``ExternalFlux.gain(E)`` (units ``1/ns``, matching the
+per-E-bin collision-term convention) requires the E-resolved DOS
+normalization, **not** the integrated moment one. The framework
+uses the Fischer convention from ``qpsim.observables.density``:
 
-* **0D regions.** Region volume ``V`` is scalar; the per-cell RHS
-  gets the full junction current divided by the Cooper-pair number
-  in that region: ``gain(E) = I_J(E) / (2 ν_0 Δ V)``. This matches
-  the Stage A convention ``g^{ph}_R = Γ^{ph}/(2 ν_0 Δ_R V)`` and
-  makes the Layer-3 moment closure textually identical to M25 Eq. 4.
-* **Spatial regions.** The junction touches a subset of cells
-  (``target_cells`` mask). The per-cell injection is
-  ``gain(E, r) = I_J(E) / (2 ν_0 Δ V_cell)`` for cells in the
-  mask, zero elsewhere, with ``V_cell = A_cell × thickness``.
-* **Per-E conservation.** ``∫ gain(E) dE × V_region`` equals the
-  total junction injection rate across that boundary, enforced by
-  construction.
-* **Cross-region balance.** If junction L→R moves ``I_J(E) dE``
-  QPs per second from L to R, the reverse rate for R→L (from the
-  other-direction integrand) has a matching pair. ``gain`` and
-  ``loss_rate`` are bookkept so the total QP number is conserved
-  across the device (sum over all regions of ``∫ f × ν_0 dE × V``
-  has zero junction-induced time derivative at detailed balance).
+  ``n_qp = 4 ρ_F ∫ ρ(E) f(E) dE``
 
-These invariants are **explicit tests in Phase 3**: a two-region
-Device at matched T with no drive must conserve total QP number
-to float64 precision, and both regions must land on ``f = f_FD(T)``.
+where ``ρ_F`` is the single-spin normal-state DOS at the Fermi
+level and ``ρ(E)`` is the BCS (or Dynes-broadened) spectral
+enhancement. If the junction injects QPs at rate ``I_J(E) dE`` per
+unit time, the density rate ``∂_t n_qp`` in that region is
+``I_J(E) dE / V_region``. Matching to ``4 ρ_F ρ(E) ∂_t f(E) dE``
+per bin gives:
+
+* **0D regions (v1):**
+  ``gain(E) = I_J(E) / (4 ρ_F ρ(E) V_region)``
+  ``loss_rate(E) = I_J^{out}(E) / (4 ρ_F ρ(E) V_region × f(E))``
+  where ``I_J^{out}(E)`` is the per-bin extraction rate (split off
+  from an ``I_J^{in}(E)`` by sign; the loss-rate form recovers
+  positivity-preserving solver structure — see §2.2).
+* **Spatial regions (Gate 5+):** same formula per spatial cell with
+  ``V_cell`` and with ``target_cells`` masking the junction
+  interface. Not implemented in v1.
+
+**Relationship to Stage A's moment normalization.** Stage A's
+``g^{ph}_R = Γ^{ph} / (2 ν_0 Δ_R V)`` is the E-*integrated* rate
+per Cooper pair, the appropriate normalization for the M25
+moment-level ``dx_α/dt`` equations. It relates to the E-resolved
+gain via
+
+  ``g_moment = ∫ gain(E) × ρ(E) × (4 ρ_F / 2 ν_0 Δ) dE = (2 ρ_F/ν_0 Δ) × ∫ gain(E) ρ(E) dE``
+
+When ``ρ_F = ν_0`` (same DOS convention on both sides) this
+simplifies to ``g_moment = (2/Δ) × ∫ gain(E) ρ(E) dE``. The
+``M25GapAsymmetricJJ`` implementation is responsible for this
+mapping: it evaluates Stage A's moment-rate ``Γ̃^α`` per qubit
+channel, then distributes that rate across the E-grid in a way
+that preserves the moment sum (e.g., a δ-like distribution at
+the kinematically-selected partner energies). This distribution
+choice is an *approximation* introduced by the MomentClosureJunction
+wrapper — a KineticJunction would compute ``gain(E)`` directly from
+f_L(E), f_R(E') at paired energies.
+
+**Conservation invariants (pinned by Phase 3 tests).**
+
+1. **Per-region total injection matches the junction current**:
+   ``4 ρ_F V_region ∫ ρ(E) gain(E) dE = I_J^{total}`` — the
+   device-level junction diagnostic — to float64.
+2. **Cross-region balance at detailed balance**: summing over
+   every region of ``∂_t n_qp = 4 ρ_F V_region ∫ ρ(E) (gain −
+   loss_rate · f) dE`` equals zero when the Device is at thermal
+   equilibrium with matched temperature and no drive.
+3. **Steady-state matched-T limit**: two-region Device at
+   ``T_L = T_R``, no drive: both regions land on ``f = f_FD(T)``,
+   junction flux ``I_J → 0`` as convergence proceeds.
 
 #### 3.2.2 Unit convention summary
 
@@ -499,28 +553,43 @@ Most of these stay **exactly as-is**. Their new home is as private
 helpers of a specific `Junction` subclass:
 
 ```python
-class M25GapAsymmetricJJ(Junction):
+class M25GapAsymmetricJJ(MomentClosureJunction):
     """Gap-asymmetric JJ coupled to a transmon qubit, with pair-
     breaking photon drive. Implements the M25 physics exactly.
+
+    ``MomentClosureJunction`` is the abstract base that handles the
+    RegionState-to-moments reduction; this subclass supplies the
+    M25-specific physics in the reduced coordinates.
     """
     def evaluate(
         self,
         region_a_state: RegionState,        # L electrode
         region_b_state: RegionState,        # R electrode
-        qubit_state: QubitState,
-    ) -> JunctionFluxes:
-        # 1. Evaluate Γ̃^α_{ij} from the region-local f_α(E) —
-        #    for now, assume Fermi-Dirac ansatz → use Stage A
-        #    closed-form evaluators that take (E_J, E_C, gaps, T,
-        #    μ_α) and return Hz rates per qubit state. A future
-        #    generalization drops the Fermi-Dirac ansatz and
-        #    integrates directly over f_α(E).
-        # 2. Weight by qubit state p_i.
-        # 3. Assemble region fluxes:
-        #    flux_L(E) = Σ_{i,j} p_i × Γ̃^L_{ij} × (f-shape function)
-        #    (signs: outflow from L when the tunneling lands the QP in R)
-        # 4. Return JunctionFluxes with L/R fluxes and qubit rate matrix.
-        ...
+        qubit_state: QubitState,            # shape (n_levels, 2) parity-resolved
+    ) -> JunctionResult:
+        # 1. Reduce each RegionState to (x_α, µ_α) under the
+        #    Fermi-Dirac ansatz — the Layer-3 moment closure
+        #    implemented on MomentClosureJunction.
+        # 2. Call Stage A closed-form evaluators at (E_J, E_C,
+        #    gaps, T, µ_α) → per-channel moment-level rates in Hz:
+        #       * Γ̃^α_{ij} × x_α (tunneling, one rate per α, i, j)
+        #       * r^α × x_α² (recombination), g^{pn}_α (thermal gen),
+        #         τ_R⁻¹/τ_E⁻¹ (intraband), ξ (branching),
+        #         g^{ph}_α/Γ̃^{ph}_{ij} (Note V photon-assisted)
+        # 3. For each (α, i, j) channel, convert the Hz rate to a
+        #    per-E-bin gain on that region via §3.2.1 normalization,
+        #    concentrating the injection at the kinematically-
+        #    selected partner energy (e.g. E_partner = E + ω_LR for
+        #    L→R> tunneling). Collect per-region ExternalFlux.
+        # 4. Emit one QubitTransitionChannel per (i → j) transition:
+        #       * eo channels (Γ̃^α, Γ̃^{ph}): flips_parity=True
+        #       * ee channels (Γ̃^{ee}): flips_parity=False
+        #    with rate_per_ns converted from the Stage-A Hz output.
+        return JunctionResult(
+            external_flux_a=flux_L,
+            external_flux_b=flux_R,
+            qubit_channels=channels,
+        )
 ```
 
 The moment-closure specialization (“Fermi-Dirac on each region”)
