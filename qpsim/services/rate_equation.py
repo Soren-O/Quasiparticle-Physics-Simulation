@@ -343,12 +343,13 @@ def solve_rate_equation_steady_state(
     coefs: M25Coefficients,
     *,
     initial_guess: np.ndarray | None = None,
-    residual_tol: float = 1e-10,
+    residual_tol: float | None = None,
+    residual_tol_relative: float = 1e-8,
     max_function_evaluations: int = 500,
 ) -> M25SteadyState:
     r"""Solve the M25 three-chemical-potential system for its steady state.
 
-    Newton (scipy ``hybr``, finite-difference Jacobian) on the 4-unknown
+    Newton (scipy ``lm``, finite-difference Jacobian) on the 4-unknown
     residual ``(ṗ_1, ẋ_L, ẋ_{R>}, ẋ_{R<}) = 0``. The system is
     polynomial in the unknowns (quadratic in densities, bilinear in
     ``p × x``), so when the guess is in the basin of the physical
@@ -367,10 +368,18 @@ def solve_rate_equation_steady_state(
         thermal-equilibrium fixed point at high T) can be reached by
         passing a guess close to them.
     residual_tol
-        Acceptance threshold on ``||R||_∞``. The solver is
-        configured with a tight step tolerance (``xtol=1e-12``); the
-        returned residual norm is checked post-hoc against this tol
-        and a :class:`RuntimeError` is raised if it is not met.
+        Absolute acceptance threshold on ``||R||_∞`` in Hz. If
+        ``None`` (default), an automatic tolerance
+        ``max_coefficient × residual_tol_relative`` is used — the
+        residual always carries Hz units, so tolerance must scale with
+        the coefficient magnitude (Newton on the full SI-derived M25
+        coefficients has rates up to ``~10¹¹ Hz``, making a hard
+        ``1e-10`` absolute unreachable at float64 precision).
+    residual_tol_relative
+        Multiplier for the auto-scaled default; ignored when
+        ``residual_tol`` is given explicitly. The default ``1e-8``
+        corresponds to ~8 significant-figure relative precision in
+        the cancellation that produces ``(ṗ_1, ẋ_α)`` at convergence.
     max_function_evaluations
         Hard cap passed to scipy. Each Newton step typically costs
         5 evaluations (1 residual + 4 FD-Jacobian columns).
@@ -409,6 +418,20 @@ def solve_rate_equation_steady_state(
             raise ValueError(
                 f"initial_guess must have shape (4,); got {y0.shape}"
             )
+
+    if residual_tol is None:
+        max_scale = max(
+            float(np.max(np.abs(coefs.gammas_L))),
+            float(np.max(np.abs(coefs.gammas_Rgt))),
+            float(np.max(np.abs(coefs.gammas_Rlt))),
+            coefs.r_L, coefs.r_Rgt, coefs.r_Rlt, coefs.r_cross,
+            coefs.g_L, coefs.g_Rgt, coefs.g_Rlt,
+            coefs.tau_R_inv, coefs.tau_E_inv,
+            float(np.max(np.abs(coefs.gamma_ee))),
+            float(np.max(np.abs(coefs.gamma_ph))),
+            1.0,  # floor: never tighter than 1 Hz × relative-tol
+        )
+        residual_tol = max_scale * residual_tol_relative
 
     sol = root(
         _rate_equation_residual,
