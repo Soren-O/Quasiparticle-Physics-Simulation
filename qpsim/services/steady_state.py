@@ -27,6 +27,7 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
 )
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.phonon_models.ph0_local import phonon_steady_state
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
@@ -42,6 +43,7 @@ def solve_steady_state(
     *,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
+    external_flux: ExternalFlux | None = None,
     initial_guess: np.ndarray | None = None,
     tol: float = 1e-14,
     max_iter: int = 200,
@@ -72,6 +74,9 @@ def solve_steady_state(
         ``{"omega_0", "n_bar", "c_phot"}`` for sub-gap channel.
     pb_photon_params
         ``{"omega_PB", "n_bar_PB", "c_phot_PB"}`` for PB channel.
+    external_flux
+        Optional :class:`qpsim.devices.ExternalFlux` boundary
+        source/sink. Forwards to the Newton inner solve.
     initial_guess
         Starting ``f(E)``. Defaults to the Fermi-Dirac at ``T_bath``.
     tol, max_iter
@@ -115,6 +120,7 @@ def solve_steady_state(
             K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, active=active,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
             tol=tol, max_iter=max_iter,
         )
 
@@ -148,6 +154,7 @@ def solve_steady_state(
             K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, active=active,
             N_p_override=N_p, N_emit_override=N_emit, N_abs_override=N_abs,
             photon_params=photon_params, pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
             tol=tol, max_iter=max_iter,
         )
 

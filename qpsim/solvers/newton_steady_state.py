@@ -25,6 +25,7 @@ from qpsim.collisions.phonon import (
     phonon_collision_rates,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -41,6 +42,7 @@ def newton_solve_f(
     N_abs_override: np.ndarray | None = None,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
+    external_flux: ExternalFlux | None = None,
     tol: float = 1e-14,
     max_iter: int = 200,
 ) -> np.ndarray:
@@ -71,6 +73,12 @@ def newton_solve_f(
     pb_photon_params
         ``{"omega_PB", "n_bar_PB", "c_phot_PB"}`` for the PB channel,
         or ``None`` to disable.
+    external_flux
+        Optional :class:`qpsim.devices.ExternalFlux` (gain, loss_rate)
+        contract added to the residual. Used by Junction-coupled
+        regions in the device architecture (see
+        ``docs/Device_Architecture.md``). When ``None`` (default),
+        the solver path is bit-for-bit identical to pre-Phase-2 behavior.
     tol
         Absolute/relative convergence tolerance on the residual.
     max_iter
@@ -113,6 +121,7 @@ def newton_solve_f(
             f_cur, ctx, K_s0, K_r0, T_bath,
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
+            external_flux,
         )
         R = gain - loss_rate * f_cur
 
@@ -137,6 +146,7 @@ def newton_solve_f(
             f_cur, ctx, K_s0, K_r0,
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
+            external_flux,
         )
         J_act = J[np.ix_(active, active)]
         R_act = R[active]
@@ -160,6 +170,7 @@ def newton_solve_f(
                 f_trial, ctx, K_s0, K_r0, T_bath,
                 photon_params, pb_photon_params,
                 N_p, N_emit, N_abs,
+                external_flux,
             )
             if np.max(np.abs(R_trial[active])) < max_residual:
                 accepted = True
@@ -198,6 +209,7 @@ def _gain_loss_sum(
     N_p: np.ndarray | None,
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
+    external_flux: ExternalFlux | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Total (gain, loss_rate) from all enabled collision channels."""
     gain, loss_rate = phonon_collision_rates(
@@ -227,6 +239,10 @@ def _gain_loss_sum(
         gain = gain + gain_pb
         loss_rate = loss_rate + loss_pb
 
+    if external_flux is not None:
+        gain = gain + external_flux.gain
+        loss_rate = loss_rate + external_flux.loss_rate
+
     return gain, loss_rate
 
 
@@ -241,12 +257,14 @@ def _residual(
     N_p: np.ndarray | None,
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
+    external_flux: ExternalFlux | None = None,
 ) -> np.ndarray:
     """``df/dt = gain − loss_rate · f`` at the supplied ``f``."""
     gain, loss_rate = _gain_loss_sum(
         f, ctx, K_s0, K_r0, T_bath,
         photon_params, pb_photon_params,
         N_p, N_emit, N_abs,
+        external_flux,
     )
     return gain - loss_rate * f
 
@@ -261,6 +279,7 @@ def _jacobian_analytical(
     N_p: np.ndarray | None,
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
+    external_flux: ExternalFlux | None = None,
 ) -> np.ndarray:
     """Analytical Jacobian ``∂R_i/∂f_j`` of the collision residual.
 
@@ -359,5 +378,11 @@ def _jacobian_analytical(
             # ∂R_i/∂f_j = −c · U⁻ · (n_bar + f_i)
             J[i, i] -= c_pb * U_m * (n_bar_pb + f[j_r])
             J[i, j_r] -= c_pb * U_m * (n_bar_pb + f[i])
+
+    # ExternalFlux contributes -loss_rate to the diagonal (gain is f-
+    # independent so contributes zero; the linear -loss_rate*f term has
+    # diagonal Jacobian = -loss_rate).
+    if external_flux is not None:
+        J[diag_idx, diag_idx] -= external_flux.loss_rate
 
     return J

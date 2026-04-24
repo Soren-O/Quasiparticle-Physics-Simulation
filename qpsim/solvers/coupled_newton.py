@@ -33,6 +33,7 @@ from qpsim.collisions.phonon import (
     compute_phonon_source_sink,
     phonon_occupation_matrices_from_state,
 )
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.newton_steady_state import _gain_loss_sum, _jacobian_analytical
@@ -53,6 +54,7 @@ def coupled_newton_solve(
     tau_l: float = 0.0,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
+    external_flux: ExternalFlux | None = None,
     tol: float = 1e-10,
     max_iter: int = 50,
     fd_step: float = 1e-8,
@@ -81,6 +83,11 @@ def coupled_newton_solve(
     photon_params, pb_photon_params
         Optional photon channel dicts (same shape as for
         :func:`qpsim.solvers.newton_steady_state.newton_solve_f`).
+    external_flux
+        Optional :class:`qpsim.devices.ExternalFlux` boundary
+        source/sink contract on the f-equation. Affects only the
+        f-block; the phonon-block residual is unchanged. ``None``
+        is bit-for-bit identical to pre-Phase-2 behavior.
     tol
         Infinity-norm tolerance on the combined residual
         ``max(|R_f|, |R_ph|)``.
@@ -123,6 +130,7 @@ def coupled_newton_solve(
             f_state, ctx, K_s0, K_r0, T_bath,
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
+            external_flux,
         )
         R_f = gain - loss * f_state
 
@@ -153,6 +161,7 @@ def coupled_newton_solve(
             f, ctx, K_s0, K_r0,
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
+            external_flux,
         )
         _, b_ph = compute_phonon_source_sink(
             f, ctx, K_s0, K_r0,

@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.devices.external_flux import ExternalFlux
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ def run_time_dependent(
     total_time: float,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
+    external_flux: ExternalFlux | Callable[[float], ExternalFlux] | None = None,
     snapshot_interval: float | None = None,
     observables: dict[str, Callable[[T3DiffusionState], float]] | None = None,
     stop_tol: float | None = None,
@@ -87,6 +89,12 @@ def run_time_dependent(
         ``apply_collisions`` expects. Drive is constant across the
         transient (no built-in pulse shaping — for a drive step, run
         two transients and splice).
+    external_flux
+        Optional :class:`qpsim.devices.ExternalFlux` boundary
+        source/sink contract. Either a static instance applied at
+        every substep, or a callable ``f(t) -> ExternalFlux`` that
+        returns the flux at the current simulation time (for
+        time-varying junction couplings). ``None`` disables.
     snapshot_interval
         Time between saved snapshots (ns). Defaults to
         ``total_time / 50``. Snapshots are written when the running
@@ -151,12 +159,20 @@ def run_time_dependent(
     # closest multiple) rather than drifting with float accumulation.
     max_steps = int(np.ceil(total_time / dt))
 
+    def _flux_at(t_now: float) -> ExternalFlux | None:
+        if external_flux is None:
+            return None
+        if callable(external_flux):
+            return external_flux(t_now)
+        return external_flux
+
     for _ in range(max_steps):
         prev_f = current.f
         current = backend.apply_collisions(
             current, dt,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
+            external_flux=_flux_at(t),
         )
         t += dt
         n_steps += 1

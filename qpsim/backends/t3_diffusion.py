@@ -27,6 +27,7 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononState
 from qpsim.physics.gap_equation import calibrate_gap, solve_gap
@@ -96,6 +97,7 @@ class T3DiffusionBackend:
         use_thermal_phonons: bool = False,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
+        external_flux: ExternalFlux | None = None,
         newton_tol: float = 1e-14,
         newton_max_iter: int = 200,
         picard_tol: float = 1e-10,
@@ -186,6 +188,7 @@ class T3DiffusionBackend:
                 use_thermal_phonons=use_thermal_phonons,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
+                external_flux=external_flux,
                 newton_tol=newton_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
@@ -220,6 +223,7 @@ class T3DiffusionBackend:
                 use_thermal_phonons=use_thermal_phonons,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
+                external_flux=external_flux,
                 newton_tol=newton_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
@@ -286,6 +290,7 @@ class T3DiffusionBackend:
             use_thermal_phonons=use_thermal_phonons,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
             newton_tol=newton_tol,
             newton_max_iter=newton_max_iter,
             picard_tol=picard_tol,
@@ -305,6 +310,7 @@ class T3DiffusionBackend:
         use_thermal_phonons: bool,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
+        external_flux: ExternalFlux | None,
         newton_tol: float,
         newton_max_iter: int,
         picard_tol: float,
@@ -338,6 +344,7 @@ class T3DiffusionBackend:
                 state.spectral, K_s0, K_r0, state.T_bath,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
+                external_flux=external_flux,
                 initial_guess=state.f,
                 tol=newton_tol, max_iter=newton_max_iter,
                 phonon_escape_time=None,
@@ -353,6 +360,7 @@ class T3DiffusionBackend:
                 state.T_bath,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
+                external_flux=external_flux,
                 initial_guess=state.f,
                 tol=newton_tol,
                 max_iter=newton_max_iter,
@@ -388,6 +396,7 @@ class T3DiffusionBackend:
                 T_bath=state.T_bath, tau_l=tau_l_scalar,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
+                external_flux=external_flux,
                 tol=coupled_newton_tol,
                 max_iter=coupled_newton_max_iter,
                 fd_step=coupled_newton_fd_step,
@@ -429,6 +438,7 @@ class T3DiffusionBackend:
         *,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
+        external_flux: ExternalFlux | None = None,
     ) -> T3DiffusionState:
         """One ETD2 collision substep on ``f`` with ``n_ph`` frozen.
 
@@ -480,6 +490,9 @@ class T3DiffusionBackend:
                 )
                 gain = gain + gp
                 loss = loss + lp
+            if external_flux is not None:
+                gain = gain + external_flux.gain
+                loss = loss + external_flux.loss_rate
             return gain, loss
 
         f_new = etd2_step(state.f, rhs, dt)
@@ -559,6 +572,7 @@ class T3DiffusionBackend:
         *,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
+        external_flux: ExternalFlux | None = None,
     ) -> T3DiffusionState:
         """One symmetric-Strang time step.
 
@@ -578,6 +592,7 @@ class T3DiffusionBackend:
             s, dt,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
         )
         s = self.apply_transport(s, dt / 2)
         s = self.apply_gap_update(s, dt / 2)
