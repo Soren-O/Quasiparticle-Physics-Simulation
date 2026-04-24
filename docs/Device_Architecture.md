@@ -41,14 +41,31 @@ This document proposes a three-layer replacement:
 
 The M25 validation then runs as: compose a ``Device`` with two
 regions (L and R), one ``Junction``, one ``Qubit`` with parity, and
-a photon drive. Solve Layer 2 at physical rate scales (region-local
-~10³ Hz terms, no 10¹⁸ cancellation pathology) and post-process for
-the densities/chemical potentials the paper plots. The existing
-Stage A coefficient-integral machinery
+a photon drive. The existing Stage A coefficient-integral machinery
 (``M25PhysicalParameters``, the S_ph / Γ̃ / r / τ_R/E evaluators)
 all **reuse** — they become the guts of a specific M25
-``Junction`` implementation and the derivation of Layer 3 for
-comparison/speed.
+``Junction`` implementation, no physics re-derived.
+
+Two honest notes on what this *does* and *does not* automatically
+fix:
+
+1. **Architectural separation: unambiguous win.** Multi-region,
+   multi-junction, multi-qubit, mixed-tier setups all become
+   first-class compositions instead of hand-coded services. M25 is
+   no longer a special-case 4-variable ODE; it's a specific
+   Device configuration.
+2. **Stage B numerical pathology: conditional win.** If v1 ships a
+   `MomentClosureJunction` wrapping the Stage A Γ̃ math, the
+   junction's internal moment solve still has the 19-order
+   coefficient-to-density pathology that stranded the standalone
+   rate-equation solver. Moving to a true `KineticJunction` that
+   operates on E-resolved f(E) on each region would cleanly side-
+   step the cancellation (tunneling becomes a boundary
+   ``ExternalFlux`` on well-conditioned region-local kinetic
+   equations), but that's strictly more physics work than v1
+   ships. §6.1 lays out the decision tree; Phase 5 commits will
+   explicitly report which path converged and whether 5b
+   (KineticJunction) is required.
 
 This doc is the design proposal only. The implementation plan is
 §7, phased across 5–6 sessions. Every phase lands green with
@@ -148,34 +165,93 @@ class Region:
     current_Delta: float | None = None
 ```
 
-### 2.2 The external-flux surface
+### 2.2 The external-flux surface: ExternalFlux contract
 
-The existing kinetic equation for T3 is
+The existing T3 kinetic equation is
 
     ∂_t f + (Δ/E) Δ̇ ∂_E f
-      = ∇_r · [D(E, Δ) ∇_r f] + I_coll[f, n_ph](E, r) + G_ext(E, r, t)
+      = ∇_r · [D(E, Δ) ∇_r f] + I_coll[f, n_ph](E, r)
 
-where `G_ext` is the existing `external_generation_runtime`
-plumbing on `T3DiffusionBackend`. Phase 2 of the implementation
-plan renames/generalizes this to **`external_flux`** so it can
-accept either (positive) injection or (negative) extraction, and
-it's called once per Region per solver step with the aggregated
-fluxes from **all** Junctions attached to that Region.
+and **every collision / drive term is structured as a
+``(gain, loss_rate)`` pair** so the positivity-preserving ETD /
+Newton machinery works (``df/dt = gain − loss_rate · f``; ``f ≥ 0``
+is preserved when both are non-negative). Examples: photon-assisted
+pair breaking, sub-gap photon scattering, e-phonon — all return a
+``(gain, loss_rate)`` pair from their evaluator, both in units of
+``1/ns``.
 
-`external_flux` has the same dimensional shape as the collision
-integral: `(NE, NR)` for T3 (energy × spatial), `(NE, NR, Nθ, Nφ)`
-for T2/T1. 0D regions collapse NR → 1.
+There is **no pre-existing external-generation path** to rename.
+Phase 2 is a real solver-surface change that adds a new input
+contract — ``ExternalFlux`` — that threads through
+``T3DiffusionBackend``, ``solve_steady_state``, ``newton_solve_f``,
+``coupled_newton_solve``, and the transient ETD stepper. No change
+to collision physics; just a new additive term consumed on the RHS.
 
-**No other changes to the Region interface.** All of Gate 3's
-Fischer validations run with `external_flux = 0` and are bit-for-
-bit identical to today.
+#### 2.2.1 ExternalFlux dataclass
+
+```python
+@dataclass
+class ExternalFlux:
+    """A boundary / junction-injected source and sink on a Region's f-equation.
+
+    Decomposed into a (gain, loss_rate) pair to match the existing
+    collision-term contract — signed fluxes are explicitly rejected.
+    Extraction ("flow out of this region via a junction") is
+    encoded as ``loss_rate * f``, NOT as a negative gain. This
+    preserves the positivity and Jacobian structure that T3's
+    ETD / Newton solvers rely on.
+
+    Units are ``1/ns`` to match the rest of the T3 stack (not Hz).
+    Converters from Stage-A-style Hz rates live in the Junction
+    implementation, not in the ExternalFlux contract.
+    """
+    gain: np.ndarray          # ≥ 0 everywhere. Shape (NE, NR) for T3.
+                              # Additive source rate, units 1/ns.
+    loss_rate: np.ndarray     # ≥ 0 everywhere. Shape (NE, NR) for T3.
+                              # Multiplier on f in the damping term,
+                              # so the RHS contribution is -loss_rate*f,
+                              # units 1/ns.
+    target_cells: np.ndarray | None = None
+                              # Optional boolean mask (NR,) selecting
+                              # which spatial cells receive the flux;
+                              # None = all cells. Junctions on a 1D
+                              # film geometry use this to localize
+                              # the coupling to the junction cell.
+    diagnostics: dict[str, float] = field(default_factory=dict)
+                              # Junction name, total injected current,
+                              # etc. — passed to the solver logs.
+```
+
+#### 2.2.2 How it threads through the solvers
+
+| Surface | Change |
+|---|---|
+| ``T3DiffusionBackend.step(state, dt, external_flux=...)`` | New kwarg. Adds ``gain`` to the explicit piece and ``loss_rate`` to the damping piece in the ETD2 substep. |
+| ``solve_steady_state(..., external_flux=...)`` | New kwarg, propagates to Newton and coupled-Newton paths. |
+| ``newton_solve_f(..., external_flux=...)`` | Adds ``+ gain − loss_rate * f`` to the residual and ``-loss_rate`` to the Jacobian diagonal. |
+| ``coupled_newton_solve(..., external_flux=...)`` | Same; the ``(f, n_ph)`` coupled Newton sees the extra terms on f only. |
+| ``run_time_dependent(..., external_flux_fn=callable)`` | Callable returning ``ExternalFlux`` at the current t; added inside the collision substep. |
+
+When ``external_flux=None`` (the default), the code path is bit-
+for-bit identical to today. All 360+ Gate-3 tests remain green.
+
+#### 2.2.3 Regression test for Phase 2
+
+* Zero flux: existing Fischer reproductions unchanged.
+* Constant gain only (no loss): steady state ``f = gain / r`` for
+  a pure-recombination region — compare to closed form.
+* Gain and loss that match a detailed-balance thermal source at T:
+  steady state ``f = f_FD(T)`` — compare to Fermi-Dirac.
+* Conservation: ``∫ ∂_t f dE`` at steady state under a non-zero
+  ``ExternalFlux`` balances the junction current diagnostic to
+  machine precision.
 
 ### 2.3 Backend choice is per-Region
 
 A Device may mix tiers: L region on T3, R region on T2, qubit-
 readout electrode on T3. The backend choice affects only the
 per-Region step; the Junction interface is tier-agnostic because
-the flux `G_ext(E, …)` is the common surface.
+the ``ExternalFlux`` contract is the common surface.
 
 ---
 
@@ -211,8 +287,8 @@ class Junction:
 
     At each solver step, ``evaluate`` is called with the current
     state of the two regions (and the qubit, if any), and returns:
-      * E-resolved fluxes into each Region (negative = extraction),
-      * Qubit transition rate matrix (if ``qubit_coupling``).
+      * ``ExternalFlux`` contributions for each Region (see §2.2),
+      * Channel-tagged qubit transition rates (if ``qubit_coupling``).
 
     The M25 gap-asymmetric JJ with photon drive is **one specific
     implementation** of the ``evaluate`` protocol — the framework
@@ -222,7 +298,7 @@ class Junction:
     region_a: str                           # name in Device.regions
     region_b: str
     matrix_elements: JunctionMatrixElements
-    photon_drive: PhotonDrive | None = None # pair-breaking / photon-assisted
+    photon_drive: PhotonDrive | None = None # photon-assisted tunneling
     qubit_coupling: JunctionQubitCoupling | None = None
 
     def evaluate(
@@ -230,20 +306,70 @@ class Junction:
         region_a_state: RegionState,
         region_b_state: RegionState,
         qubit_state: QubitState | None = None,
-    ) -> JunctionFluxes:
-        """Compute fluxes + qubit rates from current region/qubit state.
+    ) -> JunctionResult:
+        """Compute per-region flux contracts + qubit rates.
 
         Returns
         -------
-        JunctionFluxes
-            * ``flux_a(E, r)``, ``flux_b(E, r)`` — injections into
-              regions A and B (Hz · density-units, matching the
-              region's f-equation).
-            * ``qubit_rates(i, j)`` — rate matrix if qubit_coupling
-              is set, otherwise None.
+        JunctionResult
+            * ``external_flux_a``, ``external_flux_b``
+              — ``ExternalFlux`` (gain, loss_rate) contributions for
+              each region. The solver sums contributions from all
+              junctions that touch a region.
+            * ``qubit_channels`` — list of ``QubitTransitionChannel``
+              records (see §3.3.2) if qubit_coupling is set, each
+              carrying a rate and a parity-flip flag. Otherwise empty.
         """
         ...
 ```
+
+#### 3.2.1 Boundary-current normalization (critical for conservation)
+
+A junction between two regions transports QPs across a contact
+area ``A_junction``; internally, each region's ``f(E, r)`` is
+density per state per cell. Converting a junction current ``I_J(E)``
+(tunneling events per second per unit energy) into an
+``ExternalFlux.gain(E, r)`` (rate of f-change per cell, in 1/ns)
+requires explicit normalization. The framework fixes this as
+follows:
+
+* **0D regions.** Region volume ``V`` is scalar; the per-cell RHS
+  gets the full junction current divided by the Cooper-pair number
+  in that region: ``gain(E) = I_J(E) / (2 ν_0 Δ V)``. This matches
+  the Stage A convention ``g^{ph}_R = Γ^{ph}/(2 ν_0 Δ_R V)`` and
+  makes the Layer-3 moment closure textually identical to M25 Eq. 4.
+* **Spatial regions.** The junction touches a subset of cells
+  (``target_cells`` mask). The per-cell injection is
+  ``gain(E, r) = I_J(E) / (2 ν_0 Δ V_cell)`` for cells in the
+  mask, zero elsewhere, with ``V_cell = A_cell × thickness``.
+* **Per-E conservation.** ``∫ gain(E) dE × V_region`` equals the
+  total junction injection rate across that boundary, enforced by
+  construction.
+* **Cross-region balance.** If junction L→R moves ``I_J(E) dE``
+  QPs per second from L to R, the reverse rate for R→L (from the
+  other-direction integrand) has a matching pair. ``gain`` and
+  ``loss_rate`` are bookkept so the total QP number is conserved
+  across the device (sum over all regions of ``∫ f × ν_0 dE × V``
+  has zero junction-induced time derivative at detailed balance).
+
+These invariants are **explicit tests in Phase 3**: a two-region
+Device at matched T with no drive must conserve total QP number
+to float64 precision, and both regions must land on ``f = f_FD(T)``.
+
+#### 3.2.2 Unit convention summary
+
+| Quantity | Unit | Why |
+|---|---|---|
+| ``ExternalFlux.gain``, ``loss_rate`` | 1/ns | Matches T3 stack |
+| Junction current ``I_J(E)`` | events/(ns · Δ E-bin) | Internal |
+| Stage A ``Γ̃^α_{ij}`` | Hz | Paper convention; converted at the Junction boundary |
+| Gaps, energies | μeV or K (per backend) | Existing T3 convention |
+| ``tau_0``, ``tau_0_phonon`` | ns | Material YAML |
+
+``M25GapAsymmetricJJ`` is responsible for converting from Stage A's
+Hz rates to the Junction's internal ns units and for the
+``N_CP = 2 ν_0 Δ V`` normalization. A dedicated conversion helper
+lives on the Junction base class.
 
 **Concrete Junction implementations ship as subclasses or free-
 function registrations**. M25GapAsymmetricJJ is the first one:
@@ -264,39 +390,95 @@ hand-coded into the service".
 ```python
 @dataclass
 class Qubit:
-    """Optional coupled two-level-system (or more) driven by junction tunneling.
+    """Optional coupled TLS driven by junction tunneling.
 
-    Transmon convention: ``levels = 2`` for logical {|0>, |1>},
-    ``levels = 3`` for qutrit including |2>. Parity is tracked as
-    a separate ``parity_state`` axis when ``track_parity = True``.
+    The qubit state space is ``(level, parity)``: e.g. a two-level
+    transmon with parity tracking has four discrete states
+    |0,e>, |0,o>, |1,e>, |1,o>. Channels driving transitions between
+    these are tagged by WHICH axis they advance (see
+    ``QubitTransitionChannel`` below).
     """
     n_levels: int = 2
+    track_parity: bool = True
     E_J_kelvin: float = 0.0                 # transmon Josephson energy
     E_C_kelvin: float = 0.0                 # transmon charging energy
     omega_kelvin: np.ndarray = field(default_factory=lambda: np.array([0.0, 1.0]))
                                             # level energies
-    track_parity: bool = True
     state: QubitState | None = None         # populated at solver init
+
 
 @dataclass
 class QubitState:
-    p: np.ndarray                           # shape (n_levels,) or (n_levels, 2) if parity
-    t: float = 0.0                          # lab-frame time if evolving
+    """Probabilities over the (level, parity) state space.
 
+    Shape is ``(n_levels, 2)`` when ``track_parity`` is set, else
+    ``(n_levels,)``. The parity axis has two entries: [0] = even,
+    [1] = odd. ``np.sum(p) = 1`` always.
+    """
+    p: np.ndarray
+    t_ns: float = 0.0                       # lab-frame time if evolving
+```
+
+#### 3.3.1 QubitTransitionChannel — parity-resolved rates
+
+A single ``qubit_rates[i, j]`` matrix can't distinguish a
+parity-preserving (ee) transition |i, e> → |j, e> from a
+parity-changing (eo) transition |i, e> → |j, o>, yet both appear
+in the M25 master equation (Γ̃^{ee} vs Γ̃^{eo}). The Junction
+returns a list of channel records:
+
+```python
+@dataclass
+class QubitTransitionChannel:
+    """One addressable qubit transition produced by a Junction.
+
+    A tunneling event that flips parity (the default for QP
+    tunneling) has ``flips_parity = True``. A photon-mediated
+    parity-preserving process (ee in M25) has
+    ``flips_parity = False``.
+    """
+    level_from: int
+    level_to: int
+    rate_per_ns: float                      # transition rate
+    flips_parity: bool                      # True for eo channels
+    label: str = ""                         # "ph_00", "ee_10", etc.
+                                            # — diagnostic only
+```
+
+The qubit-master-equation evolver consumes a list of these channels
+and assembles a transition matrix on the full ``(level, parity)``
+state space. For the M25 setup with 2 levels × 2 parities, this
+produces a 4×4 rate matrix, which the solver evolves either to
+steady state (algebraic) or in time (ODE).
+
+#### 3.3.2 JunctionQubitCoupling
+
+```python
 @dataclass
 class JunctionQubitCoupling:
     """How a Junction drives the Qubit.
 
-    The tunneling-rate evaluator returns a per-(i,j) rate matrix;
-    this struct holds the matrix elements (s_ii', c_ii' in the M25
-    convention) used to weight ``sin(φ̂/2)`` vs ``cos(φ̂/2)``
-    contributions. Parity-selection rules live here: each tunneling
-    event flips parity, so every channel advances the parity axis.
+    Holds the transmon matrix elements (M25 SI Eqs. S25–S28) used
+    to split the tunneling rate between sin(φ̂/2) (parity-flipping,
+    logical-changing) and cos(φ̂/2) (parity-flipping, logical-
+    conserving) channels. Parity-preserving (ee) channels — if any —
+    are declared separately via ``parity_preserving_rates``.
     """
     sin_matrix_elements: np.ndarray         # shape (n_levels, n_levels) — s²_{ii'}
     cos_matrix_elements: np.ndarray         # shape (n_levels, n_levels) — c²_{ii'}
-    photon_conserving: bool = False         # for ee (parity-preserving) channels
+    # Optional parity-preserving channel rates (ee in M25). Zero by
+    # default because the default tunneling event flips parity; the
+    # M25 setup includes these as independent drivers.
+    parity_preserving_rates: np.ndarray | None = None
+                                            # shape (n_levels, n_levels) — 1/ns
 ```
+
+The Junction.evaluate() implementation decides which channels to
+emit — for an M25GapAsymmetricJJ, each Γ̃^α_{ij} tunneling rate
+produces a ``QubitTransitionChannel(level_from=i, level_to=j,
+rate_per_ns=..., flips_parity=True)``; the Γ̃^{ee} terms produce
+``flips_parity=False`` channels. The qubit evolver sees both
+kinds and handles them correctly on the 4-state grid.
 
 ### 3.4 Matrix elements: where M25 Stage A lives
 
@@ -469,28 +651,65 @@ reference.
 
 ## 6. Open questions (design tradeoffs to lock before Phase 2)
 
-### 6.1 Junction evaluator API: moment closure vs. E-resolved
+### 6.1 Junction evaluator API: moment closure vs. E-resolved — and what this means for Stage B
 
 **The clean answer** is that `Junction.evaluate` receives full
-`RegionState` objects (which contain f(E)) and returns E-resolved
-fluxes. Concrete implementations can internally choose to
-marginalize over E via a moment closure if that's physically
-justified.
+`RegionState` objects (which contain f(E)) and returns an
+``ExternalFlux`` (gain, loss_rate) pair per region. Concrete
+implementations can internally choose to marginalize over E via a
+moment closure if that's physically justified.
 
 **But** the Stage A closed-form Γ̃ evaluators assume Fermi-Dirac
-and work on (x_α, µ_α) tuples. A pragmatic v1 ships a specific
-`M25GapAsymmetricJJ(MomentClosureJunction)` that internally
-converts its input RegionStates to (x_α, µ_α) before calling the
-Stage A Γ̃ math. The fully-general E-resolved version is a v2
-refinement.
+and work on (x_α, µ_α) tuples — they **don't** operate on f(E)
+directly. A pragmatic v1 ships a specific
+`M25GapAsymmetricJJ(MomentClosureJunction)` that internally reduces
+its input RegionStates to (x_α, µ_α) before calling the Stage A
+Γ̃ math, then spreads the resulting integrated junction current
+back across the E-grid into an ``ExternalFlux`` with the right
+total current.
 
-**Proposal:** ship both, with clear labels:
-* `MomentClosureJunction` — subclass that first reduces each
-  region's state to (x_α, µ_α), then calls the physics. Stage A
-  machinery is a natural implementation.
-* `KineticJunction` — subclass that operates on f(E) directly via
-  the E-resolved tunneling current formula. Future refinement;
-  not required for M25 Fig 3 reproduction.
+**Proposal:** ship both classes, with clear labels:
+* `MomentClosureJunction` — base class that first reduces each
+  region's state to moments (x_α, µ_α) and calls physics on those.
+  `M25GapAsymmetricJJ` subclasses this. Cheap, exact for
+  thermalized regions, re-uses Stage A as-is.
+* `KineticJunction` — base class that operates on f(E) directly
+  via the E-resolved tunneling current formula ``I_J(E) = |t|²
+  N_L(E) N_R(E ∓ ω) [f_L(E) − f_R(E ∓ ω)] × (coherence)``. True
+  Layer 2. Not required for M25 Fig 3 reproduction, but is the
+  architectural escape hatch for athermal distributions.
+
+**What this means for the Stage B conditioning claim.** The
+original rationale for the layered rewrite was partly that Stage B
+numerical pathology (19-order coefficient-to-density ratio) would
+resolve automatically by moving to Layer 2. That claim was
+**optimistic** for the `MomentClosureJunction` path: it still
+reduces to the same algebraic structure inside the Junction, and
+can reintroduce the ill-conditioning if the outer Picard loop and
+inner per-region Newton don't decouple the scales cleanly.
+
+The clean resolution of Stage B requires one of:
+
+1. **KineticJunction + full f(E) on each region.** The tunneling
+   current becomes a boundary ``ExternalFlux`` with gain/loss
+   magnitudes set by *local f(E)* — naturally at the 10⁻⁸ scale,
+   not at the 10¹¹ Γ̃-vs-Γ̃ cancellation scale. Per-region Newton
+   on a kinetic equation is well-conditioned. This is the
+   *architecturally true* fix.
+2. **MomentClosureJunction + variable-rescaling inside its
+   internal moment solve.** Acceptable shortcut that reuses Stage
+   A wholesale but does the rescaling that I failed to make work
+   in the standalone rate-equation solver. Whether this actually
+   converges at float64 precision at the Fig 3 parameter set is
+   still an open numerical question.
+
+**Decision for Phase 5:** M25 Fig 3 reproduction uses
+`MomentClosureJunction` with variable rescaling done properly on
+the internal moment residual. If that still doesn't give
+physical-accuracy convergence, the `KineticJunction` implementation
+is the required next step (effectively Phase 5b). Either way,
+Phase 5 is **explicit** about which class it uses and which
+numerical issue it depends on resolving.
 
 ### 6.2 How does the solver handle mixed-tier Devices?
 
@@ -550,15 +769,27 @@ Scope: write this document, review with GPT, fix structural
 issues before any code changes.
 **Status: in progress.**
 
-### Phase 2 — External flux on T3
-Rename/generalize `external_generation_runtime` →
-`external_flux`. Add acceptance of arbitrary E-resolved flux array
-on `T3DiffusionBackend.step()`. No new physics. Every existing
-Gate-3 test passes unchanged because `external_flux = 0` is the
-default. Add one new test: stepping a T3 region with a
-non-trivial `external_flux` produces the expected shift in the
-steady-state f(E).
-**Est: 1 session. Ships green.**
+### Phase 2 — ExternalFlux contract through T3 solver stack
+Introduce the new ``ExternalFlux(gain, loss_rate, target_cells,
+diagnostics)`` dataclass per §2.2.1. Thread it through:
+* ``T3DiffusionBackend.step`` (adds gain to the explicit piece,
+  loss_rate to the damping piece in the ETD2 substep);
+* ``solve_steady_state`` (kwarg, forwards down);
+* ``newton_solve_f`` (residual + Jacobian-diagonal update);
+* ``coupled_newton_solve`` (same, f-side only);
+* ``run_time_dependent`` (takes a callable returning
+  ``ExternalFlux`` at each step).
+
+All with positivity-preserving (gain, loss_rate) semantics — no
+signed fluxes. Default ``external_flux=None`` is bit-for-bit
+identical to today; every existing Gate-3 Fischer test remains
+green. New tests per §2.2.3 pin the contract: zero-flux identity,
+constant-gain recombination-only steady state, detailed-balance
+thermal source, and conservation under non-zero flux.
+
+**Not in scope for Phase 2**: multi-region coupling, Junctions.
+The Phase 2 scope is the surface change only, plus its tests.
+**Est: 1–2 sessions. Ships green.**
 
 ### Phase 3 — Region / Junction / Device, no qubit
 * Create `qpsim.devices.region.Region` wrapping
@@ -584,16 +815,32 @@ steady-state f(E).
   at the Boltzmann rate matching detailed balance.
 **Est: 1 session. Ships green.**
 
-### Phase 5 — M25 Fig 3 via Layer 2
-* Implement `M25GapAsymmetricJJ(MomentClosureJunction)`
-  internally calling the Stage A Γ̃ / r / τ evaluators.
+### Phase 5 — M25 Fig 3 via MomentClosureJunction (Layer-3-in-Layer-2-harness)
+* Implement `M25GapAsymmetricJJ(MomentClosureJunction)` internally
+  calling the Stage A Γ̃ / r / τ evaluators, returning per-region
+  ``ExternalFlux`` with the boundary-current normalization of
+  §3.2.1.
+* Qubit is the 2-level × 2-parity setup from Phase 4 with the
+  M25 matrix elements.
 * Compose `Device(L, R, M25GapAsymmetricJJ, Qubit)` at M25 Fig 3a
-  and Fig 3b parameters.
-* Sweep T, solve Layer 2, extract densities and chemical potentials,
-  pin CSV + PDF baselines under
+  and Fig 3b parameter sets.
+* Sweep T, solve Layer 2 (Picard outer + per-region Newton inner),
+  extract densities and chemical potentials, pin CSV + PDF
+  baselines under
   `validation/baselines/marchegiani_2025/m25_fig3_device.{csv,pdf}`.
-* Regression test.
-**Est: 1 session. Ships green.**
+* Regression test with GPT's recommended absolute-residual
+  assertion (each sweep point converges to within physical tol,
+  not just auto-tol).
+
+**Caveat from §6.1:** this path still uses the Stage A moment
+closure inside the Junction. If the per-region Picard + inner
+Newton does NOT decouple the 10¹¹-vs-10⁻⁸ scale pathology (an
+open numerical question I flagged in §6.1), Phase 5 needs a
+follow-up Phase 5b that implements a `KineticJunction` doing
+E-resolved tunneling. Phase 5 ships with an **explicit
+convergence-behavior report** in its commit message so the
+decision tree is transparent.
+**Est: 1–2 sessions depending on whether 5b is needed. Ships green.**
 
 ### Phase 6 — M25 Fig 4/5 + closure
 * Fig 4 (density ratios or transition-rate ratios) and Fig 5
