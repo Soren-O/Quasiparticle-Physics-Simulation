@@ -392,7 +392,7 @@ def solve_rate_equation_steady_state(
     *,
     initial_guess: np.ndarray | None = None,
     residual_tol: float | None = None,
-    residual_tol_relative: float = 1e-8,
+    residual_tol_relative: float = 1e-3,
     max_function_evaluations: int = 500,
 ) -> M25SteadyState:
     r"""Solve the M25 three-chemical-potential system for its steady state.
@@ -417,17 +417,28 @@ def solve_rate_equation_steady_state(
         passing a guess close to them.
     residual_tol
         Absolute acceptance threshold on ``||R||_∞`` in Hz. If
-        ``None`` (default), an automatic tolerance
-        ``max_coefficient × residual_tol_relative`` is used — the
-        residual always carries Hz units, so tolerance must scale with
-        the coefficient magnitude (Newton on the full SI-derived M25
-        coefficients has rates up to ``~10¹¹ Hz``, making a hard
-        ``1e-10`` absolute unreachable at float64 precision).
+        ``None`` (default), an automatic **source-based** tolerance
+        ``min_nonzero_source_rate × residual_tol_relative`` is used
+        (floored at 1e-14 Hz). At steady state, every residual
+        component balances against the drive/source terms ``g_α``,
+        ``Γ^{ee}``, ``Γ^{ph}``, so ``||R||_∞ << min(sources)`` is
+        the right physical accuracy criterion. Coefficient-magnitude-
+        based auto-scaling (the previous default) accepted residuals
+        far above the physical source scale whenever tunneling
+        coefficients dwarfed the drive — this is specifically the
+        regime of SI-Note-V-built Fig 3 coefficients, so that path
+        now fails loudly (as intended) until variable rescaling or
+        T-continuation lands (Stage B).
     residual_tol_relative
         Multiplier for the auto-scaled default; ignored when
-        ``residual_tol`` is given explicitly. The default ``1e-8``
-        corresponds to ~8 significant-figure relative precision in
-        the cancellation that produces ``(ṗ_1, ẋ_α)`` at convergence.
+        ``residual_tol`` is given explicitly. The default ``1e-3``
+        demands ~3-significant-figure balance relative to the smallest
+        source rate — enough for physics precision while staying
+        achievable at float64 for SI-derived M25 coefficients (where
+        cancellation between tunneling terms at ``~10¹¹ Hz`` floors
+        the achievable ``||R||_∞`` at ``~10⁻⁴`` Hz). Tighten this
+        when coefficients are smaller or variable rescaling is in
+        place (Stage B).
     max_function_evaluations
         Hard cap passed to scipy. Each Newton step typically costs
         5 evaluations (1 residual + 4 FD-Jacobian columns).
@@ -472,18 +483,21 @@ def solve_rate_equation_steady_state(
             )
 
     if residual_tol is None:
-        max_scale = max(
-            float(np.max(np.abs(coefs.gammas_L))),
-            float(np.max(np.abs(coefs.gammas_Rgt))),
-            float(np.max(np.abs(coefs.gammas_Rlt))),
-            coefs.r_L, coefs.r_Rgt, coefs.r_Rlt, coefs.r_cross,
+        source_rates = [
             coefs.g_L, coefs.g_Rgt, coefs.g_Rlt,
-            coefs.tau_R_inv, coefs.tau_E_inv,
-            float(np.max(np.abs(coefs.gamma_ee))),
-            float(np.max(np.abs(coefs.gamma_ph))),
-            1.0,  # floor: never tighter than 1 Hz × relative-tol
-        )
-        residual_tol = max_scale * residual_tol_relative
+            float(np.max(coefs.g_ph_L_per_state)),
+            float(np.max(coefs.g_ph_Rgt_per_state)),
+            float(np.max(coefs.g_ph_Rlt_per_state)),
+            float(np.max(coefs.gamma_ee)),
+            float(np.max(coefs.gamma_ph)),
+        ]
+        nonzero_sources = [s for s in source_rates if s > 0.0]
+        if nonzero_sources:
+            residual_tol = max(min(nonzero_sources) * residual_tol_relative, 1e-14)
+        else:
+            # No driving — exact steady state is (p from ee-balance,
+            # all x = 0). Machine-precision floor only.
+            residual_tol = 1e-14
 
     sol = root(
         _rate_equation_residual,

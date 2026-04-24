@@ -705,7 +705,7 @@ class M25PhotonDrive:
         level (J⁻¹ m⁻³). At M25 Fig 3 parameters: ``0.73 × 10⁴⁷``.
     volume_m3
         Electrode volume ``V_L = V_R = V`` (m³). At M25 Fig 3:
-        ``506 × 240 × 0.028 μm³ = 3.4 × 10⁻¹⁸`` m³.
+        ``506 × 240 × 0.028 μm³ = 3400 μm³ = 3.4 × 10⁻¹⁵`` m³.
 
     Raises
     ------
@@ -793,40 +793,62 @@ def coefficients_from_physical_parameters_with_photon_drive(
         dtype=float,
     )
 
-    # ── Per-state g^{ph}_α via main-text /N_CP + R<-vs-R> split ──────
-    # g^{ph}_R (state i) = [Γ^{ph}_{i0} + Γ^{ph}_{i1}] / N_CP(R)
-    # g^{ph}_L (state i) = g^{ph}_R (state i) × δ  (normalization)
-    # R<-vs-R> split: scale by S^{<,-}/S^- (using the logical-
-    # conserving S^- branch, since that's where the dominant g^ph
-    # generation lives at low T).
+    # ── Per-state, per-channel g^{ph}_α via main-text /N_CP ──────────
+    # Main text: g^{ph}_R = Γ^{ph}/(2 ν_0 Δ_R V) = g^{ph}_L/δ with
+    # Γ^{ph} = Σ_i p_i Σ_j Γ^{ph}_{ij}. Each (i,j) transition channel
+    # is a different photon-absorption process with its OWN spectral
+    # density S^{ij}_ph at argument x_{ij}, so the R</R> branching
+    # fraction must be resolved per-channel. Collapsing to a single
+    # S^-(x_00) fraction (the earlier shortcut) is wrong when the
+    # 10/01 channels live near spectral-density thresholds where the
+    # R> fraction differs materially from the 00/11 value.
     N_CP_R = _cooper_pair_number(drive.nu_0_per_J_per_m3, params.Delta_R_kelvin, drive.volume_m3)
     delta_gap = params.delta
 
-    # Fraction of pair-breaking events that land both QPs in R (< or >
-    # sub-band). Use logical-conserving spectral density S^-(x_00; z)
-    # as the reference: of those pairs, fraction S^{<,-}/S^- goes to
-    # R< and S^{>,-}/S^- to R>.
-    if S_minus_00 > 0.0:
-        S_Rlt_minus = _S_ph_Rlt(x_00, z, sign=-1)
-        S_Rgt_minus = _S_ph_Rgt(x_00, z, sign=-1)
-        frac_Rlt = S_Rlt_minus / S_minus_00
-        frac_Rgt = S_Rgt_minus / S_minus_00
-    else:
-        frac_Rlt = 1.0  # below 2-gap threshold, all absorbed pairs land in R<
-        frac_Rgt = 0.0
+    def _Rlt_fraction(x: float, sign: int, S_total_val: float) -> float:
+        """Fraction of S^{sign}_ph(x; z) landing in the R< sub-band."""
+        if S_total_val <= 0.0:
+            # Below pair-breaking threshold at this x; by convention
+            # all absorbed pairs would go to R<. (In practice the
+            # numerator also vanishes so the channel contributes 0.)
+            return 1.0
+        return _S_ph_Rlt(x, z, sign=sign) / S_total_val
 
-    # Per-state total g^{ph}_R[i]
-    g_ph_R_state_0 = (Gamma_ph_00 + Gamma_ph_01) / N_CP_R
-    g_ph_R_state_1 = (Gamma_ph_11 + Gamma_ph_10) / N_CP_R
+    f_00_Rlt = _Rlt_fraction(x_00, -1, S_minus_00)
+    f_11_Rlt = f_00_Rlt                                       # same spectral density
+    f_10_Rlt = _Rlt_fraction(x_10, +1, S_plus_10)
+    f_01_Rlt = _Rlt_fraction(x_01, +1, S_plus_01)
+
+    # Per-state, per-channel R< generation (Hz):
+    # g^{ph}_Rlt(state i) = [Σ_j Γ^{ph}_{ij} × f_{ij}_Rlt] / N_CP(R)
+    g_ph_Rlt_state_0 = (Gamma_ph_00 * f_00_Rlt + Gamma_ph_01 * f_01_Rlt) / N_CP_R
+    g_ph_Rlt_state_1 = (Gamma_ph_11 * f_11_Rlt + Gamma_ph_10 * f_10_Rlt) / N_CP_R
+
+    # R> analogously; the sum identity f_Rlt + f_Rgt = 1 holds
+    # per-channel, so g_R>(state i) = Γ^{ph}_tot(state i)/N_CP - g_R<(state i).
+    g_ph_Rgt_state_0 = (
+        Gamma_ph_00 * (1.0 - f_00_Rlt) + Gamma_ph_01 * (1.0 - f_01_Rlt)
+    ) / N_CP_R
+    g_ph_Rgt_state_1 = (
+        Gamma_ph_11 * (1.0 - f_11_Rlt) + Gamma_ph_10 * (1.0 - f_10_Rlt)
+    ) / N_CP_R
+
+    # L-electrode: normalization difference `× δ` between L and R per
+    # main-text identity g^{ph}_L = g^{ph}_R × δ. The L side has no
+    # sub-band partition (single branch), so the total across channels
+    # is what's needed.
+    g_ph_R_total_state_0 = g_ph_Rlt_state_0 + g_ph_Rgt_state_0
+    g_ph_R_total_state_1 = g_ph_Rlt_state_1 + g_ph_Rgt_state_1
 
     g_ph_L_per_state = np.array(
-        [delta_gap * g_ph_R_state_0, delta_gap * g_ph_R_state_1], dtype=float
+        [delta_gap * g_ph_R_total_state_0, delta_gap * g_ph_R_total_state_1],
+        dtype=float,
     )
     g_ph_Rlt_per_state = np.array(
-        [frac_Rlt * g_ph_R_state_0, frac_Rlt * g_ph_R_state_1], dtype=float
+        [g_ph_Rlt_state_0, g_ph_Rlt_state_1], dtype=float
     )
     g_ph_Rgt_per_state = np.array(
-        [frac_Rgt * g_ph_R_state_0, frac_Rgt * g_ph_R_state_1], dtype=float
+        [g_ph_Rgt_state_0, g_ph_Rgt_state_1], dtype=float
     )
 
     # Re-emit a new M25Coefficients with the Note-V-built photon

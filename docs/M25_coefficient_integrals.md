@@ -47,7 +47,7 @@ From the Fig 3 caption (main paper, page 4):
 * ω_ν/(2π) = 119 GHz (pair-breaking photon)
 * Γ^{ph}_{00} = 300 Hz (bulk photon-assisted qubit rate, logical-state-conserving)
 * ν_0 = 0.73 × 10⁴⁷ J⁻¹ m⁻³
-* V_L = V_R = V = 506 × 240 × 0.028 μm³ = 3.4 × 10⁻¹⁸ m³
+* V_L = V_R = V = 506 × 240 × 0.028 μm³ = 3400 μm³ = 3.4 × 10⁻¹⁵ m³
 * Γ^{ee}_{10} = 100 kHz (parity-preserving relaxation)
 * r^L = r^{R<} = 6.25 MHz
 

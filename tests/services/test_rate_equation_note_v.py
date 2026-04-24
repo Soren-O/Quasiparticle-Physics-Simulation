@@ -330,18 +330,45 @@ class TestBuilderPerStateGeneration:
             params.delta * g_ph_R_state_0, rel=1e-12
         )
 
-    def test_Rlt_Rgt_split_matches_spectral_fraction(self) -> None:
-        # Split uses the S^{<,-}/S^- fraction at x = ω_ν/Δ_L.
+    def test_Rlt_Rgt_split_is_channel_resolved(self) -> None:
+        # Each Γ^{ph}_{ij} channel operates at its own spectral argument
+        # (x_00 with S^- for logical-conserving, x_10/x_01 with S^+ for
+        # 10/01), so the R< split is resolved per-channel and then
+        # summed weighted by each Γ^{ph}_{ij}. Collapsing to a single
+        # f_Rlt(x_00) fraction (the naive shortcut) is wrong by ~5%
+        # at Fig 3a.
         coefs, params, drive = self._build_and_params()
-        x_00 = drive.omega_nu_kelvin / params.Delta_L_kelvin
         z = params.delta
-        frac_Rlt_expected = _S_ph_Rlt(x_00, z, -1) / _S_ph_total(x_00, z, -1)
-        g_ph_R_state_0 = (
-            coefs.g_ph_Rlt_per_state[0] + coefs.g_ph_Rgt_per_state[0]
+        x_00 = drive.omega_nu_kelvin / params.Delta_L_kelvin
+        x_01 = (drive.omega_nu_kelvin - params.omega_10_kelvin) / params.Delta_L_kelvin
+
+        f_00_Rlt = _S_ph_Rlt(x_00, z, -1) / _S_ph_total(x_00, z, -1)
+        f_01_Rlt = _S_ph_Rlt(x_01, z, +1) / _S_ph_total(x_01, z, +1)
+        Gamma_00 = coefs.gamma_ph[0, 0]
+        Gamma_01 = coefs.gamma_ph[0, 1]
+
+        N_CP_R = (
+            2.0 * drive.nu_0_per_J_per_m3 * _K_B_J_PER_K
+            * params.Delta_R_kelvin * drive.volume_m3
         )
-        assert coefs.g_ph_Rlt_per_state[0] / g_ph_R_state_0 == pytest.approx(
-            frac_Rlt_expected, rel=1e-12
+        expected_state_0 = (Gamma_00 * f_00_Rlt + Gamma_01 * f_01_Rlt) / N_CP_R
+        assert coefs.g_ph_Rlt_per_state[0] == pytest.approx(
+            expected_state_0, rel=1e-12
         )
+
+    def test_channel_fractions_differ_at_Fig3a_inputs(self) -> None:
+        # Regression sentinel: f_00_Rlt ≠ f_01_Rlt at the Fig 3a
+        # parameter set (small gap asymmetry). If these become equal,
+        # the channel-resolved split collapses to the old shortcut.
+        _coefs, params, drive = self._build_and_params()
+        z = params.delta
+        x_00 = drive.omega_nu_kelvin / params.Delta_L_kelvin
+        x_01 = (drive.omega_nu_kelvin - params.omega_10_kelvin) / params.Delta_L_kelvin
+        f_00_Rlt = _S_ph_Rlt(x_00, z, -1) / _S_ph_total(x_00, z, -1)
+        f_01_Rlt = _S_ph_Rlt(x_01, z, +1) / _S_ph_total(x_01, z, +1)
+        # At Fig 3a, these fractions differ by >1% — just check they're
+        # materially different so the channel-split isn't a no-op.
+        assert abs(f_00_Rlt - f_01_Rlt) / max(f_00_Rlt, f_01_Rlt) > 0.01
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -427,6 +454,49 @@ class TestResidualPopulationDependence:
 # ═══════════════════════════════════════════════════════════════════════
 #  Backward compatibility: unused per-state arrays don't affect behavior
 # ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSolverToleranceGuard:
+    """The auto residual_tol must flag cases where Newton cannot reach
+    physical accuracy — a silent accept of ||R|| ≫ source rates would
+    mislead users into believing an unbalanced state is a steady state.
+    """
+
+    def test_fig3_note_v_build_raises_at_default_tol(self) -> None:
+        # Fig 3a Note V: min source ~1e-8 Hz; tol = source × 1e-3 ~1e-11.
+        # Newton at ~10¹¹ Hz coefficients hits float64 cancellation floor
+        # around 10⁻⁴ Hz. The auto tol should correctly classify this
+        # as unreachable and raise, not silently return a bad solve.
+        params = _fig3a_params()
+        drive_template = _fig3a_drive()
+        scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
+            params, drive_template, 300.0
+        )
+        coefs = coefficients_from_physical_parameters_with_photon_drive(
+            params, replace(drive_template, Gamma_nu_scale_Hz=scale)
+        )
+        from qpsim.services.rate_equation import solve_rate_equation_steady_state
+        with pytest.raises(RuntimeError, match=r"\|\|R\|\|"):
+            solve_rate_equation_steady_state(coefs)
+
+    def test_explicit_loose_tol_overrides_auto_guard(self) -> None:
+        # Users can override with explicit residual_tol when they know
+        # the physics-precision target isn't reachable yet. This is the
+        # intended escape hatch until Stage B variable rescaling lands.
+        params = _fig3a_params()
+        drive_template = _fig3a_drive()
+        scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
+            params, drive_template, 300.0
+        )
+        coefs = coefficients_from_physical_parameters_with_photon_drive(
+            params, replace(drive_template, Gamma_nu_scale_Hz=scale)
+        )
+        from qpsim.services.rate_equation import solve_rate_equation_steady_state
+        # With loose tol (~Hz), Newton returns something — the density
+        # values are not physically meaningful yet (Stage B), but the
+        # solver API contract (accept ||R|| < residual_tol) is upheld.
+        ss = solve_rate_equation_steady_state(coefs, residual_tol=1.0)
+        assert ss.residual_inf_norm < 1.0
 
 
 class TestBackwardCompatibility:
