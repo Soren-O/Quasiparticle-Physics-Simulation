@@ -77,7 +77,7 @@ Required to evaluate every coefficient:
 | `E_C_kelvin`       | Transmon charging energy                               | 0.01392 K (290 MHz)    |
 | `T_kelvin`         | Bath temperature                                       | sweep, 0.005–0.150 K   |
 | `nu_0_per_J_per_m3`| Normal-state DoS at Fermi level (both electrodes)      | 0.73 × 10⁴⁷ J⁻¹ m⁻³   |
-| `volume_m3`        | Electrode volume (V_L = V_R = V)                       | 3.4 × 10⁻¹⁸ m³         |
+| `volume_m3`        | Electrode volume (V_L = V_R = V)                       | 3.4 × 10⁻¹⁵ m³         |
 | `g_T_siemens`      | Junction normal-state conductance (SI units)           | (derived from I_c; see §4) |
 | `b_L_per_J3_s`     | Electron-phonon spectral density prefactor, left elec. | from r^L (§6)          |
 | `b_R_per_J3_s`     | Electron-phonon spectral density prefactor, right el.  | from r^{R<} (§6)       |
