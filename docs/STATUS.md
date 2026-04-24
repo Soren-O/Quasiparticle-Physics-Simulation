@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-23.
+Last updated: 2026-04-24.
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -17,7 +17,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 5 | Ph1 phonon spatial transport | ❌ not started |
 | 6 | T2 kinetic scalar backend | ❌ not started |
 | 7 | T1 two-component backend | ❌ not started (requires new derivation) |
-| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ observable done; **full three-chemical-potential rate-equation integration is the active next item** |
+| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ observable done; coefficients-in steady-state solver (`solve_rate_equation_steady_state` on the 4-unknown boxed system) shipped; **M25 SI Notes III/IV coefficient integrals + Fig 3/4/5 baselines are the active next item** |
 
 ## Validation figures
 
@@ -49,7 +49,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 - ✅ `steady_state` — Newton + Picard + Anderson + coupled-Newton routing.
 - ✅ `nbar_loop` — F23 Eqs. 59-60 fixed-point on (n̄, Q_i).
 - ✅ `transient` — `run_time_dependent` with ETD2 collision substeps, snapshot cadence, stop-tol, observables dict.
-- partial `rate_equation` — only Eq. 8 Lambert-W crossover T̄ closed-form observable.
+- partial `rate_equation` — Eq. 8 Lambert-W T̄ closed-form observable + `solve_rate_equation_steady_state` Newton solver on the 4-unknown M25 boxed system (qubit probability + three densities). Rate coefficients are opaque inputs (see `M25Coefficients`); the SI-Note-III/IV energy integrals that produce them are not yet implemented, so M25 Figs 3/4/5 are not yet reproduced.
 - planned `parametric_sweep` — factor the nested-loop pattern duplicated across validation modules.
 
 ## Observables (`qpsim.observables.*`)
@@ -64,7 +64,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**310 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**331 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

@@ -1,5 +1,5 @@
 # Marchegiani & Catelani 2025 Fig 3 — Eq. 8 Lambert-W T̄; pinned by qpsim
-# Delta_R_over_h_Hz=4.9e+10  Delta_R_kelvin=2.351629  r_Rc_rate_Hz=6.25e+06
+# Delta_R_over_h_Hz=4.9e+10  Delta_R_kelvin=2.351629  r_Rlt_rate_Hz=6.25e+06
 g_photon_R_Hz,T_bar_kelvin
 1.00000000000000004e-25,6.58033916493115240e-02
 3.16227766016837955e-25,6.68654657419819054e-02

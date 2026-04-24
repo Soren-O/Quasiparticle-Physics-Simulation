@@ -9,7 +9,7 @@ results" from the full three-chemical-potential rate-equation
 integration (which is deferred per NFP §7.10 Gate 8 strategy A).
 
 Reproduces the Fig 3 caption parameter set (Δ_R/h = 49 GHz,
-r^{R_c} = 6.25 MHz) and sweeps the photon-generation rate
+r^L = r^{R<} = 6.25 MHz) and sweeps the photon-generation rate
 ``g^\mathrm{ph}_R`` across the physically interesting range
 (1 Hz → 1 MHz). The output is the monotonic T̄(g^ph_R) curve —
 projecting onto the paper's figure the crossover T̄ ≈ 70 mK (small
@@ -35,7 +35,7 @@ _KB_J_PER_K = 1.380649e-23
 
 DELTA_R_OVER_H_HZ = 49.0e9           # Δ_R/h = 49 GHz
 DELTA_R_KELVIN = DELTA_R_OVER_H_HZ * _H_J_S / _KB_J_PER_K  # ≈ 2.352 K
-R_Rc_RATE_HZ = 6.25e6                # r^{R_c} = 6.25 MHz
+R_RLT_RATE_HZ = 6.25e6                # r^{R<} = 6.25 MHz
 
 # Sweep span chosen to bracket the M25 Fig 3 paper-reading T̄ values
 # (≈ 70 mK and ≈ 150 mK). Inverting Eq. 8 at those T̄ with the caption
@@ -64,7 +64,7 @@ def run() -> Fig3Result:
         [
             crossover_temperature_kelvin(
                 Delta_R_kelvin=DELTA_R_KELVIN,
-                r_Rc_rate_Hz=R_Rc_RATE_HZ,
+                r_Rlt_rate_Hz=R_RLT_RATE_HZ,
                 g_photon_R_rate_Hz=float(g),
             )
             for g in g_sweep
@@ -99,7 +99,7 @@ def write_baseline(result: Fig3Result, path: Path | None = None) -> Path:
         writer.writerow([
             f"# Delta_R_over_h_Hz={DELTA_R_OVER_H_HZ:g}  "
             f"Delta_R_kelvin={DELTA_R_KELVIN:.6f}  "
-            f"r_Rc_rate_Hz={R_Rc_RATE_HZ:g}"
+            f"r_Rlt_rate_Hz={R_RLT_RATE_HZ:g}"
         ])
         writer.writerow(["g_photon_R_Hz", "T_bar_kelvin"])
         for g, T in zip(result.g_photon_R_Hz, result.T_bar_kelvin, strict=True):
@@ -138,7 +138,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     ax.semilogx(
         result.g_photon_R_Hz, result.T_bar_kelvin * 1e3,
         "o-", lw=1.5, ms=4, color="tab:purple",
-        label=r"$\bar T = 2\Delta_R / W(4\pi r^{R_c}/g^\mathrm{ph}_R)$",
+        label=r"$\bar T = 2\Delta_R / W(4\pi r^{R<}/g^\mathrm{ph}_R)$",
     )
 
     # Annotate the Fig 3 paper-reading points (approximate, from the
@@ -163,7 +163,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     ax.set_title(
         "Marchegiani 2025 Eq. 8: Lambert-W crossover temperature\n"
         rf"Fig 3 params: $\Delta_R/h={DELTA_R_OVER_H_HZ/1e9:.0f}$ GHz, "
-        rf"$r^{{R_c}}={R_Rc_RATE_HZ/1e6:.2f}$ MHz",
+        rf"$r^{{R<}}={R_RLT_RATE_HZ/1e6:.2f}$ MHz",
         fontsize=10,
     )
     ax.grid(True, which="both", ls=":", alpha=0.3)
@@ -177,7 +177,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
 def generate_baseline() -> tuple[Path, Path]:
     print("M25 Fig 3 — Lambert-W crossover temperature T̄(g^ph_R)")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_HZ/1e9:.1f} GHz → Δ_R = {DELTA_R_KELVIN:.4f} K")
-    print(f"  r^{{R_c}} = {R_Rc_RATE_HZ/1e6:.2f} MHz")
+    print(f"  r^{{R<}} = {R_RLT_RATE_HZ/1e6:.2f} MHz")
     print(
         f"  g^ph_R: {NUM_POINTS} pts, {G_PHOTON_MIN_HZ:.0e} → "
         f"{G_PHOTON_MAX_HZ:.0e} Hz (logspaced)"
