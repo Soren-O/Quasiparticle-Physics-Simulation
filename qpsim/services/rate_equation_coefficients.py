@@ -46,9 +46,20 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.integrate import quad
-from scipy.special import erf, erfc, k0, k1
+from scipy.special import (
+    ellipe,
+    ellipeinc,
+    ellipk,
+    ellipkinc,
+    erf,
+    erfc,
+    k0,
+    k1,
+)
 
 from qpsim.services.rate_equation import M25Coefficients
+
+_K_B_J_PER_K = 1.380649e-23  # Boltzmann constant (J/K)
 
 # ─────────────────────────────────────────────────────────────────────
 #  Input bundle
@@ -561,6 +572,325 @@ def _g_pn_Rgt(params: M25PhysicalParameters) -> float:
         * np.exp(-2.0 * Delta_R / T)
         * erfc(np.sqrt(omega_LR / T))
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Note V: photon-assisted-tunneling spectral density
+# ─────────────────────────────────────────────────────────────────────
+#
+#  The dimensionless photon spectral density (SI Eq. S56) is
+#
+#    S^±_ph(x; z) = ∫_1^∞ dy ∫_z^∞ dy'  (y y' ± z)
+#                  / [√(y² − 1) √(y'² − z²)]
+#                  × δ(x − y − y'),
+#
+#  with ``x = (ω_ν + ω_{ii'})/Δ_L`` and ``z = Δ_R/Δ_L``. Performing the
+#  y' integration via the delta function (SI Eq. S57) gives the closed
+#  form below in terms of complete elliptic integrals of the second
+#  (E) and first (K) kinds. The paper uses modulus notation ``E[k]``;
+#  scipy takes parameter ``m = k²`` — conversions below.
+#
+#  The R> contribution (SI Eq. S59) restricts ``y' > 1`` (partner QP
+#  above Δ_L), yielding an incomplete elliptic integral on a specific
+#  angle φ plus a boundary term. The R< contribution is obtained by
+#  subtraction.
+
+
+def _S_ph_total(x: float, z: float, sign: int) -> float:
+    r""":math:`S^\pm_{ph}(x; z)` (SI Eq. S57, total photon spectral density).
+
+    Parameters
+    ----------
+    x
+        Dimensionless energy ``(ω_ν + ω_{ii'})/Δ_L``. Must be positive.
+    z
+        Gap ratio ``Δ_R / Δ_L ∈ (0, 1)``.
+    sign
+        ``+1`` for the ``S^+`` branch (parity-preserving coherence
+        factor ``ν^+`` → goes with ``sin²(φ̂/2)`` matrix element);
+        ``-1`` for ``S^-`` (coherence factor ``ν^-`` → ``cos²(φ̂/2)``
+        matrix element).
+
+    Returns
+    -------
+    float
+        Dimensionless spectral density; zero for ``x < 1 + z`` (photon
+        carries less than the combined gap threshold, cannot break a
+        pair).
+    """
+    if sign not in (-1, 1):
+        raise ValueError(f"sign must be +1 or -1; got {sign}")
+    if not (0.0 < z < 1.0):
+        raise ValueError(f"z = Δ_R/Δ_L must lie in (0, 1); got {z}")
+    if x <= 1.0 + z:
+        return 0.0
+
+    a_plus = x * x - (z + 1.0) ** 2   # nonneg above threshold
+    a_minus = x * x - (z - 1.0) ** 2  # always > 0 for x > 1+z > 1-z (since z < 1 ⇒ 1-z < 1+z)
+    m = a_plus / a_minus              # elliptic-integral parameter m = k²
+
+    E_term = float(np.sqrt(a_minus) * ellipe(m))
+    # K coefficient is 2z·(1 ∓ sign), so zero for S^+ (sign=+1) and 4z for S^- (sign=-1).
+    K_coef = 2.0 * z * (1.0 - sign) / float(np.sqrt(a_minus))
+    K_term = float(K_coef * ellipk(m))
+    return E_term - K_term
+
+
+def _S_ph_Rgt(x: float, z: float, sign: int) -> float:
+    r""":math:`S^{>,\pm}_{ph}(x; z)` (SI Eq. S59, R>-band contribution).
+
+    Restricts the partner quasiparticle to ``y' > 1`` (above Δ_L),
+    yielding an incomplete elliptic form. Zero for ``x < 2`` (insuf-
+    ficient photon energy to place both QPs above Δ_L).
+    """
+    if sign not in (-1, 1):
+        raise ValueError(f"sign must be +1 or -1; got {sign}")
+    if not (0.0 < z < 1.0):
+        raise ValueError(f"z = Δ_R/Δ_L must lie in (0, 1); got {z}")
+    if x <= 2.0:
+        return 0.0
+
+    a_plus = x * x - (z + 1.0) ** 2
+    a_minus = x * x - (z - 1.0) ** 2
+    m = a_plus / a_minus
+
+    # φ = arcsin(sqrt((x-2)(x+1-z) / (x(x-1-z))))
+    num_phi = (x - 2.0) * (x + 1.0 - z)
+    den_phi = x * (x - 1.0 - z)
+    # den_phi > 0 when x > 1 + z, guaranteed here since x > 2 > 1 + z (needs z < 1).
+    # Actually x > 2 and z < 1 so 1 + z < 2 < x ⇒ x - 1 - z > 0. ✓
+    sin_phi = float(np.sqrt(num_phi / den_phi))
+    # Numerically clip for float roundoff at the boundary.
+    if sin_phi > 1.0:
+        sin_phi = 1.0
+    phi = float(np.arcsin(sin_phi))
+
+    E_inc = float(np.sqrt(a_minus) * ellipeinc(phi, m))
+    F_coef = 2.0 * z * (1.0 - sign) / float(np.sqrt(a_minus))
+    F_inc = float(F_coef * ellipkinc(phi, m))
+    boundary = float(np.sqrt((x - 2.0) * (1.0 - z * z) / x))
+    return E_inc - F_inc - boundary
+
+
+def _S_ph_Rlt(x: float, z: float, sign: int) -> float:
+    r""":math:`S^{<,\pm}_{ph} = S^\pm_{ph} - S^{>,\pm}_{ph}` (R<-band)."""
+    return _S_ph_total(x, z, sign) - _S_ph_Rgt(x, z, sign)
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Note V: builder for photon-assisted rates from primitive drive
+# ─────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class M25PhotonDrive:
+    r"""Photon-drive inputs for the Note V photon-assisted rates.
+
+    Parameters
+    ----------
+    omega_nu_kelvin
+        Pair-breaking photon energy ``ω_ν``. Must exceed the sum
+        ``Δ_L + Δ_R`` (minimum energy to break a pair across the
+        junction; in dimensionless units ``x = ω_ν/Δ_L > 1 + z``).
+        At M25 Fig 3 parameters: ``ω_ν/(2π) = 119 GHz ≈ 5.71 K``.
+    Gamma_nu_scale_Hz
+        Combined prefactor ``Γ_ν · g_T Δ_L / (8 g_K)`` appearing in
+        SI Eq. S55, in Hz. Sets the overall scale of the photon-
+        assisted rates; all four ``Γ^{ph}_{ij}`` share it. Typically
+        calibrated by back-solving from a caption-level input such
+        as ``Γ^{ph}_{00} = 300`` Hz — see
+        :func:`calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00`.
+    nu_0_per_J_per_m3
+        Normal-state single-spin density of states at the Fermi
+        level (J⁻¹ m⁻³). At M25 Fig 3 parameters: ``0.73 × 10⁴⁷``.
+    volume_m3
+        Electrode volume ``V_L = V_R = V`` (m³). At M25 Fig 3:
+        ``506 × 240 × 0.028 μm³ = 3.4 × 10⁻¹⁸`` m³.
+
+    Raises
+    ------
+    ValueError
+        If any value is nonpositive.
+    """
+
+    omega_nu_kelvin: float
+    Gamma_nu_scale_Hz: float
+    nu_0_per_J_per_m3: float
+    volume_m3: float
+
+    def __post_init__(self) -> None:
+        for name in ("omega_nu_kelvin", "Gamma_nu_scale_Hz", "nu_0_per_J_per_m3", "volume_m3"):
+            val = float(getattr(self, name))
+            if val <= 0.0:
+                raise ValueError(f"{name} must be positive; got {val}")
+
+
+def _cooper_pair_number(
+    nu_0_per_J_per_m3: float, gap_kelvin: float, volume_m3: float
+) -> float:
+    r"""``N_CP = 2 ν_0 Δ V`` with ``Δ`` converted from Kelvin to Joules."""
+    return 2.0 * nu_0_per_J_per_m3 * _K_B_J_PER_K * gap_kelvin * volume_m3
+
+
+def coefficients_from_physical_parameters_with_photon_drive(
+    params: M25PhysicalParameters,
+    drive: M25PhotonDrive,
+) -> M25Coefficients:
+    r"""Assemble the full ``M25Coefficients`` bundle including Note V.
+
+    Builds all pieces of
+    :func:`coefficients_from_physical_parameters` plus the photon-
+    assisted rates derived from the primitive drive inputs:
+
+    * ``Γ̃^{ph}_{ij}`` — SI Eq. S10 with the S55 replacement, using
+      the transmon matrix elements and the total spectral density
+      :func:`_S_ph_total` at the appropriate energy argument.
+    * ``g^{ph}_α`` per-state — main-text formula
+      ``g^{ph}_R = Γ^{ph}/(2 ν_0 Δ_R V) = g^{ph}_L / δ``, split
+      between R< and R> by the ``_S_ph_Rlt/_S_ph_total`` fraction.
+      The resulting length-2 arrays populate ``g_ph_α_per_state`` so
+      that the residual evaluates the population dependence self-
+      consistently (``g(p) = p_0 · g[0] + p_1 · g[1]``).
+
+    Any photon-driven primitive fields on ``params``
+    (``Gamma_ph_ij_Hz``, ``g_ph_α_Hz``) are **ignored** when this
+    builder is used — they are superseded by the Note V evaluation.
+    """
+    base = coefficients_from_physical_parameters(params)
+
+    # ── Transmon matrix elements ─────────────────────────────────────
+    s_10_sq = _s_10_squared(params.E_J_kelvin, params.E_C_kelvin)
+    c_00_sq = _c_ii_squared(0, params.E_J_kelvin, params.E_C_kelvin)
+    c_11_sq = _c_ii_squared(1, params.E_J_kelvin, params.E_C_kelvin)
+
+    # ── Dimensionless photon-spectral-density arguments ──────────────
+    Delta_L = params.Delta_L_kelvin
+    z = params.delta
+    omega_nu = drive.omega_nu_kelvin
+    omega_10 = params.omega_10_kelvin
+
+    # ω_{ij} = ω_i - ω_j (initial minus final qubit energy)
+    #   Γ^{ph}_{00}, Γ^{ph}_{11}: ω = 0         → S^- branch (c² matrix elt)
+    #   Γ^{ph}_{10}: initial |1> → final |0>, ω = +ω_10  → S^+ (s² matrix elt)
+    #   Γ^{ph}_{01}: initial |0> → final |1>, ω = -ω_10  → S^+
+    x_00 = omega_nu / Delta_L
+    x_10 = (omega_nu + omega_10) / Delta_L
+    x_01 = (omega_nu - omega_10) / Delta_L
+
+    # Total spectral densities (needed for the R<-vs-R> fraction below)
+    S_minus_00 = _S_ph_total(x_00, z, sign=-1)
+    S_plus_10 = _S_ph_total(x_10, z, sign=+1)
+    S_plus_01 = _S_ph_total(x_01, z, sign=+1)
+
+    # ── Γ^{ph}_{ij} via SI Eq. S10 + S55 replacement ─────────────────
+    A = drive.Gamma_nu_scale_Hz
+    Gamma_ph_00 = A * c_00_sq * S_minus_00
+    Gamma_ph_11 = A * c_11_sq * S_minus_00
+    Gamma_ph_10 = A * s_10_sq * S_plus_10
+    Gamma_ph_01 = A * s_10_sq * S_plus_01
+    gamma_ph = np.array(
+        [[Gamma_ph_00, Gamma_ph_01], [Gamma_ph_10, Gamma_ph_11]],
+        dtype=float,
+    )
+
+    # ── Per-state g^{ph}_α via main-text /N_CP + R<-vs-R> split ──────
+    # g^{ph}_R (state i) = [Γ^{ph}_{i0} + Γ^{ph}_{i1}] / N_CP(R)
+    # g^{ph}_L (state i) = g^{ph}_R (state i) × δ  (normalization)
+    # R<-vs-R> split: scale by S^{<,-}/S^- (using the logical-
+    # conserving S^- branch, since that's where the dominant g^ph
+    # generation lives at low T).
+    N_CP_R = _cooper_pair_number(drive.nu_0_per_J_per_m3, params.Delta_R_kelvin, drive.volume_m3)
+    delta_gap = params.delta
+
+    # Fraction of pair-breaking events that land both QPs in R (< or >
+    # sub-band). Use logical-conserving spectral density S^-(x_00; z)
+    # as the reference: of those pairs, fraction S^{<,-}/S^- goes to
+    # R< and S^{>,-}/S^- to R>.
+    if S_minus_00 > 0.0:
+        S_Rlt_minus = _S_ph_Rlt(x_00, z, sign=-1)
+        S_Rgt_minus = _S_ph_Rgt(x_00, z, sign=-1)
+        frac_Rlt = S_Rlt_minus / S_minus_00
+        frac_Rgt = S_Rgt_minus / S_minus_00
+    else:
+        frac_Rlt = 1.0  # below 2-gap threshold, all absorbed pairs land in R<
+        frac_Rgt = 0.0
+
+    # Per-state total g^{ph}_R[i]
+    g_ph_R_state_0 = (Gamma_ph_00 + Gamma_ph_01) / N_CP_R
+    g_ph_R_state_1 = (Gamma_ph_11 + Gamma_ph_10) / N_CP_R
+
+    g_ph_L_per_state = np.array(
+        [delta_gap * g_ph_R_state_0, delta_gap * g_ph_R_state_1], dtype=float
+    )
+    g_ph_Rlt_per_state = np.array(
+        [frac_Rlt * g_ph_R_state_0, frac_Rlt * g_ph_R_state_1], dtype=float
+    )
+    g_ph_Rgt_per_state = np.array(
+        [frac_Rgt * g_ph_R_state_0, frac_Rgt * g_ph_R_state_1], dtype=float
+    )
+
+    # Re-emit a new M25Coefficients with the Note-V-built photon
+    # rates replacing whatever scalar photon inputs landed via
+    # coefficients_from_physical_parameters. (The thermal-phonon
+    # generation, tunneling, recombination, intraband, and
+    # branching fields carry forward unchanged.)
+    return M25Coefficients(
+        gammas_L=base.gammas_L,
+        gammas_Rgt=base.gammas_Rgt,
+        gammas_Rlt=base.gammas_Rlt,
+        gamma_ee=base.gamma_ee,
+        gamma_ph=gamma_ph,
+        r_L=base.r_L,
+        r_Rgt=base.r_Rgt,
+        r_Rlt=base.r_Rlt,
+        r_cross=base.r_cross,
+        # Scalar g_α carries thermal-phonon contribution only
+        # (subtract any scalar g_ph_* that coefficients_from_physical_parameters
+        # may have folded in from params).
+        g_L=base.g_L - params.g_ph_L_Hz,
+        g_Rgt=base.g_Rgt - params.g_ph_Rgt_Hz,
+        g_Rlt=base.g_Rlt - params.g_ph_Rlt_Hz,
+        tau_R_inv=base.tau_R_inv,
+        tau_E_inv=base.tau_E_inv,
+        xi=base.xi,
+        delta=base.delta,
+        g_ph_L_per_state=g_ph_L_per_state,
+        g_ph_Rgt_per_state=g_ph_Rgt_per_state,
+        g_ph_Rlt_per_state=g_ph_Rlt_per_state,
+    )
+
+
+def calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
+    params: M25PhysicalParameters,
+    drive_template: M25PhotonDrive,
+    Gamma_ph_00_target_Hz: float,
+) -> float:
+    r"""Back-solve the ``Gamma_nu_scale_Hz`` that yields a target ``Γ^{ph}_{00}``.
+
+    Linear relation: ``Γ^{ph}_{00} = Gamma_nu_scale_Hz · c²_{00} ·
+    S^-_{ph}(ω_ν/Δ_L; z)``. Returns the calibrated scale so the caller
+    can build a matching :class:`M25PhotonDrive`. Useful to pin the
+    Fig 3 parameter set (caption gives ``Γ^{ph}_{00} = 300 Hz``).
+
+    Raises
+    ------
+    ValueError
+        If the photon energy in ``drive_template`` is below the pair-
+        breaking threshold (``ω_ν ≤ Δ_L + Δ_R``), making
+        ``S^-(x_00; z) = 0`` and the calibration singular.
+    """
+    x_00 = drive_template.omega_nu_kelvin / params.Delta_L_kelvin
+    z = params.delta
+    S_minus_00 = _S_ph_total(x_00, z, sign=-1)
+    if S_minus_00 <= 0.0:
+        raise ValueError(
+            f"S^-(x_00={x_00:.4f}, z={z:.4f}) = 0; photon energy "
+            f"ω_ν={drive_template.omega_nu_kelvin:.4f} K is below the "
+            f"pair-breaking threshold Δ_L + Δ_R = "
+            f"{params.Delta_L_kelvin + params.Delta_R_kelvin:.4f} K."
+        )
+    c_00_sq = _c_ii_squared(0, params.E_J_kelvin, params.E_C_kelvin)
+    return float(Gamma_ph_00_target_Hz / (c_00_sq * S_minus_00))
 
 
 # ─────────────────────────────────────────────────────────────────────

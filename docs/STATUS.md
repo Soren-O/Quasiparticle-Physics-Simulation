@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-24 (second session).
+Last updated: 2026-04-24 (third session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -17,7 +17,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 5 | Ph1 phonon spatial transport | ❌ not started |
 | 6 | T2 kinetic scalar backend | ❌ not started |
 | 7 | T1 two-component backend | ❌ not started (requires new derivation) |
-| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ observable done; coefficients-in steady-state solver shipped; SI Notes III + IV coefficient integrals (12 tunneling rates Γ̃^α_{ij}, recombination r^α/r^{<>}, thermal-phonon generation g^{pn}_α with correct linear erf/erfc branching, intraband τ_R⁻¹/τ_E⁻¹ via detailed balance, branching ξ) shipped as `coefficients_from_physical_parameters`; **SI Note V photon-assisted tunneling + quantitative M25 Fig 3/4/5 baselines are the active next item** |
+| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ + coefficients-in steady-state solver + SI Notes III/IV coefficient integrals all shipped; SI Note V photon-assisted spectral density (S^±_ph total + R</R> split via elliptic integrals) + `M25PhotonDrive` dataclass + `coefficients_from_physical_parameters_with_photon_drive` builder + `calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00` back-solver shipped; `M25Coefficients` extended with population-dependent `g_ph_α_per_state` arrays consumed by the residual. **Quantitative M25 Fig 3/4/5 baseline reproduction is the active next item** — blocked by Newton conditioning at Δ_L/x ~ 10¹⁸ ratio (tunneling Γ̃ ≫ generation/recombination), needs variable rescaling or continuation-in-T |
 
 ## Validation figures
 
@@ -50,7 +50,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 - ✅ `nbar_loop` — F23 Eqs. 59-60 fixed-point on (n̄, Q_i).
 - ✅ `transient` — `run_time_dependent` with ETD2 collision substeps, snapshot cadence, stop-tol, observables dict.
 - partial `rate_equation` — Eq. 8 Lambert-W T̄ closed-form observable + `solve_rate_equation_steady_state` Newton solver on the 4-unknown M25 boxed system; auto-scaled residual tolerance for arbitrary coefficient magnitudes.
-- partial `rate_equation_coefficients` — `M25PhysicalParameters` + `coefficients_from_physical_parameters` build the `M25Coefficients` bundle from primitive physical inputs (gaps, ω_10, transmon E_J/E_C, T, junction tunneling scale `R_T = g_T Δ̄/e²`, caption-level `r^L`/`r^{R<}`). Implements SI Notes III (12 tunneling rates with the single-junction-transmon matrix-element reduction) and IV (recombination, generation-by-thermal-phonons, intraband relaxation, branching fraction). Photon-assisted pieces (`g^{ph}_α`, `Γ̃^{ph}_{ij}`) remain opaque primitive inputs pending SI Note V.
+- partial `rate_equation_coefficients` — `M25PhysicalParameters` + `coefficients_from_physical_parameters` build the `M25Coefficients` bundle from primitive physical inputs (gaps, ω_10, transmon E_J/E_C, T, junction tunneling scale `R_T = g_T Δ̄/e²`, caption-level `r^L`/`r^{R<}`). Implements SI Notes III (12 tunneling rates) and IV (recombination, generation-by-thermal-phonons, intraband relaxation, branching fraction). Note V photon-assisted tunneling shipped via `M25PhotonDrive` + `coefficients_from_physical_parameters_with_photon_drive`: elliptic-integral spectral densities `_S_ph_total` (S57), `_S_ph_Rgt` (S59), `_S_ph_Rlt = total − Rgt`; all four `Γ^{ph}_{ij}` derived from single back-solvable `Gamma_nu_scale_Hz`; per-state `g^{ph}_α` arrays feed the population-dependent residual.
 - planned `parametric_sweep` — factor the nested-loop pattern duplicated across validation modules.
 
 ## Observables (`qpsim.observables.*`)
@@ -65,7 +65,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**364 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**408 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

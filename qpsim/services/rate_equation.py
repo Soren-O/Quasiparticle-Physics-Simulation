@@ -23,7 +23,7 @@ Marchegiani & Catelani, *Commun. Phys.* **8**, 120 (2025).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.optimize import root
@@ -148,8 +148,22 @@ class M25Coefficients:
         ``r^{<>}`` (Hz). The first three multiply ``x_α^2``; the
         last multiplies ``x_{R<}\, x_{R>}``.
     g_L, g_Rgt, g_Rlt
-        Total generation rates ``g^α = g^{ph}_α + g^{pn}_α`` (Hz)
-        in each sector.
+        Population-independent generation rates (Hz) in each sector.
+        Typically ``g^{pn}_α`` (thermal-phonon pair-breaking) plus
+        any photon-driven pieces that a caller has already averaged
+        over qubit state. For population-dependent photon rates
+        (M25 main text: ``g^{ph}_R = Σ_i p_i (Γ^{ph}_{ij} sums) /
+        N_CP(R)``), supply the per-state arrays below instead (or
+        in addition) and leave the ``g_α`` scalars at the thermal
+        value only.
+    g_ph_L_per_state, g_ph_Rgt_per_state, g_ph_Rlt_per_state
+        Photon-assisted generation rates (Hz) as length-2 arrays
+        ``[coefficient of p_0, coefficient of p_1]``. The residual
+        adds ``p_0 · array[0] + p_1 · array[1]`` to the ``g_α``
+        scalar. Defaults to all zeros (backward compatible —
+        scalars alone reproduce the pre-Note-V behavior). See
+        :func:`qpsim.services.rate_equation_coefficients.coefficients_from_physical_parameters_with_photon_drive`
+        for the Note-V builder that populates these.
     tau_R_inv, tau_E_inv
         Intraband relaxation ``τ_R^{-1}`` (R> → R< spontaneous
         emission) and excitation ``τ_E^{-1}`` (R< → R> thermal
@@ -189,6 +203,9 @@ class M25Coefficients:
     tau_E_inv: float
     xi: float
     delta: float
+    g_ph_L_per_state: np.ndarray = field(default_factory=lambda: np.zeros(2))
+    g_ph_Rgt_per_state: np.ndarray = field(default_factory=lambda: np.zeros(2))
+    g_ph_Rlt_per_state: np.ndarray = field(default_factory=lambda: np.zeros(2))
 
     def __post_init__(self) -> None:
         for name in ("gammas_L", "gammas_Rgt", "gammas_Rlt", "gamma_ee", "gamma_ph"):
@@ -196,6 +213,18 @@ class M25Coefficients:
             if not isinstance(arr, np.ndarray) or arr.shape != (2, 2):
                 raise ValueError(
                     f"{name} must be a numpy ndarray of shape (2, 2); "
+                    f"got shape {getattr(arr, 'shape', None)}"
+                )
+            if np.any(arr < 0):
+                raise ValueError(
+                    f"{name} entries must be nonneg (rates); "
+                    f"got min {float(arr.min())}"
+                )
+        for name in ("g_ph_L_per_state", "g_ph_Rgt_per_state", "g_ph_Rlt_per_state"):
+            arr = getattr(self, name)
+            if not isinstance(arr, np.ndarray) or arr.shape != (2,):
+                raise ValueError(
+                    f"{name} must be a numpy ndarray of shape (2,); "
                     f"got shape {getattr(arr, 'shape', None)}"
                 )
             if np.any(arr < 0):
@@ -274,6 +303,25 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     p_1, x_L, x_Rgt, x_Rlt = y
     p_0 = 1.0 - p_1
 
+    # Population-dependent photon-assisted generation (M25 main text):
+    # g^{ph}_α = Σ_i p_i × (coefs.g_ph_α_per_state[i]). When the arrays
+    # are zero (default), this reduces to the old scalar behavior.
+    g_L_eff = (
+        coefs.g_L
+        + p_0 * coefs.g_ph_L_per_state[0]
+        + p_1 * coefs.g_ph_L_per_state[1]
+    )
+    g_Rgt_eff = (
+        coefs.g_Rgt
+        + p_0 * coefs.g_ph_Rgt_per_state[0]
+        + p_1 * coefs.g_ph_Rgt_per_state[1]
+    )
+    g_Rlt_eff = (
+        coefs.g_Rlt
+        + p_0 * coefs.g_ph_Rlt_per_state[0]
+        + p_1 * coefs.g_ph_Rlt_per_state[1]
+    )
+
     # Parity-changing (eo) tunneling rates assembled from bulk and
     # density-dependent contributions: Γ̃^{eo}_{ij} = Γ̃^{ph}_{ij}
     # + Σ_α Γ̃^α_{ij} x_α  (Γ̃^{eo} decomposition in M25).
@@ -308,7 +356,7 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     gamma_L_01 = coefs.gammas_L[0, 1]
 
     x_L_dot = (
-        coefs.g_L
+        g_L_eff
         - coefs.r_L * x_L**2
         - delta * T_L * x_L
         + delta * T_Rgt * x_Rgt
@@ -316,7 +364,7 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     )
 
     x_Rgt_dot = (
-        coefs.g_Rgt
+        g_Rgt_eff
         - coefs.r_Rgt * x_Rgt**2
         - coefs.r_cross * x_Rlt * x_Rgt
         - T_Rgt * x_Rgt
@@ -327,7 +375,7 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     )
 
     x_Rlt_dot = (
-        coefs.g_Rlt
+        g_Rlt_eff
         - coefs.r_Rlt * x_Rlt**2
         - coefs.r_cross * x_Rlt * x_Rgt
         - gamma_Rlt_10 * p_1 * x_Rlt
@@ -399,18 +447,22 @@ def solve_rate_equation_steady_state(
         ee_01 = float(coefs.gamma_ee[0, 1])
         ee_10 = float(coefs.gamma_ee[1, 0])
         p_1_guess = ee_01 / (ee_01 + ee_10) if ee_01 + ee_10 > 0.0 else 0.0
-        # Seed each density with its single-sector equilibrium
-        # √(g/r) when both are positive; when g = 0 the x_α = 0
-        # fixed point is already exact (no source), so seed at 0.
-        def _density_seed(g: float, r: float) -> float:
-            if g > 0.0 and r > 0.0:
-                return float(np.sqrt(g / r))
+        p_0_guess = 1.0 - p_1_guess
+
+        # Seed each density with √(g_eff/r) using the population-
+        # weighted effective generation (thermal scalar + per-state
+        # photon contribution at the guessed qubit populations).
+        # When g_eff = 0 the x_α = 0 fixed point is already exact.
+        def _density_seed(g_thermal: float, g_ph: np.ndarray, r: float) -> float:
+            g_eff = g_thermal + p_0_guess * g_ph[0] + p_1_guess * g_ph[1]
+            if g_eff > 0.0 and r > 0.0:
+                return float(np.sqrt(g_eff / r))
             return 0.0
         y0 = np.array([
             p_1_guess,
-            _density_seed(coefs.g_L, coefs.r_L),
-            _density_seed(coefs.g_Rgt, coefs.r_Rgt),
-            _density_seed(coefs.g_Rlt, coefs.r_Rlt),
+            _density_seed(coefs.g_L, coefs.g_ph_L_per_state, coefs.r_L),
+            _density_seed(coefs.g_Rgt, coefs.g_ph_Rgt_per_state, coefs.r_Rgt),
+            _density_seed(coefs.g_Rlt, coefs.g_ph_Rlt_per_state, coefs.r_Rlt),
         ], dtype=float)
     else:
         y0 = np.asarray(initial_guess, dtype=float)
