@@ -139,8 +139,8 @@ The $\tau_l \approx 4d/(\eta s)$ result traces to three primary papers:
 
 | Paper | Quantity | Physics | Formula |
 |---|---|---|---|
-| Kaplan **1976** (PRB 14, 4854) | $\tau_{\mathrm{PB}}(\omega)$ | Bulk BCS pair-breaking lifetime | $1/\tau_{PB} = (\Delta/\pi\Delta_0\tau_0^{PB})\,S_+(\omega/\Delta)$ |
-| Kaplan **1979** (JLTP 37, 343) | $\tau_l(\omega)$ | Thin-film acoustic escape | $\tau_l \approx 4d/(\eta s)$ |
+| Kaplan **1976** (PRB 14, 4854) | $\tau_{\mathrm{PB}}(\omega)$ | Bulk BCS pair-breaking lifetime | $1/\tau_{PB} = (\Delta/\pi\Delta_0\tau_0^{PB})\,S_+(\omega/\Delta)$ — implemented in `qpsim.physics.kaplan_pair_breaking` |
+| Kaplan **1979** (JLTP 37, 343) | $\tau_l(\omega)$ | Thin-film acoustic escape | $\tau_l \approx 4d/(\eta s)$ — implemented in `qpsim.physics.phonon_escape` |
 
 Kaplan 1976 gives $\tau_{\mathrm{PB}}$ via elliptic integrals and has
 nothing to do with film geometry or the substrate. Kaplan 1979 gives the

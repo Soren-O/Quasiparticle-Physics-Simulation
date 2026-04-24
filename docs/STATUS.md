@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-24 (third session).
+Last updated: 2026-04-24 (fourth session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -13,7 +13,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 2 | Physics + grid + collisions + solvers ported from legacy qpsim; ETD2 / Strang / coupled Newton upgrades landed | ✅ |
 | 3 | T3 paper-reproduction parity against self-pinned baselines | ✅ all 8 figures (see below) |
 | 4 | Full Layer-4 audit chain | ✅ all parity tests pass (1e-12 / 1e-6 / 1e-4 tolerance tiers) |
-| 4.5 | Characterization tier (Ph0-Kaplan) | partial — sc-gap + acoustic-escape τ_l done (Fig 6); **frequency-resolved τ_PB(ω) per Kaplan 1976 deferred** |
+| 4.5 | Characterization tier (Ph0-Kaplan) | ✅ sc-gap + acoustic-escape τ_l (Fig 6) + frequency-resolved τ_PB(Ω) per Kaplan 1976 (`qpsim.physics.kaplan_pair_breaking`, closed-form elliptic-integral evaluator + `tau_0_phonon` Al/Nb material field) |
 | 5 | Ph1 phonon spatial transport | ❌ not started |
 | 6 | T2 kinetic scalar backend | ❌ not started |
 | 7 | T1 two-component backend | ❌ not started (requires new derivation) |
@@ -65,7 +65,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**411 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**431 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

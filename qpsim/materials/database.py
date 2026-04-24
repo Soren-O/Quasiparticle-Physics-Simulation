@@ -45,6 +45,13 @@ class Material:
     tau_0: float                # characteristic e-ph time
     tau_s: float | None = None  # scattering time (defaults to tau_0)
     tau_r: float | None = None  # recombination time (defaults to tau_0)
+    # Phonon-side characteristic time (Kaplan 1976 Eq. 30; Table II
+    # values). Distinct from ``tau_0`` (which is the QP side). Used by
+    # :func:`qpsim.physics.kaplan_pair_breaking.tau_PB_inverse_Hz` to
+    # build the frequency-resolved pair-breaking rate. Optional —
+    # materials that don't supply it will error if the Kaplan evaluator
+    # is called with that material's ``tau_0_phonon``.
+    tau_0_phonon: float | None = None  # τ_0^ph (ns)
 
     # Normal-state transport.
     D_0: float = 0.0            # normal-state diffusion (μm²/ns)
