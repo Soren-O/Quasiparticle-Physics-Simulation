@@ -28,6 +28,7 @@ from qpsim.devices.junction import (
     JunctionResult,
     SymmetricGapTunnelingJunction,
 )
+from qpsim.devices.m25_junction import M25GapAsymmetricJJ
 from qpsim.devices.qubit import (
     JunctionQubitCoupling,
     Qubit,
@@ -45,6 +46,7 @@ __all__ = [
     "Junction",
     "JunctionQubitCoupling",
     "JunctionResult",
+    "M25GapAsymmetricJJ",
     "Qubit",
     "QubitState",
     "QubitTransitionChannel",
