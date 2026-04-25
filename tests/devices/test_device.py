@@ -15,6 +15,8 @@ contract tests below pin the architectural invariants:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 from qpsim.backends.t3_diffusion import T3DiffusionState
@@ -23,6 +25,8 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import (
     Device,
     DeviceSolution,
+    ExternalFlux,
+    Junction,
     JunctionResult,
     Region,
     SymmetricGapTunnelingJunction,
@@ -165,6 +169,25 @@ class TestSymmetricGapTunnelingJunction:
         )
         with pytest.raises(ValueError, match="matching E grids"):
             junction.evaluate(state_L, state_R)
+
+    def test_evaluate_rejects_mismatched_gaps(self) -> None:
+        # The "symmetric gap" name is a contract — different gaps must
+        # raise rather than silently produce wrong physics.
+        state_L = _build_state(T_bath=0.1, num_energy=20)
+        # Manually craft a state with a different gap on the same E grid.
+        state_R_diff_gap = T3DiffusionState(
+            f=state_L.f,
+            gap=state_L.gap * 1.05,  # 5% larger
+            spectral=state_L.spectral,
+            phonon=state_L.phonon,
+            material=state_L.material,
+            T_bath=state_L.T_bath,
+        )
+        junction = SymmetricGapTunnelingJunction(
+            name="J", region_a="L", region_b="R", alpha_per_ns=0.01,
+        )
+        with pytest.raises(ValueError, match="matched gaps"):
+            junction.evaluate(state_L, state_R_diff_gap)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -311,3 +334,123 @@ class TestMismatchedTemperatures:
         # is in the matched-T detailed-balance test above.
         np.testing.assert_allclose(sol.states["L"].f, f_FD_L, atol=1e-4)
         np.testing.assert_allclose(sol.states["R"].f, f_FD_R, atol=1e-4)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Forwarding regression: junction flux must actually reach the solver
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class _ConstantFluxJunction(Junction):
+    """Test-only Junction that injects a known constant ExternalFlux
+    into ``region_a`` and zero into ``region_b``. Decouples the forward-
+    ing assertion from any state-dependent physics.
+    """
+
+    name: str
+    region_a: str
+    region_b: str
+    flux_a: ExternalFlux
+
+    def evaluate(
+        self, state_a: T3DiffusionState, state_b: T3DiffusionState,
+    ) -> JunctionResult:
+        zero_b = ExternalFlux.zero(int(state_b.spectral.E.size))
+        return JunctionResult(
+            external_flux_a=self.flux_a,
+            external_flux_b=zero_b,
+        )
+
+
+class TestSolverForwardsJunctionFlux:
+    """Tests that would FAIL if ``solve_device_steady_state`` stopped
+    passing the aggregated ``ExternalFlux`` into ``backend.steady_state``.
+    The detailed-balance and matched-bath tests above pass even if the
+    flux is dropped on the floor (each region's inner Newton finds its
+    own thermal fixed point regardless). These tests use a custom
+    Junction that injects a known constant flux and verify that the
+    converged ``f`` is materially different from the no-flux baseline.
+    """
+
+    def test_constant_injection_perturbs_steady_state(self) -> None:
+        T_bath = 0.1
+        state_L = _build_state(T_bath=T_bath, num_energy=30)
+        state_R = _build_state(T_bath=T_bath, num_energy=30)
+        NE = state_L.spectral.E.size
+        # gain pushes f UP, loss_rate is balanced so the equilibrium
+        # shifts noticeably above bath FD.
+        injection = ExternalFlux(
+            gain=np.full(NE, 1e-4), loss_rate=np.full(NE, 1e-2),
+        )
+
+        # With injection junction.
+        device_with = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                _ConstantFluxJunction(
+                    name="inj", region_a="L", region_b="R", flux_a=injection,
+                ),
+            ],
+        )
+        sol_with = solve_device_steady_state(device_with, outer_tol=1e-9)
+
+        # Without any junction (baseline).
+        device_no = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[],
+        )
+        sol_no = solve_device_steady_state(device_no, outer_tol=1e-9)
+
+        # If the solver were dropping external_flux, sol_with["L"].f
+        # would equal sol_no["L"].f. They must differ materially.
+        diff_L = float(np.max(np.abs(sol_with.states["L"].f - sol_no.states["L"].f)))
+        assert diff_L > 1e-4, (
+            f"Junction flux was not forwarded to the inner solver — "
+            f"with-injection and no-junction states match to {diff_L:.2e}."
+        )
+
+        # Region R got zero injection from the junction → unchanged.
+        diff_R = float(np.max(np.abs(sol_with.states["R"].f - sol_no.states["R"].f)))
+        assert diff_R < 1e-10
+
+    def test_zero_alpha_symmetric_junction_matches_no_junction(self) -> None:
+        # SymmetricGapTunnelingJunction(alpha=0) should produce zero
+        # ExternalFlux on both regions, so the device-with-junction
+        # result should match the no-junction baseline.
+        T_bath = 0.1
+        state_L = _build_state(T_bath=T_bath, num_energy=30)
+        state_R = _build_state(T_bath=T_bath, num_energy=30)
+
+        device_alpha0 = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="J", region_a="L", region_b="R", alpha_per_ns=0.0,
+                ),
+            ],
+        )
+        device_no_j = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[],
+        )
+        sol_alpha0 = solve_device_steady_state(device_alpha0, outer_tol=1e-10)
+        sol_no_j = solve_device_steady_state(device_no_j, outer_tol=1e-10)
+        np.testing.assert_allclose(
+            sol_alpha0.states["L"].f, sol_no_j.states["L"].f, atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            sol_alpha0.states["R"].f, sol_no_j.states["R"].f, atol=1e-12,
+        )

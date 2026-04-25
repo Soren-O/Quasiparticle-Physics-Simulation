@@ -65,7 +65,7 @@ class ExternalFlux:
     gain: np.ndarray
     loss_rate: np.ndarray
     target_cells: np.ndarray | None = None
-    diagnostics: dict[str, float] = field(default_factory=dict)
+    diagnostics: dict[str, str | float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         gain = np.asarray(self.gain, dtype=float)

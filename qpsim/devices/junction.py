@@ -153,6 +153,21 @@ class SymmetricGapTunnelingJunction(Junction):
                 "SymmetricGapTunnelingJunction requires identical E grids "
                 "between the two regions; got different values."
             )
+        # The "symmetric gap" name is contractual — reject mismatched
+        # gaps explicitly so callers don't get silent wrong physics.
+        if not np.isclose(state_a.gap, state_b.gap, rtol=1e-12):
+            raise ValueError(
+                f"SymmetricGapTunnelingJunction requires matched gaps; "
+                f"got Δ_a = {state_a.gap}, Δ_b = {state_b.gap}. Use a "
+                f"gap-asymmetric Junction subclass for Δ_a ≠ Δ_b."
+            )
+        if not np.isclose(
+            state_a.spectral.gap, state_b.spectral.gap, rtol=1e-12,
+        ):
+            raise ValueError(
+                f"SymmetricGapTunnelingJunction requires matched spectral "
+                f"gaps; got {state_a.spectral.gap} vs {state_b.spectral.gap}."
+            )
 
         alpha = float(self.alpha_per_ns)
         f_a = state_a.f
