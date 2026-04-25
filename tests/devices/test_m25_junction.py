@@ -268,6 +268,66 @@ class TestM25JunctionEvaluateValidation:
         with pytest.raises(ValueError, match="L band"):
             j.evaluate(state_L, state_R, qstate)
 
+    def test_L_spread_uses_band_mask_under_dynes_dos(self) -> None:
+        # Without an explicit L band mask the spread normalizes over
+        # the full grid. On a pure-BCS context that's harmless because
+        # rho==0 below the gap; on a Dynes-broadened context the
+        # subgap rho weight steals part of the normalization and the
+        # recovered above-gap M25 gain falls below gain_moment_Hz.
+        # Pin the moment-integral identity:
+        #   (2/Δ_L) × ∫ rho × gain × dE  ==  gain_moment_Hz × 1e-9
+        # (the 1e-9 converts the per-bin ExternalFlux from 1/ns to
+        # 1/s for comparison against the Hz diagnostic).
+        from dataclasses import replace as dc_replace
+
+        from qpsim.physics.spectral import SpectralContext
+
+        params, drive = _fig3a_setup()
+        # Build an L state with a Dynes-broadened spectral context and
+        # a grid that extends below Δ_L so subgap bins exist.
+        Delta_L_uev = params.Delta_L_kelvin * KB_UEV_PER_K
+        E_L = np.concatenate([
+            np.linspace(0.5 * Delta_L_uev, 0.99 * Delta_L_uev, 8),
+            np.linspace(1.01 * Delta_L_uev, 6.0 * Delta_L_uev, 22),
+        ])
+        from qpsim.grid.energy_grid import integration_widths_from_centers
+        dE_L = integration_widths_from_centers(E_L)
+        # Strong Dynes broadening so subgap rho is non-trivial.
+        spec_dynes = SpectralContext(
+            E_bins=E_L, dE_bins=dE_L, gap=Delta_L_uev,
+            dynes_gamma=0.05 * Delta_L_uev,
+        )
+        state_L_normal = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_L = dc_replace(
+            state_L_normal,
+            f=np.zeros_like(E_L), spectral=spec_dynes,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+
+        result = j.evaluate(state_L, state_R, qstate)
+        ef_L = result.external_flux_a
+        gain_moment_Hz = ef_L.diagnostics["gain_moment_Hz"]
+        assert isinstance(gain_moment_Hz, float)
+        # Recover the moment from the per-bin ExternalFlux. Multiply
+        # by 1e9 to undo the Hz → 1/ns conversion in the spread.
+        recovered_Hz = (
+            2.0 / Delta_L_uev
+            * float(np.sum(spec_dynes.rho * ef_L.gain * spec_dynes.dE))
+            * 1e9
+        )
+        np.testing.assert_allclose(recovered_Hz, gain_moment_Hz, rtol=1e-12)
+
     def test_rejects_L_grid_with_only_boundary_bin(self) -> None:
         # Boundary-only grid: max(E_L) = Δ_L. Mere bin counting passes
         # (the last bin satisfies E ≥ Δ_L), but BCS DOS at the gap

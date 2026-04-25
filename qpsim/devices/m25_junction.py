@@ -380,9 +380,14 @@ class M25GapAsymmetricJJ(Junction):
         )
 
         # ── Spread moment rates → per-bin (gain, loss_rate) ──
+        # Pass the explicit M25 L band mask (E ≥ Δ_L) rather than
+        # mask=None. mask=None would normalize over the full grid,
+        # which on Dynes-broadened SpectralContexts picks up subgap
+        # DOS weight and shrinks the recovered above-gap M25 gain
+        # below gain_moment_Hz.
         ef_L = self._build_per_region_flux(
             state_a, gain_L_moment, loss_rate_L_moment,
-            gap_uev=Delta_L_uev, mask=None,  # full L band [Δ_L, ∞]
+            gap_uev=Delta_L_uev, mask=mask_L,
             label="L",
         )
         ef_R = self._build_per_region_flux_two_band(
