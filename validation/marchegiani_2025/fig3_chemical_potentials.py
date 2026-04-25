@@ -124,16 +124,26 @@ def _coefficients_at(omega_LR_GHz: float, T_kelvin: float) -> M25Coefficients:
 
 
 def _try_solve(
-    coefs: M25Coefficients, *, seeds: list[np.ndarray | None],
+    coefs: M25Coefficients,
+    *,
+    seeds: list[np.ndarray | None],
 ) -> M25SteadyState | None:
     """Try every seed and return the photon-driven branch solution.
 
     The M25 system is multi-stable: at fixed T there are several
     nonequilibrium fixed points plus the thermal one. We want the
-    upper photon-driven branch (the one the M25 paper Fig 3 plots,
-    monotonically merging into thermal at T_bar). Heuristic: among
-    all converged positive-density solutions, return the one with
-    the largest ``x_L`` — that's the most-non-equilibrium branch.
+    upper photon-driven branch (the one the M25 paper Fig 3 plots).
+    Heuristic: among all converged positive-density solutions,
+    return the one with the largest ``x_L`` — the most-non-
+    equilibrium branch.
+
+    Branch tracking via "closest in log-space to previous T" was
+    tried but produced worse results: it sticks to a branch that
+    sometimes bifurcates and crosses the thermal locus, dragging
+    μ_α into spurious negative territory at high T. ``max(x_L)``
+    is more robust on the sweeps used here, at the cost of
+    occasional jumps when the dominant branch changes between
+    adjacent T points.
     """
     candidates: list[M25SteadyState] = []
     for seed in seeds:

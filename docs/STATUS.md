@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-24 (fifth session).
+Last updated: 2026-04-25 (sixth session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -36,7 +36,9 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 | Fischer 2024 Figs 5-7 f(E) | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ |
 | Fischer 2024 Fig 8 x_qp(T_B) | `fischer_2024/fig8_xqp_pb.py` | `ph0_constant/` | ✅ |
 | Transient photon-kick f(E, t) | `validation/transient/photon_kick_response.py` | `transient/` | ✅ demo, via `transient` service |
-| Marchegiani 2025 Eq. 8 T̄ | `validation/marchegiani_2025/fig3_crossover_temperature.py` | `marchegiani_2025/` | ✅ closed-form; **full rate-equation integration deferred** |
+| Marchegiani 2025 Eq. 8 T̄ | `validation/marchegiani_2025/fig3_crossover_temperature.py` | `marchegiani_2025/` | ✅ closed-form Lambert-W |
+| Marchegiani 2025 Fig 3 (μ_α vs T) | `validation/marchegiani_2025/fig3_chemical_potentials.py` | `marchegiani_2025/` | ✅ both panels (small + large gap asymmetry) match qualitatively; μ_L → 0 at T̄ ≈ 150 mK |
+| Marchegiani 2025 Fig 4 (Γ_P, Γ̃^eo_01/Γ̃^eo_10 vs T) | `validation/marchegiani_2025/fig4_parity_rates.py` | `marchegiani_2025/` | partial — qualitative trends pinned; panel a has multi-stability noise from competing M25 fixed points (max-x_L branch picker); paper-grade smoothness needs proper bifurcation tracking |
 
 ## Analytic tests
 
@@ -66,7 +68,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**525 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**531 unit/regression tests passing** (524 unit/regression + 7 M25 validation). Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.
