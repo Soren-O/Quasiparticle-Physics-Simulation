@@ -36,10 +36,10 @@ def test_matches_pinned_baseline() -> None:
         )
         # Densities and qubit excited population — moderately tight
         # but tolerant of solver-iteration noise across scipy versions.
-        # The branch-selector ("max x_L over all converged seeds")
-        # makes the choice of fixed point reproducible; the per-x
-        # numerical accuracy is set by the LM xtol/ftol stopping
-        # criteria.
+        # The branch-selector (max-x_L plus continuation preference
+        # via solve_rate_equation_steady_state_multi_seed) makes the
+        # choice of fixed point reproducible; the per-x numerical
+        # accuracy is set by the hybr xtol stopping criterion.
         np.testing.assert_allclose(
             actual.x_L, expected.x_L, rtol=1e-3,
             err_msg=f"{panel_name}: x_L drifted",

@@ -398,11 +398,19 @@ def solve_rate_equation_steady_state(
 ) -> M25SteadyState:
     r"""Solve the M25 three-chemical-potential system for its steady state.
 
-    Newton (scipy ``lm``, finite-difference Jacobian) on the 4-unknown
-    residual ``(ṗ_1, ẋ_L, ẋ_{R>}, ẋ_{R<}) = 0``. The system is
-    polynomial in the unknowns (quadratic in densities, bilinear in
-    ``p × x``), so when the guess is in the basin of the physical
-    fixed point the solver converges in ``≲ 10`` steps.
+    Newton (``scipy.optimize.root(method='hybr')`` — MINPACK ``hybrd``,
+    finite-difference Jacobian) on the 4-unknown residual
+    ``(ṗ_1, ẋ_L, ẋ_{R>}, ẋ_{R<}) = 0``. The system is polynomial in
+    the unknowns (quadratic in densities, bilinear in ``p × x``), so
+    when the guess is in the basin of the physical fixed point the
+    solver converges in ``≲ 10`` steps.
+
+    The ``method='hybr'`` choice is deliberate: the legacy
+    ``method='lm'`` wrapper has FORTRAN COMMON-block state and is
+    non-deterministic across repeated calls with identical inputs.
+    The ``accept_lm_convergence`` parameter name is kept for
+    backward compatibility but governs acceptance of hybr's
+    "iteration not making good progress" status, not LM's.
 
     Parameters
     ----------
