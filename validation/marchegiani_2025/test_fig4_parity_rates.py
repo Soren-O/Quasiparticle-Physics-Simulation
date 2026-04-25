@@ -37,8 +37,8 @@ def test_matches_pinned_baseline() -> None:
         # branch-jump noise (the multi-stability artifact in the
         # underlying moment system) propagates into ~order-of-
         # magnitude scatter at some T points. The 5% rtol pins the
-        # baseline against itself but tolerates LM solver
-        # iteration-count drift across scipy versions.
+        # baseline against itself but tolerates hybr iteration-count
+        # drift across scipy versions.
         np.testing.assert_allclose(
             actual.Gamma_P_Hz, expected.Gamma_P_Hz, rtol=5e-2,
             err_msg=f"{panel_name}: Gamma_P_Hz drifted",

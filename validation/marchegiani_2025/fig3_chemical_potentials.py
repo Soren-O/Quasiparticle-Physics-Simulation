@@ -76,9 +76,10 @@ DRIVE_TEMPLATE = M25PhotonDrive(
 # T sweep range — bounded above by the M25 T̄ ≈ 150 mK crossover
 # (beyond that the system is at thermal equilibrium and μ_α ≈ 0 with
 # numerical noise from competing near-equilibrium fixed points) and
-# below by where the LM solver still finds the nonequilibrium branch
-# from any seed (the very-low-T regime exp(-Δ/T) → 0 stresses scipy's
-# polynomial Newton even with continuation).
+# below by where the hybr multi-seed helper still finds the
+# nonequilibrium branch from any seed (the very-low-T regime
+# exp(-Δ/T) → 0 stresses scipy's polynomial Newton even with
+# continuation).
 T_MIN_K = 0.010
 T_MAX_K = 0.150
 NUM_T_POINTS = 29   # 5 mK spacing

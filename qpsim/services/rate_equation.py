@@ -449,16 +449,17 @@ def solve_rate_equation_steady_state(
         when coefficients are smaller or variable rescaling is in
         place (Stage B).
     accept_lm_convergence
-        When ``True``, accept the result whenever scipy's Levenberg-
-        Marquardt solver reports ``success=True`` (iterates converged
-        per its own ``xtol``/``ftol``), even if the residual exceeds
-        ``residual_tol``. Used by callers that know their problem
-        sits at the float64 cancellation floor — e.g. M25 Fig 3
-        inputs, where the steady state balances ``Γ̃ × x ~ 1e4 Hz``
-        currents to ~1e-5 Hz, set by the cancellation floor of
-        polynomial differences and unreachable by any tightening of
-        ``residual_tol``. Default ``False`` keeps the strict residual
-        check.
+        Backward-compatible name (kept across the lm→hybr solver
+        switch). When ``True``, accept the result if hybr stalls
+        with the specific "iteration is not making good progress"
+        status AND the residual is at or below 1.0 Hz. This is the
+        cancellation-floor escape hatch for M25 Fig 3 inputs, where
+        ``Γ̃ × x ~ 1e4 Hz`` tunneling currents cancel to ~1e-5 Hz —
+        below ``residual_tol`` is unreachable but the answer is
+        still physically meaningful. The bypass does NOT cover
+        other failure modes (maxfev hit, "no further improvement",
+        etc.) which always raise. Default ``False`` keeps the strict
+        residual check.
     max_function_evaluations
         Hard cap passed to scipy. Each Newton step typically costs
         5 evaluations (1 residual + 4 FD-Jacobian columns).
