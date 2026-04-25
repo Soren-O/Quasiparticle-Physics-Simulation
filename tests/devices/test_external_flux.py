@@ -421,13 +421,10 @@ class TestForwardingThroughT3Backend:
 
     def test_steady_state_picard_with_anderson(self) -> None:
         # The default backend method is method="picard" (finite-τ_l Picard
-        # outer loop on n_ph). Without Anderson acceleration this path is
-        # known to be unstable when ANY perturbation feeds back through the
-        # phonon-emission cycle — a separate Picard-vs-coupled-Newton issue
-        # already documented at backend.steady_state's docstring. With
-        # anderson_depth ≥ 1 the path stabilizes; that's what production
-        # callers use anyway. This test pins the kwarg threading through
-        # the Anderson-Picard path specifically.
+        # outer loop on n_ph). With anderson_depth ≥ 1 the path stabilizes
+        # under ExternalFlux. This test pins the kwarg threading through
+        # the Anderson-Picard path; the unaccelerated-Picard guard test
+        # below pins the explicit-error contract.
         from qpsim.backends.t3_diffusion import T3DiffusionBackend
 
         backend = T3DiffusionBackend()
@@ -438,6 +435,25 @@ class TestForwardingThroughT3Backend:
             state, method="picard", anderson_depth=3, external_flux=ef,
         )
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
+
+    def test_default_picard_with_external_flux_raises_helpful_error(self) -> None:
+        # The default (method='picard', anderson_depth=0) was previously
+        # silently failing with a "did not converge in 200 iterations"
+        # error when ExternalFlux is non-zero — confusing to users since
+        # the no-flux default works. The backend now catches this at the
+        # API boundary and raises a ValueError pointing at the three
+        # routes: anderson_depth >= 1, coupled_newton, or use_thermal_phonons.
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        with pytest.raises(ValueError, match=r"anderson_depth >= 1.*coupled_newton"):
+            backend.steady_state(state, external_flux=ef)
+        # Zero external_flux still works on the default path.
+        zero_ef = ExternalFlux.zero(state.spectral.E.size)
+        # Should NOT raise the new ValueError (the gain+loss == 0 short-circuit).
+        backend.steady_state(state, external_flux=zero_ef)
 
     def test_apply_collisions_one_step(self) -> None:
         from qpsim.backends.t3_diffusion import T3DiffusionBackend

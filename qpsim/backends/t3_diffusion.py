@@ -172,6 +172,34 @@ class T3DiffusionBackend:
                 "method='coupled_newton' has nothing to solve for. "
                 "Use method='picard' (default) with use_thermal_phonons=True."
             )
+
+        # Default unaccelerated Picard (anderson_depth=0) is brittle when
+        # ANY perturbation feeds through the phonon-emission cycle —
+        # ExternalFlux on the f-equation reliably pushes it into oscillating
+        # non-convergence. The kwarg threading IS correct; the issue is the
+        # underlying Picard scheme (which is also why coupled_newton was
+        # added). Catch this at the API boundary so users get a clear
+        # routing hint instead of a "did not converge in 200 iterations"
+        # surprise after the fact.
+        if (
+            external_flux is not None
+            and method == "picard"
+            and not use_thermal_phonons
+            and anderson_depth == 0
+        ):
+            ef_max = float(np.max(external_flux.gain) + np.max(external_flux.loss_rate))
+            if ef_max > 0.0:
+                raise ValueError(
+                    "Default unaccelerated Picard (method='picard', "
+                    "anderson_depth=0) is unstable when external_flux is "
+                    "non-zero — the f-perturbation feeds through the "
+                    "phonon-emission cycle and Picard oscillates. "
+                    "Pass anderson_depth >= 1 to stabilize, OR switch to "
+                    "method='coupled_newton', OR use_thermal_phonons=True "
+                    "if the τ_l → 0 limit applies. Pre-existing Picard "
+                    "stability concern; not a kwarg-threading bug."
+                )
+
         if gap_tol <= 0:
             raise ValueError("gap_tol must be positive.")
         if gap_max_iter <= 0:
