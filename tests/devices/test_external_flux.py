@@ -455,6 +455,22 @@ class TestForwardingThroughT3Backend:
         # Should NOT raise the new ValueError (the gain+loss == 0 short-circuit).
         backend.steady_state(state, external_flux=zero_ef)
 
+    def test_shape_validation_runs_before_picard_guard(self) -> None:
+        # When BOTH a wrong-sized flux AND default-Picard are in play,
+        # the user should see the clearer "sized for {M} energy bins"
+        # shape error, not the Picard-routing error. Validation order:
+        # shape first, then Picard guard.
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        # length-1 flux on a 25-bin grid would silently broadcast.
+        bad = ExternalFlux(gain=np.full(1, 0.1), loss_rate=np.full(1, 1.0))
+        with pytest.raises(ValueError, match="sized for 1 energy bins"):
+            # Default method='picard' would also trip the Picard guard,
+            # but shape validation must win.
+            backend.steady_state(state, external_flux=bad)
+
     def test_apply_collisions_one_step(self) -> None:
         from qpsim.backends.t3_diffusion import T3DiffusionBackend
 
@@ -476,6 +492,52 @@ class TestForwardingThroughT3Backend:
         s_no = backend.step(state, dt=0.5)
         s_yes = backend.step(state, dt=0.5, external_flux=ef)
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
+
+
+class TestServiceLayerPicardGuard:
+    """``solve_steady_state`` mirrors the backend-level Picard guard so
+    direct service callers get the same explicit routing hint instead
+    of a confusing 200-iteration timeout.
+    """
+
+    def test_solve_steady_state_default_picard_with_flux_raises(self) -> None:
+        # Direct service call with finite phonon_escape_time and
+        # anderson_depth=0 (the default) raises the same helpful error
+        # that the backend layer raises.
+        ctx, K_s0, K_r0, T_bath = _setup_fischer_like()
+        ef = _modest_external_flux(ctx.E.size)
+        with pytest.raises(ValueError, match=r"anderson_depth >= 1"):
+            solve_steady_state(
+                ctx, K_s0, K_r0, T_bath,
+                external_flux=ef,
+                phonon_escape_time=0.5,
+            )
+
+    def test_solve_steady_state_picard_with_anderson_works(self) -> None:
+        # Anderson-accelerated Picard threads ExternalFlux through the
+        # service path successfully.
+        ctx, K_s0, K_r0, T_bath = _setup_fischer_like()
+        ef = _modest_external_flux(ctx.E.size)
+        f_no = solve_steady_state(
+            ctx, K_s0, K_r0, T_bath,
+            phonon_escape_time=0.5, anderson_depth=3,
+        )
+        f_yes = solve_steady_state(
+            ctx, K_s0, K_r0, T_bath, external_flux=ef,
+            phonon_escape_time=0.5, anderson_depth=3,
+        )
+        assert np.max(np.abs(f_yes - f_no)) > 1e-6
+
+    def test_solve_steady_state_zero_flux_does_not_trip_guard(self) -> None:
+        # Zero ExternalFlux on the default-Picard service path is fine.
+        ctx, K_s0, K_r0, T_bath = _setup_fischer_like()
+        zero_ef = ExternalFlux.zero(ctx.E.size)
+        f = solve_steady_state(
+            ctx, K_s0, K_r0, T_bath,
+            external_flux=zero_ef,
+            phonon_escape_time=0.5, picard_tol=1e-8, picard_mixing=0.3,
+        )
+        assert f.shape == (ctx.E.size,)
 
 
 class TestForwardingThroughTransient:

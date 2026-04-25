@@ -103,6 +103,31 @@ def solve_steady_state(
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
 
+    # Mirror the backend-level Picard-stability guard: unaccelerated
+    # Picard (anderson_depth=0) is brittle when external_flux is
+    # non-zero, the f-perturbation feeds through the phonon-emission
+    # cycle and Picard oscillates without converging. Direct service
+    # callers get the same explicit routing hint as backend callers.
+    if (
+        external_flux is not None
+        and phonon_escape_time is not None
+        and anderson_depth == 0
+    ):
+        ef_max = float(
+            np.max(external_flux.gain) + np.max(external_flux.loss_rate)
+        )
+        if ef_max > 0.0:
+            raise ValueError(
+                "Unaccelerated Picard (anderson_depth=0) is unstable when "
+                "external_flux is non-zero on the finite-τ_l path — the "
+                "f-perturbation feeds through the phonon-emission cycle "
+                "and Picard oscillates. Pass anderson_depth >= 1 to "
+                "stabilize, OR call coupled_newton_solve directly, OR "
+                "use phonon_escape_time=None for the τ_l → 0 limit. "
+                "Pre-existing Picard stability concern; not a kwarg-"
+                "threading bug."
+            )
+
     if initial_guess is not None:
         f = np.array(initial_guess, dtype=float).ravel()
         if f.shape != (NE,):

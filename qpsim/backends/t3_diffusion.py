@@ -173,6 +173,12 @@ class T3DiffusionBackend:
                 "Use method='picard' (default) with use_thermal_phonons=True."
             )
 
+        # Validate flux shape FIRST so basic contract errors raise the
+        # clearer "sized for {M} energy bins" message rather than getting
+        # masked by the Picard-stability guard below.
+        if external_flux is not None:
+            external_flux._validate_for_NE(int(state.spectral.E.size))
+
         # Default unaccelerated Picard (anderson_depth=0) is brittle when
         # ANY perturbation feeds through the phonon-emission cycle —
         # ExternalFlux on the f-equation reliably pushes it into oscillating
