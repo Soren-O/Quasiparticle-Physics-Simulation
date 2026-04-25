@@ -277,37 +277,46 @@ class M25GapAsymmetricJJ(Junction):
                     "Coefficients and moments must be built from the same gaps."
                 )
 
-        # ── L-electrode active band: at least one bin must lie in
-        #    the M25 L band [Δ_L, ∞). Without this check, a state
-        #    whose grid sits entirely below Δ_L would land at
-        #    rho_band_integral=0 inside _build_per_region_flux and
-        #    silently emit a zero ExternalFlux for L, deleting the
-        #    L moment terms.
+        # ── L-electrode active band: positive DOS support above Δ_L.
+        #    A boundary-only grid (max(E) == Δ_L) would pass a bin-
+        #    counting check but BCS DOS is zero at E == Δ, so the
+        #    rho × dE × mask integral inside _build_per_region_flux
+        #    would still vanish and silently emit ExternalFlux.zero —
+        #    deleting the M25 L moment terms.
+        rho_L = state_a.spectral.rho
+        dE_L = state_a.spectral.dE
         E_L = state_a.spectral.E
-        if not np.any(Delta_L_uev <= E_L):
+        mask_L = Delta_L_uev <= E_L
+        if float(np.sum(rho_L * dE_L * mask_L)) <= 0.0:
             raise ValueError(
-                f"Region {self.region_a!r} energy grid does not reach the "
-                f"L band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
+                f"Region {self.region_a!r} energy grid has no positive "
+                f"DOS support in the L band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
                 f"(grid max = {float(E_L.max()):.6g} μeV). Extend the grid "
-                "upper bound."
+                "upper bound or add bins with E strictly above Δ_L."
             )
 
         # ── R-electrode sub-band masks (still required for spreading) ─
         E_R = state_b.spectral.E
+        rho_R = state_b.spectral.rho
+        dE_R = state_b.spectral.dE
         mask_Rlt = (Delta_R_uev <= E_R) & (Delta_L_uev > E_R)
         mask_Rgt = Delta_L_uev <= E_R
-        if not np.any(mask_Rlt):
+        # Use positive rho × dE × mask sums rather than mere bin counts —
+        # boundary-only sub-bands (e.g. a single bin at E == Δ_R in R<)
+        # would otherwise pass and silently emit zero flux on that band.
+        if float(np.sum(rho_R * dE_R * mask_Rlt)) <= 0.0:
             raise ValueError(
-                f"Region {self.region_b!r} energy grid does not span the "
-                f"R< sub-band [Δ_R, Δ_L) = [{Delta_R_uev:.6g}, "
-                f"{Delta_L_uev:.6g}] μeV. Extend the grid lower bound."
+                f"Region {self.region_b!r} energy grid has no positive "
+                f"DOS support in the R< sub-band (Δ_R, Δ_L) = "
+                f"({Delta_R_uev:.6g}, {Delta_L_uev:.6g}) μeV. Extend the "
+                "grid lower bound or add bins with E strictly above Δ_R."
             )
-        if not np.any(mask_Rgt):
+        if float(np.sum(rho_R * dE_R * mask_Rgt)) <= 0.0:
             raise ValueError(
-                f"Region {self.region_b!r} energy grid does not reach the "
-                f"R> sub-band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
-                f"(grid max = {float(E_R.max()):.6g} μeV). Extend the grid "
-                "upper bound."
+                f"Region {self.region_b!r} energy grid has no positive "
+                f"DOS support in the R> sub-band E ≥ Δ_L = "
+                f"{Delta_L_uev:.6g} μeV (grid max = {float(E_R.max()):.6g} "
+                "μeV). Extend the grid upper bound."
             )
 
         # ── Use cached moment-solver fixed point ──

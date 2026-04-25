@@ -1,18 +1,30 @@
 """Tests for M25GapAsymmetricJJ — Layer-2 wrap of Stage A M25 physics.
 
-Phase 5 of the Device Architecture: the M25 gap-asymmetric Josephson
-junction is now a first-class Device-level Junction subclass that
-wraps the Stage A coefficient evaluators inside the Layer-2
+Phases 5-5c of the Device Architecture: the M25 gap-asymmetric
+Josephson junction is a first-class Device-level Junction subclass
+that wraps the Stage A coefficient evaluators inside the Layer-2
 ``Junction.evaluate(state_a, state_b, qubit_state) -> JunctionResult``
 contract.
 
-Per the design doc §6.1 caveat: this is a moment-closure wrapping,
-inheriting Stage A's Fermi-Dirac per-sub-band assumption and the
-moment-solver numerics. v1 ships with composability + qualitative
-behavior tests; full M25 Fig 3 quantitative reproduction is Phase 5b
-if the per-region Newton + outer Picard cycle resolves the
-coefficient-to-density scale pathology that stranded the standalone
-solve_rate_equation_steady_state at Fig 3 inputs.
+Coverage:
+
+* Construction / composition / API contract tests
+  (TestM25JunctionConstruction, TestM25JunctionEvaluate,
+  TestM25JunctionInDevice)
+* Defensive validation: gap mismatches, missing R sub-bands,
+  missing L band (TestM25JunctionEvaluateValidation)
+* Phase 5b architectural pin: M25 owns dissipation, Device routes
+  external_dissipation_only, multiple-owner rejection
+  (TestM25NoDoubleCounting)
+* Phase 5c quantitative pin: M25 Fig 3a x_L / x_R< / x_R> / p_1
+  match published values to ≤5% rtol via the cached moment-solver
+  fixed point (test_fig3a_quantitative_match)
+
+Per the design doc §6.1 caveat the underlying Stage A evaluators
+remain a moment closure (Fermi-Dirac per-sub-band ansatz). A
+``KineticJunction`` operating directly on f(E) would drop that
+assumption; deferred unless / until M25 Fig 4/5 reproduction
+requires it.
 """
 
 from __future__ import annotations
@@ -253,7 +265,49 @@ class TestM25JunctionEvaluateValidation:
         )
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
-        with pytest.raises(ValueError, match="does not reach the L band"):
+        with pytest.raises(ValueError, match="L band"):
+            j.evaluate(state_L, state_R, qstate)
+
+    def test_rejects_L_grid_with_only_boundary_bin(self) -> None:
+        # Boundary-only grid: max(E_L) = Δ_L. Mere bin counting passes
+        # (the last bin satisfies E ≥ Δ_L), but BCS DOS at the gap
+        # boundary is zero — so rho × dE × mask integrates to zero
+        # and _build_per_region_flux silently emits ExternalFlux.zero.
+        # The positive-DOS-support check must catch this.
+        from dataclasses import replace as dc_replace
+
+        from qpsim.physics.spectral import SpectralContext
+
+        params, drive = _fig3a_setup()
+        Delta_L_uev = params.Delta_L_kelvin * KB_UEV_PER_K
+        # Grid: 30 bins entirely below Δ_L plus the boundary bin AT Δ_L.
+        E_L = np.concatenate([
+            np.linspace(0.5 * Delta_L_uev, 0.95 * Delta_L_uev, 30),
+            np.array([Delta_L_uev]),
+        ])
+        from qpsim.grid.energy_grid import integration_widths_from_centers
+        dE_L = integration_widths_from_centers(E_L)
+        spec_boundary = SpectralContext(
+            E_bins=E_L, dE_bins=dE_L, gap=Delta_L_uev,
+        )
+        state_L_normal = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_L = dc_replace(
+            state_L_normal,
+            f=np.zeros_like(E_L), spectral=spec_boundary,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match="positive DOS support"):
             j.evaluate(state_L, state_R, qstate)
 
     def test_rejects_R_grid_missing_Rgt(self) -> None:
@@ -273,7 +327,7 @@ class TestM25JunctionEvaluateValidation:
         )
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
-        with pytest.raises(ValueError, match="does not reach the R> sub-band"):
+        with pytest.raises(ValueError, match="R> sub-band"):
             j.evaluate(state_L, state_R, qstate)
 
     def test_rejects_R_grid_missing_Rlt(self) -> None:
@@ -293,7 +347,7 @@ class TestM25JunctionEvaluateValidation:
         )
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
-        with pytest.raises(ValueError, match="does not span the R< sub-band"):
+        with pytest.raises(ValueError, match="R< sub-band"):
             j.evaluate(state_L, state_R, qstate)
 
 
