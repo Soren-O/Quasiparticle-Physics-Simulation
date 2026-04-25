@@ -212,6 +212,50 @@ class TestM25JunctionEvaluateValidation:
         with pytest.raises(ValueError, match=r"state\.gap.*disagrees"):
             j.evaluate(state_L, state_R, qstate)
 
+    def test_rejects_L_grid_with_no_active_band(self) -> None:
+        # Symmetric to the R-band checks: if the L grid sits entirely
+        # below Δ_L, the moment-rate-to-per-bin spread sees zero DOS
+        # support and silently emits an ExternalFlux of zeros, which
+        # would delete the M25 L moment terms. Construct by building
+        # an L SpectralContext with gap = Δ_L_param but every E bin
+        # placed BELOW that gap (state.gap matches m25_params, so the
+        # state-gap validation passes; only the new band-coverage
+        # check should reject).
+        from dataclasses import replace as dc_replace
+
+        from qpsim.physics.spectral import SpectralContext
+
+        params, drive = _fig3a_setup()
+        Delta_L_uev = params.Delta_L_kelvin * KB_UEV_PER_K
+        # All E < Δ_L: a 30-bin grid in [0.5·Δ_L, 0.95·Δ_L].
+        E_L_below = np.linspace(0.5 * Delta_L_uev, 0.95 * Delta_L_uev, 30)
+        from qpsim.grid.energy_grid import integration_widths_from_centers
+        dE_L_below = integration_widths_from_centers(E_L_below)
+        spec_below = SpectralContext(
+            E_bins=E_L_below, dE_bins=dE_L_below, gap=Delta_L_uev,
+        )
+        # Reuse other state fields from a normal L state.
+        state_L_normal = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_L = dc_replace(
+            state_L_normal,
+            f=np.zeros_like(E_L_below),
+            spectral=spec_below,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match="does not reach the L band"):
+            j.evaluate(state_L, state_R, qstate)
+
     def test_rejects_R_grid_missing_Rgt(self) -> None:
         # If the R grid never reaches Δ_L, the R> sub-band is empty
         # and the M25 channels involving x_R> would silently zero.

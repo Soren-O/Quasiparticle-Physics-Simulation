@@ -148,7 +148,12 @@ class SpectralContext:
 
     @property
     def active_mask(self) -> np.ndarray:
-        """``E ≥ Δ + margin·mean(dE)``, shape ``(NE,)`` bool."""
+        """``E ≥ Δ + margin·dE_local``, shape ``(NE,)`` bool.
+
+        ``dE_local`` is the bin spacing at the first bin above the gap
+        (equals ``mean(dE)`` on uniform grids; preserves correct
+        margin behavior on piecewise / nonuniform grids).
+        """
         return self._active_mask
 
     @property
@@ -198,13 +203,22 @@ class SpectralContext:
         else:
             self._D_E = np.zeros_like(E)
 
-        # Use min(dE) so the active threshold is set by the FINEST bin
-        # near the gap, not the average. On uniform grids min == mean,
-        # so the legacy default behavior is preserved. On piecewise
-        # grids (e.g. M25's two-band R electrode where R< has dE ~ 0.1
-        # μeV and R> has dE ~ 70 μeV), mean(dE) over-estimates epsilon
-        # and silently excludes the entire fine sub-band from the
-        # active set — Newton then leaves those bins untouched at
-        # whatever the initial guess was.
-        epsilon = self._active_margin_factor * float(np.min(self._dE))
+        # Active-margin epsilon is set by the bin spacing local to the
+        # gap edge, not by global statistics. On uniform grids this
+        # equals mean(dE) (the legacy heuristic); on piecewise grids
+        # (e.g. M25's two-band R electrode with dense R< near the gap
+        # and sparse R> far above it) it picks up the fine R< spacing.
+        # A previous attempt used global ``min(dE)``, but that lets a
+        # tiny far-tail bin shrink epsilon globally and re-enables
+        # near-gap bins the margin was meant to exclude.
+        above_gap = gap < E
+        if np.any(above_gap):
+            first_above_gap = int(np.argmax(above_gap))
+            local_dE = float(self._dE[first_above_gap])
+        else:
+            # No bin above the gap — exotic grid, fall back to the
+            # legacy mean(dE) so this branch behaves identically to
+            # the pre-Phase-5c default.
+            local_dE = float(np.mean(self._dE))
+        epsilon = self._active_margin_factor * local_dE
         self._active_mask = (gap + epsilon) <= E

@@ -3,59 +3,55 @@ r"""M25GapAsymmetricJJ — Layer-2 wrap of the Stage A M25 physics.
 Phase 5 of the Device Architecture: a Junction subclass that
 implements the Marchegiani-Catelani 2025 gap-asymmetric Josephson-
 junction physics (with parity-tracked transmon qubit and pair-
-breaking-photon drive) using the Stage A coefficient evaluators
-under the hood.
+breaking-photon drive). Wraps the Stage A coefficient evaluators
+plus the 4-unknown moment solver to deliver quantitative M25 Fig 3
+reproduction inside the Device contract.
 
-The Junction reads the current QP densities ``(x_L, x_{R<}, x_{R>})``
-out of the two Region states (via Fischer-convention moment
-integrals), feeds them into the Stage A rate-equation RHS, and
-emits:
+Architecture (Phase 5c):
 
-* per-region ``ExternalFlux(gain, loss_rate)`` for the L and R
-  electrode kinetic equations, with the moment-level rates spread
-  uniformly over each electrode's active energy band(s);
-* a list of ``QubitTransitionChannel`` records covering all the
-  M25 transition pathways: parity-flipping ``eo`` channels driven
-  by QP tunneling (``Γ̃^α_{ij} × x_α`` for α ∈ {L, R>, R<}),
-  parity-preserving ``ee`` channels (``Γ̃^{ee}_{ij}``), and
-  parity-flipping photon-assisted channels (``Γ̃^{ph}_{ij}``).
+* On the first ``evaluate`` call the Junction caches both
+  ``M25Coefficients`` (state-independent) and the moment-solver
+  fixed point ``(p_1, x_L, x_{R>}, x_{R<})`` from
+  :func:`solve_rate_equation_steady_state`. Subsequent
+  ``evaluate`` calls reuse both caches.
+* Per-region ``ExternalFlux(gain, loss_rate)`` is built from the
+  *cached* moment-solver values, NOT from integrating ``state.f``
+  or reading ``qubit_state.p``. This sidesteps the cross-electrode
+  tunneling bootstrap problem at Δ_L ≈ Δ_R, where the inner
+  Newton's residual floor masks the x_L ↔ x_R> exchange and a
+  state-driven Picard locks orders of magnitude below the M25
+  fixed point. The Device solver's outer Picard converges in 2
+  iterations because the emitted flux is constant across iterates.
+* Per-region rates spread **uniformly over each electrode's
+  active sub-band(s)**, normalized so the moment-integral identity
+  ``(2/Δ_α) ∫ ρ × gain dE = gain_moment`` holds exactly.
+* Qubit channels: parity-flipping ``eo`` from QP tunneling
+  (``Γ̃^α_{ij} × x_α`` for α ∈ {L, R>, R<}), parity-flipping ``eo``
+  from photon-assisted tunneling (``Γ̃^{ph}_{ij}``), and parity-
+  preserving ``ee`` (``Γ̃^{ee}_{ij}``). The Device's qubit master
+  equation reaches the same fixed-point ``p_1`` as the moment
+  solver because the channels carry the same effective rates.
 
-Caveats (per ``docs/Device_Architecture.md`` §6.1):
+E-ph double-counting: the moment-solver ``g_α`` and ``r_α x_α²``
+already include the moment-integrated e-ph generation /
+recombination. The class sets ``owns_region_dissipation = True``,
+which the Device solver routes to the T3 backend's
+``external_dissipation_only=True`` path so the inner Newton sees
+only the M25-supplied (gain, loss_rate) — not also the e-ph
+collision kernel that would otherwise crush f(E) to thermal.
+Phase 5b plumbing.
 
-* This is a **moment-closure** Junction: the Stage A evaluators
-  internally assume the Fermi-Dirac per-sub-band ansatz. A
-  ``KineticJunction`` operating directly on f(E) is the
-  architecturally cleaner way to drop that assumption — deferred
-  to Phase 5b/6 if quantitative M25 Fig 3 reproduction needs it.
-* The moment-rate to per-bin (gain, loss_rate) spread is **uniform
-  over the active band**, normalized so that the moment-integral
-  identity ``(2/Δ_α) ∫ ρ × gain dE = gain_moment`` holds exactly.
-  This is the simplest spread that preserves the M25 Eq. 4-6 RHS;
-  more sophisticated kinematic shapes (placing the gain at the
-  partner-energy bin selected by each tunneling channel) can be
-  added later.
-* The M25-side recombination ``r_α x_α²`` is non-linear in x_α and
-  doesn't fit the (gain, loss_rate × f) per-bin form cleanly; we
-  approximate as ``loss_rate = r_α × x_α^prev + ...`` using the
-  previous outer-iteration's x_α. Inner Newton sees this as
-  effectively constant; outer Picard updates it.
-* M25 owns the moment-integrated e-ph dissipation (``r_α x_α²``
-  + ``g_α``). The class sets ``owns_region_dissipation = True``;
-  the Device solver routes that to the T3 backend's
-  ``external_dissipation_only=True`` path which disables the e-ph
-  scattering and recombination kernels for both touched regions
-  during the inner solve. Without this routing the e-ph kernel
-  would forcibly thermalize f(E) at every iteration and crush
-  x_α to the bath Fermi-Dirac value (~1e-52 at typical inputs),
-  drowning the M25 ExternalFlux. Phase 5b plumbing.
-* The Picard scheme converges geometrically when the cross-
-  electrode tunneling cycle (x_L ↔ x_R> via δ T_α) is below 1.
-  At Fig 3a inputs this cycle is *near* 1 because Δ_L ≈ Δ_R, and
-  the inner Newton's residual floor swamps the cross-tunneling
-  signal — the outer Picard "converges" at a fixed point where
-  x_L is many orders below the published M25 Fig 3 values.
-  Quantitative reproduction needs a moment-coupled Picard
-  (Anderson on (x_L, x_R<, x_R>) directly) — Phase 5c.
+Caveats:
+
+* The Stage A coefficient evaluators internally assume the Fermi-
+  Dirac per-sub-band ansatz, so this remains a moment-closure
+  Junction. A ``KineticJunction`` operating directly on f(E)
+  would drop that assumption; deferred unless / until M25 Fig
+  4/5 quantitative work requires it.
+* ``qubit_state`` is accepted for API parity with other Junctions
+  but ignored. The M25 master equation owns ``p_1`` self-
+  consistently with the QP densities, so external qubit-state
+  perturbations would over-determine the coupled system.
 """
 
 from __future__ import annotations
@@ -280,6 +276,21 @@ class M25GapAsymmetricJJ(Junction):
                     f"{getattr(self.m25_params, param_field):.6g} K. "
                     "Coefficients and moments must be built from the same gaps."
                 )
+
+        # ── L-electrode active band: at least one bin must lie in
+        #    the M25 L band [Δ_L, ∞). Without this check, a state
+        #    whose grid sits entirely below Δ_L would land at
+        #    rho_band_integral=0 inside _build_per_region_flux and
+        #    silently emit a zero ExternalFlux for L, deleting the
+        #    L moment terms.
+        E_L = state_a.spectral.E
+        if not np.any(Delta_L_uev <= E_L):
+            raise ValueError(
+                f"Region {self.region_a!r} energy grid does not reach the "
+                f"L band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
+                f"(grid max = {float(E_L.max()):.6g} μeV). Extend the grid "
+                "upper bound."
+            )
 
         # ── R-electrode sub-band masks (still required for spreading) ─
         E_R = state_b.spectral.E

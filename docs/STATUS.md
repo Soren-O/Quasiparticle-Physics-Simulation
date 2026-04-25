@@ -66,7 +66,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**520 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**523 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

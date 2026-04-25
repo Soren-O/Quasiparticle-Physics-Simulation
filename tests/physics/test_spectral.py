@@ -133,12 +133,41 @@ class TestSpectralContext:
         np.testing.assert_allclose(ctx.D_E, 0.0)
 
     def test_active_mask(self) -> None:
-        # margin = active_margin_factor · mean(dE) = 0.1 · 0.5 = 0.05
-        # so active mask = E ≥ 1.05
+        # Uniform grid: first-above-gap dE = mean dE = 0.5, so
+        # epsilon = 0.1 · 0.5 = 0.05 and active mask = E ≥ 1.05.
         E = np.array([1.0, 1.5, 2.0])
         dE = np.array([0.5, 0.5, 0.5])
         ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
         assert ctx.active_mask.tolist() == [False, True, True]
+
+    def test_active_mask_uses_local_dE_on_piecewise_grid(self) -> None:
+        # Piecewise grid: fine bins near the gap (dE=0.01), wide bins
+        # far from the gap (dE=10.0). Pre-Phase-5c the threshold used
+        # mean(dE) ≈ 5, which excluded the entire fine sub-band. The
+        # corrected epsilon uses the bin spacing local to the gap edge.
+        E = np.concatenate([
+            np.linspace(1.005, 1.04, 4),  # 4 fine bins near gap
+            np.linspace(11.0, 41.0, 4),   # 4 wide bins far from gap
+        ])
+        dE = np.array([0.01] * 4 + [10.0] * 4)
+        ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
+        # Local dE = dE of first bin > gap = 0.01.
+        # epsilon = 0.1 · 0.01 = 0.001, so active = E ≥ 1.001.
+        # All bins satisfy this: full active mask.
+        assert ctx.active_mask.tolist() == [True] * 8
+
+    def test_active_mask_immune_to_tiny_far_tail_bin(self) -> None:
+        # A tiny bin far from the gap must NOT shrink epsilon for
+        # near-gap bins (the bug a naïve global ``min(dE)`` would have
+        # introduced). Here the near-gap bin spacing is 0.5 and a
+        # 1e-4-wide bin lives at the far tail. Active threshold should
+        # still be set by the near-gap dE = 0.5, rejecting E=1.0.
+        E = np.array([1.0, 1.5, 2.0, 100.0, 100.0001])
+        dE = np.array([0.5, 0.5, 0.5, 100.0, 1e-4])
+        ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
+        # epsilon = 0.1 · 0.5 = 0.05 (from first-above-gap bin),
+        # not 0.1 · 1e-4 = 1e-5 (which would mark E=1.0 as active).
+        assert ctx.active_mask.tolist() == [False, True, True, True, True]
 
     def test_rejects_mismatched_grid_sizes(self) -> None:
         with pytest.raises(ValueError, match="same length"):
