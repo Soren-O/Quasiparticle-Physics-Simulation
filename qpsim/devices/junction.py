@@ -19,20 +19,23 @@ to the result for qubit-coupled junctions.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from qpsim.devices.external_flux import ExternalFlux
+from qpsim.devices.qubit import QubitTransitionChannel
 
 if TYPE_CHECKING:
     from qpsim.backends.t3_diffusion import T3DiffusionState
+    from qpsim.devices.qubit import QubitState
 
 
 @dataclass
 class JunctionResult:
-    """One Junction's contribution to each connected region's f-equation.
+    """One Junction's contribution to each connected region's f-equation
+    and (optionally) the qubit master equation.
 
     Parameters
     ----------
@@ -41,10 +44,18 @@ class JunctionResult:
         respectively. The Device solver sums contributions from all
         Junctions touching a region before passing the aggregate to
         that region's backend step.
+    qubit_channels
+        Optional list of :class:`QubitTransitionChannel` records.
+        Empty when the Junction has no qubit coupling. The Device
+        solver pools channels from all junctions before invoking the
+        qubit master-equation evolver. Each channel is parity-tagged
+        (``flips_parity``) so the evolver can advance the parity axis
+        correctly.
     """
 
     external_flux_a: ExternalFlux
     external_flux_b: ExternalFlux
+    qubit_channels: list[QubitTransitionChannel] = field(default_factory=list)
 
 
 class Junction(ABC):
@@ -63,13 +74,20 @@ class Junction(ABC):
         self,
         state_a: T3DiffusionState,
         state_b: T3DiffusionState,
+        qubit_state: QubitState | None = None,
     ) -> JunctionResult:
-        """Compute (gain, loss_rate) contributions for both regions.
+        """Compute (gain, loss_rate) contributions for both regions
+        and (optionally) parity-tagged qubit transition channels.
 
         Implementations must respect the contract from
         ``docs/Device_Architecture.md`` §3.2.1: gain and loss_rate are
         each non-negative; signed extraction is encoded as
-        ``loss_rate * f``, never as a negative gain.
+        ``loss_rate * f``, never as a negative gain. Qubit channels
+        carry rates in 1/ns and a ``flips_parity`` tag.
+
+        ``qubit_state`` is provided for the small set of Junctions
+        whose tunneling rates depend on qubit populations (e.g. via
+        Pauli-blocking on the qubit). Most Junctions ignore it.
         """
 
 
@@ -142,7 +160,10 @@ class SymmetricGapTunnelingJunction(Junction):
         self,
         state_a: T3DiffusionState,
         state_b: T3DiffusionState,
+        qubit_state: QubitState | None = None,
     ) -> JunctionResult:
+        # qubit_state is unused — this Junction has no qubit coupling.
+        del qubit_state
         if state_a.spectral.E.size != state_b.spectral.E.size:
             raise ValueError(
                 f"SymmetricGapTunnelingJunction requires matching E grids; "

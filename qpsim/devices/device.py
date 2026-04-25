@@ -25,6 +25,12 @@ import numpy as np
 
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.devices.junction import Junction
+from qpsim.devices.qubit import (
+    Qubit,
+    QubitState,
+    QubitTransitionChannel,
+    solve_qubit_master_equation_steady_state,
+)
 from qpsim.devices.region import Region
 
 if TYPE_CHECKING:
@@ -33,7 +39,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class Device:
-    """Composition of named superconducting regions + tunnel junctions.
+    """Composition of named superconducting regions + tunnel junctions
+    + optional coupled Qubit.
 
     Parameters
     ----------
@@ -43,6 +50,11 @@ class Device:
     junctions
         List of :class:`Junction` instances. Each Junction's
         ``region_a`` / ``region_b`` must reference keys in ``regions``.
+    qubit
+        Optional coupled :class:`Qubit`. When present, junctions with
+        a ``qubit_coupling`` emit ``QubitTransitionChannel`` records
+        that the device solver pools and feeds into the qubit master
+        equation alongside the per-region kinetic-equation solves.
 
     Raises
     ------
@@ -52,6 +64,7 @@ class Device:
 
     regions: dict[str, Region]
     junctions: list[Junction] = field(default_factory=list)
+    qubit: Qubit | None = None
 
     def __post_init__(self) -> None:
         names = set(self.regions.keys())
@@ -76,16 +89,25 @@ class DeviceSolution:
     ----------
     states
         Converged ``T3DiffusionState`` per region (keyed by name).
+    qubit_state
+        Converged ``QubitState`` when ``device.qubit`` is set; ``None``
+        otherwise.
     n_outer_iterations
         Number of outer Picard iterations consumed.
     final_max_delta_f
         Largest ``max|Δf|`` across all regions on the last iteration.
         Below ``outer_tol`` at success.
+    final_max_delta_p
+        Largest ``max|Δp|`` across the qubit state on the last
+        iteration. Zero when no qubit is present. Below ``outer_tol``
+        at success.
     """
 
     states: dict[str, T3DiffusionState]
     n_outer_iterations: int
     final_max_delta_f: float
+    qubit_state: QubitState | None = None
+    final_max_delta_p: float = 0.0
 
 
 def _aggregate_flux(
@@ -164,19 +186,35 @@ def solve_device_steady_state(
     states: dict[str, T3DiffusionState] = {
         name: r.state for name, r in device.regions.items()
     }
+    # Initial qubit state: uniform mixture if not specified.
+    qubit_state: QubitState | None = None
+    if device.qubit is not None:
+        n_par = 2 if device.qubit.track_parity else 1
+        n_states_q = device.qubit.n_levels * n_par
+        qubit_state = QubitState(
+            p=np.full(n_states_q, 1.0 / n_states_q).reshape(
+                (device.qubit.n_levels, 2) if device.qubit.track_parity
+                else (device.qubit.n_levels,)
+            ),
+        )
 
-    last_delta = float("inf")
+    last_delta_f = float("inf")
+    last_delta_p = 0.0
     for outer_iter in range(outer_max_iter):
-        # Step 1: aggregate junction fluxes per region
+        # Step 1: aggregate junction fluxes per region + pool qubit channels
         fluxes: dict[str, ExternalFlux | None] = dict.fromkeys(device.regions)
+        all_qubit_channels: list[QubitTransitionChannel] = []
         for j in device.junctions:
-            result = j.evaluate(states[j.region_a], states[j.region_b])
+            result = j.evaluate(
+                states[j.region_a], states[j.region_b], qubit_state,
+            )
             fluxes[j.region_a] = _aggregate_flux(
                 fluxes[j.region_a], result.external_flux_a
             )
             fluxes[j.region_b] = _aggregate_flux(
                 fluxes[j.region_b], result.external_flux_b
             )
+            all_qubit_channels.extend(result.qubit_channels)
 
         # Step 2: per-region steady-state solve at frozen flux
         new_states: dict[str, T3DiffusionState] = {}
@@ -191,21 +229,37 @@ def solve_device_steady_state(
                 newton_max_iter=inner_newton_max_iter,
             )
 
-        # Step 3: convergence check
-        last_delta = max(
+        # Step 2b: qubit master-equation steady state at frozen channels
+        new_qubit_state = qubit_state
+        if device.qubit is not None and all_qubit_channels:
+            new_qubit_state = solve_qubit_master_equation_steady_state(
+                all_qubit_channels, device.qubit,
+            )
+
+        # Step 3: convergence check on regions AND qubit
+        last_delta_f = max(
             float(np.max(np.abs(new_states[name].f - states[name].f)))
             for name in states
         )
+        last_delta_p = (
+            float(np.max(np.abs(new_qubit_state.p - qubit_state.p)))
+            if (qubit_state is not None and new_qubit_state is not None)
+            else 0.0
+        )
         states = new_states
+        qubit_state = new_qubit_state
 
-        if last_delta < outer_tol:
+        if max(last_delta_f, last_delta_p) < outer_tol:
             return DeviceSolution(
                 states=states,
+                qubit_state=qubit_state,
                 n_outer_iterations=outer_iter + 1,
-                final_max_delta_f=last_delta,
+                final_max_delta_f=last_delta_f,
+                final_max_delta_p=last_delta_p,
             )
 
     raise RuntimeError(
         f"Device outer Picard loop did not converge in {outer_max_iter} "
-        f"iterations. Final max |Δf| = {last_delta:.2e} (tol {outer_tol:.2e})."
+        f"iterations. Final max |Δf| = {last_delta_f:.2e}, "
+        f"max |Δp| = {last_delta_p:.2e} (tol {outer_tol:.2e})."
     )

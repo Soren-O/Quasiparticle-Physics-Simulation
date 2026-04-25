@@ -1,4 +1,4 @@
-"""Device-level abstractions: Region, Junction, Device, ExternalFlux.
+"""Device-level abstractions: Region, Junction, Qubit, Device, ExternalFlux.
 
 Phase 2: ``ExternalFlux`` — the boundary ``(gain, loss_rate)``
 source/sink contract that lets a Region's kinetic equation accept
@@ -10,8 +10,14 @@ state), ``Junction`` (abstract base) + ``SymmetricGapTunnelingJunction``
 junctions), ``solve_device_steady_state`` (outer Picard loop on
 junction fluxes ↔ per-region steady states).
 
-Planned (Phase 4): ``Qubit`` with parity tracking +
-``JunctionQubitCoupling`` for the M25-style qubit-coupled paths.
+Phase 4: ``Qubit`` (N-level system with optional parity tracking),
+``QubitState``, ``QubitTransitionChannel``, ``JunctionQubitCoupling``,
+``solve_qubit_master_equation_steady_state``. ``Junction.evaluate``
+gains an optional ``qubit_state`` parameter and returns
+``qubit_channels`` alongside the per-region fluxes. ``Device``
+carries an optional ``qubit``; the device solver evolves it
+alongside the regions, pooling channels from all junctions.
+
 See ``docs/Device_Architecture.md``.
 """
 
@@ -22,6 +28,14 @@ from qpsim.devices.junction import (
     JunctionResult,
     SymmetricGapTunnelingJunction,
 )
+from qpsim.devices.qubit import (
+    JunctionQubitCoupling,
+    Qubit,
+    QubitState,
+    QubitTransitionChannel,
+    build_rate_matrix,
+    solve_qubit_master_equation_steady_state,
+)
 from qpsim.devices.region import Region
 
 __all__ = [
@@ -29,8 +43,14 @@ __all__ = [
     "DeviceSolution",
     "ExternalFlux",
     "Junction",
+    "JunctionQubitCoupling",
     "JunctionResult",
+    "Qubit",
+    "QubitState",
+    "QubitTransitionChannel",
     "Region",
     "SymmetricGapTunnelingJunction",
+    "build_rate_matrix",
     "solve_device_steady_state",
+    "solve_qubit_master_equation_steady_state",
 ]

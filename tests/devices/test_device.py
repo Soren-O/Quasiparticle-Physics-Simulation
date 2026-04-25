@@ -354,8 +354,12 @@ class _ConstantFluxJunction(Junction):
     flux_a: ExternalFlux
 
     def evaluate(
-        self, state_a: T3DiffusionState, state_b: T3DiffusionState,
+        self,
+        state_a: T3DiffusionState,
+        state_b: T3DiffusionState,
+        qubit_state=None,
     ) -> JunctionResult:
+        del qubit_state  # not used
         zero_b = ExternalFlux.zero(int(state_b.spectral.E.size))
         return JunctionResult(
             external_flux_a=self.flux_a,
