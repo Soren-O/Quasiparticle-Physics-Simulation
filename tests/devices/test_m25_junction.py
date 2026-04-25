@@ -184,6 +184,34 @@ class TestM25JunctionEvaluateValidation:
         with pytest.raises(ValueError, match="does not match"):
             j.evaluate(state_L, state_R, qstate)
 
+    def test_rejects_state_gap_vs_spectral_gap_drift(self) -> None:
+        # T3DiffusionState carries `gap` and `spectral.gap` separately
+        # and they must stay in sync. If only `spectral.gap` matches
+        # m25_params, the per-bin DOS / kinetic kernels (which read
+        # state.gap) silently disagree with the moment normalization.
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        state_L_good = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        # Punch state.gap to 1.10·Δ_L while leaving spectral.gap alone.
+        from dataclasses import replace as dc_replace
+        state_L = dc_replace(
+            state_L_good,
+            gap=1.10 * float(state_L_good.spectral.gap),
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match=r"state\.gap.*disagrees"):
+            j.evaluate(state_L, state_R, qstate)
+
     def test_rejects_R_grid_missing_Rgt(self) -> None:
         # If the R grid never reaches Δ_L, the R> sub-band is empty
         # and the M25 channels involving x_R> would silently zero.

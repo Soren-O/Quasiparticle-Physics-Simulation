@@ -192,24 +192,35 @@ class M25GapAsymmetricJJ(Junction):
         # Region-state gaps must agree with the m25_params bundle the
         # cached coefficients were built from; otherwise we'd be
         # mixing rates for one junction with moments from another.
+        # T3DiffusionState carries both `gap` and `spectral.gap` and
+        # documents them to be in sync — check both, since downstream
+        # physics (DOS, kinetic kernels) reads `state.gap` while the
+        # M25 moment normalization reads `spectral.gap`.
         # Tolerance: 0.1% — well below any physically meaningful gap
         # asymmetry but above float round-trip noise.
         Delta_L_param_uev = self.m25_params.Delta_L_kelvin * KB_UEV_PER_K
         Delta_R_param_uev = self.m25_params.Delta_R_kelvin * KB_UEV_PER_K
-        if not np.isclose(Delta_L_uev, Delta_L_param_uev, rtol=1e-3):
-            raise ValueError(
-                f"Region {self.region_a!r} gap "
-                f"{Delta_L_uev / KB_UEV_PER_K:.6g} K does not match "
-                f"m25_params.Delta_L_kelvin = {self.m25_params.Delta_L_kelvin:.6g} K. "
-                "Coefficients and moments must be built from the same gaps."
-            )
-        if not np.isclose(Delta_R_uev, Delta_R_param_uev, rtol=1e-3):
-            raise ValueError(
-                f"Region {self.region_b!r} gap "
-                f"{Delta_R_uev / KB_UEV_PER_K:.6g} K does not match "
-                f"m25_params.Delta_R_kelvin = {self.m25_params.Delta_R_kelvin:.6g} K. "
-                "Coefficients and moments must be built from the same gaps."
-            )
+        for region_label, region_name, state, spectral_gap_uev, param_gap_uev, param_field in (
+            ("L", self.region_a, state_a, Delta_L_uev, Delta_L_param_uev, "Delta_L_kelvin"),
+            ("R", self.region_b, state_b, Delta_R_uev, Delta_R_param_uev, "Delta_R_kelvin"),
+        ):
+            state_gap_uev = float(state.gap)
+            if not np.isclose(state_gap_uev, spectral_gap_uev, rtol=1e-3):
+                raise ValueError(
+                    f"Region {region_name!r} state.gap "
+                    f"{state_gap_uev / KB_UEV_PER_K:.6g} K disagrees with "
+                    f"state.spectral.gap "
+                    f"{spectral_gap_uev / KB_UEV_PER_K:.6g} K — "
+                    "T3DiffusionState invariants violated."
+                )
+            if not np.isclose(spectral_gap_uev, param_gap_uev, rtol=1e-3):
+                raise ValueError(
+                    f"Region {region_name!r} ({region_label}) gap "
+                    f"{spectral_gap_uev / KB_UEV_PER_K:.6g} K does not match "
+                    f"m25_params.{param_field} = "
+                    f"{getattr(self.m25_params, param_field):.6g} K. "
+                    "Coefficients and moments must be built from the same gaps."
+                )
 
         # x_L: integrate f_L over [Δ_L, ∞]
         x_L = _moment_x_M25(
