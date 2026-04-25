@@ -29,6 +29,7 @@ from qpsim.devices import (
     M25GapAsymmetricJJ,
     Qubit,
     Region,
+    solve_device_steady_state,
 )
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -51,13 +52,36 @@ _H_OVER_KB = 4.799243e-11   # K / Hz
 def _build_region_state(
     *, T_bath: float, gap_kelvin: float,
     num_energy: int = 30, energy_max_factor: float = 6.0,
+    energy_min_factor: float = 1.01,
+    second_gap_kelvin: float | None = None,
 ) -> T3DiffusionState:
-    """Build a Fermi-Dirac thermal state on an energy grid above ``gap_kelvin``."""
+    """Build a Fermi-Dirac thermal state on an energy grid above ``gap_kelvin``.
+
+    If ``second_gap_kelvin`` is given (and exceeds ``gap_kelvin``),
+    the grid is built piecewise: half the bins resolve the
+    ``[gap, second_gap]`` window (the M25 R< band) and the rest cover
+    ``[second_gap, energy_max_factor·gap]``. This is required for the R
+    electrode in M25 setups where the L/R gap asymmetry is small enough
+    that a uniform grid would put zero bins in R<.
+    """
     gap_uev = gap_kelvin * KB_UEV_PER_K
-    E, _ = build_energy_grid(
-        gap=gap_uev, energy_min_factor=1.01,
-        energy_max_factor=energy_max_factor, num_energy_bins=num_energy,
-    )
+    if second_gap_kelvin is not None and second_gap_kelvin > gap_kelvin:
+        split_uev = second_gap_kelvin * KB_UEV_PER_K
+        E_max = energy_max_factor * gap_uev
+        n_lo = num_energy // 2
+        n_hi = num_energy - n_lo
+        # Cell-centered uniform sub-grids in each sub-band.
+        lo_min = 1.0001 * gap_uev
+        dE_lo = (split_uev - lo_min) / float(n_lo)
+        E_lo = lo_min + (np.arange(n_lo, dtype=float) + 0.5) * dE_lo
+        dE_hi = (E_max - split_uev) / float(n_hi)
+        E_hi = split_uev + (np.arange(n_hi, dtype=float) + 0.5) * dE_hi
+        E = np.concatenate([E_lo, E_hi])
+    else:
+        E, _ = build_energy_grid(
+            gap=gap_uev, energy_min_factor=energy_min_factor,
+            energy_max_factor=energy_max_factor, num_energy_bins=num_energy,
+        )
     dE = integration_widths_from_centers(E)
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=gap_uev)
     omega_bins, _, _, _ = build_phonon_frequency_map(spectral.E)
@@ -134,6 +158,74 @@ class TestM25JunctionConstruction:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  Validation: gap mismatch + missing R sub-band
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestM25JunctionEvaluateValidation:
+    def test_rejects_state_gap_mismatch_with_params(self) -> None:
+        # If a region's spectral gap drifts away from the cached
+        # coefficients' m25_params, evaluate must reject — otherwise
+        # we mix rates for one junction with moments from another.
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        # Build state_L 10% off the params Δ_L; state_R correct.
+        wrong_L_K = 1.10 * params.Delta_L_kelvin
+        state_L = _build_region_state(T_bath=0.020, gap_kelvin=wrong_L_K)
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match="does not match"):
+            j.evaluate(state_L, state_R, qstate)
+
+    def test_rejects_R_grid_missing_Rgt(self) -> None:
+        # If the R grid never reaches Δ_L, the R> sub-band is empty
+        # and the M25 channels involving x_R> would silently zero.
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        state_L = _build_region_state(T_bath=0.020, gap_kelvin=params.Delta_L_kelvin)
+        # Cap the R grid below Δ_L → mask_Rgt is all-False.
+        # Δ_L/Δ_R ≈ 1.0102 → max factor 1.005 < that ratio.
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            energy_min_factor=1.001, energy_max_factor=1.005,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match="does not reach the R> sub-band"):
+            j.evaluate(state_L, state_R, qstate)
+
+    def test_rejects_R_grid_missing_Rlt(self) -> None:
+        # Conversely, if the R grid starts above Δ_L the R< sub-band
+        # is empty and the silent-zero would hide x_R<-driven channels.
+        # Δ_L/Δ_R ≈ 1.0102, so energy_min_factor=1.05 puts every bin
+        # above Δ_L while still using Δ_R as the declared gap.
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        state_L = _build_region_state(T_bath=0.020, gap_kelvin=params.Delta_L_kelvin)
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            energy_min_factor=1.05,
+        )
+        from qpsim.devices import QubitState
+        qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
+        with pytest.raises(ValueError, match="does not span the R< sub-band"):
+            j.evaluate(state_L, state_R, qstate)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  Junction.evaluate produces sensible outputs
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -149,7 +241,7 @@ class TestM25JunctionEvaluate:
         Delta_L_K = params.Delta_L_kelvin
         Delta_R_K = params.Delta_R_kelvin
         state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
-        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K)
+        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
         # Need a qubit_state for the channels' p_0/p_1 weighting.
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[0.5, 0.5], [0.0, 0.0]]))
@@ -175,7 +267,7 @@ class TestM25JunctionEvaluate:
         Delta_L_K = params.Delta_L_kelvin
         Delta_R_K = params.Delta_R_kelvin
         state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
-        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K)
+        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
 
@@ -200,7 +292,7 @@ class TestM25JunctionEvaluate:
         Delta_L_K = params.Delta_L_kelvin
         Delta_R_K = params.Delta_R_kelvin
         state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
-        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K)
+        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
         from qpsim.devices import QubitState
         qstate = QubitState(p=np.array([[1.0, 0.0], [0.0, 0.0]]))
 
@@ -226,7 +318,7 @@ class TestM25JunctionInDevice:
         omega_10_K = params.omega_10_kelvin
 
         state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
-        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K)
+        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
         device = Device(
             regions={
                 "L": Region(name="L", state=state_L),
@@ -250,3 +342,47 @@ class TestM25JunctionInDevice:
         assert "R" in device.regions
         assert device.qubit is not None
         assert len(device.junctions) == 1
+
+    def test_device_solve_converges_with_finite_outputs(self) -> None:
+        # Smoke test that the M25 junction actually drives the
+        # composed Device → Qubit solve to convergence with finite
+        # f(E) and a populated qubit_state. This pins the transcript
+        # claim that Phase 5 v1 composes end-to-end; quantitative Fig
+        # 3 reproduction is Phase 5b (see module docstring).
+        params, drive = _fig3a_setup()
+        Delta_L_K = params.Delta_L_kelvin
+        Delta_R_K = params.Delta_R_kelvin
+        omega_10_K = params.omega_10_kelvin
+
+        state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
+        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
+        device = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                M25GapAsymmetricJJ(
+                    name="JJ", region_a="L", region_b="R",
+                    m25_params=params, m25_drive=drive,
+                ),
+            ],
+            qubit=Qubit(
+                n_levels=2, track_parity=True,
+                omega_kelvin=np.array([0.0, omega_10_K]),
+                E_J_kelvin=params.E_J_kelvin,
+                E_C_kelvin=params.E_C_kelvin,
+            ),
+        )
+        sol = solve_device_steady_state(device, outer_tol=1e-9)
+        assert sol.final_max_delta_f < 1e-6
+        for region_name in ("L", "R"):
+            f = sol.states[region_name].f
+            assert np.all(np.isfinite(f))
+            assert np.all(f >= 0.0)
+            assert np.all(f <= 1.0)
+        assert sol.qubit_state is not None
+        p = sol.qubit_state.p
+        assert np.all(np.isfinite(p))
+        assert np.all(p >= 0.0)
+        np.testing.assert_allclose(p.sum(), 1.0, atol=1e-9)

@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.devices.junction import Junction, JunctionResult
 from qpsim.devices.qubit import QubitTransitionChannel
@@ -188,6 +189,28 @@ class M25GapAsymmetricJJ(Junction):
         Delta_L_uev = float(state_a.spectral.gap)
         Delta_R_uev = float(state_b.spectral.gap)
 
+        # Region-state gaps must agree with the m25_params bundle the
+        # cached coefficients were built from; otherwise we'd be
+        # mixing rates for one junction with moments from another.
+        # Tolerance: 0.1% — well below any physically meaningful gap
+        # asymmetry but above float round-trip noise.
+        Delta_L_param_uev = self.m25_params.Delta_L_kelvin * KB_UEV_PER_K
+        Delta_R_param_uev = self.m25_params.Delta_R_kelvin * KB_UEV_PER_K
+        if not np.isclose(Delta_L_uev, Delta_L_param_uev, rtol=1e-3):
+            raise ValueError(
+                f"Region {self.region_a!r} gap "
+                f"{Delta_L_uev / KB_UEV_PER_K:.6g} K does not match "
+                f"m25_params.Delta_L_kelvin = {self.m25_params.Delta_L_kelvin:.6g} K. "
+                "Coefficients and moments must be built from the same gaps."
+            )
+        if not np.isclose(Delta_R_uev, Delta_R_param_uev, rtol=1e-3):
+            raise ValueError(
+                f"Region {self.region_b!r} gap "
+                f"{Delta_R_uev / KB_UEV_PER_K:.6g} K does not match "
+                f"m25_params.Delta_R_kelvin = {self.m25_params.Delta_R_kelvin:.6g} K. "
+                "Coefficients and moments must be built from the same gaps."
+            )
+
         # x_L: integrate f_L over [Δ_L, ∞]
         x_L = _moment_x_M25(
             state_a.f, state_a.spectral.rho, state_a.spectral.dE,
@@ -198,6 +221,21 @@ class M25GapAsymmetricJJ(Junction):
         E_R = state_b.spectral.E
         mask_Rlt = (Delta_R_uev <= E_R) & (Delta_L_uev > E_R)
         mask_Rgt = Delta_L_uev <= E_R
+        # Both sub-bands must be populated by the R-electrode grid,
+        # otherwise an entire M25 channel silently drops out.
+        if not np.any(mask_Rlt):
+            raise ValueError(
+                f"Region {self.region_b!r} energy grid does not span the "
+                f"R< sub-band [Δ_R, Δ_L) = [{Delta_R_uev:.6g}, "
+                f"{Delta_L_uev:.6g}] μeV. Extend the grid lower bound."
+            )
+        if not np.any(mask_Rgt):
+            raise ValueError(
+                f"Region {self.region_b!r} energy grid does not reach the "
+                f"R> sub-band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
+                f"(grid max = {float(E_R.max()):.6g} μeV). Extend the grid "
+                "upper bound."
+            )
         x_Rlt = _moment_x_M25(
             state_b.f, state_b.spectral.rho, state_b.spectral.dE,
             gap_alpha_uev=Delta_R_uev, mask=mask_Rlt,
