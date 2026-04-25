@@ -100,6 +100,9 @@ def solve_steady_state(
     """
     NE = ctx.E.size
 
+    if external_flux is not None:
+        external_flux._validate_for_NE(NE)
+
     if initial_guess is not None:
         f = np.array(initial_guess, dtype=float).ravel()
         if f.shape != (NE,):

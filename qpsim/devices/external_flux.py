@@ -109,7 +109,17 @@ class ExternalFlux:
                 f"got min {float(loss_rate.min())}."
             )
 
-        # frozen=True forbids direct attribute assignment, so use object.__setattr__.
+        # Copy so caller mutating the original arrays after construction
+        # doesn't bypass our non-negative/finite validation. Then mark
+        # the stored copies as read-only so ``ef.gain[0] = -1`` raises
+        # rather than silently corrupting solver state.
+        gain = gain.copy()
+        loss_rate = loss_rate.copy()
+        gain.flags.writeable = False
+        loss_rate.flags.writeable = False
+
+        # frozen=True forbids direct attribute rebinding; use
+        # object.__setattr__ to populate during __post_init__.
         object.__setattr__(self, "gain", gain)
         object.__setattr__(self, "loss_rate", loss_rate)
 
@@ -117,3 +127,21 @@ class ExternalFlux:
     def zero(cls, NE: int) -> ExternalFlux:
         """A zero-flux instance shaped for ``NE`` energy bins."""
         return cls(gain=np.zeros(NE), loss_rate=np.zeros(NE))
+
+    def _validate_for_NE(self, NE: int) -> None:
+        """Reject if ``gain``/``loss_rate`` length doesn't match the grid.
+
+        The default constructor only checks 1D-ness and matching
+        sizes, so a length-``M`` flux passed to a length-``NE`` grid
+        sneaks through if ``M ≠ NE`` AND the offending solver site
+        relies on NumPy broadcasting. The pathological case is ``M = 1``,
+        which broadcasts silently across every bin and turns a
+        single-bin contract into an all-bin one. Solver entry points
+        invoke this method before doing any addition.
+        """
+        if self.gain.size != NE:
+            raise ValueError(
+                f"ExternalFlux is sized for {self.gain.size} energy bins "
+                f"but the solver grid has {NE}. Pass an ExternalFlux of "
+                f"shape ({NE},) or use ExternalFlux.zero({NE})."
+            )

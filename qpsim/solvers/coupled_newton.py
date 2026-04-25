@@ -113,6 +113,8 @@ def coupled_newton_solve(
         raise ValueError(
             f"n_ph_init length {n_ph_init.size} must match omega_bins size {N_omega}."
         )
+    if external_flux is not None:
+        external_flux._validate_for_NE(NE)
 
     f = np.clip(np.asarray(f_init, dtype=float).ravel(), 0.0, 1.0)
     n_ph = np.maximum(np.asarray(n_ph_init, dtype=float).ravel(), 0.0)

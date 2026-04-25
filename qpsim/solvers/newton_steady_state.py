@@ -98,6 +98,9 @@ def newton_solve_f(
     NE = len(f)
     f_cur = np.array(f, dtype=float).ravel()
 
+    if external_flux is not None:
+        external_flux._validate_for_NE(NE)
+
     if active is None:
         active = ctx.active_mask
     n_active = int(np.sum(active))

@@ -454,6 +454,9 @@ class T3DiffusionBackend:
         self._validate_gate2_scope(state.phonon)
         self._validate_phonon_on_physics_grid(state)
 
+        if external_flux is not None:
+            external_flux._validate_for_NE(int(state.spectral.E.size))
+
         K_s0 = build_scattering_kernel_base(
             state.spectral, tau_0=state.material.tau_0, T_c=state.material.T_c,
         )

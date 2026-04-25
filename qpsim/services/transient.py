@@ -159,12 +159,14 @@ def run_time_dependent(
     # closest multiple) rather than drifting with float accumulation.
     max_steps = int(np.ceil(total_time / dt))
 
+    NE = int(state.f.size)
+
     def _flux_at(t_now: float) -> ExternalFlux | None:
         if external_flux is None:
             return None
-        if callable(external_flux):
-            return external_flux(t_now)
-        return external_flux
+        ef = external_flux(t_now) if callable(external_flux) else external_flux
+        ef._validate_for_NE(NE)
+        return ef
 
     for _ in range(max_steps):
         prev_f = current.f

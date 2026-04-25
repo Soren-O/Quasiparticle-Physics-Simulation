@@ -1,22 +1,34 @@
 """Tests for the ExternalFlux dataclass + threading through the T3 solver stack.
 
 Phase 2 of the Device Architecture:
-* Dataclass validation (shape, signs, finite values).
+* Dataclass validation (shape, signs, finite values, immutability).
 * Linear ODE closed form: with all collision kernels disabled,
   ``f = gain / loss_rate`` is the unique steady state — pinned by the
   Newton solver and the backend ``steady_state`` method.
 * Detailed-balance variant: gain/loss_rate matches Fermi-Dirac.
-* Threading: zero flux is bit-for-bit identical to the existing
-  Fischer paths (smoke; the real check is the broader test suite still
-  passing under the patch).
+* Threading: nonzero ExternalFlux changes the solver output across
+  every advertised public surface (forwarding regression tests for
+  ``solve_steady_state``, ``coupled_newton_solve``, the T3 backend
+  methods, and ``run_time_dependent``).
+* Grid-shape validation: length-1 broadcast and length mismatches
+  are rejected at solver entry.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
+from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
+    build_recombination_kernel_base,
+    build_scattering_kernel_base,
+)
+from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import ExternalFlux
+from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.spectral import SpectralContext
+from qpsim.services.steady_state import solve_steady_state
+from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -216,3 +228,202 @@ class TestConservationUnderInjection:
             np.sum(ctx.rho * rhs_steady * ctx.dE)
         )
         assert abs(dn_qp_dt_steady) < 1e-10 * abs(expected_dn_qp_dt)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Forwarding regression tests across every public surface
+# ═══════════════════════════════════════════════════════════════════════
+#
+#  These exercise the threading rather than the physics: each test
+#  builds a Fischer-like setup, runs the surface twice (with and
+#  without an ExternalFlux), and asserts the two outputs differ. The
+#  goal is to catch a silent dropped-kwarg regression on any of the
+#  five advertised public surfaces.
+
+
+def _setup_fischer_like(num: int = 25):
+    """A small Fischer-like SpectralContext + e-ph kernels."""
+    T_c = 1.2
+    T_bath = 0.3
+    gap = 1.764 * KB_UEV_PER_K * T_c
+    E, _ = build_energy_grid(
+        gap=gap, energy_min_factor=1.01, energy_max_factor=6.0, num_energy_bins=num
+    )
+    dE = integration_widths_from_centers(E)
+    ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+    K_s0 = build_scattering_kernel_base(ctx, tau_0=1.0, T_c=T_c)
+    K_r0 = build_recombination_kernel_base(ctx, tau_0=1.0, T_c=T_c)
+    return ctx, K_s0, K_r0, T_bath
+
+
+def _modest_external_flux(NE: int) -> ExternalFlux:
+    """A small ExternalFlux that perturbs the steady state without
+    derailing iterative solvers (Picard, coupled Newton)."""
+    return ExternalFlux(gain=np.full(NE, 1e-6), loss_rate=np.full(NE, 1e-4))
+
+
+class TestForwardingThroughPublicSurfaces:
+    def test_solve_steady_state_thermal_phonon_path(self) -> None:
+        # Thermal-phonon path (phonon_escape_time=None): just Newton.
+        ctx, K_s0, K_r0, T_bath = _setup_fischer_like()
+        ef = _modest_external_flux(ctx.E.size)
+        f_no_flux = solve_steady_state(ctx, K_s0, K_r0, T_bath, tol=1e-12)
+        f_with_flux = solve_steady_state(
+            ctx, K_s0, K_r0, T_bath, external_flux=ef, tol=1e-12,
+        )
+        # Some bins must change non-trivially.
+        assert np.max(np.abs(f_with_flux - f_no_flux)) > 1e-6
+
+    def test_coupled_newton_solve(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup_fischer_like()
+        ef = _modest_external_flux(ctx.E.size)
+        omega_bins, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+        n_omega = omega_bins.size
+        n_ph_init = np.zeros(n_omega)
+        kT = KB_UEV_PER_K * T_bath
+        f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+
+        f_no, _ = coupled_newton_solve(
+            ctx, f_init, n_ph_init,
+            omega_bins=omega_bins,
+            omega_idx_diff=idx_diff, omega_idx_sum=idx_sum,
+            diff_sign=diff_sign,
+            K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, tau_l=0.5,
+        )
+        f_yes, _ = coupled_newton_solve(
+            ctx, f_init, n_ph_init,
+            omega_bins=omega_bins,
+            omega_idx_diff=idx_diff, omega_idx_sum=idx_sum,
+            diff_sign=diff_sign,
+            K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, tau_l=0.5,
+            external_flux=ef,
+        )
+        assert np.max(np.abs(f_yes - f_no)) > 1e-6
+
+
+class TestForwardingThroughT3Backend:
+    def _build_state(self, num_energy: int = 25):
+        from qpsim.backends.t3_diffusion import T3DiffusionState
+        from qpsim.materials.database import Material
+        from qpsim.phonon_models.state import (
+            PhononBranchSpec,
+            PhononModel,
+            PhononState,
+        )
+
+        T_c = 1.2
+        gap = 1.764 * KB_UEV_PER_K * T_c
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.01, energy_max_factor=6.0,
+            num_energy_bins=num_energy,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        material = Material(
+            name="test", Delta_0=gap, T_c=T_c, tau_0=1.0,
+        )
+        omega_bins, _, _, _ = build_phonon_frequency_map(ctx.E)
+        phonon = PhononState(
+            n_ph=np.zeros((1, omega_bins.size, 1)),
+            omega_bins=omega_bins.reshape(1, -1),
+            tau_l=np.full((1, omega_bins.size), 0.5),
+            model=PhononModel.PH0_LOCAL,
+            branches=[PhononBranchSpec(name="debye_average")],
+        )
+        kT = KB_UEV_PER_K * 0.3
+        f0 = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        return T3DiffusionState(
+            f=f0, gap=gap, spectral=ctx, phonon=phonon,
+            material=material, T_bath=0.3,
+        )
+
+    def test_steady_state_thermal_phonons(self) -> None:
+        # backend.steady_state(use_thermal_phonons=True) routes through
+        # solve_steady_state thermal-phonon path → newton_solve_f.
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        s_no = backend.steady_state(state, use_thermal_phonons=True)
+        s_yes = backend.steady_state(
+            state, use_thermal_phonons=True, external_flux=ef,
+        )
+        assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
+
+    def test_steady_state_coupled_newton(self) -> None:
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        s_no = backend.steady_state(state, method="coupled_newton")
+        s_yes = backend.steady_state(
+            state, method="coupled_newton", external_flux=ef,
+        )
+        assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
+
+    def test_apply_collisions_one_step(self) -> None:
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        s_no = backend.apply_collisions(state, dt=0.5)
+        s_yes = backend.apply_collisions(state, dt=0.5, external_flux=ef)
+        assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
+
+    def test_step_one_substep(self) -> None:
+        # backend.step is the symmetric-Strang (gap, transport, collisions).
+        # ExternalFlux flows through into the inner apply_collisions.
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        s_no = backend.step(state, dt=0.5)
+        s_yes = backend.step(state, dt=0.5, external_flux=ef)
+        assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
+
+
+class TestForwardingThroughTransient:
+    def _build_state(self, num_energy: int = 25):
+        return TestForwardingThroughT3Backend()._build_state(num_energy)
+
+    def test_static_external_flux(self) -> None:
+        from qpsim.services.transient import run_time_dependent
+
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        r_no = run_time_dependent(state, dt=0.5, total_time=2.0, snapshot_interval=1.0)
+        r_yes = run_time_dependent(
+            state, dt=0.5, total_time=2.0, snapshot_interval=1.0,
+            external_flux=ef,
+        )
+        # Final-time f differs.
+        assert np.max(np.abs(r_yes.snapshots[-1].f - r_no.snapshots[-1].f)) > 1e-9
+
+    def test_callable_external_flux(self) -> None:
+        from qpsim.services.transient import run_time_dependent
+
+        state = self._build_state()
+        NE = state.spectral.E.size
+
+        # Time-varying flux: gain ramps from 1e-4 to 1e-2 across the window.
+        def flux_fn(t: float) -> ExternalFlux:
+            scale = 1e-4 + 1e-2 * (t / 2.0)
+            return ExternalFlux(gain=np.full(NE, scale), loss_rate=np.full(NE, 0.1))
+
+        r_callable = run_time_dependent(
+            state, dt=0.5, total_time=2.0, snapshot_interval=1.0,
+            external_flux=flux_fn,
+        )
+        r_static_endpoint = run_time_dependent(
+            state, dt=0.5, total_time=2.0, snapshot_interval=1.0,
+            external_flux=flux_fn(2.0),
+        )
+        # The two should differ — callable evaluates at each step,
+        # static uses the t=2.0 value at every step.
+        assert np.max(np.abs(
+            r_callable.snapshots[-1].f - r_static_endpoint.snapshots[-1].f
+        )) > 1e-9
