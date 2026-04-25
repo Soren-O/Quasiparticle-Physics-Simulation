@@ -121,7 +121,8 @@ def plot_path() -> Path:
 def _write_panel_csv(panel: Fig4PanelResult, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+        # See note in fig3_chemical_potentials._write_panel_csv.
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
             "# Marchegiani & Catelani 2025 Fig 4 — Γ_P and "
             "Γ^eo_01/Γ^eo_10 vs T; pinned by qpsim"

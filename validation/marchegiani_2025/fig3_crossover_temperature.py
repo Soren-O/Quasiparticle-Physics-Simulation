@@ -91,7 +91,7 @@ def write_baseline(result: Fig3Result, path: Path | None = None) -> Path:
         path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
             "# Marchegiani & Catelani 2025 Fig 3 — Eq. 8 Lambert-W T̄; "
             "pinned by qpsim"

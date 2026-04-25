@@ -552,18 +552,42 @@ def solve_rate_equation_steady_state(
 
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
     residual_check_failed = residual_inf_norm > residual_tol
-    # Accept iff the residual is within tol (scipy's "no progress"
-    # status is irrelevant when the residual is already below the
-    # physics-precision target) OR the caller has set
-    # accept_lm_convergence=True (knowingly tolerating the
-    # "no progress" status at the float64 cancellation floor).
-    if residual_check_failed and not accept_lm_convergence:
+    # Acceptance rules:
+    # 1. ``sol.success=True`` → always accept (residual below
+    #    scipy's xtol/ftol).
+    # 2. ``sol.success=False`` with the "no progress" message →
+    #    hybr stalled at the float64 cancellation floor of the
+    #    polynomial residual; accept iff ``accept_lm_convergence``
+    #    AND the residual is bounded (we cap at 1.0 Hz so a
+    #    runaway maxfev hit doesn't sneak through with a huge
+    #    residual just because the caller set the bypass flag).
+    # 3. Any other failure (maxfev, etc.) → raise unconditionally.
+    NO_PROGRESS_MARKER = "iteration is not making good progress"
+    is_no_progress_stall = (
+        not sol.success and NO_PROGRESS_MARKER in str(sol.message)
+    )
+    if not sol.success and not is_no_progress_stall:
         raise RuntimeError(
             f"M25 Newton solve failed: {sol.message}; "
+            f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
+            f"nfev = {sol.nfev}."
+        )
+    if residual_check_failed and not accept_lm_convergence:
+        raise RuntimeError(
+            f"M25 Newton converged with high residual: {sol.message}; "
             f"||R||_∞ = {residual_inf_norm:g} > tol = {residual_tol:g}; "
             f"nfev = {sol.nfev}. Pass accept_lm_convergence=True if "
             "your problem sits at the float64 cancellation floor "
             "(typical for M25 Fig 3 inputs)."
+        )
+    if is_no_progress_stall and accept_lm_convergence and residual_inf_norm > 1.0:
+        # Even the bypass should not accept a residual this large —
+        # the cancellation-floor regime sits at ~1e-5 Hz, not order 1.
+        raise RuntimeError(
+            f"M25 Newton stalled with residual far above the expected "
+            f"cancellation floor: {sol.message}; "
+            f"||R||_∞ = {residual_inf_norm:g} > 1.0 Hz; nfev = {sol.nfev}. "
+            "accept_lm_convergence does not bypass this safety check."
         )
 
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)

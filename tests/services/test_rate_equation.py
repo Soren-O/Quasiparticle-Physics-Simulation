@@ -414,6 +414,21 @@ class TestSolverLimitingCases:
         assert state.x_L > 1e-6 and state.x_Rgt > 1e-6
         assert 1e-4 < state.p_1 < 1e-3
 
+    def test_accept_lm_convergence_does_not_bypass_maxfev_failures(self) -> None:
+        # The accept_lm_convergence escape hatch is meant for the
+        # specific "no progress" stall at the cancellation floor —
+        # it must NOT silently accept a maxfev hit with garbage
+        # residual. Force a maxfev failure with max_function_evaluations=1
+        # and verify the bypass flag does not rescue it.
+        coefs = _make_trivial_coefs(g_L=1.0, r_L=1.0, g_Rgt=1.0, g_Rlt=1.0)
+        with pytest.raises(RuntimeError, match="failed"):
+            solve_rate_equation_steady_state(
+                coefs,
+                accept_lm_convergence=True,
+                initial_guess=np.array([0.5, 4.0, 4.0, 4.0]),
+                max_function_evaluations=1,
+            )
+
 
 class TestSolverReturnType:
     def test_returns_M25SteadyState(self) -> None:

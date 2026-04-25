@@ -9,8 +9,10 @@ Sweeps the bath temperature for the two M25 Fig 3 panels:
 
 At each temperature recalibrate the photon drive to maintain
 ``Γ̃^ph_00 = 300 Hz`` (the M25 Fig 3 caption value), solve the
-4-unknown moment system via :func:`solve_rate_equation_steady_state`,
-and extract the chemical potentials
+4-unknown moment system via the deterministic multi-seed helper
+:func:`qpsim.services.rate_equation.solve_rate_equation_steady_state_multi_seed`
+(``scipy.optimize.root(method='hybr')`` under the hood), and
+extract the chemical potentials
 
     μ_α = Δ_α + T · log(x_α)
 
@@ -221,7 +223,10 @@ def plot_path() -> Path:
 def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+        # ``lineterminator='\n'`` overrides csv.writer's default CRLF
+        # so the baseline CSVs don't trigger ``git diff --check``
+        # trailing-whitespace warnings.
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
             "# Marchegiani & Catelani 2025 Fig 3 — μ_α(T) full rate-eq; "
             "pinned by qpsim"
