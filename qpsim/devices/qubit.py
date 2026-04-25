@@ -262,6 +262,8 @@ class JunctionQubitCoupling:
                     f"parity_preserving_rates must be non-negative; "
                     f"got min {float(arr.min())}."
                 )
+            if not np.all(np.isfinite(arr)):
+                raise ValueError("parity_preserving_rates has non-finite entries.")
             object.__setattr__(self, "parity_preserving_rates", arr)
 
 

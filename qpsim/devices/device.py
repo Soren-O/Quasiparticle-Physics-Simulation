@@ -231,7 +231,17 @@ def solve_device_steady_state(
 
         # Step 2b: qubit master-equation steady state at frozen channels
         new_qubit_state = qubit_state
-        if device.qubit is not None and all_qubit_channels:
+        if device.qubit is not None:
+            if not all_qubit_channels:
+                raise RuntimeError(
+                    "Device has a Qubit but no junction emitted any "
+                    "qubit_channels. The qubit's steady state is undefined "
+                    "without channels — silently returning the initial "
+                    "uniform mixture would hide a miswired coupling. Either "
+                    "remove device.qubit, or wire at least one Junction with "
+                    "a qubit_coupling that emits QubitTransitionChannel "
+                    "records."
+                )
             new_qubit_state = solve_qubit_master_equation_steady_state(
                 all_qubit_channels, device.qubit,
             )

@@ -37,6 +37,7 @@ from qpsim.devices import (
     QubitState,
     QubitTransitionChannel,
     Region,
+    SymmetricGapTunnelingJunction,
     build_rate_matrix,
     solve_device_steady_state,
     solve_qubit_master_equation_steady_state,
@@ -133,6 +134,16 @@ class TestJunctionQubitCouplingValidation:
             JunctionQubitCoupling(
                 sin_matrix_elements=np.zeros((2, 2)),
                 cos_matrix_elements=np.zeros((3, 3)),
+            )
+
+    def test_rejects_nonfinite_parity_preserving_rates(self) -> None:
+        # The parity_preserving_rates field should reject inf/nan
+        # the same way sin_matrix_elements and cos_matrix_elements do.
+        with pytest.raises(ValueError, match="non-finite"):
+            JunctionQubitCoupling(
+                sin_matrix_elements=np.zeros((2, 2)),
+                cos_matrix_elements=np.eye(2),
+                parity_preserving_rates=np.array([[0.0, np.inf], [0.0, 0.0]]),
             )
 
 
@@ -432,3 +443,37 @@ class TestDeviceWithQubit:
         sol = solve_device_steady_state(device, outer_tol=1e-10)
         assert sol.qubit_state is None
         assert sol.final_max_delta_p == 0.0
+
+    def test_qubit_with_no_emitted_channels_raises(self) -> None:
+        # A Qubit attached to a Device whose junctions emit no channels
+        # would silently return the initial uniform state — masking a
+        # miswired coupling. The solver raises a clear error pointing
+        # at the two fixes (remove the qubit, or wire a Junction with
+        # a qubit_coupling).
+        T_bath = 0.1
+        device = Device(
+            regions={
+                "L": Region(name="L", state=_build_state(T_bath=T_bath)),
+                "R": Region(name="R", state=_build_state(T_bath=T_bath)),
+            },
+            junctions=[
+                # SymmetricGapTunneling has no qubit_coupling → emits no channels
+                SymmetricGapTunnelingJunction(
+                    name="J", region_a="L", region_b="R", alpha_per_ns=0.01,
+                ),
+            ],
+            qubit=Qubit(n_levels=2, track_parity=False),
+        )
+        with pytest.raises(RuntimeError, match="no junction emitted"):
+            solve_device_steady_state(device, outer_tol=1e-10)
+
+    def test_qubit_with_no_junctions_at_all_raises(self) -> None:
+        # Even simpler miswire: Qubit on a Device with zero junctions.
+        T_bath = 0.1
+        device = Device(
+            regions={"L": Region(name="L", state=_build_state(T_bath=T_bath))},
+            junctions=[],
+            qubit=Qubit(n_levels=2, track_parity=False),
+        )
+        with pytest.raises(RuntimeError, match="no junction emitted"):
+            solve_device_steady_state(device, outer_tol=1e-10)
