@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-24 (fourth session).
+Last updated: 2026-04-24 (fifth session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -17,7 +17,8 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 5 | Ph1 phonon spatial transport | ❌ not started |
 | 6 | T2 kinetic scalar backend | ❌ not started |
 | 7 | T1 two-component backend | ❌ not started (requires new derivation) |
-| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ + coefficients-in steady-state solver + SI Notes III/IV coefficient integrals all shipped; SI Note V photon-assisted spectral density (S^±_ph total + R</R> split via elliptic integrals) + `M25PhotonDrive` dataclass + `coefficients_from_physical_parameters_with_photon_drive` builder + `calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00` back-solver shipped; `M25Coefficients` extended with population-dependent `g_ph_α_per_state` arrays consumed by the residual. **Quantitative M25 Fig 3/4/5 baseline reproduction is the active next item** — blocked by Newton conditioning at Δ_L/x ~ 10¹⁸ ratio (tunneling Γ̃ ≫ generation/recombination), needs variable rescaling or continuation-in-T |
+| 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ + coefficients-in steady-state solver + SI Notes III/IV coefficient integrals all shipped; SI Note V photon-assisted spectral density (S^±_ph total + R</R> split via elliptic integrals) + `M25PhotonDrive` dataclass + `coefficients_from_physical_parameters_with_photon_drive` builder + `calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00` back-solver shipped; `M25Coefficients` extended with population-dependent `g_ph_α_per_state` arrays consumed by the residual. **Standalone Newton solve_rate_equation_steady_state at Fig 3 inputs blocked by Δ_L/x ~ 10¹⁸ conditioning pathology** — rescaling/continuation attempts failed; pivoted to Layer-2 Junction wrap (Phase 5 below) |
+| Device Architecture | Region/Junction/Device/Qubit composition layer | partial — Phases 1-5 v1 shipped: design doc, ExternalFlux through T3 stack (Phase 2), Region+Junction+Device+solve_device_steady_state (Phase 3), Qubit+parity+JunctionQubitCoupling (Phase 4), `M25GapAsymmetricJJ` Junction subclass (Phase 5 v1, commit `6605233`). Composition contract is clean: `Device(L, R, M25GapAsymmetricJJ, Qubit)` constructs and the inner solve converges. **Quantitative Fig 3 reproduction blocked by e-ph double-counting** — M25's r_α and g^{pn}_α already carry the dissipation, but the T3 inner solver's e-ph kernels duplicate it and dwarf the (~1e-17/ns) M25 ExternalFlux. Tracked as Phase 5b |
 
 ## Validation figures
 
@@ -65,7 +66,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**504 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**510 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.
