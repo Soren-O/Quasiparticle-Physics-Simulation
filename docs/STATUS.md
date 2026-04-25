@@ -18,7 +18,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 6 | T2 kinetic scalar backend | ❌ not started |
 | 7 | T1 two-component backend | ❌ not started (requires new derivation) |
 | 8 | Marchegiani junction path (strategy A: rate equation) | partial — Eq. 8 Lambert-W T̄ + coefficients-in steady-state solver + SI Notes III/IV coefficient integrals all shipped; SI Note V photon-assisted spectral density (S^±_ph total + R</R> split via elliptic integrals) + `M25PhotonDrive` dataclass + `coefficients_from_physical_parameters_with_photon_drive` builder + `calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00` back-solver shipped; `M25Coefficients` extended with population-dependent `g_ph_α_per_state` arrays consumed by the residual. **Standalone Newton solve_rate_equation_steady_state at Fig 3 inputs blocked by Δ_L/x ~ 10¹⁸ conditioning pathology** — rescaling/continuation attempts failed; pivoted to Layer-2 Junction wrap (Phase 5 below) |
-| Device Architecture | Region/Junction/Device/Qubit composition layer | partial — Phases 1-5 v1 shipped: design doc, ExternalFlux through T3 stack (Phase 2), Region+Junction+Device+solve_device_steady_state (Phase 3), Qubit+parity+JunctionQubitCoupling (Phase 4), `M25GapAsymmetricJJ` Junction subclass (Phase 5 v1, commit `6605233`). Composition contract is clean: `Device(L, R, M25GapAsymmetricJJ, Qubit)` constructs and the inner solve converges. **Quantitative Fig 3 reproduction blocked by e-ph double-counting** — M25's r_α and g^{pn}_α already carry the dissipation, but the T3 inner solver's e-ph kernels duplicate it and dwarf the (~1e-17/ns) M25 ExternalFlux. Tracked as Phase 5b |
+| Device Architecture | Region/Junction/Device/Qubit composition layer | partial — Phases 1-5b shipped: design doc, ExternalFlux through T3 stack (Phase 2), Region+Junction+Device+solve_device_steady_state (Phase 3), Qubit+parity+JunctionQubitCoupling (Phase 4), `M25GapAsymmetricJJ` Junction subclass (Phase 5 v1, commit `6605233`), no-double-counting plumbing (Phase 5b): `Junction.owns_region_dissipation` flag, T3 backend `external_dissipation_only=True` path, Device-solver routing + at-most-one-owner-per-region validation. Verified end-to-end: M25 device produces `x_L ≈ 5e-18` (M25-driven floor) vs thermal `~1e-52` — e-ph kernel no longer crushing the photon-driven population. **Quantitative Fig 3 still pending (Phase 5c)** — at Δ_L ≈ Δ_R the cross-electrode tunneling cycle (x_L ↔ x_R> via δ T_α) lives at the inner Newton residual floor and outer Picard locks before bootstrapping to the published M25 1e-7 scale. Needs moment-coupled Picard / Anderson on (x_L, x_R<, x_R>) directly |
 
 ## Validation figures
 
@@ -66,7 +66,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**515 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
+**518 unit/regression tests passing.** Ruff clean. mypy clean on all new qpsim surfaces.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

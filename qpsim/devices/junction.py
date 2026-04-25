@@ -63,11 +63,25 @@ class Junction(ABC):
 
     Subclasses provide a specific physical tunneling model. The
     framework owns the protocol; the physics lives in subclasses.
+
+    Attributes
+    ----------
+    owns_region_dissipation
+        Class-level flag. Default ``False``: the Junction provides
+        only a tunneling/coupling flux on top of the region's own
+        e-ph collision kernel. ``True``: the Junction's external
+        flux already includes the moment-integrated dissipation
+        physics (e.g. M25's ``r_α x_α²`` recombination and ``g_α``
+        thermal-phonon generation), so the device solver MUST
+        disable the e-ph kernel on the touched regions to avoid
+        double-counting. At most one such Junction may touch any
+        region; the device solver enforces this.
     """
 
     name: str
     region_a: str
     region_b: str
+    owns_region_dissipation: bool = False
 
     @abstractmethod
     def evaluate(

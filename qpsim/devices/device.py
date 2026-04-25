@@ -198,6 +198,24 @@ def solve_device_steady_state(
             ),
         )
 
+    # Build the dissipation-ownership map: region_name → owning Junction.
+    # At most one Junction may claim ownership over any given region;
+    # multiple owners would each compute a complete dissipation flux and
+    # the sum would over-count.
+    dissipation_owner: dict[str, str] = {}
+    for j in device.junctions:
+        if not getattr(j, "owns_region_dissipation", False):
+            continue
+        for region_name in (j.region_a, j.region_b):
+            if region_name in dissipation_owner:
+                raise ValueError(
+                    f"Region {region_name!r} has two junctions claiming "
+                    f"dissipation ownership: {dissipation_owner[region_name]!r} "
+                    f"and {j.name!r}. At most one Junction per region may set "
+                    "owns_region_dissipation=True."
+                )
+            dissipation_owner[region_name] = j.name
+
     last_delta_f = float("inf")
     last_delta_p = 0.0
     for outer_iter in range(outer_max_iter):
@@ -220,9 +238,11 @@ def solve_device_steady_state(
         new_states: dict[str, T3DiffusionState] = {}
         for name, state in states.items():
             ef = fluxes[name]
+            owns_dissipation = name in dissipation_owner
             new_states[name] = backend.steady_state(
                 state,
                 use_thermal_phonons=use_thermal_phonons,
+                external_dissipation_only=owns_dissipation,
                 external_flux=ef,
                 anderson_depth=inner_anderson_depth,
                 newton_tol=inner_newton_tol,

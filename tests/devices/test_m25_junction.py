@@ -376,14 +376,16 @@ class TestM25JunctionInDevice:
         # composed Device → Qubit solve to convergence with finite
         # f(E) and a populated qubit_state. This pins the transcript
         # claim that Phase 5 v1 composes end-to-end; quantitative Fig
-        # 3 reproduction is Phase 5b (see module docstring).
+        # 3 reproduction is Phase 5c (see module docstring).
         params, drive = _fig3a_setup()
         Delta_L_K = params.Delta_L_kelvin
         Delta_R_K = params.Delta_R_kelvin
         omega_10_K = params.omega_10_kelvin
 
         state_L = _build_region_state(T_bath=0.020, gap_kelvin=Delta_L_K)
-        state_R = _build_region_state(T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K)
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=Delta_R_K, second_gap_kelvin=Delta_L_K,
+        )
         device = Device(
             regions={
                 "L": Region(name="L", state=state_L),
@@ -414,3 +416,115 @@ class TestM25JunctionInDevice:
         assert np.all(np.isfinite(p))
         assert np.all(p >= 0.0)
         np.testing.assert_allclose(p.sum(), 1.0, atol=1e-9)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Phase 5b: no-double-counting between e-ph kernel and M25's r_α/g^{pn}_α
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestM25NoDoubleCounting:
+    def test_owns_region_dissipation_is_set(self) -> None:
+        # Architectural sentinel: the Device solver routes
+        # external_dissipation_only=True only when this flag is set.
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        assert j.owns_region_dissipation is True
+
+    def test_device_drives_x_L_well_above_thermal(self) -> None:
+        # Before Phase 5b, the inner T3 e-ph kernel forced f(E) to the
+        # bath Fermi-Dirac, so x_L collapsed to ~exp(-Δ_L/T_bath) ≈
+        # 1e-52 at Δ_L ≈ 2.4 K, T_bath = 20 mK regardless of the M25
+        # photon drive. With the no-double-counting wiring, the M25
+        # ExternalFlux owns dissipation and x_L sits at the M25 fixed
+        # point — orders of magnitude above the thermal floor.
+        # This is the architectural pin, not a quantitative Fig 3
+        # match (that's Phase 5c, blocked on moment-coupled Picard).
+        params, drive = _fig3a_setup()
+        state_L = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        device = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                M25GapAsymmetricJJ(
+                    name="JJ", region_a="L", region_b="R",
+                    m25_params=params, m25_drive=drive,
+                ),
+            ],
+            qubit=Qubit(
+                n_levels=2, track_parity=True,
+                omega_kelvin=np.array([0.0, params.omega_10_kelvin]),
+                E_J_kelvin=params.E_J_kelvin,
+                E_C_kelvin=params.E_C_kelvin,
+            ),
+        )
+        sol = solve_device_steady_state(device, outer_tol=1e-9)
+
+        from qpsim.devices.m25_junction import _moment_x_M25
+        f_L = sol.states["L"].f
+        spec_L = sol.states["L"].spectral
+        x_L = _moment_x_M25(
+            f_L, spec_L.rho, spec_L.dE, gap_alpha_uev=spec_L.gap,
+        )
+        # Thermal floor exp(-Δ_L/T) ≈ 1e-52. Phase 5b lifts x_L to
+        # the photon-driven M25 fixed point, ~5e-18 at Fig 3a inputs
+        # (cross-tunneling cycle quiescent). 1e-30 is comfortably
+        # above thermal and below the M25 floor — proves the e-ph
+        # kernel is not crushing x_L back to thermal.
+        assert x_L > 1e-30, (
+            f"x_L = {x_L:.3e} is at or below the thermal floor — "
+            "e-ph kernel may be running inside the inner solve."
+        )
+
+    def test_two_dissipation_owners_per_region_rejected(self) -> None:
+        # The Device solver enforces "at most one Junction per region
+        # claims dissipation ownership" — multiple owners would each
+        # supply a complete dissipation flux and the sum over-counts.
+        from qpsim.devices.external_flux import ExternalFlux
+        from qpsim.devices.junction import Junction, JunctionResult
+
+        class _StubOwningJunction(Junction):
+            owns_region_dissipation = True
+
+            def __init__(self, name: str, region_a: str, region_b: str) -> None:
+                self.name = name
+                self.region_a = region_a
+                self.region_b = region_b
+
+            def evaluate(self, state_a, state_b, qubit_state=None):  # type: ignore[no-untyped-def, override]
+                ef = ExternalFlux(
+                    gain=np.zeros_like(state_a.f),
+                    loss_rate=np.full_like(state_a.f, 1e-3),
+                )
+                return JunctionResult(external_flux_a=ef, external_flux_b=ef)
+
+        params, _ = _fig3a_setup()
+        state_L = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        device = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                _StubOwningJunction("J1", "L", "R"),
+                _StubOwningJunction("J2", "L", "R"),
+            ],
+        )
+        with pytest.raises(ValueError, match="two junctions claiming"):
+            solve_device_steady_state(device, outer_tol=1e-6)

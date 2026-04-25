@@ -95,6 +95,7 @@ class T3DiffusionBackend:
         method: str = "picard",
         self_consistent_gap: bool = False,
         use_thermal_phonons: bool = False,
+        external_dissipation_only: bool = False,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
@@ -153,6 +154,17 @@ class T3DiffusionBackend:
             physically, the thermalization timescale is instantaneous
             so the phonon field is always at the bath. Mutually
             exclusive with ``method="coupled_newton"``.
+        external_dissipation_only
+            ``True`` disables the e-ph scattering and recombination
+            kernels for this solve, so the only source/sink of f(E)
+            is the supplied ``external_flux``. Used by Layer-2
+            Junctions (e.g. :class:`M25GapAsymmetricJJ`) that own the
+            dissipation at the moment level — running the e-ph kernel
+            alongside would double-count and dwarf the moment-level
+            external flux. Requires ``external_flux`` to be non-None
+            (otherwise nothing constrains f). Mutually exclusive with
+            ``self_consistent_gap=True`` (the gap equation depends on
+            e-ph occupations).
         photon_params, pb_photon_params
             Optional photon channel dicts.
         newton_tol, newton_max_iter
@@ -172,6 +184,35 @@ class T3DiffusionBackend:
                 "method='coupled_newton' has nothing to solve for. "
                 "Use method='picard' (default) with use_thermal_phonons=True."
             )
+
+        if external_dissipation_only:
+            if external_flux is None:
+                raise ValueError(
+                    "external_dissipation_only=True disables the e-ph kernels, "
+                    "so the supplied external_flux is the sole source/sink of "
+                    "f(E). external_flux=None leaves f unconstrained — pass an "
+                    "ExternalFlux."
+                )
+            if self_consistent_gap:
+                raise ValueError(
+                    "external_dissipation_only=True is incompatible with "
+                    "self_consistent_gap=True: the gap equation depends on "
+                    "the e-ph-driven occupation. Solve at fixed gap, or let "
+                    "the e-ph kernel run."
+                )
+            if method == "coupled_newton":
+                raise ValueError(
+                    "external_dissipation_only=True turns off e-ph kernels, "
+                    "so there are no phonon dynamics to couple. Use "
+                    "method='picard' with use_thermal_phonons=True."
+                )
+            if not use_thermal_phonons:
+                raise ValueError(
+                    "external_dissipation_only=True turns off the e-ph "
+                    "kernels, so the phonon Picard loop has nothing to "
+                    "drive n_ph away from thermal. Pass "
+                    "use_thermal_phonons=True to make the contract explicit."
+                )
 
         # Validate flux shape FIRST so basic contract errors raise the
         # clearer "sized for {M} energy bins" message rather than getting
@@ -220,6 +261,7 @@ class T3DiffusionBackend:
                 state,
                 method=method,
                 use_thermal_phonons=use_thermal_phonons,
+                external_dissipation_only=external_dissipation_only,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
@@ -342,6 +384,7 @@ class T3DiffusionBackend:
         *,
         method: str,
         use_thermal_phonons: bool,
+        external_dissipation_only: bool = False,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
         external_flux: ExternalFlux | None,
@@ -358,16 +401,25 @@ class T3DiffusionBackend:
         """Inner steady-state solve at fixed ``Δ``."""
         self._validate_gate2_scope(state.phonon)
 
-        K_s0 = build_scattering_kernel_base(
-            state.spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
-        )
-        K_r0 = build_recombination_kernel_base(
-            state.spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
-        )
+        K_s0: np.ndarray | None
+        K_r0: np.ndarray | None
+        if external_dissipation_only:
+            # external_flux owns dissipation — kill the e-ph kernels so
+            # they don't double-count. Both nones short-circuit the
+            # phonon-occupation defaults inside newton_solve_f.
+            K_s0 = None
+            K_r0 = None
+        else:
+            K_s0 = build_scattering_kernel_base(
+                state.spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            K_r0 = build_recombination_kernel_base(
+                state.spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
 

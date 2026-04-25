@@ -39,13 +39,23 @@ Caveats (per ``docs/Device_Architecture.md`` §6.1):
   approximate as ``loss_rate = r_α × x_α^prev + ...`` using the
   previous outer-iteration's x_α. Inner Newton sees this as
   effectively constant; outer Picard updates it.
-* No e-ph collision kernels run inside the per-region inner solve
-  (avoid double-counting with M25's r_α and g^{pn}_α). Pass the
-  region with ``material.tau_0 = inf`` (or call the backend with
-  ``use_thermal_phonons=False`` and zero kernels) to keep the
-  inner solver pure-(gain, loss_rate × f). For Phase 5 v1 the
-  behavior is documented; full no-double-counting plumbing is a
-  follow-up.
+* M25 owns the moment-integrated e-ph dissipation (``r_α x_α²``
+  + ``g_α``). The class sets ``owns_region_dissipation = True``;
+  the Device solver routes that to the T3 backend's
+  ``external_dissipation_only=True`` path which disables the e-ph
+  scattering and recombination kernels for both touched regions
+  during the inner solve. Without this routing the e-ph kernel
+  would forcibly thermalize f(E) at every iteration and crush
+  x_α to the bath Fermi-Dirac value (~1e-52 at typical inputs),
+  drowning the M25 ExternalFlux. Phase 5b plumbing.
+* The Picard scheme converges geometrically when the cross-
+  electrode tunneling cycle (x_L ↔ x_R> via δ T_α) is below 1.
+  At Fig 3a inputs this cycle is *near* 1 because Δ_L ≈ Δ_R, and
+  the inner Newton's residual floor swamps the cross-tunneling
+  signal — the outer Picard "converges" at a fixed point where
+  x_L is many orders below the published M25 Fig 3 values.
+  Quantitative reproduction needs a moment-coupled Picard
+  (Anderson on (x_L, x_R<, x_R>) directly) — Phase 5c.
 """
 
 from __future__ import annotations
@@ -147,6 +157,12 @@ class M25GapAsymmetricJJ(Junction):
     region_b: str
     m25_params: M25PhysicalParameters
     m25_drive: M25PhotonDrive
+    # M25's external_flux already aggregates the moment-integrated
+    # e-ph dissipation (g_α generation by thermal phonons + r_α x_α²
+    # recombination), so the Device solver must run the inner
+    # T3 backend with external_dissipation_only=True to avoid
+    # double-counting against the e-ph collision kernel.
+    owns_region_dissipation: bool = field(default=True, init=False, repr=False)
     _coefficients: M25Coefficients | None = field(default=None, init=False, repr=False)
     _last_x_L: float = field(default=0.0, init=False, repr=False)
     _last_x_Rlt: float = field(default=0.0, init=False, repr=False)
