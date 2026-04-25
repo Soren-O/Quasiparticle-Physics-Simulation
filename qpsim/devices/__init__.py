@@ -1,17 +1,36 @@
-"""Device-level abstractions: Region, Junction, Qubit, ExternalFlux.
+"""Device-level abstractions: Region, Junction, Device, ExternalFlux.
 
-Phase 2 (this module ships): ``ExternalFlux`` — the boundary
-``(gain, loss_rate)`` source/sink contract that lets a Region's
-kinetic equation accept input from an external coupling (a
-Junction, an explicit drive, or any other source). Threaded
-through ``newton_solve_f``, ``coupled_newton_solve``,
-``solve_steady_state``, ``T3DiffusionBackend.step``, and
-``run_time_dependent`` (callable form).
+Phase 2: ``ExternalFlux`` — the boundary ``(gain, loss_rate)``
+source/sink contract that lets a Region's kinetic equation accept
+input from an external coupling.
 
-Planned (Phase 3+): ``Region``, ``Junction``, ``Qubit``, ``Device``,
-``solve_device_steady_state``. See ``docs/Device_Architecture.md``.
+Phase 3: ``Region`` (one superconducting region wrapping a backend
+state), ``Junction`` (abstract base) + ``SymmetricGapTunnelingJunction``
+(simplest concrete subclass), ``Device`` (composition of regions +
+junctions), ``solve_device_steady_state`` (outer Picard loop on
+junction fluxes ↔ per-region steady states).
+
+Planned (Phase 4): ``Qubit`` with parity tracking +
+``JunctionQubitCoupling`` for the M25-style qubit-coupled paths.
+See ``docs/Device_Architecture.md``.
 """
 
+from qpsim.devices.device import Device, DeviceSolution, solve_device_steady_state
 from qpsim.devices.external_flux import ExternalFlux
+from qpsim.devices.junction import (
+    Junction,
+    JunctionResult,
+    SymmetricGapTunnelingJunction,
+)
+from qpsim.devices.region import Region
 
-__all__ = ["ExternalFlux"]
+__all__ = [
+    "Device",
+    "DeviceSolution",
+    "ExternalFlux",
+    "Junction",
+    "JunctionResult",
+    "Region",
+    "SymmetricGapTunnelingJunction",
+    "solve_device_steady_state",
+]
