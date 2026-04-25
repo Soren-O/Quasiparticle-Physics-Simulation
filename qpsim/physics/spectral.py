@@ -198,5 +198,13 @@ class SpectralContext:
         else:
             self._D_E = np.zeros_like(E)
 
-        epsilon = self._active_margin_factor * float(np.mean(self._dE))
+        # Use min(dE) so the active threshold is set by the FINEST bin
+        # near the gap, not the average. On uniform grids min == mean,
+        # so the legacy default behavior is preserved. On piecewise
+        # grids (e.g. M25's two-band R electrode where R< has dE ~ 0.1
+        # μeV and R> has dE ~ 70 μeV), mean(dE) over-estimates epsilon
+        # and silently excludes the entire fine sub-band from the
+        # active set — Newton then leaves those bins untouched at
+        # whatever the initial guess was.
+        epsilon = self._active_margin_factor * float(np.min(self._dE))
         self._active_mask = (gap + epsilon) <= E

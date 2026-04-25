@@ -69,7 +69,11 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.devices.junction import Junction, JunctionResult
 from qpsim.devices.qubit import QubitTransitionChannel
-from qpsim.services.rate_equation import M25Coefficients
+from qpsim.services.rate_equation import (
+    M25Coefficients,
+    M25SteadyState,
+    solve_rate_equation_steady_state,
+)
 from qpsim.services.rate_equation_coefficients import (
     M25PhotonDrive,
     M25PhysicalParameters,
@@ -164,9 +168,9 @@ class M25GapAsymmetricJJ(Junction):
     # double-counting against the e-ph collision kernel.
     owns_region_dissipation: bool = field(default=True, init=False, repr=False)
     _coefficients: M25Coefficients | None = field(default=None, init=False, repr=False)
-    _last_x_L: float = field(default=0.0, init=False, repr=False)
-    _last_x_Rlt: float = field(default=0.0, init=False, repr=False)
-    _last_x_Rgt: float = field(default=0.0, init=False, repr=False)
+    _moment_solution: M25SteadyState | None = field(
+        default=None, init=False, repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.region_a == self.region_b:
@@ -186,6 +190,35 @@ class M25GapAsymmetricJJ(Junction):
         assert self._coefficients is not None  # for mypy
         return self._coefficients
 
+    def _ensure_moment_solution_cached(self) -> M25SteadyState:
+        """Solve the M25 4-unknown moment system once, cache the result.
+
+        The M25 fixed point ``(p_1, x_L, x_{R>}, x_{R<})`` is purely a
+        function of ``m25_params`` and ``m25_drive``; it does not
+        depend on the input region states' ``f(E)``. Solving it
+        bypasses the Device-level Picard outer loop's bootstrap
+        problem (the inner Newton's residual floor masks the
+        cross-electrode tunneling cycle x_L ↔ x_R> at Δ_L ≈ Δ_R
+        inputs). The Device Picard then reduces to a one-shot
+        per-region inner solve of ``f = gain/loss`` with the moment-
+        consistent (gain, loss_rate).
+
+        Calls the moment solver with ``accept_lm_convergence=True``
+        because at M25 Fig 3 inputs the float64 cancellation between
+        ``Γ̃ × x ~ 1e4 Hz`` tunneling currents floors ``||R||_∞`` at
+        ~1e-5 Hz, unreachable by any tightening of residual_tol.
+        """
+        if self._moment_solution is None:
+            coefs = self._ensure_coefficients_cached()
+            object.__setattr__(
+                self, "_moment_solution",
+                solve_rate_equation_steady_state(
+                    coefs, accept_lm_convergence=True,
+                ),
+            )
+        assert self._moment_solution is not None  # for mypy
+        return self._moment_solution
+
     def evaluate(
         self,
         state_a: T3DiffusionState,
@@ -194,14 +227,24 @@ class M25GapAsymmetricJJ(Junction):
     ) -> JunctionResult:
         r"""Compute per-region (gain, loss_rate) + qubit channels.
 
-        Picard outer loop semantics: this evaluator uses the current
-        region states to produce both the kinetic-equation flux for
-        each region and the qubit channels for that outer iteration.
-        The next iteration re-evaluates with the updated states.
-        """
-        coefs = self._ensure_coefficients_cached()
+        Phase 5c: the M25 fixed point ``(p_1, x_L, x_{R>}, x_{R<})``
+        is solved analytically (cached) by the moment solver and
+        used to build the moment-level rates here. The input
+        ``state_a.f``, ``state_b.f``, and ``qubit_state.p`` are
+        only consulted for grid metadata (gap, energy bins) — their
+        actual occupation values do NOT feed back into the M25
+        equations. This bypasses the Device-level Picard's
+        bootstrap problem at Δ_L ≈ Δ_R, where the inner Newton's
+        residual floor masks the cross-electrode tunneling cycle.
 
-        # ── Extract M25-convention moments from the region f(E)'s ──
+        ``qubit_state`` is accepted for API compatibility but
+        unused; the M25 master equation owns ``p_1``.
+        """
+        del qubit_state  # M25 owns p_1; see _ensure_moment_solution_cached
+        coefs = self._ensure_coefficients_cached()
+        moment = self._ensure_moment_solution_cached()
+
+        # ── Validate gap consistency before extracting masks ──
         Delta_L_uev = float(state_a.spectral.gap)
         Delta_R_uev = float(state_b.spectral.gap)
 
@@ -238,18 +281,10 @@ class M25GapAsymmetricJJ(Junction):
                     "Coefficients and moments must be built from the same gaps."
                 )
 
-        # x_L: integrate f_L over [Δ_L, ∞]
-        x_L = _moment_x_M25(
-            state_a.f, state_a.spectral.rho, state_a.spectral.dE,
-            gap_alpha_uev=Delta_L_uev,
-        )
-
-        # x_R< vs x_R>: split f_R at E = Δ_L
+        # ── R-electrode sub-band masks (still required for spreading) ─
         E_R = state_b.spectral.E
         mask_Rlt = (Delta_R_uev <= E_R) & (Delta_L_uev > E_R)
         mask_Rgt = Delta_L_uev <= E_R
-        # Both sub-bands must be populated by the R-electrode grid,
-        # otherwise an entire M25 channel silently drops out.
         if not np.any(mask_Rlt):
             raise ValueError(
                 f"Region {self.region_b!r} energy grid does not span the "
@@ -263,24 +298,13 @@ class M25GapAsymmetricJJ(Junction):
                 f"(grid max = {float(E_R.max()):.6g} μeV). Extend the grid "
                 "upper bound."
             )
-        x_Rlt = _moment_x_M25(
-            state_b.f, state_b.spectral.rho, state_b.spectral.dE,
-            gap_alpha_uev=Delta_R_uev, mask=mask_Rlt,
-        )
-        x_Rgt = _moment_x_M25(
-            state_b.f, state_b.spectral.rho, state_b.spectral.dE,
-            gap_alpha_uev=Delta_R_uev, mask=mask_Rgt,
-        )
 
-        # Qubit populations: needed for parity-flip eo channels driven
-        # by Γ̃^α_{ij} × x_α and S_L→R> / T objects.
-        if qubit_state is not None:
-            p = qubit_state.p
-            p_per_level = p.sum(axis=1) if p.ndim == 2 else p
-            p_0 = float(p_per_level[0])
-            p_1 = float(p_per_level[1]) if len(p_per_level) > 1 else 0.0
-        else:
-            p_0, p_1 = 1.0, 0.0
+        # ── Use cached moment-solver fixed point ──
+        p_1 = moment.p_1
+        p_0 = moment.p_0
+        x_L = moment.x_L
+        x_Rgt = moment.x_Rgt
+        x_Rlt = moment.x_Rlt
 
         # ── Per-region moment rates (M25 Eqs. 4-6 in Stage A form) ─
         delta = coefs.delta
@@ -298,7 +322,7 @@ class M25GapAsymmetricJJ(Junction):
         gamma_Rlt_10 = gammas_Rlt[1, 0]
         gamma_L_01 = gammas_L[0, 1]
 
-        # g^{ph} per-state contributions averaged at this iteration's p
+        # g^{ph} per-state contributions weighted at the M25-solved p
         g_ph_L_eff = p_0 * coefs.g_ph_L_per_state[0] + p_1 * coefs.g_ph_L_per_state[1]
         g_ph_Rgt_eff = p_0 * coefs.g_ph_Rgt_per_state[0] + p_1 * coefs.g_ph_Rgt_per_state[1]
         g_ph_Rlt_eff = p_0 * coefs.g_ph_Rlt_per_state[0] + p_1 * coefs.g_ph_Rlt_per_state[1]
@@ -310,7 +334,7 @@ class M25GapAsymmetricJJ(Junction):
             + delta * T_Rgt * x_Rgt
             + delta * gamma_Rlt_10 * p_1 * x_Rlt
         )
-        loss_rate_L_moment = coefs.r_L * x_L + delta * T_L  # uses x_L from current iter
+        loss_rate_L_moment = coefs.r_L * x_L + delta * T_L
 
         # M25 Eq. 5 (R> sub-band):
         gain_Rgt_moment = (
@@ -352,11 +376,6 @@ class M25GapAsymmetricJJ(Junction):
         channels = self._build_qubit_channels(
             coefs, x_L=x_L, x_Rlt=x_Rlt, x_Rgt=x_Rgt,
         )
-
-        # Cache moments for the next outer-iteration's use
-        object.__setattr__(self, "_last_x_L", x_L)
-        object.__setattr__(self, "_last_x_Rlt", x_Rlt)
-        object.__setattr__(self, "_last_x_Rgt", x_Rgt)
 
         return JunctionResult(
             external_flux_a=ef_L,

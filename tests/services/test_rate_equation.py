@@ -360,6 +360,57 @@ class TestSolverLimitingCases:
                 coefs, initial_guess=np.array([0.0, 0.0, 0.0]),
             )
 
+    def test_accept_lm_convergence_bypasses_residual_check(self) -> None:
+        # Real M25 Fig 3a coefficients: huge tunneling rates (~1e10 Hz)
+        # cancel against each other and floor ||R||_∞ at ~1e-5 Hz, far
+        # above any auto-tol that includes the photon-driven g_ph
+        # source (~1e-9 Hz × 1e-3 = 1e-12 Hz). Default path raises;
+        # accept_lm_convergence=True must accept the LM-converged
+        # answer.
+        from dataclasses import replace
+
+        from qpsim.services.rate_equation_coefficients import (
+            M25PhotonDrive,
+            M25PhysicalParameters,
+            calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
+            coefficients_from_physical_parameters_with_photon_drive,
+        )
+        h_over_kB = 4.799243e-11
+        params = M25PhysicalParameters(
+            Delta_L_kelvin=49.5e9 * h_over_kB,
+            Delta_R_kelvin=49.0e9 * h_over_kB,
+            omega_10_kelvin=5.5e9 * h_over_kB,
+            T_kelvin=0.020,
+            E_J_kelvin=14.5e9 * h_over_kB,
+            E_C_kelvin=290e6 * h_over_kB,
+            R_T_Hz=8.0 * 14.5e9 * (49.25 / 49.5),
+            r_L_Hz=6.25e6, r_Rlt_Hz=6.25e6, Gamma_ee_10_Hz=100e3,
+        )
+        drive_template = M25PhotonDrive(
+            omega_nu_kelvin=119e9 * h_over_kB,
+            Gamma_nu_scale_Hz=1.0,
+            nu_0_per_J_per_m3=0.73e47,
+            volume_m3=506e-6 * 240e-6 * 0.028e-6,
+        )
+        scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
+            params, drive_template, 300.0,
+        )
+        drive = replace(drive_template, Gamma_nu_scale_Hz=scale)
+        coefs = coefficients_from_physical_parameters_with_photon_drive(
+            params, drive,
+        )
+        # Default path: residual stalls above auto-tol → raises with a
+        # "cancellation floor" hint.
+        with pytest.raises(RuntimeError, match="cancellation floor"):
+            solve_rate_equation_steady_state(coefs)
+        # Bypass: scipy lm declares success, we accept.
+        state = solve_rate_equation_steady_state(
+            coefs, accept_lm_convergence=True,
+        )
+        # M25 Fig 3a-scale answer (matches the device-level test).
+        assert state.x_L > 1e-6 and state.x_Rgt > 1e-6
+        assert 1e-4 < state.p_1 < 1e-3
+
 
 class TestSolverReturnType:
     def test_returns_M25SteadyState(self) -> None:

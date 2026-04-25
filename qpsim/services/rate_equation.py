@@ -393,6 +393,7 @@ def solve_rate_equation_steady_state(
     initial_guess: np.ndarray | None = None,
     residual_tol: float | None = None,
     residual_tol_relative: float = 1e-3,
+    accept_lm_convergence: bool = False,
     max_function_evaluations: int = 500,
 ) -> M25SteadyState:
     r"""Solve the M25 three-chemical-potential system for its steady state.
@@ -439,6 +440,17 @@ def solve_rate_equation_steady_state(
         the achievable ``||R||_∞`` at ``~10⁻⁴`` Hz). Tighten this
         when coefficients are smaller or variable rescaling is in
         place (Stage B).
+    accept_lm_convergence
+        When ``True``, accept the result whenever scipy's Levenberg-
+        Marquardt solver reports ``success=True`` (iterates converged
+        per its own ``xtol``/``ftol``), even if the residual exceeds
+        ``residual_tol``. Used by callers that know their problem
+        sits at the float64 cancellation floor — e.g. M25 Fig 3
+        inputs, where the steady state balances ``Γ̃ × x ~ 1e4 Hz``
+        currents to ~1e-5 Hz, set by the cancellation floor of
+        polynomial differences and unreachable by any tightening of
+        ``residual_tol``. Default ``False`` keeps the strict residual
+        check.
     max_function_evaluations
         Hard cap passed to scipy. Each Newton step typically costs
         5 evaluations (1 residual + 4 FD-Jacobian columns).
@@ -491,9 +503,21 @@ def solve_rate_equation_steady_state(
             float(np.max(coefs.gamma_ee)),
             float(np.max(coefs.gamma_ph)),
         ]
-        nonzero_sources = [s for s in source_rates if s > 0.0]
-        if nonzero_sources:
-            residual_tol = max(min(nonzero_sources) * residual_tol_relative, 1e-14)
+        # Filter out thermal-phonon generation noise: at low T/Δ the
+        # ``g_α`` terms scale as ``exp(-Δ/T)`` and can be ~1e-50 or
+        # smaller without representing any meaningful physical drive.
+        # Including them in min(sources) drives the auto-tol below the
+        # 1e-14 floor for any setup with a sub-Kelvin bath, which then
+        # demands machine-precision balancing of ~1e10 Hz tunneling
+        # currents — unachievable. Use 1e-30 Hz as the "physically
+        # meaningful source" cutoff; well below the smallest realistic
+        # photon-driven generation rate (~1e-15 Hz at the M25 Fig 3
+        # tail) but far above the exp(-Δ/T) thermal noise floor.
+        meaningful_sources = [s for s in source_rates if s > 1e-30]
+        if meaningful_sources:
+            residual_tol = max(
+                min(meaningful_sources) * residual_tol_relative, 1e-14,
+            )
         else:
             # No driving — exact steady state is (p from ee-balance,
             # all x = 0). Machine-precision floor only.
@@ -508,11 +532,20 @@ def solve_rate_equation_steady_state(
     )
 
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    if not sol.success or residual_inf_norm > residual_tol:
+    residual_check_failed = residual_inf_norm > residual_tol
+    if not sol.success:
         raise RuntimeError(
             f"M25 Newton solve failed: {sol.message}; "
             f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
             f"nfev = {sol.nfev}."
+        )
+    if residual_check_failed and not accept_lm_convergence:
+        raise RuntimeError(
+            f"M25 Newton converged per LM (xtol/ftol) but residual "
+            f"exceeds tol: ||R||_∞ = {residual_inf_norm:g} > "
+            f"tol = {residual_tol:g}; nfev = {sol.nfev}. Pass "
+            "accept_lm_convergence=True if your problem sits at the "
+            "float64 cancellation floor (typical for M25 Fig 3 inputs)."
         )
 
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)

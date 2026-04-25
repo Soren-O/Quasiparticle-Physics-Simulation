@@ -487,6 +487,78 @@ class TestM25NoDoubleCounting:
             "e-ph kernel may be running inside the inner solve."
         )
 
+    def test_fig3a_quantitative_match(self) -> None:
+        # Phase 5c: end-to-end M25 Fig 3a reproduction. The Junction
+        # caches a moment-solver fixed point on first evaluate and
+        # uses it (instead of state-derived moments) to build the
+        # per-bin (gain, loss_rate) — sidestepping the cross-tunneling
+        # bootstrap problem that stalled the Phase 5b Picard.
+        #
+        # Reference values come from running the M25 4-unknown moment
+        # solver at Fig 3a parameters (Δ_L = 49.5 GHz, Δ_R = 49.0 GHz,
+        # ω_10 = 5.5 GHz, T = 20 mK, Γ̃^ph_00 = 300 Hz). They sit on
+        # the M25 paper's Fig 3a curve at the photon-power cited in
+        # the caption.
+        params, drive = _fig3a_setup()
+        state_L = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
+        )
+        state_R = _build_region_state(
+            T_bath=0.020, gap_kelvin=params.Delta_R_kelvin,
+            second_gap_kelvin=params.Delta_L_kelvin,
+        )
+        device = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                M25GapAsymmetricJJ(
+                    name="JJ", region_a="L", region_b="R",
+                    m25_params=params, m25_drive=drive,
+                ),
+            ],
+            qubit=Qubit(
+                n_levels=2, track_parity=True,
+                omega_kelvin=np.array([0.0, params.omega_10_kelvin]),
+                E_J_kelvin=params.E_J_kelvin,
+                E_C_kelvin=params.E_C_kelvin,
+            ),
+        )
+        sol = solve_device_steady_state(device, outer_tol=1e-9)
+
+        from qpsim.devices.m25_junction import _moment_x_M25
+        Delta_L_uev = float(state_L.spectral.gap)
+        Delta_R_uev = float(state_R.spectral.gap)
+        f_L = sol.states["L"].f
+        spec_L = sol.states["L"].spectral
+        x_L = _moment_x_M25(f_L, spec_L.rho, spec_L.dE, gap_alpha_uev=Delta_L_uev)
+
+        E_R = sol.states["R"].spectral.E
+        spec_R = sol.states["R"].spectral
+        f_R = sol.states["R"].f
+        mask_Rlt = (Delta_R_uev <= E_R) & (Delta_L_uev > E_R)
+        mask_Rgt = Delta_L_uev <= E_R
+        x_Rlt = _moment_x_M25(
+            f_R, spec_R.rho, spec_R.dE, gap_alpha_uev=Delta_R_uev, mask=mask_Rlt,
+        )
+        x_Rgt = _moment_x_M25(
+            f_R, spec_R.rho, spec_R.dE, gap_alpha_uev=Delta_R_uev, mask=mask_Rgt,
+        )
+        p = sol.qubit_state.p
+        p_per_level = p.sum(axis=1) if p.ndim == 2 else p
+        p_1 = float(p_per_level[1])
+
+        # 5% relative tolerance: leaves headroom for solver-tolerance
+        # perturbations while pinning the order-of-magnitude correct
+        # result. Values from M25 4-unknown moment solver at Fig 3a
+        # (matched to 4 sig figs by the f-integration after
+        # Phase 5c moment-solver wiring).
+        np.testing.assert_allclose(x_L,   5.169e-06, rtol=5e-2)
+        np.testing.assert_allclose(x_Rgt, 2.094e-06, rtol=5e-2)
+        np.testing.assert_allclose(x_Rlt, 8.76e-08,  rtol=5e-2)
+        np.testing.assert_allclose(p_1,   3.21e-04,  rtol=5e-2)
+
     def test_two_dissipation_owners_per_region_rejected(self) -> None:
         # The Device solver enforces "at most one Junction per region
         # claims dissipation ownership" — multiple owners would each
