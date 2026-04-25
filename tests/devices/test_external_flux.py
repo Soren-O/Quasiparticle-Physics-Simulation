@@ -97,6 +97,62 @@ def _make_ctx(NE: int = 30, gap: float = 175.0, dE: float = 5.0) -> SpectralCont
     return SpectralContext(E_bins=E, dE_bins=dE_arr, gap=gap)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+#  Grid-shape validation: catches the silent length-1 broadcast pathology
+#  AT THE SOLVER ENTRY (the dataclass alone can't know the grid size).
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestGridShapeValidation:
+    """The dataclass constructor only checks 1D-ness and matching sizes
+    between gain/loss_rate. A length-``M`` flux passed to a length-``NE``
+    grid sneaks through if ``M ≠ NE`` AND the offending solver site
+    relies on NumPy broadcasting. The pathological case is ``M = 1``,
+    which broadcasts silently across every bin and turns a single-bin
+    contract into an all-bin one. ``_validate_for_NE`` at solver entry
+    rejects it with a clear error.
+    """
+
+    def test_length_one_flux_rejected_in_newton(self) -> None:
+        ctx = _make_ctx(NE=20)
+        ef = ExternalFlux(gain=np.full(1, 0.1), loss_rate=np.full(1, 1.0))
+        with pytest.raises(ValueError, match="sized for 1 energy bins"):
+            newton_solve_f(ctx, np.full(20, 0.5), external_flux=ef)
+
+    def test_length_mismatch_flux_rejected_in_newton(self) -> None:
+        ctx = _make_ctx(NE=20)
+        ef = ExternalFlux(gain=np.zeros(15), loss_rate=np.zeros(15))
+        with pytest.raises(ValueError, match="sized for 15 energy bins"):
+            newton_solve_f(ctx, np.full(20, 0.5), external_flux=ef)
+
+    def test_length_mismatch_rejected_in_solve_steady_state(self) -> None:
+        # The validation lives in solve_steady_state too — pinning the
+        # service-layer kwarg threading.
+        from qpsim.collisions.phonon import (
+            build_recombination_kernel_base as _build_r,
+        )
+        from qpsim.collisions.phonon import (
+            build_scattering_kernel_base as _build_s,
+        )
+        from qpsim.grid.energy_grid import (
+            build_energy_grid as _grid,
+        )
+        from qpsim.grid.energy_grid import (
+            integration_widths_from_centers as _widths,
+        )
+
+        T_c = 1.2
+        gap = 1.764 * KB_UEV_PER_K * T_c
+        E, _ = _grid(gap=gap, energy_min_factor=1.01, energy_max_factor=6.0,
+                     num_energy_bins=20)
+        ctx = SpectralContext(E_bins=E, dE_bins=_widths(E), gap=gap)
+        K_s0 = _build_s(ctx, tau_0=1.0, T_c=T_c)
+        K_r0 = _build_r(ctx, tau_0=1.0, T_c=T_c)
+        bad = ExternalFlux(gain=np.zeros(1), loss_rate=np.zeros(1))
+        with pytest.raises(ValueError, match="sized for 1 energy bins"):
+            solve_steady_state(ctx, K_s0, K_r0, T_bath=0.3, external_flux=bad)
+
+
 class TestLinearODEClosedForm:
     """With collision kernels disabled, f satisfies df/dt = gain - loss_rate · f.
     Steady state is f = gain / loss_rate by direct construction.
@@ -360,6 +416,26 @@ class TestForwardingThroughT3Backend:
         s_no = backend.steady_state(state, method="coupled_newton")
         s_yes = backend.steady_state(
             state, method="coupled_newton", external_flux=ef,
+        )
+        assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
+
+    def test_steady_state_picard_with_anderson(self) -> None:
+        # The default backend method is method="picard" (finite-τ_l Picard
+        # outer loop on n_ph). Without Anderson acceleration this path is
+        # known to be unstable when ANY perturbation feeds back through the
+        # phonon-emission cycle — a separate Picard-vs-coupled-Newton issue
+        # already documented at backend.steady_state's docstring. With
+        # anderson_depth ≥ 1 the path stabilizes; that's what production
+        # callers use anyway. This test pins the kwarg threading through
+        # the Anderson-Picard path specifically.
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        backend = T3DiffusionBackend()
+        state = self._build_state()
+        ef = _modest_external_flux(state.spectral.E.size)
+        s_no = backend.steady_state(state, method="picard", anderson_depth=3)
+        s_yes = backend.steady_state(
+            state, method="picard", anderson_depth=3, external_flux=ef,
         )
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
 
