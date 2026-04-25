@@ -16,10 +16,17 @@ and extract the chemical potentials
 
 (M25 main text, "Chemical potentials vs temperature" subsection).
 
-The seed strategy is multi-stage to track the photon-driven
-nonequilibrium branch through parameter space: try the default
-``√(g_eff/r)`` seed first, fall back to the previous T's converged
-values if it diverges, then try a small grid of hand-tuned x seeds.
+Branch selection: the M25 4-unknown system is multi-stable. The
+sweep delegates to
+:func:`qpsim.services.rate_equation.solve_rate_equation_steady_state_multi_seed`,
+which tries the default ``√(g_eff/r)`` seed plus a hand-tuned x
+grid (and the previous T's solution as a continuation seed) and
+returns the converged positive-density candidate with the largest
+``x_L`` (the photon-driven nonequilibrium branch). The previous-T
+solution is preferred over max-x_L when both lie within 5× of
+each other, providing branch continuity across small T changes;
+larger jumps are real bifurcations of the underlying M25 system
+and show up as visible kinks in the plot.
 
 Usage::
 
@@ -35,7 +42,7 @@ from pathlib import Path
 import numpy as np
 from qpsim.services.rate_equation import (
     M25SteadyState,
-    solve_rate_equation_steady_state,
+    solve_rate_equation_steady_state_multi_seed,
 )
 from qpsim.services.rate_equation_coefficients import (
     M25Coefficients,
@@ -126,46 +133,22 @@ def _coefficients_at(omega_LR_GHz: float, T_kelvin: float) -> M25Coefficients:
 def _try_solve(
     coefs: M25Coefficients,
     *,
-    seeds: list[np.ndarray | None],
+    previous: np.ndarray | None = None,
 ) -> M25SteadyState | None:
-    """Try every seed and return the photon-driven branch solution.
+    """Pick the M25 photon-driven branch via the shared multi-seed helper.
 
-    The M25 system is multi-stable: at fixed T there are several
-    nonequilibrium fixed points plus the thermal one. We want the
-    upper photon-driven branch (the one the M25 paper Fig 3 plots).
-    Heuristic: among all converged positive-density solutions,
-    return the one with the largest ``x_L`` — the most-non-
-    equilibrium branch.
-
-    Branch tracking via "closest in log-space to previous T" was
-    tried but produced worse results: it sticks to a branch that
-    sometimes bifurcates and crosses the thermal locus, dragging
-    μ_α into spurious negative territory at high T. ``max(x_L)``
-    is more robust on the sweeps used here, at the cost of
-    occasional jumps when the dominant branch changes between
-    adjacent T points.
+    When ``previous`` is supplied (the previous T point's solution
+    array ``[p_1, x_L, x_{R>}, x_{R<}]``), it's used as the
+    ``preferred_seed`` so the sweep tracks the same branch across
+    small T changes — the helper falls back to max-x_L only when
+    the previous branch has bifurcated away (drops by 5× or more).
     """
-    candidates: list[M25SteadyState] = []
-    for seed in seeds:
-        try:
-            sol = solve_rate_equation_steady_state(
-                coefs, accept_lm_convergence=True, initial_guess=seed,
-            )
-        except RuntimeError:
-            continue
-        if sol.x_L > 0.0 and sol.x_Rgt > 0.0 and sol.x_Rlt > 0.0:
-            candidates.append(sol)
-    if not candidates:
+    try:
+        return solve_rate_equation_steady_state_multi_seed(
+            coefs, preferred_seed=previous,
+        )
+    except RuntimeError:
         return None
-    return max(candidates, key=lambda s: s.x_L)
-
-
-def _seed_grid() -> list[np.ndarray]:
-    """Hand-tuned x seeds covering the M25 Fig 3 nonequilibrium branch."""
-    return [
-        np.array([1e-3, x, 0.5 * x, 0.1 * x])
-        for x in (1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11)
-    ]
 
 
 def _run_panel(omega_LR_GHz: float) -> Fig3PanelResult:
@@ -179,11 +162,7 @@ def _run_panel(omega_LR_GHz: float) -> Fig3PanelResult:
     last_y: np.ndarray | None = None
     for i, T_K in enumerate(T_sweep):
         coefs = _coefficients_at(omega_LR_GHz, float(T_K))
-        seeds: list[np.ndarray | None] = [None]
-        if last_y is not None:
-            seeds.append(last_y)
-        seeds.extend(_seed_grid())
-        sol = _try_solve(coefs, seeds=seeds)
+        sol = _try_solve(coefs, previous=last_y)
         if sol is None:
             raise RuntimeError(
                 f"M25 Fig 3 panel ω_LR={omega_LR_GHz} GHz: no seed yielded "

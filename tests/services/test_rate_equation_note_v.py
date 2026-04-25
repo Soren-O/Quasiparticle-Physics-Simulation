@@ -457,16 +457,17 @@ class TestResidualPopulationDependence:
 
 
 class TestSolverToleranceGuard:
-    """The auto residual_tol must flag cases where Newton cannot reach
-    physical accuracy — a silent accept of ||R|| ≫ source rates would
-    mislead users into believing an unbalanced state is a steady state.
+    """At M25 Fig 3 inputs the moment system is multi-stable. The
+    default seed lands on an unphysical (negative-density) branch
+    with the current ``root(method='hybr')`` solver; the multi-seed
+    helper recovers a physical fixed point. These tests pin both the
+    rejection and the recovery paths.
     """
 
-    def test_fig3_note_v_build_raises_at_default_tol(self) -> None:
-        # Fig 3a Note V: min source ~1e-8 Hz; tol = source × 1e-3 ~1e-11.
-        # Newton at ~10¹¹ Hz coefficients hits float64 cancellation floor
-        # around 10⁻⁴ Hz. The auto tol should correctly classify this
-        # as unreachable and raise, not silently return a bad solve.
+    def test_fig3_default_seed_raises(self) -> None:
+        # Fig 3a Note V coefficients with the default initial guess
+        # converge to a negative-density branch — unphysical, the
+        # solver must raise rather than return it.
         params = _fig3a_params()
         drive_template = _fig3a_drive()
         scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
@@ -476,13 +477,14 @@ class TestSolverToleranceGuard:
             params, replace(drive_template, Gamma_nu_scale_Hz=scale)
         )
         from qpsim.services.rate_equation import solve_rate_equation_steady_state
-        with pytest.raises(RuntimeError, match=r"\|\|R\|\|"):
+        with pytest.raises(RuntimeError, match="negative quasiparticle"):
             solve_rate_equation_steady_state(coefs)
 
-    def test_explicit_loose_tol_overrides_auto_guard(self) -> None:
-        # Users can override with explicit residual_tol when they know
-        # the physics-precision target isn't reachable yet. This is the
-        # intended escape hatch until Stage B variable rescaling lands.
+    def test_fig3_multi_seed_helper_recovers_physical(self) -> None:
+        # The multi-seed helper tries a grid of initial guesses and
+        # returns the max-x_L positive-density solution. At Fig 3a
+        # this is the M25 paper's photon-driven nonequilibrium
+        # branch (x_L ~ 5e-6).
         params = _fig3a_params()
         drive_template = _fig3a_drive()
         scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
@@ -491,12 +493,13 @@ class TestSolverToleranceGuard:
         coefs = coefficients_from_physical_parameters_with_photon_drive(
             params, replace(drive_template, Gamma_nu_scale_Hz=scale)
         )
-        from qpsim.services.rate_equation import solve_rate_equation_steady_state
-        # With loose tol (~Hz), Newton returns something — the density
-        # values are not physically meaningful yet (Stage B), but the
-        # solver API contract (accept ||R|| < residual_tol) is upheld.
-        ss = solve_rate_equation_steady_state(coefs, residual_tol=1.0)
-        assert ss.residual_inf_norm < 1.0
+        from qpsim.services.rate_equation import (
+            solve_rate_equation_steady_state_multi_seed,
+        )
+        ss = solve_rate_equation_steady_state_multi_seed(coefs)
+        assert ss.x_L > 1e-6
+        assert ss.x_Rgt > 0.0 and ss.x_Rlt > 0.0
+        assert 0.0 < ss.p_1 < 1e-2
 
 
 class TestBackwardCompatibility:

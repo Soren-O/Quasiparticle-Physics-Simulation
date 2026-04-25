@@ -68,7 +68,7 @@ from qpsim.devices.qubit import QubitTransitionChannel
 from qpsim.services.rate_equation import (
     M25Coefficients,
     M25SteadyState,
-    solve_rate_equation_steady_state,
+    solve_rate_equation_steady_state_multi_seed,
 )
 from qpsim.services.rate_equation_coefficients import (
     M25PhotonDrive,
@@ -199,18 +199,16 @@ class M25GapAsymmetricJJ(Junction):
         per-region inner solve of ``f = gain/loss`` with the moment-
         consistent (gain, loss_rate).
 
-        Calls the moment solver with ``accept_lm_convergence=True``
-        because at M25 Fig 3 inputs the float64 cancellation between
-        ``Γ̃ × x ~ 1e4 Hz`` tunneling currents floors ``||R||_∞`` at
-        ~1e-5 Hz, unreachable by any tightening of residual_tol.
+        Uses :func:`solve_rate_equation_steady_state_multi_seed` so
+        the photon-driven nonequilibrium branch is selected
+        deterministically — single-seed calls land on the lower
+        thermal-ish branch at typical M25 Fig 3 inputs.
         """
         if self._moment_solution is None:
             coefs = self._ensure_coefficients_cached()
             object.__setattr__(
                 self, "_moment_solution",
-                solve_rate_equation_steady_state(
-                    coefs, accept_lm_convergence=True,
-                ),
+                solve_rate_equation_steady_state_multi_seed(coefs),
             )
         assert self._moment_solution is not None  # for mypy
         return self._moment_solution

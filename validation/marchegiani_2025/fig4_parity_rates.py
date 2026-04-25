@@ -36,7 +36,6 @@ from validation.marchegiani_2025.fig3_chemical_potentials import (
     T_MAX_K,
     T_MIN_K,
     _coefficients_at,
-    _seed_grid,
     _try_solve,
 )
 
@@ -71,14 +70,9 @@ def _run_panel(omega_LR_GHz: float) -> Fig4PanelResult:
     Gamma_P = np.full(n, np.nan)
     ratio = np.full(n, np.nan)
     last_y: np.ndarray | None = None
-
     for i, T_K in enumerate(T_sweep):
         coefs = _coefficients_at(omega_LR_GHz, float(T_K))
-        seeds: list[np.ndarray | None] = [None]
-        if last_y is not None:
-            seeds.append(last_y)
-        seeds.extend(_seed_grid())
-        sol = _try_solve(coefs, seeds=seeds)
+        sol = _try_solve(coefs, previous=last_y)
         if sol is None:
             raise RuntimeError(
                 f"M25 Fig 4 panel ω_LR={omega_LR_GHz} GHz: no seed yielded "

@@ -523,29 +523,39 @@ def solve_rate_equation_steady_state(
             # all x = 0). Machine-precision floor only.
             residual_tol = 1e-14
 
+    # Use ``scipy.optimize.root(method='hybr')`` for deterministic
+    # behavior across repeated calls — the legacy ``method='lm'``
+    # wrapper has FORTRAN COMMON-block state and gives different
+    # answers from identical inputs. ``hybr`` (MINPACK ``hybrd``)
+    # also finds different fixed points from different seeds, which
+    # is what we need for M25 multi-stable input regimes (see
+    # :func:`solve_rate_equation_steady_state_multi_seed`). The
+    # ``success=False`` "no further improvement possible" status is
+    # treated as accepted when ``accept_lm_convergence=True``,
+    # because at M25 Fig 3 inputs hybr's stop criterion fires at the
+    # float64 cancellation floor of the polynomial residual.
     sol = root(
         _rate_equation_residual,
         y0,
         args=(coefs,),
-        method="lm",
-        options={"xtol": 1e-13, "ftol": 1e-14, "maxiter": int(max_function_evaluations)},
+        method="hybr",
+        options={"xtol": 1e-13, "maxfev": int(max_function_evaluations)},
     )
 
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
     residual_check_failed = residual_inf_norm > residual_tol
-    if not sol.success:
-        raise RuntimeError(
-            f"M25 Newton solve failed: {sol.message}; "
-            f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
-            f"nfev = {sol.nfev}."
-        )
+    # Accept iff the residual is within tol (scipy's "no progress"
+    # status is irrelevant when the residual is already below the
+    # physics-precision target) OR the caller has set
+    # accept_lm_convergence=True (knowingly tolerating the
+    # "no progress" status at the float64 cancellation floor).
     if residual_check_failed and not accept_lm_convergence:
         raise RuntimeError(
-            f"M25 Newton converged per LM (xtol/ftol) but residual "
-            f"exceeds tol: ||R||_∞ = {residual_inf_norm:g} > "
-            f"tol = {residual_tol:g}; nfev = {sol.nfev}. Pass "
-            "accept_lm_convergence=True if your problem sits at the "
-            "float64 cancellation floor (typical for M25 Fig 3 inputs)."
+            f"M25 Newton solve failed: {sol.message}; "
+            f"||R||_∞ = {residual_inf_norm:g} > tol = {residual_tol:g}; "
+            f"nfev = {sol.nfev}. Pass accept_lm_convergence=True if "
+            "your problem sits at the float64 cancellation floor "
+            "(typical for M25 Fig 3 inputs)."
         )
 
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
@@ -572,3 +582,96 @@ def solve_rate_equation_steady_state(
         residual_inf_norm=residual_inf_norm,
         n_function_evaluations=int(sol.nfev),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Multi-seed branch picker — selects the photon-driven nonequilibrium
+#  branch from the M25 system's multiple fixed points.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _default_seed_grid() -> list[np.ndarray]:
+    """Hand-tuned x seeds covering the M25 nonequilibrium branch.
+
+    Each entry is a length-4 ``(p_1, x_L, x_{R>}, x_{R<})`` initial
+    guess. The grid spans ~7 decades of x — wide enough to bracket
+    the M25 photon-driven branch under the full Fig 3 parameter
+    sweep without overlapping the unphysical near-zero-x noise tier.
+    """
+    return [
+        np.array([1e-3, x, 0.5 * x, 0.1 * x])
+        for x in (1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11)
+    ]
+
+
+def solve_rate_equation_steady_state_multi_seed(
+    coefs: M25Coefficients,
+    *,
+    preferred_seed: np.ndarray | None = None,
+    extra_seeds: list[np.ndarray] | None = None,
+    branch_continuation_ratio: float = 5.0,
+    accept_lm_convergence: bool = True,
+    residual_tol_relative: float = 1e-3,
+    max_function_evaluations: int = 500,
+) -> M25SteadyState:
+    """Pick the photon-driven nonequilibrium branch by multi-seed solve.
+
+    The M25 4-unknown rate-equation system is multi-stable: at fixed
+    parameters there are several positive-density fixed points plus
+    the thermal branch. Each ``initial_guess`` to
+    :func:`solve_rate_equation_steady_state` selects one of them.
+    The "right" branch (the one matching M25 paper Fig 3 / Fig 4
+    plots) is the photon-driven nonequilibrium one — typically the
+    one with the largest ``x_L``.
+
+    This helper tries the default seed plus a small grid of hand-
+    tuned x seeds (and any caller-supplied ``extra_seeds``), keeps
+    only converged positive-density solutions, and selects one as
+    follows:
+
+    * If ``preferred_seed`` is given (typically the previous
+      temperature point's solution in a sweep) AND its solve
+      converges to a positive-density branch within
+      ``branch_continuation_ratio`` of the max-x_L candidate,
+      return THAT solution. This keeps the sweep on the same branch
+      across small parameter changes.
+    * Otherwise return the candidate with the largest ``x_L`` —
+      the most-non-equilibrium branch.
+
+    Raises ``RuntimeError`` if no seed yields a physical solution.
+    """
+    seeds: list[np.ndarray | None] = [None]
+    if preferred_seed is not None:
+        seeds.append(preferred_seed)
+    if extra_seeds is not None:
+        seeds.extend(extra_seeds)
+    seeds.extend(_default_seed_grid())
+
+    candidates: list[tuple[np.ndarray | None, M25SteadyState]] = []
+    for seed in seeds:
+        try:
+            sol = solve_rate_equation_steady_state(
+                coefs,
+                initial_guess=seed,
+                accept_lm_convergence=accept_lm_convergence,
+                residual_tol_relative=residual_tol_relative,
+                max_function_evaluations=max_function_evaluations,
+            )
+        except RuntimeError:
+            continue
+        if sol.x_L > 0.0 and sol.x_Rgt > 0.0 and sol.x_Rlt > 0.0:
+            candidates.append((seed, sol))
+    if not candidates:
+        raise RuntimeError(
+            "M25 multi-seed solve: no seed produced a positive-density "
+            "physical solution. Coefficients may be degenerate or the "
+            "seed grid may not bracket the relevant branch."
+        )
+    max_sol = max(candidates, key=lambda c: c[1].x_L)[1]
+    if preferred_seed is not None:
+        for seed, sol in candidates:
+            if seed is preferred_seed and (
+                sol.x_L * branch_continuation_ratio >= max_sol.x_L
+            ):
+                return sol
+    return max_sol
