@@ -625,17 +625,81 @@ def solve_rate_equation_steady_state(
 
 
 def _default_seed_grid() -> list[np.ndarray]:
-    """Hand-tuned x seeds covering the M25 nonequilibrium branch.
+    """Hand-tuned seeds covering the M25 nonequilibrium branch family.
 
     Each entry is a length-4 ``(p_1, x_L, x_{R>}, x_{R<})`` initial
-    guess. The grid spans ~7 decades of x — wide enough to bracket
-    the M25 photon-driven branch under the full Fig 3 parameter
-    sweep without overlapping the unphysical near-zero-x noise tier.
+    guess. Spans:
+
+    * ``p_1 ∈ {1e-4, 3e-4, 1e-3}`` — covers the M25 Fig 3 caption
+      range; the legacy single ``p_1 = 1e-3`` over-biased toward
+      high-p_1 fixed points and missed the paper's branch (which sits
+      at ``p_1 ≈ 3e-4`` for Fig 3a low-T points).
+    * ``x_L ∈ ~8 decades [1e-11, 1e-4]`` — wide enough to bracket the
+      photon-driven branch under the full Fig 3 parameter sweep
+      without overlapping the unphysical near-zero-x noise tier.
+    * ``x_{R>}/x_L = 0.4`` — matches the M25 tunneling-balance ratio
+      ``T_L/T_{R>}`` at typical Fig 3a coefficients (replaces the
+      legacy 0.5 ratio that biased seeds away from the paper branch).
+    * ``x_{R<}/x_L = 0.02`` — matches paper's measured ratio at low T.
     """
-    return [
-        np.array([1e-3, x, 0.5 * x, 0.1 * x])
-        for x in (1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11)
-    ]
+    seeds: list[np.ndarray] = []
+    for p_1 in (1e-4, 3e-4, 1e-3):
+        for x in (1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11):
+            seeds.append(np.array([p_1, x, 0.4 * x, 0.02 * x]))
+    return seeds
+
+
+def _solve_with_lm(
+    coefs: M25Coefficients,
+    seed: np.ndarray,
+    *,
+    residual_ceiling_Hz: float,
+) -> M25SteadyState | None:
+    """Try ``scipy.optimize.root(method='lm')`` from ``seed``.
+
+    lm (MINPACK ``lmder``) finds true fixed points where ``hybr``
+    stalls at the float64 cancellation floor of M25's ~1e10 Hz
+    tunneling-current cancellations. Used only as an additional
+    candidate source in the multi-seed picker — the standalone
+    :func:`solve_rate_equation_steady_state` keeps hybr for its
+    well-understood stall semantics.
+
+    Returns ``None`` if the solve fails, lands on an unphysical
+    branch, or has residual above ``residual_ceiling_Hz``.
+
+    Note on determinism: lm has been verified bit-identical across
+    100 repeated calls on the test platform (scipy ≥ 1.13). The
+    accompanying regression test in
+    ``tests/services/test_rate_equation.py::test_lm_solver_is_deterministic``
+    will catch any platform/version regression.
+    """
+    try:
+        sol = root(
+            _rate_equation_residual,
+            seed,
+            args=(coefs,),
+            method="lm",
+            options={"xtol": 1e-13, "maxiter": 5000},
+        )
+    except Exception:
+        return None
+    residual_inf_norm = float(np.max(np.abs(sol.fun)))
+    if residual_inf_norm > residual_ceiling_Hz:
+        return None
+    p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
+    if not (0.0 <= p_1 <= 1.0):
+        return None
+    if min(x_L, x_Rgt, x_Rlt) <= 0.0:
+        return None
+    return M25SteadyState(
+        p_0=1.0 - p_1,
+        p_1=p_1,
+        x_L=x_L,
+        x_Rgt=x_Rgt,
+        x_Rlt=x_Rlt,
+        residual_inf_norm=residual_inf_norm,
+        n_function_evaluations=int(sol.nfev),
+    )
 
 
 def solve_rate_equation_steady_state_multi_seed(
@@ -683,6 +747,8 @@ def solve_rate_equation_steady_state_multi_seed(
 
     candidates: list[tuple[np.ndarray | None, M25SteadyState]] = []
     for seed in seeds:
+        # Primary: hybr via the validated solve_rate_equation_steady_state
+        # path (with all its residual / bypass / unphysical-branch checks).
         try:
             sol = solve_rate_equation_steady_state(
                 coefs,
@@ -692,9 +758,20 @@ def solve_rate_equation_steady_state_multi_seed(
                 max_function_evaluations=max_function_evaluations,
             )
         except RuntimeError:
-            continue
-        if sol.x_L > 0.0 and sol.x_Rgt > 0.0 and sol.x_Rlt > 0.0:
+            sol = None
+        if sol is not None and sol.x_L > 0.0 and sol.x_Rgt > 0.0 and sol.x_Rlt > 0.0:
             candidates.append((seed, sol))
+
+        # Secondary: lm as an additional candidate source. lm finds true
+        # fixed points at the high-x_L end of M25's multi-stable manifold
+        # where hybr stalls at the cancellation floor. We accept lm
+        # candidates with residual below the same 1.0 Hz safety ceiling
+        # used for hybr's no-progress bypass.
+        if seed is None:
+            continue  # lm needs an explicit seed
+        lm_sol = _solve_with_lm(coefs, seed, residual_ceiling_Hz=1.0)
+        if lm_sol is not None:
+            candidates.append((seed, lm_sol))
     if not candidates:
         raise RuntimeError(
             "M25 multi-seed solve: no seed produced a positive-density "

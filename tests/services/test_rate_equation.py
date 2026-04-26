@@ -461,3 +461,28 @@ class TestSolverReturnType:
         assert isinstance(state, M25SteadyState)
         assert state.n_function_evaluations >= 1
         assert state.residual_inf_norm >= 0.0
+
+
+class TestLmDeterminism:
+    """The multi-seed picker uses scipy.optimize.root(method='lm') as an
+    additional candidate source. The original switch from lm to hybr was
+    justified by a 'FORTRAN COMMON-block state' non-determinism claim
+    that doesn't reproduce on the supported scipy versions. This test
+    pins the property — if a future scipy/platform combination breaks
+    it, this test will catch it before it silently changes the picker's
+    branch selection."""
+
+    def test_lm_produces_bit_identical_results_across_repeated_calls(self) -> None:
+        from scipy.optimize import root
+
+        coefs = _make_trivial_coefs(g_L=1.0, g_Rgt=1.0, g_Rlt=1.0)
+        seed = np.array([0.5, 1e-3, 5e-4, 1e-4])
+        results = [
+            root(
+                _rate_equation_residual, seed, args=(coefs,),
+                method="lm", options={"xtol": 1e-13},
+            ).x
+            for _ in range(10)
+        ]
+        for r in results[1:]:
+            np.testing.assert_array_equal(results[0], r)
