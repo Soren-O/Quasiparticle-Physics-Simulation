@@ -172,6 +172,14 @@ ambiguity (§2, factor-of-4 angular averaging) and the choice of $s$.
 Tightening would require resolving the full AMM angle integral (Open
 Question 1) and pinning $s$ to a specific mode or the Debye average.
 
+> **Note on `qpsim/materials/data/Al.yaml`.** The shipped Al material
+> has `film_thickness: 90.0` nm (a generic starter value), not the
+> Fischer-Table-II 63 nm used in the example above. With that 90 nm
+> thickness, `acoustic_escape_tau_l(material=Al)` returns
+> `4 × 90 / (0.2 × s_D)` — about 360 ps if you pick `s_D ≈ 5000` m/s.
+> Edit the YAML (or pass an overridden `Material(replace=...)`) before
+> reproducing Fischer-style parity sweeps.
+
 For arbitrary $(d, \eta, s)$, apply the formula directly. Representative
 values:
 

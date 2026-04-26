@@ -16,8 +16,12 @@ equations are labeled `M#`.
   gap asymmetry ω_LR = Δ_L − Δ_R, pair-breaking photon ω_ν, transmon
   parameters E_J/E_C) are all in the same energy unit. **Natural units:
   ℏ = k_B = 1.** In code we use **Kelvin** for energies (matching the
-  existing `Delta_R_kelvin` API) with `_KELVIN_TO_HZ = k_B / h ≈
-  20.8366 GHz/K` for converting to rates.
+  `Delta_R_kelvin` API). The conversion to Hz is implicit: the
+  tunneling-rate prefactor `R_T = g_T Δ̄/e²` is supplied directly in
+  Hz on `M25PhysicalParameters.R_T_Hz`, so the dimensionless ratios of
+  Kelvin energies (`y`, `y±`, `δ`, etc.) combine with `R_T_Hz` to
+  give Hz output without any explicit `k_B/h ≈ 20.8366 GHz/K`
+  conversion factor in the code.
 * Rates are in **Hz** (not rad/s, so no extra 2π).
 * Densities x_α are dimensionless, normalized to the local-gap Cooper-
   pair number per Eq. (S2).

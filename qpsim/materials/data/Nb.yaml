@@ -1,4 +1,11 @@
 # Niobium on silicon — generic starter values.
+# Note: Nb is moderately strong-coupling. The implied Δ₀/(k_B T_c) =
+# 1.882 here departs from the BCS weak-coupling 1.764 that
+# qpsim.physics.gap_equation.calibrate_gap assumes when deriving Δ
+# from T_c. With these values, calibrate_gap(T_c=9.25) returns
+# Δ ≈ 1407 μeV, ~7% below the 1500 μeV listed below. For Nb work,
+# pass Delta_0 = 1500 explicitly downstream rather than letting the
+# calibrator derive it from T_c. See docs/Material_Database.md.
 name: Nb
 Delta_0: 1500.0      # μeV (Δ(0) ≈ 1.5 meV for Nb)
 T_c: 9.25            # K

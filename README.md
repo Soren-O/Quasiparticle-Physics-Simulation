@@ -9,27 +9,28 @@ escape), Ph1 (ballistic), Ph2 (diffusive substrate).
 
 ## Status
 
-**Gate 1 skeleton — no physics implemented yet.** The scalar-backend
-reference implementation this repo supersedes stays frozen in a
-separate tree (author's local path: `Quasiparticle Simulation/Active
-Code/qpsim/`) and is the source of parity baselines. The full build
-plan is `New Framework Plan.md` in that same tree's
-`Documentation/Current/`.
+T3 + Ph0 backend, the M25 (Marchegiani–Catelani 2025) rate-equation
+service, and the Region/Junction/Device/Qubit composition layer are
+shipped and validated. Eight Fischer 2023/2024 reproductions and three
+Marchegiani 2025 figures pin against self-checked CSV baselines under
+`validation/`. T2/T1 backends and Ph1/Ph2 phonon transport are not
+implemented. See `docs/STATUS.md` for the running gate tracker and
+test count.
 
-### Gate roadmap (New Framework Plan §7)
+### Gate roadmap
 
-| Gate | Deliverable                                 | Effort |
-|------|---------------------------------------------|--------|
-| 0    | Phonon physics decisions                    | ✓ committed |
-| 1    | Repo skeleton                               | ✓ this commit |
-| 2    | Ported physics + T3 diffusion backend       | 5 d    |
-| 3    | Fig. 3 τ_l=0 bit-identical vs baseline      | 3 d    |
-| 3.5  | Generate missing parity baselines (old repo)| 2 d    |
-| 4    | Full Layer-4 audit chain passes             | 7 d    |
-| 5    | Ph1 phonon spatial transport                | 10 d   |
-| 6    | T2 kinetic scalar backend                   | 14 d   |
-| 7    | T1 two-component backend (new derivation)   | 21 d   |
-| 8    | Marchegiani junction (rate eq + PDE)        | 14 d   |
+| Gate | Deliverable                                   | Status |
+|------|-----------------------------------------------|--------|
+| 0    | Phonon-model decisions (D1–D5)                | ✅ `docs/Phonon_Model_Decisions.md` |
+| 1    | Repo skeleton                                 | ✅ |
+| 2    | Ported physics + T3 diffusion backend         | ✅ |
+| 3    | Fischer paper-reproduction parity (8 figures) | ✅ |
+| 4    | Layer-4 audit chain (1e-12 / 1e-6 / 1e-4)     | ✅ |
+| 4.5  | Characterization tier (Ph0-Kaplan)            | ✅ |
+| 5    | Ph1 phonon spatial transport                  | ❌ not started |
+| 6    | T2 kinetic scalar backend                     | ❌ not started |
+| 7    | T1 two-component backend                      | ❌ not started |
+| 8    | Marchegiani junction (rate eq + PDE)          | ✅ via Device Architecture composition layer |
 
 ## Install
 
@@ -41,9 +42,11 @@ Python 3.13+.
 
 ## Layout
 
-- `qpsim/` — the library (see New Framework Plan §5)
-- `docs/` — physics and numerics references; Gate 0 phonon decisions
-- `validation/` — tier-reduction tests, paper-reproduction audit
+- `qpsim/` — the library (physics, collisions, solvers, services,
+  devices, observables, materials, grids, backends, phonon models)
+- `docs/` — physics and numerics references; phonon-sector decisions
+- `validation/` — analytic checks, tier reductions, paper-reproduction
+  audit (Fischer 2023/2024, Marchegiani 2025), pinned CSV/PDF baselines
 - `tests/` — pytest suite mirroring the library layout
 - `scripts/` — user-facing run scripts
 
