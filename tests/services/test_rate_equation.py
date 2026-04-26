@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from qpsim.services.rate_equation import (
@@ -427,6 +429,28 @@ class TestSolverLimitingCases:
                 accept_lm_convergence=True,
                 initial_guess=np.array([0.5, 4.0, 4.0, 4.0]),
                 max_function_evaluations=1,
+            )
+
+    def test_accept_lm_convergence_does_not_bypass_success_high_residual(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        def fake_root(*args, **kwargs):
+            return SimpleNamespace(
+                success=True,
+                message="fake success",
+                fun=np.array([1.0, 0.0, 0.0, 0.0]),
+                x=np.array([0.5, 0.0, 0.0, 0.0]),
+                nfev=1,
+            )
+
+        monkeypatch.setattr(rate_mod, "root", fake_root)
+        with pytest.raises(RuntimeError, match="high residual"):
+            rate_mod.solve_rate_equation_steady_state(
+                _make_trivial_coefs(),
+                residual_tol=1e-6,
+                accept_lm_convergence=True,
             )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.spectral import SpectralContext
@@ -53,6 +54,16 @@ class TestShapesAndNullCases:
             f, ctx, omega_PB=10 * dE, n_bar_PB=0.0, c_phot_PB=1.0,
         )
         np.testing.assert_allclose(gain, 0.0)
+
+    def test_rejects_nonuniform_grid(self) -> None:
+        E = np.array([181.0, 184.0, 195.0, 230.0, 310.0, 470.0])
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=180.0)
+        with pytest.raises(ValueError, match="uniform energy grid"):
+            pair_breaking_photon_collision_rates(
+                np.zeros(E.size), ctx, omega_PB=400.0,
+                n_bar_PB=1.0, c_phot_PB=1.0,
+            )
 
 
 class TestCommensurateWarning:

@@ -69,28 +69,34 @@ class PhononState:
     branches: list[PhononBranchSpec]
 
     def __post_init__(self) -> None:
-        if self.n_ph.ndim != 3:
+        n_ph = np.asarray(self.n_ph, dtype=float)
+        omega_bins = np.asarray(self.omega_bins, dtype=float)
+        tau_l = np.asarray(self.tau_l, dtype=float)
+
+        if n_ph.ndim != 3:
             raise ValueError(
-                f"n_ph must be 3D (N_branch, N_omega, N_spatial); got shape {self.n_ph.shape}."
+                f"n_ph must be 3D (N_branch, N_omega, N_spatial); got shape {n_ph.shape}."
             )
-        if self.omega_bins.ndim != 2:
+        if omega_bins.ndim != 2:
             raise ValueError(
-                f"omega_bins must be 2D (N_branch, N_omega); got shape {self.omega_bins.shape}."
+                f"omega_bins must be 2D (N_branch, N_omega); got shape {omega_bins.shape}."
             )
-        if self.tau_l.ndim != 2:
+        if tau_l.ndim != 2:
             raise ValueError(
-                f"tau_l must be 2D (N_branch, N_omega); got shape {self.tau_l.shape}."
+                f"tau_l must be 2D (N_branch, N_omega); got shape {tau_l.shape}."
             )
 
-        nb, no, _ = self.n_ph.shape
-        if self.omega_bins.shape != (nb, no):
+        nb, no, _ = n_ph.shape
+        if no == 0:
+            raise ValueError("N_omega must be at least 1.")
+        if omega_bins.shape != (nb, no):
             raise ValueError(
-                f"omega_bins shape {self.omega_bins.shape} does not match "
+                f"omega_bins shape {omega_bins.shape} does not match "
                 f"(N_branch, N_omega) = ({nb}, {no})."
             )
-        if self.tau_l.shape != (nb, no):
+        if tau_l.shape != (nb, no):
             raise ValueError(
-                f"tau_l shape {self.tau_l.shape} does not match "
+                f"tau_l shape {tau_l.shape} does not match "
                 f"(N_branch, N_omega) = ({nb}, {no})."
             )
         if len(self.branches) != nb:
@@ -98,6 +104,24 @@ class PhononState:
                 f"branches list length {len(self.branches)} does not match "
                 f"N_branch = {nb}."
             )
+        if not np.all(np.isfinite(n_ph)):
+            raise ValueError("n_ph must contain only finite values.")
+        if np.any(n_ph < 0.0):
+            raise ValueError("n_ph must be non-negative.")
+        if not np.all(np.isfinite(omega_bins)):
+            raise ValueError("omega_bins must contain only finite values.")
+        if np.any(omega_bins < 0.0):
+            raise ValueError("omega_bins must be non-negative.")
+        if no > 1 and np.any(np.diff(omega_bins, axis=1) <= 0.0):
+            raise ValueError("omega_bins must be strictly increasing per branch.")
+        if not np.all(np.isfinite(tau_l)):
+            raise ValueError("tau_l must contain only finite values.")
+        if np.any(tau_l < 0.0):
+            raise ValueError("tau_l must be non-negative.")
+
+        self.n_ph = n_ph
+        self.omega_bins = omega_bins
+        self.tau_l = tau_l
 
     @property
     def n_branch(self) -> int:

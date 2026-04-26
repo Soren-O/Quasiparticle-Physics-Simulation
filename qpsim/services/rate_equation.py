@@ -554,8 +554,8 @@ def solve_rate_equation_steady_state(
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
     residual_check_failed = residual_inf_norm > residual_tol
     # Acceptance rules:
-    # 1. ``sol.success=True`` → always accept (residual below
-    #    scipy's xtol/ftol).
+    # 1. ``sol.success=True`` → accept only if the physical residual
+    #    check passes.
     # 2. ``sol.success=False`` with the "no progress" message →
     #    hybr stalled at the float64 cancellation floor of the
     #    polynomial residual; accept iff ``accept_lm_convergence``
@@ -573,14 +573,6 @@ def solve_rate_equation_steady_state(
             f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
             f"nfev = {sol.nfev}."
         )
-    if residual_check_failed and not accept_lm_convergence:
-        raise RuntimeError(
-            f"M25 Newton converged with high residual: {sol.message}; "
-            f"||R||_∞ = {residual_inf_norm:g} > tol = {residual_tol:g}; "
-            f"nfev = {sol.nfev}. Pass accept_lm_convergence=True if "
-            "your problem sits at the float64 cancellation floor "
-            "(typical for M25 Fig 3 inputs)."
-        )
     if is_no_progress_stall and accept_lm_convergence and residual_inf_norm > 1.0:
         # Even the bypass should not accept a residual this large —
         # the cancellation-floor regime sits at ~1e-5 Hz, not order 1.
@@ -589,6 +581,15 @@ def solve_rate_equation_steady_state(
             f"cancellation floor: {sol.message}; "
             f"||R||_∞ = {residual_inf_norm:g} > 1.0 Hz; nfev = {sol.nfev}. "
             "accept_lm_convergence does not bypass this safety check."
+        )
+    allow_residual_bypass = accept_lm_convergence and is_no_progress_stall
+    if residual_check_failed and not allow_residual_bypass:
+        raise RuntimeError(
+            f"M25 Newton converged with high residual: {sol.message}; "
+            f"||R||_∞ = {residual_inf_norm:g} > tol = {residual_tol:g}; "
+            f"nfev = {sol.nfev}. Pass accept_lm_convergence=True if "
+            "your problem sits at the float64 cancellation floor "
+            "(typical for M25 Fig 3 inputs)."
         )
 
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)

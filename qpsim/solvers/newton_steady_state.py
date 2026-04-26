@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
 from qpsim.collisions.phonon import (
     _thermal_phonon_recombination_occupations,
@@ -323,7 +324,9 @@ def _jacobian_analytical(
         omega_0 = photon_params["omega_0"]
         n_bar = photon_params["n_bar"]
         c_phot = photon_params["c_phot"]
-        dE_scalar = float(dE[0])
+        dE_scalar = uniform_grid_spacing(
+            ctx.E, dE, "Sub-gap photon analytical Jacobian"
+        )
         m = round(omega_0 / dE_scalar)
         if m > 0:
             K_plus = ctx.K_plus
@@ -346,7 +349,9 @@ def _jacobian_analytical(
         omega_PB = pb_photon_params["omega_PB"]
         n_bar_pb = pb_photon_params["n_bar_PB"]
         c_pb = pb_photon_params["c_phot_PB"]
-        dE_scalar = float(dE[0])
+        dE_scalar = uniform_grid_spacing(
+            ctx.E, dE, "Pair-breaking photon analytical Jacobian"
+        )
         m_pb = round(omega_PB / dE_scalar)
         omega_PB_snapped = m_pb * dE_scalar
         K_plus = ctx.K_plus

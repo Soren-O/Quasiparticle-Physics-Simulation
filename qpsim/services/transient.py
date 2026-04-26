@@ -155,8 +155,8 @@ def run_time_dependent(
     converged = False
     current = state
 
-    # Integer step count keeps the final time exactly at N·dt (or
-    # closest multiple) rather than drifting with float accumulation.
+    # Integer cap avoids unbounded loops, while the final substep is
+    # shortened so the transient lands exactly on total_time.
     max_steps = int(np.ceil(total_time / dt))
 
     NE = int(state.f.size)
@@ -169,18 +169,22 @@ def run_time_dependent(
         return ef
 
     for _ in range(max_steps):
+        remaining = total_time - t
+        if remaining <= 1e-12:
+            break
+        step_dt = min(dt, remaining)
         prev_f = current.f
         current = backend.apply_collisions(
-            current, dt,
+            current, step_dt,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
             external_flux=_flux_at(t),
         )
-        t += dt
+        t += step_dt
         n_steps += 1
 
         if stop_tol is not None:
-            rate = float(np.max(np.abs(current.f - prev_f)) / dt)
+            rate = float(np.max(np.abs(current.f - prev_f)) / step_dt)
             if rate < stop_tol:
                 converged = True
                 snapshots.append(_snapshot(t, current))

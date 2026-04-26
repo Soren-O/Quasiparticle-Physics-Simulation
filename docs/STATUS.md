@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-25 (sixth session).
+Last updated: 2026-04-26 (seventh session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -68,7 +68,15 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Test suite
 
-**531 unit/regression tests passing** (524 unit/regression + 7 M25 validation). Ruff clean. mypy clean on all new qpsim surfaces.
+**542 unit/regression tests passing** (535 unit/regression + 7 M25 validation). Ruff clean. mypy clean on all new qpsim surfaces.
+
+Recent hardening pass (Claude+GPT cross-review, seventh session):
+- Photon collision kernels (`sub_gap_photon`, `pair_breaking_photon`) and the analytic Newton Jacobian now hard-reject nonuniform energy grids via `qpsim.collisions._uniform_grid.uniform_grid_spacing`; previously they silently used `dE[0]` as a uniform stride.
+- `PhononState.__post_init__` now validates finite/nonneg `n_ph`, finite/nonneg/strict-monotone `omega_bins`, and finite/nonneg `tau_l` (was shape-only).
+- `phonon_steady_state` raises on singular/runaway phonon balances instead of clipping negative occupations to zero — turns "no Ph0 fixed point" from a fake solution into a loud failure.
+- `accept_lm_convergence` bypass narrowed to its documented scope: only the `is_no_progress_stall` case is exempted from the residual check; success-with-high-residual now raises.
+- `transient.run_time_dependent` truncates the final substep so `total_time` is honored exactly.
+- Four M25 Fig 3/4 multi-stable branch points shifted under the stricter residual acceptance; CSV+PDF baselines regenerated; visual paper agreement preserved.
 
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.

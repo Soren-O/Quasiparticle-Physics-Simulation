@@ -83,6 +83,48 @@ class TestPhononState:
                 branches=[],  # empty for N_branch = 1
             )
 
+    def test_rejects_negative_n_ph(self) -> None:
+        with pytest.raises(ValueError, match="n_ph must be non-negative"):
+            PhononState(
+                n_ph=-np.ones((1, 5, 1)),
+                omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
+                tau_l=np.full((1, 5), 0.25),
+                model=PhononModel.PH0_LOCAL,
+                branches=[PhononBranchSpec(name="x")],
+            )
+
+    def test_rejects_nonmonotone_omega_bins(self) -> None:
+        with pytest.raises(ValueError, match="strictly increasing"):
+            PhononState(
+                n_ph=np.zeros((1, 5, 1)),
+                omega_bins=np.array([[0.1, 0.2, 0.2, 0.4, 0.5]]),
+                tau_l=np.full((1, 5), 0.25),
+                model=PhononModel.PH0_LOCAL,
+                branches=[PhononBranchSpec(name="x")],
+            )
+
+    def test_rejects_negative_tau_l(self) -> None:
+        with pytest.raises(ValueError, match="tau_l must be non-negative"):
+            PhononState(
+                n_ph=np.zeros((1, 5, 1)),
+                omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
+                tau_l=-np.ones((1, 5)),
+                model=PhononModel.PH0_LOCAL,
+                branches=[PhononBranchSpec(name="x")],
+            )
+
+    def test_rejects_nonfinite_arrays(self) -> None:
+        omega = np.linspace(0.1, 1.0, 5).reshape(1, 5)
+        omega[0, 2] = np.inf
+        with pytest.raises(ValueError, match="omega_bins"):
+            PhononState(
+                n_ph=np.zeros((1, 5, 1)),
+                omega_bins=omega,
+                tau_l=np.full((1, 5), 0.25),
+                model=PhononModel.PH0_LOCAL,
+                branches=[PhononBranchSpec(name="x")],
+            )
+
 
 class TestPhononModel:
     def test_enum_values(self) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -53,6 +54,15 @@ class TestShapesAndNullCases:
             f, ctx, omega_0=5 * dE, n_bar=0.0, c_phot=1.0,
         )
         np.testing.assert_allclose(gain, 0.0)
+
+    def test_rejects_nonuniform_grid(self) -> None:
+        E = np.array([181.0, 184.0, 195.0, 230.0])
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=180.0)
+        with pytest.raises(ValueError, match="uniform energy grid"):
+            sub_gap_photon_collision_rates(
+                np.zeros(E.size), ctx, omega_0=3.0, n_bar=1.0, c_phot=1.0,
+            )
 
 
 class TestCommensurateWarning:

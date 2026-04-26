@@ -129,6 +129,15 @@ class TestSnapshotCadence:
         # 51 snapshots (t=0 plus t=1…50).
         assert 45 <= len(result.snapshots) <= 55
 
+    def test_final_step_is_truncated_to_total_time(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=20)
+        result = run_time_dependent(
+            state, dt=0.3, total_time=1.0, snapshot_interval=0.5,
+        )
+        assert result.total_time == pytest.approx(1.0)
+        assert result.snapshots[-1].t == pytest.approx(1.0)
+        assert result.n_steps == 4
+
 
 class TestObservables:
     def test_observable_callables_invoked_per_snapshot(self) -> None:

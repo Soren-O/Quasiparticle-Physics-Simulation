@@ -15,6 +15,7 @@ import warnings
 
 import numpy as np
 
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.physics.spectral import SpectralContext
 
 _COMMENSURATE_TOL = 0.01
@@ -42,7 +43,7 @@ def sub_gap_photon_collision_rates(
     """
     E = ctx.E
     NE = E.size
-    dE_scalar = float(ctx.dE[0])
+    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
 
     m = round(omega_0 / dE_scalar)
     if m <= 0:

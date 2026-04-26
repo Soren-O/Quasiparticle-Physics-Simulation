@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -71,3 +72,39 @@ class TestPhononSteadyState:
         )
         assert np.all(np.isfinite(n_ph))
         assert np.all(n_ph >= 0.0)
+
+    def test_zero_tau_l_rejects_negative_fixed_point(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.phonon_models import ph0_local as ph0_mod
+
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
+
+        def fake_source_sink(*args, **kwargs):
+            n_omega = len(omega)
+            return np.ones(n_omega), np.ones(n_omega)
+
+        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        with pytest.raises(RuntimeError, match="unphysical"):
+            ph0_mod.phonon_steady_state(
+                f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
+                T_bath=T_bath, tau_l=0.0,
+            )
+
+    def test_finite_tau_l_rejects_runaway_denominator(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.phonon_models import ph0_local as ph0_mod
+
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
+
+        def fake_source_sink(*args, **kwargs):
+            n_omega = len(omega)
+            return np.ones(n_omega), np.full(n_omega, 2.0)
+
+        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        with pytest.raises(RuntimeError, match="phonon runaway"):
+            ph0_mod.phonon_steady_state(
+                f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
+                T_bath=T_bath, tau_l=1.0,
+            )

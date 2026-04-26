@@ -19,6 +19,7 @@ import warnings
 
 import numpy as np
 
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.physics.spectral import SpectralContext
 
 _COMMENSURATE_TOL = 0.01
@@ -49,7 +50,7 @@ def pair_breaking_photon_collision_rates(
     rho = ctx.rho
     K_plus = ctx.K_plus
     K_minus = ctx.K_minus
-    dE_scalar = float(ctx.dE[0])
+    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Pair-breaking photon collision")
 
     m = round(omega_PB / dE_scalar)
     if m <= 0:

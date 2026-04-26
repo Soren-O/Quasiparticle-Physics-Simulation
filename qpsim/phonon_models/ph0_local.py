@@ -25,6 +25,42 @@ from qpsim.collisions.phonon import compute_phonon_source_sink
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
+_SINGULAR_TOL = 1e-30
+_NEGATIVE_TOL = 1e-12
+
+
+def _solve_affine_balance(
+    numerator: np.ndarray,
+    denominator: np.ndarray,
+    *,
+    label: str,
+) -> np.ndarray:
+    """Solve ``denominator * n = numerator`` and reject unphysical states."""
+    singular = np.abs(denominator) <= _SINGULAR_TOL
+    inconsistent = singular & (np.abs(numerator) > _SINGULAR_TOL)
+    if np.any(inconsistent):
+        bad = np.flatnonzero(inconsistent)[:5].tolist()
+        raise RuntimeError(
+            f"Ph0 phonon steady state has no finite solution in {label}; "
+            f"singular balance at omega indices {bad}."
+        )
+
+    n_ph = np.zeros_like(numerator, dtype=float)
+    regular = ~singular
+    n_ph[regular] = numerator[regular] / denominator[regular]
+
+    invalid = (~np.isfinite(n_ph)) | (n_ph < -_NEGATIVE_TOL)
+    if np.any(invalid):
+        bad = np.flatnonzero(invalid)[:5].tolist()
+        raise RuntimeError(
+            f"Ph0 phonon steady state is unphysical in {label}; "
+            f"computed negative or non-finite occupation at omega indices {bad}. "
+            "This indicates phonon runaway or no non-negative fixed point."
+        )
+
+    n_ph[n_ph < 0.0] = 0.0
+    return n_ph
+
 
 def phonon_steady_state(
     f: np.ndarray,
@@ -70,17 +106,21 @@ def phonon_steady_state(
         omega_idx_diff, omega_idx_sum, diff_sign, n_omega,
     )
 
+    if tau_l < 0.0:
+        raise ValueError("tau_l must be non-negative.")
+
     if tau_l == 0.0:
-        denom = b_ph.copy()
-        safe = np.abs(denom) > 1e-30
-        n_ph = np.zeros(n_omega)
-        n_ph[safe] = -a_ph[safe] / denom[safe]
+        n_ph = _solve_affine_balance(
+            -a_ph, b_ph, label="tau_l=0 no-bath branch"
+        )
     else:
         inv_tau_l = 1.0 / tau_l
         n_th = thermal_phonon_occupation(omega_bins, T_bath)
         denom = inv_tau_l - b_ph
-        safe = np.abs(denom) > 1e-30
-        n_ph = np.zeros(n_omega)
-        n_ph[safe] = (a_ph[safe] + inv_tau_l * n_th[safe]) / denom[safe]
+        n_ph = _solve_affine_balance(
+            a_ph + inv_tau_l * n_th,
+            denom,
+            label="finite-tau_l branch",
+        )
 
-    return np.maximum(n_ph, 0.0)
+    return n_ph
