@@ -1,33 +1,112 @@
 """Post-processing observables.
 
-Ported / written (Gate 2 + Gate 3 + Gate 4.5):
-- ac_conductivity.py — Mattis–Bardeen σ₁, σ₂ (normalized)
-- quality_factor.py — Q_i = σ₂ / (α σ₁)
-- frequency_shift.py — fractional δω/ω vs a reference occupation
-- density.py — qp_number_density, qp_fraction (Fischer x_qp convention)
-- gap_suppression.py — δΔ / Δ from solve_gap compared against Δ_eq
-- effective_temperature.py — T_* from weighted BE fit to n_ph (F23 Eq. 36)
+Exports are loaded lazily so importing one lightweight observable does not pull
+in every spectral, fitting, or spatial-response dependency.
 """
 
-from qpsim.observables.ac_conductivity import compute_ac_conductivity
-from qpsim.observables.density import qp_fraction, qp_number_density
-from qpsim.observables.effective_temperature import effective_phonon_temperature
-from qpsim.observables.frequency_shift import compute_frequency_shift
-from qpsim.observables.gap_suppression import (
-    GapSuppressionResult,
-    compute_gap_suppression,
-    gap_suppression_from_deltas,
-)
-from qpsim.observables.quality_factor import compute_quality_factor
+from __future__ import annotations
 
-__all__ = [
-    "GapSuppressionResult",
-    "compute_ac_conductivity",
-    "compute_frequency_shift",
-    "compute_gap_suppression",
-    "compute_quality_factor",
-    "effective_phonon_temperature",
-    "gap_suppression_from_deltas",
-    "qp_fraction",
-    "qp_number_density",
-]
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "GapSuppressionResult": (
+        "qpsim.observables.gap_suppression",
+        "GapSuppressionResult",
+    ),
+    "SpatialAcResponse": (
+        "qpsim.observables.spatial_ac_response",
+        "SpatialAcResponse",
+    ),
+    "compute_ac_conductivity": (
+        "qpsim.observables.ac_conductivity",
+        "compute_ac_conductivity",
+    ),
+    "compute_current_weighted_ac_response": (
+        "qpsim.observables.spatial_ac_response",
+        "compute_current_weighted_ac_response",
+    ),
+    "compute_frequency_shift": (
+        "qpsim.observables.frequency_shift",
+        "compute_frequency_shift",
+    ),
+    "compute_gap_suppression": (
+        "qpsim.observables.gap_suppression",
+        "compute_gap_suppression",
+    ),
+    "compute_gap_suppression_direct": (
+        "qpsim.observables.gap_suppression",
+        "compute_gap_suppression_direct",
+    ),
+    "compute_quality_factor": (
+        "qpsim.observables.quality_factor",
+        "compute_quality_factor",
+    ),
+    "delta_suppression_from_distribution_direct": (
+        "qpsim.observables.gap_suppression",
+        "delta_suppression_from_distribution_direct",
+    ),
+    "edge_samples_from_centers": (
+        "qpsim.observables.gap_suppression",
+        "edge_samples_from_centers",
+    ),
+    "effective_phonon_temperature": (
+        "qpsim.observables.effective_temperature",
+        "effective_phonon_temperature",
+    ),
+    "fermi_dirac_distribution": (
+        "qpsim.observables.gap_suppression",
+        "fermi_dirac_distribution",
+    ),
+    "gap_from_distribution_direct": (
+        "qpsim.observables.gap_suppression",
+        "gap_from_distribution_direct",
+    ),
+    "gap_integral_from_distribution_direct": (
+        "qpsim.observables.gap_suppression",
+        "gap_integral_from_distribution_direct",
+    ),
+    "gap_suppression_from_deltas": (
+        "qpsim.observables.gap_suppression",
+        "gap_suppression_from_deltas",
+    ),
+    "gap_suppression_from_integrals_direct": (
+        "qpsim.observables.gap_suppression",
+        "gap_suppression_from_integrals_direct",
+    ),
+    "gap_suppression_ratio_from_integrals": (
+        "qpsim.observables.gap_suppression",
+        "gap_suppression_ratio_from_integrals",
+    ),
+    "left_edges_from_centers": (
+        "qpsim.observables.gap_suppression",
+        "left_edges_from_centers",
+    ),
+    "qp_fraction": (
+        "qpsim.observables.density",
+        "qp_fraction",
+    ),
+    "qp_number_density": (
+        "qpsim.observables.density",
+        "qp_number_density",
+    ),
+    "thermal_gap_integral_direct": (
+        "qpsim.observables.gap_suppression",
+        "thermal_gap_integral_direct",
+    ),
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = _EXPORTS[name]
+    value = getattr(import_module(module_name), attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

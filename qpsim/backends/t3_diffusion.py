@@ -22,7 +22,9 @@ from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
 )
@@ -96,6 +98,7 @@ class T3DiffusionBackend:
         self_consistent_gap: bool = False,
         use_thermal_phonons: bool = False,
         external_dissipation_only: bool = False,
+        use_phonon_side_kernel: bool = False,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
@@ -106,11 +109,13 @@ class T3DiffusionBackend:
         picard_mixing: float = 0.3,
         anderson_depth: int = 0,
         coupled_newton_tol: float = 1e-10,
+        coupled_newton_step_rtol: float = 0.0,
         coupled_newton_max_iter: int = 50,
         coupled_newton_fd_step: float = 1e-8,
         gap_tol: float = 1e-6,
         gap_max_iter: int = 20,
         gap_under_relaxation: float = 0.5,
+        gap_solve_xtol: float | None = None,
     ) -> T3DiffusionState:
         """Solve for the steady-state ``f(E)`` and return an updated state.
 
@@ -165,6 +170,26 @@ class T3DiffusionBackend:
             (otherwise nothing constrains f). Mutually exclusive with
             ``self_consistent_gap=True`` (the gap equation depends on
             e-ph occupations).
+        use_phonon_side_kernel
+            **Opt-in** F&C 2023 Eq. 12 phonon-side kernel for the
+            phonon-equation rate. When ``True``, builds a sibling
+            ``K_s0_phonon_side = 2K⁻/(π Δ τ_0^PB)`` and
+            ``K_r0_phonon_side = K⁺/(π Δ τ_0^PB)`` from
+            ``state.material.tau_0_pb_ns`` (via
+            :func:`qpsim.collisions.phonon.build_scattering_kernel_phonon_side`
+            and
+            :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`)
+            and forwards it through to
+            :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+            (Picard path) and :func:`coupled_newton_solve`. The
+            QP-equation residual continues to use the QP-side ``K_r0``
+            with its ``(E_sum/k_BT_c)²/(τ₀ k_BT_c)`` prefactor — the
+            two kernels are physically distinct (Eqs. 10/11 vs Eq. 12).
+            Requires ``state.material.tau_0_pb_ns`` to be set;
+            otherwise raises ``ValueError``. Ignored when
+            ``use_thermal_phonons=True`` or
+            ``external_dissipation_only=True``. ``False`` (default)
+            preserves legacy behavior bit-for-bit.
         photon_params, pb_photon_params
             Optional photon channel dicts.
         newton_tol, newton_max_iter
@@ -262,6 +287,7 @@ class T3DiffusionBackend:
                 method=method,
                 use_thermal_phonons=use_thermal_phonons,
                 external_dissipation_only=external_dissipation_only,
+                use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
@@ -272,6 +298,7 @@ class T3DiffusionBackend:
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
                 coupled_newton_tol=coupled_newton_tol,
+                coupled_newton_step_rtol=coupled_newton_step_rtol,
                 coupled_newton_max_iter=coupled_newton_max_iter,
                 coupled_newton_fd_step=coupled_newton_fd_step,
             )
@@ -297,6 +324,7 @@ class T3DiffusionBackend:
                 current,
                 method=method,
                 use_thermal_phonons=use_thermal_phonons,
+                use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
@@ -307,12 +335,16 @@ class T3DiffusionBackend:
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
                 coupled_newton_tol=coupled_newton_tol,
+                coupled_newton_step_rtol=coupled_newton_step_rtol,
                 coupled_newton_max_iter=coupled_newton_max_iter,
                 coupled_newton_fd_step=coupled_newton_fd_step,
             )
             last_solved = solved
 
-            delta_raw = solve_gap(calibration, solved.f, solved.spectral.E)
+            delta_raw = solve_gap(
+                calibration, solved.f, solved.spectral.E,
+                xtol=gap_solve_xtol,
+            )
             if delta_raw <= 0.0:
                 # The current occupation no longer supports a superconducting
                 # solution; collapse to the normal state directly. Under-relaxing
@@ -364,6 +396,7 @@ class T3DiffusionBackend:
             final_state,
             method=method,
             use_thermal_phonons=use_thermal_phonons,
+            use_phonon_side_kernel=use_phonon_side_kernel,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
             external_flux=external_flux,
@@ -374,6 +407,7 @@ class T3DiffusionBackend:
             picard_mixing=picard_mixing,
             anderson_depth=anderson_depth,
             coupled_newton_tol=coupled_newton_tol,
+            coupled_newton_step_rtol=coupled_newton_step_rtol,
             coupled_newton_max_iter=coupled_newton_max_iter,
             coupled_newton_fd_step=coupled_newton_fd_step,
         )
@@ -385,6 +419,7 @@ class T3DiffusionBackend:
         method: str,
         use_thermal_phonons: bool,
         external_dissipation_only: bool = False,
+        use_phonon_side_kernel: bool = False,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
         external_flux: ExternalFlux | None,
@@ -395,6 +430,7 @@ class T3DiffusionBackend:
         picard_mixing: float,
         anderson_depth: int,
         coupled_newton_tol: float,
+        coupled_newton_step_rtol: float,
         coupled_newton_max_iter: int,
         coupled_newton_fd_step: float,
     ) -> T3DiffusionState:
@@ -403,6 +439,8 @@ class T3DiffusionBackend:
 
         K_s0: np.ndarray | None
         K_r0: np.ndarray | None
+        K_s0_phonon_side: np.ndarray | None = None
+        K_r0_phonon_side: np.ndarray | None = None
         if external_dissipation_only:
             # external_flux owns dissipation — kill the e-ph kernels so
             # they don't double-count. Both nones short-circuit the
@@ -420,6 +458,27 @@ class T3DiffusionBackend:
                 tau_0=state.material.tau_0,
                 T_c=state.material.T_c,
             )
+            if use_phonon_side_kernel and not use_thermal_phonons:
+                # F&C 2023 Eq. 12 phonon-side kernel for the
+                # phonon-equation rate. Built here so the same matrix
+                # is shared by Picard (via solve_steady_state →
+                # phonon_steady_state) and coupled-Newton paths.
+                if state.material.tau_0_pb_ns is None:
+                    raise ValueError(
+                        "use_phonon_side_kernel=True requires "
+                        "state.material.tau_0_pb_ns to be set; got None. "
+                        "Set τ_0^PB on the Material (e.g. via the YAML "
+                        "database key 'tau_0_pb_ns') or leave the flag "
+                        "False to retain the legacy QP-side kernel."
+                    )
+                K_r0_phonon_side = build_recombination_kernel_phonon_side(
+                    state.spectral,
+                    tau_0_pb_ns=state.material.tau_0_pb_ns,
+                )
+                K_s0_phonon_side = build_scattering_kernel_phonon_side(
+                    state.spectral,
+                    tau_0_pb_ns=state.material.tau_0_pb_ns,
+                )
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
 
@@ -444,6 +503,8 @@ class T3DiffusionBackend:
                 K_s0,
                 K_r0,
                 state.T_bath,
+                K_r0_phonon_side=K_r0_phonon_side,
+                K_s0_phonon_side=K_s0_phonon_side,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
@@ -479,11 +540,14 @@ class T3DiffusionBackend:
                 omega_idx_sum=idx_sum,
                 diff_sign=diff_sign,
                 K_s0=K_s0, K_r0=K_r0,
+                K_s0_phonon_side=K_s0_phonon_side,
+                K_r0_phonon_side=K_r0_phonon_side,
                 T_bath=state.T_bath, tau_l=tau_l_scalar,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
                 tol=coupled_newton_tol,
+                step_rtol=coupled_newton_step_rtol,
                 max_iter=coupled_newton_max_iter,
                 fd_step=coupled_newton_fd_step,
             )

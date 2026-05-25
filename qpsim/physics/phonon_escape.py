@@ -108,3 +108,61 @@ def acoustic_escape_tau_l(
         material.substrate_transmission_eta * s
     )
     return np.full_like(omega_bins, tau_l_ns, dtype=float)
+
+
+def build_tau_l(
+    model: str,
+    omega_bins: np.ndarray,
+    material: Material,
+    *,
+    value: float | None = None,
+    branch: str = "debye",
+) -> np.ndarray:
+    """Select a phonon-escape-time model ``τ_l(ω)`` by name.
+
+    A thin dispatcher so callers choose the escape-time convention with a
+    single named option instead of branching on builder functions.
+
+    Parameters
+    ----------
+    model
+        One of:
+
+        * ``"acoustic_escape"`` — Kaplan thin-film ``τ_l ≈ 4d/(η s)`` from the
+          material's film geometry (:func:`acoustic_escape_tau_l`).
+        * ``"constant"`` — a user-supplied scalar ``value`` (ns), tiled across
+          the grid (:func:`constant_tau_l`).
+        * ``"tau_0_pb"`` — constant pinned to ``material.tau_0_pb_ns``, i.e. the
+          Fischer–Catelani 2023 convention ``τ_l = τ_0^PB``.
+    omega_bins
+        Phonon frequency grid, shape ``(N_branch, N_omega)``.
+    material
+        Source of geometry (``acoustic_escape``) or ``tau_0_pb_ns`` (``tau_0_pb``).
+    value
+        Required scalar (ns) when ``model="constant"``; ignored otherwise.
+    branch
+        Sound-velocity branch for ``model="acoustic_escape"``.
+
+    Returns
+    -------
+    tau_l
+        Array of shape ``omega_bins.shape`` with ``τ_l`` in nanoseconds.
+    """
+    key = model.lower()
+    if key in ("acoustic_escape", "acoustic", "kaplan"):
+        return acoustic_escape_tau_l(omega_bins, material, branch=branch)
+    if key in ("constant", "scalar"):
+        if value is None:
+            raise ValueError("model='constant' requires an explicit value (ns).")
+        return constant_tau_l(omega_bins, value)
+    if key in ("tau_0_pb", "tau0_pb", "pair_breaking", "paper"):
+        tau0 = material.tau_0_pb_ns
+        if tau0 is None or tau0 <= 0:
+            raise ValueError(
+                "model='tau_0_pb' requires material.tau_0_pb_ns to be set (> 0)."
+            )
+        return constant_tau_l(omega_bins, tau0)
+    raise ValueError(
+        f"unknown tau_l model {model!r}; expected 'acoustic_escape', "
+        f"'constant', or 'tau_0_pb'."
+    )

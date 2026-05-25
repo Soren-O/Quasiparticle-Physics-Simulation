@@ -17,7 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.optimize import brentq
 
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 
@@ -95,11 +94,17 @@ def calibrate_gap(
     *,
     omega_D_over_Tc: float = 100.0,
     n_quadrature: int = 512,
+    xtol: float | None = None,
 ) -> GapCalibration:
     """Compute Δ_eq(T_bath) and cache 1/λ and ω_D for the runtime solver.
 
     Uses the BCS gap equation with the E = Δ cosh u substitution. Only
     T_c is user-facing — λ and ω_D are derived from ``omega_D_over_Tc``.
+
+    ``xtol`` (μeV) overrides the default brentq tolerance of ``1e-6 * kBTc``.
+    Tighten when the caller needs ``δΔ_T = Δ_0 − Δ_eq`` resolved well below
+    the default ~1e-4 μeV — e.g. the Fischer 2023 Fig 6 observable, which
+    divides by an exponentially small δΔ_T at T_B ≪ T_c.
     """
     if T_c <= 0:
         raise ValueError("T_c must be positive.")
@@ -120,11 +125,14 @@ def calibrate_gap(
     elif T_bath <= 0:
         delta_eq = delta_0
     else:
+        from scipy.optimize import brentq
+
         def residual(delta: float) -> float:
             return _gap_integral_cosh(delta, T_bath, omega_D, n_quadrature) - inv_lambda
 
         eps = 0.01 * kBTc
-        delta_eq = brentq(residual, eps, delta_0, xtol=1e-6 * kBTc)
+        xtol_brentq = 1e-6 * kBTc if xtol is None else xtol
+        delta_eq = brentq(residual, eps, delta_0, xtol=xtol_brentq)
 
     return GapCalibration(
         delta_eq=float(delta_eq),
@@ -142,6 +150,7 @@ def solve_gap(
     E_bins: np.ndarray,
     *,
     bracket_factor: float = 0.5,
+    xtol: float | None = None,
 ) -> float:
     """Runtime gap solve from the Fermi-Dirac occupation ``f(E)``.
 
@@ -159,6 +168,10 @@ def solve_gap(
         Energy bin centers, shape ``(NE,)``.
     bracket_factor
         Initial half-width of the search bracket as a fraction of Δ_eq.
+    xtol
+        brentq absolute tolerance in μeV. Default ``1e-6 * delta_eq`` matches
+        legacy behavior; tighten when the caller's observable depends on
+        sub-default-precision shifts in Δ (e.g. fig6_paper at low T_B).
     """
     delta_eq = calibration.delta_eq
     if delta_eq <= 0:
@@ -171,6 +184,8 @@ def solve_gap(
 
     def residual(delta: float) -> float:
         return _gap_integral_f(delta, f_arr, E, omega_D) - ref_integral
+
+    from scipy.optimize import brentq
 
     lo = max(delta_eq * (1.0 - bracket_factor), 1e-3)
     hi = delta_eq * (1.0 + bracket_factor)
@@ -192,4 +207,5 @@ def solve_gap(
         # Δ_eq as a safe fallback.
         return delta_eq
 
-    return float(brentq(residual, lo, hi, xtol=1e-6 * delta_eq))
+    xtol_brentq = 1e-6 * delta_eq if xtol is None else xtol
+    return float(brentq(residual, lo, hi, xtol=xtol_brentq))

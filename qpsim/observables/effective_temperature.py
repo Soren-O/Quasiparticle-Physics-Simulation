@@ -20,7 +20,6 @@ Port of the legacy ``extract_T_star_phonon`` from the old
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 
 from qpsim.constants import KB_UEV_PER_K
 
@@ -94,6 +93,8 @@ def effective_phonon_temperature(
     # Lower bound is T_bath itself: the bath always populates the
     # pair-breaking modes at at least the BE(T_bath) level, so any
     # ``T_* < T_bath`` would be a fitting artifact, not physics.
+    from scipy.optimize import minimize_scalar
+
     result = minimize_scalar(
         _weighted_variance_of_log_ratio,
         bounds=(T_bath, upper),

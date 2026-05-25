@@ -70,6 +70,37 @@ class TestCoupledNewtonSolve:
         np.testing.assert_allclose(f_out, f_FD, atol=1e-6)
         np.testing.assert_allclose(n_out, n_BE, atol=1e-6)
 
+    def test_step_rtol_refines_warm_seed_below_abs_tol(self) -> None:
+        # Regression for the Fischer Fig. 6 warm-continuation freeze. At
+        # T_bath=0.1 K the fixed point has f ~ 1e-9, so a warm seed only a few
+        # percent off already has a residual below any reasonable absolute tol.
+        # tol-only therefore early-exits at iteration 0 with the stale seed;
+        # the scale-invariant step_rtol forces a refining step and converges to
+        # the true fixed point. Pins the actual failure mode, not the FD math.
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(T_bath=0.1)
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+        f_seed = np.clip(f_FD * 1.05, 0.0, 1.0)  # 5% off the fixed point
+
+        common = {
+            "omega_bins": omega, "omega_idx_diff": idx_d, "omega_idx_sum": idx_s,
+            "diff_sign": sgn, "K_s0": K_s0, "K_r0": K_r0,
+            "T_bath": T_bath, "tau_l": 0.25,
+        }
+        # Loose absolute tol → early-exit at iteration 0 with the stale seed.
+        f_abs, _ = coupled_newton_solve(ctx, f_seed, n_BE, tol=1e-1, **common)
+        # Same loose tol as a safety floor, but step_rtol drives refinement.
+        f_rel, _ = coupled_newton_solve(
+            ctx, f_seed, n_BE, tol=1e-1, step_rtol=1e-8, **common
+        )
+
+        scale = float(np.max(np.abs(f_FD)))
+        rel_err_abs = float(np.max(np.abs(f_abs - f_FD))) / scale
+        rel_err_rel = float(np.max(np.abs(f_rel - f_FD))) / scale
+        assert rel_err_abs > 1e-2   # tol-only stayed ~5% off (frozen on seed)
+        assert rel_err_rel < 1e-4   # step_rtol refined to the fixed point
+
     def test_matches_picard_on_shared_case(self) -> None:
         # Where Picard converges (thermal case), coupled Newton should
         # land on the same (f, n_ph) within tolerance.

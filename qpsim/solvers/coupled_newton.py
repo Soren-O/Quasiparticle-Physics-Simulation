@@ -50,14 +50,18 @@ def coupled_newton_solve(
     diff_sign: np.ndarray,
     K_s0: np.ndarray | None = None,
     K_r0: np.ndarray | None = None,
+    K_s0_phonon_side: np.ndarray | None = None,
+    K_r0_phonon_side: np.ndarray | None = None,
     T_bath: float = 0.0,
     tau_l: float = 0.0,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
     tol: float = 1e-10,
+    step_rtol: float = 0.0,
     max_iter: int = 50,
     fd_step: float = 1e-8,
+    fd_floor: float = 1e-12,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Solve ``R_f = 0`` and ``R_ph = 0`` simultaneously for ``(f, n_ph)``.
 
@@ -75,6 +79,19 @@ def coupled_newton_solve(
     K_s0, K_r0
         Base e-ph scattering / recombination kernels, shape ``(NE, NE)``
         each (or ``None`` to disable the channel).
+    K_s0_phonon_side, K_r0_phonon_side
+        **Opt-in** phonon-side scattering and recombination/pair-breaking
+        kernels (build via
+        :func:`qpsim.collisions.phonon.build_scattering_kernel_phonon_side` and
+        :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`).
+        Forwarded to :func:`compute_phonon_source_sink` for the
+        phonon-equation residual + diagonal-block Jacobian; when
+        supplied, the phonon-equation rates use the F&C 2023 Eq. 12
+        prefactors instead of the QP-side kernels. The QP-equation
+        residual + ``J_ff`` continue to use ``K_r0`` (which carries the
+        QP-side ``(E_sum/k_BT_c)²/(τ₀ k_BT_c)`` prefactor needed by the
+        QP collision integrals). ``None`` (default) preserves legacy
+        behavior bit-for-bit.
     T_bath
         Substrate bath temperature (K); sets ``n_th(ω)``.
     tau_l
@@ -89,12 +106,31 @@ def coupled_newton_solve(
         f-block; the phonon-block residual is unchanged. ``None``
         is bit-for-bit identical to pre-Phase-2 behavior.
     tol
-        Infinity-norm tolerance on the combined residual
-        ``max(|R_f|, |R_ph|)``.
+        Absolute infinity-norm tolerance on the combined residual
+        ``max(|R_f|, |R_ph|)``. Used as the early-exit test when
+        ``step_rtol == 0`` (legacy default), and as a safety floor otherwise.
+    step_rtol
+        Scale-invariant convergence tolerance on the relative Newton step
+        ``max(‖Δf‖∞/‖f‖∞, ‖Δn‖∞/‖n‖∞)``. ``0.0`` (default) keeps the legacy
+        absolute-residual behavior exactly. Set ``> 0`` when all physical
+        amplitudes are tiny (e.g. f, n_ph ~ 1e-10 in the cold-bath
+        strong-suppression regime that drives Fischer Fig. 6), where an
+        absolute ``tol`` is unreliable: a warm continuation seed can sit just
+        below ``tol`` and exit at iteration 0 with a stale, under-converged
+        state. The relative-step test forces a refining step and is meaningful
+        whether f ~ 1 or f ~ 1e-10.
     max_iter
         Cap on Newton iterations.
     fd_step
-        Forward-FD step size for the cross-Jacobian blocks.
+        Relative forward-FD factor for the cross-Jacobian blocks. The
+        per-component step is ``h_k = max(fd_step·|x_k|, fd_floor)``, so for
+        O(1) state entries this matches the historical absolute ``1e-8`` step,
+        while small entries (``f``, ``n_ph`` ≪ 1) get a proportionally smaller
+        step instead of one that dwarfs their own value.
+    fd_floor
+        Absolute lower bound on the per-component FD step, keeping ``h_k``
+        above the residual roundoff floor for near-zero entries. Default
+        ``1e-12`` suits the ``f``/``n_ph`` ~ 1e-10..1e-18 cold-bath regime.
 
     Returns
     -------
@@ -139,6 +175,8 @@ def coupled_newton_solve(
         a_ph, b_ph = compute_phonon_source_sink(
             f_state, ctx, K_s0, K_r0,
             omega_idx_diff, omega_idx_sum, diff_sign, N_omega,
+            K_s0_phonon_side=K_s0_phonon_side,
+            K_r0_phonon_side=K_r0_phonon_side,
         )
         if tau_l > 0:
             R_ph = a_ph + b_ph * n_ph_state + (n_th - n_ph_state) * inv_tau_l
@@ -152,7 +190,12 @@ def coupled_newton_solve(
         R_f, R_ph = residual(f, n_ph)
         norm = max(float(np.max(np.abs(R_f))), float(np.max(np.abs(R_ph))))
         last_norm = norm
-        if norm < tol:
+        # Absolute-residual early exit (legacy). Disabled when step_rtol>0:
+        # an absolute tol is unreliable when all amplitudes are tiny, since a
+        # warm continuation seed can sit just below tol and exit at iteration 0
+        # with a stale state. With step_rtol>0 convergence is judged on the
+        # relative Newton step after a refining step is taken (below).
+        if step_rtol <= 0.0 and norm < tol:
             return f, n_ph
 
         # Analytical diagonal blocks.
@@ -168,23 +211,41 @@ def coupled_newton_solve(
         _, b_ph = compute_phonon_source_sink(
             f, ctx, K_s0, K_r0,
             omega_idx_diff, omega_idx_sum, diff_sign, N_omega,
+            K_s0_phonon_side=K_s0_phonon_side,
+            K_r0_phonon_side=K_r0_phonon_side,
         )
         J_nn = np.diag(b_ph - inv_tau_l)
 
-        # Finite-difference cross blocks.
+        # Finite-difference cross blocks with scale-aware per-component steps.
+        # A single absolute step is wrong when the state lives far below 1
+        # (e.g. f ~ 1e-10, n_ph ~ 1e-18 in the cold-bath strong-suppression
+        # regime that drives Fischer Fig. 6): an absolute fd_step=1e-8 then
+        # perturbs each component by orders of magnitude more than its own
+        # value, so the secant probes deep nonlinearity and the cross-Jacobian
+        # is meaningless — Newton converges to a spurious fixed point.
+        # h_k = max(fd_step·|x_k|, fd_floor) reduces to the old absolute step
+        # for O(1) entries. The relative term keeps the step proportional to the
+        # value where that matters most — the f-block, where the residual is
+        # nonlinear in f, so an oversized step probes spurious curvature. fd_floor
+        # is an empirical lower bound that lands in a usable secant window above
+        # the residual roundoff floor; note it can exceed the value of near-zero
+        # entries (e.g. n_ph ~ 1e-18), which is acceptable because R_f is ~linear
+        # in n_ph and a large relative step there still returns a good derivative.
+        h_n = np.maximum(fd_step * np.abs(n_ph), fd_floor)
         J_fn = np.zeros((NE, N_omega))
         for k in range(N_omega):
             n_ph_pert = n_ph.copy()
-            n_ph_pert[k] += fd_step
+            n_ph_pert[k] += h_n[k]
             R_f_pert, _ = residual(f, n_ph_pert)
-            J_fn[:, k] = (R_f_pert - R_f) / fd_step
+            J_fn[:, k] = (R_f_pert - R_f) / h_n[k]
 
+        h_f = np.maximum(fd_step * np.abs(f), fd_floor)
         J_nf = np.zeros((N_omega, NE))
         for j in range(NE):
             f_pert = f.copy()
-            f_pert[j] += fd_step
+            f_pert[j] += h_f[j]
             _, R_ph_pert = residual(f_pert, n_ph)
-            J_nf[:, j] = (R_ph_pert - R_ph) / fd_step
+            J_nf[:, j] = (R_ph_pert - R_ph) / h_f[j]
 
         J = np.block([[J_ff, J_fn], [J_nf, J_nn]])
         R = np.concatenate([R_f, R_ph])
@@ -202,6 +263,7 @@ def coupled_newton_solve(
         # Backtracking line search on the combined residual norm.
         alpha = 1.0
         accepted = False
+        rel_step = np.inf
         for _ in range(20):
             f_trial = np.clip(f + alpha * delta_f, 0.0, 1.0)
             n_trial = np.maximum(n_ph + alpha * delta_n, 0.0)
@@ -210,6 +272,15 @@ def coupled_newton_solve(
                 float(np.max(np.abs(R_f_t))), float(np.max(np.abs(R_ph_t)))
             )
             if norm_t < norm:
+                # Relative Newton-step size for the scale-invariant convergence
+                # test; measured against the state magnitude so it is meaningful
+                # whether f ~ 1 or f ~ 1e-10. ``or 1.0`` guards a zero state.
+                f_scale = float(np.max(np.abs(f))) or 1.0
+                n_scale = float(np.max(np.abs(n_ph))) or 1.0
+                rel_step = max(
+                    float(np.max(np.abs(f_trial - f))) / f_scale,
+                    float(np.max(np.abs(n_trial - n_ph))) / n_scale,
+                )
                 f, n_ph = f_trial, n_trial
                 accepted = True
                 break
@@ -222,6 +293,10 @@ def coupled_newton_solve(
                 f"Coupled Newton line search failed at iteration {iteration}. "
                 f"max |residual| = {norm:.2e}"
             )
+
+        # Scale-invariant convergence: the refining step barely moved the state.
+        if step_rtol > 0.0 and rel_step < step_rtol:
+            return f, n_ph
 
     raise RuntimeError(
         f"Coupled Newton did not converge in {max_iter} iterations. "

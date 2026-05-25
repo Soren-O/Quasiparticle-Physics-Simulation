@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from qpsim.materials.database import Material
-from qpsim.physics.phonon_escape import acoustic_escape_tau_l, constant_tau_l
+from qpsim.physics.phonon_escape import (
+    acoustic_escape_tau_l,
+    build_tau_l,
+    constant_tau_l,
+)
 
 
 class TestConstantTauL:
@@ -97,3 +101,51 @@ class TestAcousticEscapeTauL:
         omega = np.linspace(0.1, 1.0, 5).reshape(1, 5)
         with pytest.raises(ValueError, match="sound_velocity"):
             acoustic_escape_tau_l(omega, mat)
+
+
+class TestBuildTauL:
+    def _mat(self, *, tau_0_pb_ns: float | None = 0.255) -> Material:
+        return Material(
+            name="X", Delta_0=180.0, T_c=1.2, tau_0=1.0,
+            sound_velocity_longitudinal=6000.0,
+            sound_velocity_transverse=3000.0,
+            film_thickness=63.0, substrate_transmission_eta=0.2,
+            tau_0_pb_ns=tau_0_pb_ns,
+        )
+
+    def _omega(self) -> np.ndarray:
+        return np.linspace(0.1, 1.0, 6).reshape(1, 6)
+
+    def test_acoustic_escape_matches_builder(self) -> None:
+        mat, omega = self._mat(), self._omega()
+        np.testing.assert_allclose(
+            build_tau_l("acoustic_escape", omega, mat),
+            acoustic_escape_tau_l(omega, mat),
+        )
+
+    def test_constant_uses_value(self) -> None:
+        mat, omega = self._mat(), self._omega()
+        np.testing.assert_allclose(
+            build_tau_l("constant", omega, mat, value=0.42), 0.42
+        )
+
+    def test_constant_requires_value(self) -> None:
+        mat, omega = self._mat(), self._omega()
+        with pytest.raises(ValueError, match="requires an explicit value"):
+            build_tau_l("constant", omega, mat)
+
+    def test_tau_0_pb_pins_to_material(self) -> None:
+        # Paper convention τ_l = τ_0^PB; here 255 ps, distinct from the
+        # ~357 ps acoustic-escape value, so the two models are separable.
+        mat, omega = self._mat(tau_0_pb_ns=0.255), self._omega()
+        np.testing.assert_allclose(build_tau_l("tau_0_pb", omega, mat), 0.255)
+
+    def test_tau_0_pb_requires_material_field(self) -> None:
+        mat, omega = self._mat(tau_0_pb_ns=None), self._omega()
+        with pytest.raises(ValueError, match="tau_0_pb_ns"):
+            build_tau_l("tau_0_pb", omega, mat)
+
+    def test_rejects_unknown_model(self) -> None:
+        mat, omega = self._mat(), self._omega()
+        with pytest.raises(ValueError, match="unknown tau_l model"):
+            build_tau_l("bogus", omega, mat)
