@@ -8,6 +8,11 @@ with the numba acceleration path dropped. Provides:
 - ``CoherenceAssignment``, ``build_scattering_kernel_base``,
   ``build_recombination_kernel_base``: coherence-factor wiring (swap
   K⁺ ↔ K⁻ under the photon convention).
+- ``build_scattering_kernel_phonon_side`` and
+  ``build_recombination_kernel_phonon_side``: opt-in phonon-side
+  kernels for the F&C 2023 Eq. 12 paper-faithful prefactors; pass via
+  ``compute_phonon_source_sink(K_s0_phonon_side=…,
+  K_r0_phonon_side=…)``.
 - ``build_phonon_frequency_map``,
   ``phonon_occupation_matrices_from_state``,
   ``compute_phonon_source_sink``: the dynamic-phonon coupling pieces
@@ -25,6 +30,7 @@ from enum import Enum
 import numpy as np
 
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
+from qpsim.physics.kaplan_pair_breaking import kaplan_S_plus
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
 from qpsim.physics.kernels import scattering_kernel_base as _scattering_kernel_base
 from qpsim.physics.spectral import SpectralContext
@@ -59,6 +65,27 @@ def build_scattering_kernel_base(
     return _scattering_kernel_base(ctx.E, ctx.gap, tau_0, T_c, coherence_factor=coh)
 
 
+def build_scattering_kernel_phonon_side(
+    ctx: SpectralContext,
+    tau_0_pb_ns: float,
+    *,
+    coherence: CoherenceAssignment = CoherenceAssignment.PHONON,
+) -> np.ndarray:
+    r"""Phonon-side scattering kernel ``2 K⁻/(π Δ τ_0^PB)``.
+
+    Used by :func:`compute_phonon_source_sink` for the **phonon
+    equation** qp-conserving term (F&C 2023 Eq. 12, first integral).
+    This is distinct from :func:`build_scattering_kernel_base`, whose
+    ``ω²/(τ₀ T_c³)`` prefactor belongs to the QP equation.
+    """
+    coh = ctx.K_minus if coherence is CoherenceAssignment.PHONON else ctx.K_plus
+    if tau_0_pb_ns <= 0.0:
+        raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
+    if ctx.gap <= 0.0:
+        raise ValueError(f"ctx.gap must be positive; got {ctx.gap}")
+    return (2.0 / (np.pi * ctx.gap * tau_0_pb_ns)) * np.asarray(coh, dtype=float)
+
+
 def build_recombination_kernel_base(
     ctx: SpectralContext,
     tau_0: float,
@@ -69,6 +96,53 @@ def build_recombination_kernel_base(
     """Base recombination kernel K₀ʳ(E_i, E_j), shape (NE, NE)."""
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
     return _recombination_kernel_base(ctx.E, ctx.gap, tau_0, T_c, coherence_factor=coh)
+
+
+def build_recombination_kernel_phonon_side(
+    ctx: SpectralContext,
+    tau_0_pb_ns: float,
+    *,
+    coherence: CoherenceAssignment = CoherenceAssignment.PHONON,
+) -> np.ndarray:
+    r"""Phonon-side recombination/pair-breaking kernel K⁺/(π Δ τ_0^PB).
+
+    Used by :func:`compute_phonon_source_sink` for the **phonon
+    equation** rate (F&C 2023 Eq. 12, second integral). Distinct from
+    :func:`build_recombination_kernel_base`, which carries the
+    QP-side prefactor ``(E_sum/k_BT_c)²/(τ₀ k_BT_c)`` appropriate for
+    the QP collision integrals (Eqs. 10, 11).
+
+    The matching condition derives from the Kaplan zero-T pair-breaking
+    rate ``1/τ_PB(ω, 0) = (1/(π Δ₀ τ_0^PB)) ∫ dE ρ(E) ρ(ω−E) K⁺(E, ω−E)``.
+    Discretized as ``-b_ph(ω) ≈ Σ_{i,j: E_i+E_j=ω} dE · ρ_i ρ_j K(i,j)``,
+    this fixes ``K(E_i, E_j) = K⁺/(π Δ τ_0^PB)`` with Δ = current gap
+    (≈ Δ₀ at the temperatures of F&C 2023 Fig 3).
+
+    Parameters
+    ----------
+    ctx
+        SpectralContext with current Δ; supplies ``K_plus``/``K_minus``.
+    tau_0_pb_ns
+        ``τ_0^PB`` (ns); F&C 2023 Eq. 13 + Table I gives 0.255 ns for
+        Al. Distinct from the Kaplan ``τ_0^{ph}`` (Eq. 30) of
+        :mod:`qpsim.physics.kaplan_pair_breaking`.
+    coherence
+        Selects K⁺ (phonon convention, default) or K⁻ (photon swap).
+
+    Returns
+    -------
+    np.ndarray
+        ``(NE, NE)`` kernel with units ``1/(μeV · ns)``. Pair with
+        ``compute_phonon_source_sink(..., K_r0_phonon_side=...)`` to
+        opt into the paper-faithful phonon-side prefactor; the QP-side
+        ``K_r0`` argument is unchanged.
+    """
+    coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
+    if tau_0_pb_ns <= 0.0:
+        raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
+    if ctx.gap <= 0.0:
+        raise ValueError(f"ctx.gap must be positive; got {ctx.gap}")
+    return np.asarray(coh, dtype=float) / (np.pi * ctx.gap * tau_0_pb_ns)
 
 
 def _thermal_phonon_scattering_occupation(
@@ -184,6 +258,8 @@ def compute_phonon_source_sink(
     *,
     enable_scattering: bool = True,
     enable_recombination: bool = True,
+    K_s0_phonon_side: np.ndarray | None = None,
+    K_r0_phonon_side: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Affine-ODE coefficients ``(a_ph, b_ph)`` for the phonon distribution.
 
@@ -191,6 +267,25 @@ def compute_phonon_source_sink(
     shape ``(n_omega,)`` such that ``dn_ph/dt = a_ph + b_ph · n_ph``.
     Used by the dynamic-phonon backend when ``n_ph`` evolves
     self-consistently (finite-τ_l regime).
+
+    Parameters
+    ----------
+    K_s0_phonon_side, K_r0_phonon_side
+        **Opt-in** phonon-side scattering and recombination kernels for
+        paper-faithful F&C 2023 Eq. 12 prefactors. When supplied, the
+        phonon-equation sums use these kernels instead of the QP-side
+        ``K_s0`` / ``K_r0`` kernels that carry ``ω²/(τ₀ T_c³)``.
+        Build via :func:`build_scattering_kernel_phonon_side`, which
+        returns ``2K⁻/(π Δ τ_0^PB)``, and
+        :func:`build_recombination_kernel_phonon_side`, which returns
+        ``K⁺/(π Δ τ_0^PB)`` per F&C Eq. 12 / Kaplan 1976.
+
+        When ``None`` (default), the legacy behavior is preserved: the
+        QP-side ``K_s0`` / ``K_r0`` are used for both QP-equation and
+        phonon-equation rates. **The QP-side path is unchanged**;
+        those kernels continue to drive the QP collision integral via
+        :func:`phonon_collision_rates`. Backend callers opt into this
+        path with ``use_phonon_side_kernel=True``.
     """
     rho = ctx.rho
     dE = ctx.dE
@@ -201,8 +296,9 @@ def compute_phonon_source_sink(
     a_ph = np.zeros(n_omega)
     b_ph = np.zeros(n_omega)
 
-    if enable_scattering and K_s0 is not None:
-        base_sc = dE * (n_qp[:, None] * K_s0 * (rho[None, :] * one_minus_f[None, :]))
+    K_sc = K_s0_phonon_side if K_s0_phonon_side is not None else K_s0
+    if enable_scattering and K_sc is not None:
+        base_sc = dE * (n_qp[:, None] * K_sc * (rho[None, :] * one_minus_f[None, :]))
         emit_mask = diff_sign > 0
         abs_mask = diff_sign < 0
         if np.any(emit_mask):
@@ -221,24 +317,172 @@ def compute_phonon_source_sink(
             )
             b_ph -= absor
 
-    if enable_recombination and K_r0 is not None:
-        base_rec = dE * (n_qp[:, None] * K_r0 * n_qp[None, :])
+    K_rec = K_r0_phonon_side if K_r0_phonon_side is not None else K_r0
+    if enable_recombination and K_rec is not None:
+        base_rec = dE * (n_qp[:, None] * K_rec * n_qp[None, :])
         rec = np.bincount(
             omega_idx_sum.ravel(),
             weights=base_rec.ravel(),
             minlength=n_omega,
         )
-        a_ph += rec
-        b_ph += rec
-        base_pb = dE * (partner[:, None] * K_r0 * partner[None, :])
+        base_pb = dE * (partner[:, None] * K_rec * partner[None, :])
         pb = np.bincount(
             omega_idx_sum.ravel(),
             weights=base_pb.ravel(),
             minlength=n_omega,
         )
+        if K_r0_phonon_side is not None:
+            correction = _pair_breaking_quadrature_correction(
+                ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
+            )
+            rec *= correction
+            pb *= correction
+        a_ph += rec
+        b_ph += rec
         b_ph -= pb
 
     return a_ph, b_ph
+
+
+def _pair_breaking_quadrature_correction(
+    ctx: SpectralContext,
+    K_r0_phonon_side: np.ndarray,
+    omega_idx_sum: np.ndarray,
+    n_omega: int,
+) -> np.ndarray:
+    """Scale phonon-side pair-breaking bins to the Kaplan S_+ total weight.
+
+    A midpoint sum of the BCS endpoint singularity underestimates the
+    pair-breaking sink immediately above ``2Δ`` by ``2/π``.  The standalone
+    Fischer reproduction avoids that artifact with the analytic Kaplan
+    ``S_+(ω/Δ)`` total.  Apply the same per-ω correction only for callers
+    that opted into the phonon-side ``K⁺/(π Δ τ_0^PB)`` kernel; legacy
+    QP-side behavior remains unchanged.
+    """
+    K = np.asarray(K_r0_phonon_side, dtype=float)
+    if K.shape != ctx.K_plus.shape:
+        return np.ones(n_omega)
+
+    valid = (ctx.K_plus > 0.0) & np.isfinite(ctx.K_plus) & np.isfinite(K)
+    if not np.any(valid):
+        return np.ones(n_omega)
+    prefactor = float(np.median(K[valid] / ctx.K_plus[valid]))
+    if prefactor <= 0.0 or not np.isfinite(prefactor):
+        return np.ones(n_omega)
+
+    tau_0_pb = 1.0 / (np.pi * ctx.gap * prefactor)
+    if tau_0_pb <= 0.0 or not np.isfinite(tau_0_pb):
+        return np.ones(n_omega)
+
+    rho = ctx.rho
+    dE = ctx.dE
+    empty_weights = dE * (rho[:, None] * K * rho[None, :])
+    discrete = np.bincount(
+        omega_idx_sum.ravel(),
+        weights=empty_weights.ravel(),
+        minlength=n_omega,
+    )
+
+    omega = np.zeros(n_omega)
+    np.maximum.at(omega, omega_idx_sum.ravel(), (ctx.E[:, None] + ctx.E[None, :]).ravel())
+    exact = np.array(
+        [
+            kaplan_S_plus(float(w / ctx.gap)) / (np.pi * tau_0_pb)
+            if w > 2.0 * ctx.gap
+            else 0.0
+            for w in omega
+        ],
+        dtype=float,
+    )
+
+    correction = np.ones(n_omega)
+    mask = (discrete > 0.0) & (exact > 0.0)
+    correction[mask] = exact[mask] / discrete[mask]
+    return correction
+
+
+def phonon_source_sink_jacobian_f(
+    f: np.ndarray,
+    ctx: SpectralContext,
+    K_s0: np.ndarray | None,
+    K_r0: np.ndarray | None,
+    omega_idx_diff: np.ndarray,
+    omega_idx_sum: np.ndarray,
+    diff_sign: np.ndarray,
+    n_omega: int,
+    *,
+    enable_scattering: bool = True,
+    enable_recombination: bool = True,
+    K_s0_phonon_side: np.ndarray | None = None,
+    K_r0_phonon_side: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Analytical ``(∂a_ph/∂f, ∂b_ph/∂f)`` for :func:`compute_phonon_source_sink`.
+
+    Returns two ``(n_omega, NE)`` arrays — the exact derivatives of the
+    affine-ODE coefficients ``(a_ph, b_ph)`` with respect to the QP
+    occupation ``f``. Mirrors :func:`compute_phonon_source_sink`
+    term-for-term: identical kernel selection (phonon-side ``K_*_phonon_side``
+    when supplied, else QP-side ``K_s0``/``K_r0``) and the same f-independent
+    :func:`_pair_breaking_quadrature_correction`, so the two stay in lockstep.
+
+    Used to build the analytical ``J_nf = ∂R_ph/∂f`` cross-block of
+    :func:`qpsim.solvers.coupled_newton.coupled_newton_solve` via
+    ``J_nf = ∂a_ph/∂f + n_ph · ∂b_ph/∂f``.
+
+    Derivation. The scattering weight
+    ``base_sc[i,j] = dE ρ_i ρ_j f_i (1−f_j) K_sc[i,j]`` is bilinear in f, so
+    ``∂base_sc/∂f_i = dE ρ_i ρ_j (1−f_j) K_sc`` (column i) and
+    ``∂base_sc/∂f_j = −dE ρ_i ρ_j f_i K_sc`` (column j). For
+    recombination/pair-breaking the ``b_ph`` combination collapses because
+    ``f_i f_j − (1−f_i)(1−f_j) = f_i + f_j − 1``, so ``∂b_ph^rec/∂f`` is
+    f-independent (``= dE ρ_i ρ_j K_rec`` in both columns i and j), while
+    ``∂a_ph^rec/∂f_i = dE ρ_i ρ_j f_j K_rec`` and ``…/∂f_j = … f_i K_rec``.
+    """
+    NE = int(f.size)
+    rho = ctx.rho
+    dE = ctx.dE
+    one_minus_f = np.maximum(1.0 - f, 0.0)
+    pref = dE * (rho[:, None] * rho[None, :])  # dE ρ_i ρ_j, shape (NE, NE)
+
+    da_df = np.zeros((n_omega, NE))
+    db_df = np.zeros((n_omega, NE))
+
+    # Per-pair (i, j) contributions deposit into column i or column j of the
+    # row given by the pair's ω-bin index.
+    col_i = np.broadcast_to(np.arange(NE)[:, None], (NE, NE))
+    col_j = np.broadcast_to(np.arange(NE)[None, :], (NE, NE))
+
+    K_sc = K_s0_phonon_side if K_s0_phonon_side is not None else K_s0
+    if enable_scattering and K_sc is not None:
+        d_i = pref * K_sc * one_minus_f[None, :]   # ∂base_sc/∂f_i, into column i
+        d_j = -pref * K_sc * f[:, None]            # ∂base_sc/∂f_j, into column j
+        emit = diff_sign > 0   # i > j: +base_sc into a_ph and b_ph
+        absb = diff_sign < 0   # i < j: −base_sc into b_ph only
+        rows = omega_idx_diff
+        np.add.at(da_df, (rows[emit], col_i[emit]), d_i[emit])
+        np.add.at(da_df, (rows[emit], col_j[emit]), d_j[emit])
+        np.add.at(db_df, (rows[emit], col_i[emit]), d_i[emit])
+        np.add.at(db_df, (rows[emit], col_j[emit]), d_j[emit])
+        np.add.at(db_df, (rows[absb], col_i[absb]), -d_i[absb])
+        np.add.at(db_df, (rows[absb], col_j[absb]), -d_j[absb])
+
+    K_rec = K_r0_phonon_side if K_r0_phonon_side is not None else K_r0
+    if enable_recombination and K_rec is not None:
+        rows = omega_idx_sum
+        base = pref * K_rec  # dE ρ_i ρ_j K_rec[i,j]
+        if K_r0_phonon_side is not None:
+            corr = _pair_breaking_quadrature_correction(
+                ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
+            )
+            base = base * corr[rows]   # per-ω, f-independent scaling
+        # a_ph^rec[w] = Σ base f_i f_j  →  ∂/∂f_i = base f_j, ∂/∂f_j = base f_i.
+        np.add.at(da_df, (rows, col_i), base * f[None, :])
+        np.add.at(da_df, (rows, col_j), base * f[:, None])
+        # b_ph^rec[w] = Σ base (f_i + f_j − 1)  →  ∂/∂f_i = ∂/∂f_j = base.
+        np.add.at(db_df, (rows, col_i), base)
+        np.add.at(db_df, (rows, col_j), base)
+
+    return da_df, db_df
 
 
 def phonon_collision_rates(
@@ -294,6 +538,69 @@ def phonon_collision_rates(
         gain += 2.0 * one_minus_f * ((K_r0 * N_abs) @ (partner * dE))
 
     return gain, loss_rate
+
+
+def phonon_collision_jacobian_nph(
+    f: np.ndarray,
+    ctx: SpectralContext,
+    K_s0: np.ndarray | None,
+    K_r0: np.ndarray | None,
+    omega_idx_diff: np.ndarray,
+    omega_idx_sum: np.ndarray,
+    diff_sign: np.ndarray,
+    n_omega: int,
+    *,
+    enable_scattering: bool = True,
+    enable_recombination: bool = True,
+) -> np.ndarray:
+    r"""Analytical ``∂(gain − loss·f)/∂n_ph`` for :func:`phonon_collision_rates`.
+
+    Returns an ``(NE, n_omega)`` array — the exact Jacobian of the e–phonon
+    collision residual ``R_f = gain − loss·f`` with respect to the phonon
+    occupation ``n_ph``. ``R_f`` depends on ``n_ph`` only *linearly*, through
+    the occupation matrices ``N_p`` (scattering) and ``N_emit``/``N_abs``
+    (recombination/pair-breaking) of
+    :func:`phonon_occupation_matrices_from_state`, so this block does not
+    depend on ``n_ph`` itself. Used for the analytical ``J_fn = ∂R_f/∂n_ph``
+    cross-block in
+    :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`.
+
+    Mirrors :func:`phonon_collision_rates`. Scattering (``K_s0``) carries the
+    zeroed self-scattering diagonal of ``N_p``; recombination (``K_r0``) the
+    factor-2 pair convention. With
+    ``∂N_p[a,b]/∂n_ph,m = [omega_idx_diff[a,b] = m]`` (``a ≠ b``) and
+    ``∂N_emit[i,j]/∂n_ph,m = ∂N_abs[i,j]/∂n_ph,m = [omega_idx_sum[i,j] = m]``:
+
+    * scattering: ``∂R_i/∂n_ph,m = (1−f_i) Σ_{j: idx_diff=m} K_s0[j,i] ρ_j f_j dE
+      − f_i Σ_{j: idx_diff=m} K_s0[i,j] ρ_j (1−f_j) dE``  (``j ≠ i``);
+    * recombination: ``∂R_i/∂n_ph,m = 2 Σ_{j: idx_sum=m} K_r0[i,j] ρ_j dE
+      [(1−f_i)(1−f_j) − f_i f_j]``.
+    """
+    NE = int(f.size)
+    rho = ctx.rho
+    dE = ctx.dE
+    one_minus_f = np.maximum(1.0 - f, 0.0)
+    w_j = rho * dE  # ρ_j dE, shape (NE,)
+
+    J_fn = np.zeros((NE, n_omega))
+    row_i = np.broadcast_to(np.arange(NE)[:, None], (NE, NE))
+
+    if enable_scattering and K_s0 is not None:
+        # [i,j] = (1−f_i) K_s0[j,i] ρ_j f_j dE  (gain) and
+        #         f_i K_s0[i,j] ρ_j (1−f_j) dE  (loss); deposit at col idx_diff.
+        gain_w = one_minus_f[:, None] * K_s0.T * (w_j * f)[None, :]
+        loss_w = f[:, None] * K_s0 * (w_j * one_minus_f)[None, :]
+        off = ~np.eye(NE, dtype=bool)   # N_p diagonal is zero ⇒ no self term
+        np.add.at(J_fn, (row_i[off], omega_idx_diff[off]), (gain_w - loss_w)[off])
+
+    if enable_recombination and K_r0 is not None:
+        rec_w = (
+            2.0 * K_r0 * w_j[None, :]
+            * (one_minus_f[:, None] * one_minus_f[None, :] - f[:, None] * f[None, :])
+        )
+        np.add.at(J_fn, (row_i, omega_idx_sum), rec_w)
+
+    return J_fn
 
 
 def apply_phonon_collision(

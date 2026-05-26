@@ -7,14 +7,21 @@ import pytest
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
+    compute_phonon_source_sink,
+    phonon_collision_jacobian_nph,
+    phonon_occupation_matrices_from_state,
+    phonon_source_sink_jacobian_f,
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
-from qpsim.services.steady_state import solve_steady_state
+from qpsim.services.steady_state import solve_steady_state  # noqa: F401  load first (circular import)
 from qpsim.solvers.coupled_newton import coupled_newton_solve
+from qpsim.solvers.newton_steady_state import _gain_loss_sum
 
 
 def _thermal_setup(T_bath: float = 0.3, T_c: float = 1.2, num: int = 18):
@@ -183,3 +190,108 @@ class TestCoupledNewtonSolve:
         assert np.all(f_out >= 0.0)
         assert np.all(f_out <= 1.0)
         assert np.all(n_out >= 0.0)
+
+
+def _generic_cross_state(ctx, omega):
+    """Smooth, well-scaled non-equilibrium (f, n_ph) for cross-Jacobian FD checks.
+
+    Deliberately off any fixed point so every Jacobian entry is generic and
+    nonzero, and O(0.01..1) so central differences are well conditioned.
+    """
+    E = ctx.E
+    f = np.clip(0.3 * np.exp(-(E - ctx.gap) / ctx.gap) + 0.02, 1e-4, 0.9)
+    n_ph = 0.5 * np.exp(-omega / ctx.gap) + 0.1
+    return f, n_ph
+
+
+class TestAnalyticCrossJacobian:
+    """Closed-form cross blocks must equal well-scaled finite differences.
+
+    Pins :issue:`coupled-newton-analytical-cross`: the analytic
+    ``J_fn = ∂R_f/∂n_ph`` and ``J_nf = ∂R_ph/∂f`` replace the O(NE³),
+    scale-fragile FD secant that branch-hops at strong drive (Fischer Fig. 6).
+    Checked on both the QP-side and the phonon-side (fig6) kernel path.
+    """
+
+    TAU_L = 0.25
+
+    def _residual(self, f, n_ph, ctx, K_s0, K_r0, maps, T_bath, ps):
+        idx_d, idx_s, sgn, omega = maps
+        N_p, N_e, N_a = phonon_occupation_matrices_from_state(n_ph, idx_d, idx_s, sgn)
+        gain, loss = _gain_loss_sum(
+            f, ctx, K_s0, K_r0, T_bath, None, None, N_p, N_e, N_a, None
+        )
+        R_f = gain - loss * f
+        a, b = compute_phonon_source_sink(
+            f, ctx, K_s0, K_r0, idx_d, idx_s, sgn, omega.size,
+            K_s0_phonon_side=ps[0], K_r0_phonon_side=ps[1],
+        )
+        n_th = thermal_phonon_occupation(omega, T_bath)
+        R_ph = a + b * n_ph + (n_th - n_ph) / self.TAU_L
+        return R_f, R_ph
+
+    @pytest.mark.parametrize("phonon_side", [False, True])
+    def test_cross_blocks_match_central_fd(self, phonon_side: bool) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        maps = (idx_d, idx_s, sgn, omega)
+        N_omega, NE = omega.size, ctx.E.size
+        f, n_ph = _generic_cross_state(ctx, omega)
+        if phonon_side:
+            ps = (
+                build_scattering_kernel_phonon_side(ctx, 0.255),
+                build_recombination_kernel_phonon_side(ctx, 0.255),
+            )
+        else:
+            ps = (None, None)
+
+        # Analytic blocks.
+        J_fn = phonon_collision_jacobian_nph(
+            f, ctx, K_s0, K_r0, idx_d, idx_s, sgn, N_omega
+        )
+        da_df, db_df = phonon_source_sink_jacobian_f(
+            f, ctx, K_s0, K_r0, idx_d, idx_s, sgn, N_omega,
+            K_s0_phonon_side=ps[0], K_r0_phonon_side=ps[1],
+        )
+        J_nf = da_df + n_ph[:, None] * db_df
+
+        # Central-difference reference (truncation ~h² ≈ 1e-14, roundoff ~1e-9).
+        h = 1e-7
+        J_fn_fd = np.zeros((NE, N_omega))
+        for k in range(N_omega):
+            up = n_ph.copy(); up[k] += h
+            dn = n_ph.copy(); dn[k] -= h
+            R_up, _ = self._residual(f, up, ctx, K_s0, K_r0, maps, T_bath, ps)
+            R_dn, _ = self._residual(f, dn, ctx, K_s0, K_r0, maps, T_bath, ps)
+            J_fn_fd[:, k] = (R_up - R_dn) / (2.0 * h)
+        J_nf_fd = np.zeros((N_omega, NE))
+        for j in range(NE):
+            up = f.copy(); up[j] += h
+            dn = f.copy(); dn[j] -= h
+            _, R_up = self._residual(up, n_ph, ctx, K_s0, K_r0, maps, T_bath, ps)
+            _, R_dn = self._residual(dn, n_ph, ctx, K_s0, K_r0, maps, T_bath, ps)
+            J_nf_fd[:, j] = (R_up - R_dn) / (2.0 * h)
+
+        def rel(A, F):
+            return np.max(np.abs(A - F)) / (np.max(np.abs(F)) + 1e-300)
+
+        assert rel(J_fn, J_fn_fd) < 1e-6
+        assert rel(J_nf, J_nf_fd) < 1e-6
+
+    def test_analytic_and_fd_solve_agree(self) -> None:
+        # End-to-end: the analytic-cross solve lands on the same (f, n_ph) as the
+        # default FD path on a case both converge cleanly (Newton finds the same
+        # root regardless of how the cross-Jacobian is built).
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_th = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        f0 = np.clip(f_th * 1.1, 0.0, 1.0)
+        n0 = thermal_phonon_occupation(omega, T_bath)
+        common = dict(
+            omega_bins=omega, omega_idx_diff=idx_d, omega_idx_sum=idx_s,
+            diff_sign=sgn, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, tau_l=0.25,
+            tol=1e-12,
+        )
+        f_fd, n_fd = coupled_newton_solve(ctx, f0, n0, analytic_cross=False, **common)
+        f_an, n_an = coupled_newton_solve(ctx, f0, n0, analytic_cross=True, **common)
+        np.testing.assert_allclose(f_an, f_fd, rtol=1e-6, atol=1e-9)
+        np.testing.assert_allclose(n_an, n_fd, rtol=1e-6, atol=1e-9)

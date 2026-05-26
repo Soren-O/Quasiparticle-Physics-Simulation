@@ -393,6 +393,11 @@ def _solve_coupled_newton_fixed_gap(
         coupled_newton_step_rtol=1e-6,
         coupled_newton_max_iter=80,
         coupled_newton_fd_step=1e-8,
+        # Analytical cross-Jacobians (J_fn, J_nf): exact and O(NE²), where the
+        # finite-difference secant is both ~30 min/point at 1620 bins and
+        # unreliable at strong drive (f, n_ph ≪ 1), branch-hopping / NaN-ing the
+        # post-peak tail. Closed form fills the tail and cuts runtime to seconds.
+        coupled_newton_analytic_cross=True,
     )
 
 
@@ -422,6 +427,69 @@ def _check_tau_0_pb(tau_0_pb: float, tau_l: float) -> None:
             f"   sensitive to τ_ℓ, so expect a y-axis offset vs the paper.)",
             flush=True,
         )
+
+
+def _acceptable_ratio(obs: float, *, direct_gap_observable: bool) -> bool:
+    """Whether a numerical gap-suppression ratio is physically acceptable.
+
+    Always rejects NaN / inf. The non-negativity floor applies **only** to
+    direct-gap mode, where the small-difference Δ[f] observable can produce
+    spurious large-negative values at the gap-collapse fold (the −1.04 /
+    −0.187 garbage we filter). In self-consistent-gap mode the observable is
+    ``(Δ_driven − Δ_eq) / (Δ_0 − Δ_eq)``, and a negative value is the
+    legitimate "drive suppresses below thermal" signal — accept it.
+    """
+    if not np.isfinite(obs):
+        return False
+    if not direct_gap_observable:
+        return True
+    return obs > -1e-3
+
+
+def _solve_and_measure(
+    backend: T3DiffusionBackend,
+    material: Material,
+    spectral: SpectralContext,
+    T_bath: float,
+    n_bar_val: float,
+    f_seed: np.ndarray | None,
+    n_ph_seed: np.ndarray | None,
+    *,
+    fixed_gap_kinetics: bool,
+    direct_gap_observable: bool,
+    thermal_integral: float | None,
+    delta_eq: float,
+    delta_T: float,
+) -> tuple[T3DiffusionState, float, float, float]:
+    """Build a seeded state, solve, and measure the gap-suppression observable.
+
+    Returns ``(converged, obs, delta_driven, x_qp)``; raises ``RuntimeError``
+    on solver non-convergence.
+    """
+    state = _build_state(
+        material, spectral, T_bath, f_seed=f_seed, n_ph_seed=n_ph_seed,
+    )
+    photon_params = {
+        "omega_0": OMEGA_0, "n_bar": float(n_bar_val), "c_phot": C_PHOT,
+    }
+    converged = (
+        _solve_coupled_newton_fixed_gap(backend, state, photon_params)
+        if fixed_gap_kinetics
+        else _solve_picard_sc_gap(backend, state, photon_params)
+    )
+    if direct_gap_observable:
+        driven_integral = gap_integral_from_distribution_direct(
+            converged.f, spectral.E, gap=DELTA_0, samples="centers",
+        )
+        delta_driven = gap_from_distribution_direct(
+            converged.f, spectral.E, gap=DELTA_0, delta0=DELTA_0, samples="centers",
+        )
+        obs = gap_suppression_ratio_from_integrals(driven_integral, thermal_integral)
+    else:
+        delta_driven = float(converged.gap)
+        obs = (converged.gap - delta_eq) / delta_T
+    x_qp = qp_fraction(converged.f, converged.spectral, delta_0=DELTA_0)
+    return converged, obs, delta_driven, x_qp
 
 
 def _solve_sweep(
@@ -461,6 +529,7 @@ def _solve_sweep(
     # collapse the paper observable. Tighten to ~1e-12 μeV.
     _GAP_XTOL_UEV = 1e-12
     for i, T_bath in enumerate(T_BATH_VALUES):
+        thermal_integral: float | None = None  # set below only in direct-gap mode
         if direct_gap_observable:
             thermal_integral = thermal_gap_integral_direct(
                 spectral.E,
@@ -486,70 +555,66 @@ def _solve_sweep(
 
         f_seed: np.ndarray | None = None
         n_ph_seed: np.ndarray | None = None
+        tau_l_val: float | None = None
         for j, n_bar in enumerate(N_BAR_VALUES):
-            state = _build_state(
-                material, spectral, T_bath,
-                f_seed=f_seed, n_ph_seed=n_ph_seed,
-            )
-            if tau_l_used is None:
-                tau_l_used = float(state.phonon.tau_l[0, 0])
-            photon_params = {
-                "omega_0": OMEGA_0, "n_bar": float(n_bar), "c_phot": C_PHOT,
-            }
+            if tau_l_val is None:
+                tau_l_val = float(
+                    _build_state(material, spectral, T_bath).phonon.tau_l[0, 0]
+                )
+                if tau_l_used is None:
+                    tau_l_used = tau_l_val
             kBT_star = _kBTstar_eq35(float(n_bar))
             T_star[i, j] = kBT_star / DELTA_0
-            # Analytic fields are independent of the numerical solve; set them
-            # first so a failed strong-drive point keeps its Eq. 53 overlay.
+            # Analytic overlay fields are independent of the numerical solve; set
+            # them first so a failed strong-drive point keeps its Eq. 53 overlay.
             x_qp_eq47[i, j] = _xqp_analytic_eq47(
-                T_bath, float(n_bar), tau_l=float(state.phonon.tau_l[0, 0]),
-                tau_0_pb=tau_0_pb,
+                T_bath, float(n_bar), tau_l=tau_l_val, tau_0_pb=tau_0_pb,
             )
             delta_drive_analytic = (
-                DELTA_0
-                * _paper_eq53_analytic_drive(x_qp_eq47[i, j], T_star[i, j])
+                DELTA_0 * _paper_eq53_analytic_drive(x_qp_eq47[i, j], T_star[i, j])
             )
             obs_eq53[i, j] = (delta_T - delta_drive_analytic) / delta_T
 
-            # Strong-drive points (T*/Δ ≳ 0.55) can fail the coupled-Newton line
-            # search. Record NaN for the numerical fields and continue so one bad
-            # point doesn't abort a multi-hour sweep; keep the last good (f, n_ph)
-            # seed so continuation resumes from a valid state.
+            # Warm-continuation solve, rejecting an unphysical (negative)
+            # suppression ratio so the figure shows an honest gap rather than a
+            # spurious dip. A steep gap-collapse *fold* sits between each curve's
+            # peak and the fully-collapsed (ratio→1) deep tail: the physical
+            # declining branch terminates there (singular Jacobian). The exact
+            # cross-Jacobian, the scale-invariant convergence fix, and 8-step n̄
+            # continuation all fail to cross it (0/8 recoveries), so transition
+            # points degrade to NaN. (n̄ substepping was tried and removed —
+            # 0 recoveries at ~8× runtime; continuation cannot cross a fold.)
+            converged: T3DiffusionState | None = None
+            obs = delta_driven_pt = x_qp_pt = float("nan")
+            ok = False
             try:
-                if fixed_gap_kinetics:
-                    converged = _solve_coupled_newton_fixed_gap(
-                        backend, state, photon_params)
-                else:
-                    converged = _solve_picard_sc_gap(backend, state, photon_params)
-            except RuntimeError as err:
+                converged, obs, delta_driven_pt, x_qp_pt = _solve_and_measure(
+                    backend, material, spectral, T_bath, n_bar, f_seed, n_ph_seed,
+                    fixed_gap_kinetics=fixed_gap_kinetics,
+                    direct_gap_observable=direct_gap_observable,
+                    thermal_integral=thermal_integral,
+                    delta_eq=delta_eq_per_T[i], delta_T=delta_T,
+                )
+                ok = _acceptable_ratio(
+                    obs, direct_gap_observable=direct_gap_observable,
+                )
+            except RuntimeError:
+                ok = False
+
+            if not ok or converged is None:
                 obs_num[i, j] = np.nan
                 delta_driven[i, j] = np.nan
                 x_qp_num[i, j] = np.nan
                 print(
                     f"  T_B={T_bath:.2f} K  n̄={n_bar:.2e}  T_*/Δ={T_star[i, j]:.3f}  "
-                    f"SOLVE FAILED ({err}); recorded NaN",
+                    f"SOLVE FAILED (no acceptable solution); recorded NaN",
                     flush=True,
                 )
                 continue
 
-            if direct_gap_observable:
-                driven_integral = gap_integral_from_distribution_direct(
-                    converged.f, spectral.E, gap=DELTA_0, samples="centers",
-                )
-                delta_driven[i, j] = gap_from_distribution_direct(
-                    converged.f, spectral.E, gap=DELTA_0, delta0=DELTA_0,
-                    samples="centers",
-                )
-                obs_num[i, j] = gap_suppression_ratio_from_integrals(
-                    driven_integral, thermal_integral,
-                )
-            else:
-                delta_driven[i, j] = float(converged.gap)
-                # Paper observable: (Δ_driven - Δ_eq(T_B)) / (Δ_0 - Δ_eq(T_B)).
-                obs_num[i, j] = (converged.gap - delta_eq_per_T[i]) / delta_T
-            x_qp_num[i, j] = qp_fraction(
-                converged.f, converged.spectral, delta_0=DELTA_0,
-            )
-
+            obs_num[i, j] = obs
+            delta_driven[i, j] = delta_driven_pt
+            x_qp_num[i, j] = x_qp_pt
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
             print(

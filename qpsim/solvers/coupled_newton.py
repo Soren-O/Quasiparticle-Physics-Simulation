@@ -15,10 +15,13 @@ with:
 * ``J_ff = ∂R_f/∂f`` — analytical, reuses the per-channel assembly
   from :mod:`qpsim.solvers.newton_steady_state`.
 * ``J_nn = ∂R_ph/∂n_ph`` — diagonal in Ph0: ``b_ph − 1/τ_l``.
-* ``J_fn = ∂R_f/∂n_ph`` and ``J_nf = ∂R_ph/∂f`` — forward finite
-  differences in this v1 implementation. Analytical cross Jacobians
-  would speed production-scale (NE ≳ 800) runs; that's a post-Gate-4
-  optimization flagged in :issue:`coupled-newton-analytical-cross`.
+* ``J_fn = ∂R_f/∂n_ph`` and ``J_nf = ∂R_ph/∂f`` — analytical when
+  ``analytic_cross=True`` (closed form, O(NE²), exact), else forward
+  finite differences (default; O(NE³) and unreliable at strong drive
+  where ``f, n_ph`` ≪ 1, the regime that drives Fischer 2023 Fig. 6).
+  The analytical path resolves :issue:`coupled-newton-analytical-cross`
+  and unlocks the Fig. 6 strong-drive tail at production grids
+  (NE ≳ 800) in seconds rather than tens of minutes per point.
 
 Unlocks the Fischer 2023 ``τ_l/τ_PB = 10`` strong-bottleneck regime
 that the Picard + Anderson path in
@@ -31,7 +34,9 @@ import numpy as np
 
 from qpsim.collisions.phonon import (
     compute_phonon_source_sink,
+    phonon_collision_jacobian_nph,
     phonon_occupation_matrices_from_state,
+    phonon_source_sink_jacobian_f,
 )
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.physics.kernels import thermal_phonon_occupation
@@ -62,6 +67,7 @@ def coupled_newton_solve(
     max_iter: int = 50,
     fd_step: float = 1e-8,
     fd_floor: float = 1e-12,
+    analytic_cross: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Solve ``R_f = 0`` and ``R_ph = 0`` simultaneously for ``(f, n_ph)``.
 
@@ -131,6 +137,16 @@ def coupled_newton_solve(
         Absolute lower bound on the per-component FD step, keeping ``h_k``
         above the residual roundoff floor for near-zero entries. Default
         ``1e-12`` suits the ``f``/``n_ph`` ~ 1e-10..1e-18 cold-bath regime.
+        Ignored when ``analytic_cross=True``.
+    analytic_cross
+        When ``True``, assemble the cross blocks ``J_fn`` / ``J_nf`` from
+        their closed forms (:func:`qpsim.collisions.phonon.phonon_collision_jacobian_nph`
+        and :func:`qpsim.collisions.phonon.phonon_source_sink_jacobian_f`)
+        instead of finite differences. Exact and O(NE²) rather than O(NE³),
+        and free of the scaling pathology that makes the FD secant
+        meaningless when ``f``, ``n_ph`` ≪ 1 (the cold-bath strong-drive
+        regime of Fischer Fig. 6). ``False`` (default) preserves the legacy
+        FD behavior bit-for-bit, so the pinned validation suite is unaffected.
 
     Returns
     -------
@@ -216,36 +232,57 @@ def coupled_newton_solve(
         )
         J_nn = np.diag(b_ph - inv_tau_l)
 
-        # Finite-difference cross blocks with scale-aware per-component steps.
-        # A single absolute step is wrong when the state lives far below 1
-        # (e.g. f ~ 1e-10, n_ph ~ 1e-18 in the cold-bath strong-suppression
-        # regime that drives Fischer Fig. 6): an absolute fd_step=1e-8 then
-        # perturbs each component by orders of magnitude more than its own
-        # value, so the secant probes deep nonlinearity and the cross-Jacobian
-        # is meaningless — Newton converges to a spurious fixed point.
-        # h_k = max(fd_step·|x_k|, fd_floor) reduces to the old absolute step
-        # for O(1) entries. The relative term keeps the step proportional to the
-        # value where that matters most — the f-block, where the residual is
-        # nonlinear in f, so an oversized step probes spurious curvature. fd_floor
-        # is an empirical lower bound that lands in a usable secant window above
-        # the residual roundoff floor; note it can exceed the value of near-zero
-        # entries (e.g. n_ph ~ 1e-18), which is acceptable because R_f is ~linear
-        # in n_ph and a large relative step there still returns a good derivative.
-        h_n = np.maximum(fd_step * np.abs(n_ph), fd_floor)
-        J_fn = np.zeros((NE, N_omega))
-        for k in range(N_omega):
-            n_ph_pert = n_ph.copy()
-            n_ph_pert[k] += h_n[k]
-            R_f_pert, _ = residual(f, n_ph_pert)
-            J_fn[:, k] = (R_f_pert - R_f) / h_n[k]
+        if analytic_cross:
+            # Closed-form cross blocks: exact and O(NE²), vs the O(NE³) and
+            # scale-fragile FD path. R_f is linear in n_ph, so J_fn is
+            # n_ph-independent and uses the QP-side kernels K_s0/K_r0 (the
+            # photon / external-flux channels are n_ph-independent ⇒ zero).
+            # R_ph's f-dependence is differentiated through
+            # compute_phonon_source_sink, so J_nf carries the same phonon-side
+            # kernels + quadrature correction, assembled as
+            # J_nf = ∂a_ph/∂f + n_ph · ∂b_ph/∂f.
+            J_fn = phonon_collision_jacobian_nph(
+                f, ctx, K_s0, K_r0,
+                omega_idx_diff, omega_idx_sum, diff_sign, N_omega,
+            )
+            da_df, db_df = phonon_source_sink_jacobian_f(
+                f, ctx, K_s0, K_r0,
+                omega_idx_diff, omega_idx_sum, diff_sign, N_omega,
+                K_s0_phonon_side=K_s0_phonon_side,
+                K_r0_phonon_side=K_r0_phonon_side,
+            )
+            J_nf = da_df + n_ph[:, None] * db_df
+        else:
+            # Finite-difference cross blocks with scale-aware per-component steps.
+            # A single absolute step is wrong when the state lives far below 1
+            # (e.g. f ~ 1e-10, n_ph ~ 1e-18 in the cold-bath strong-suppression
+            # regime that drives Fischer Fig. 6): an absolute fd_step=1e-8 then
+            # perturbs each component by orders of magnitude more than its own
+            # value, so the secant probes deep nonlinearity and the cross-Jacobian
+            # is meaningless — Newton converges to a spurious fixed point.
+            # h_k = max(fd_step·|x_k|, fd_floor) reduces to the old absolute step
+            # for O(1) entries. The relative term keeps the step proportional to the
+            # value where that matters most — the f-block, where the residual is
+            # nonlinear in f, so an oversized step probes spurious curvature. fd_floor
+            # is an empirical lower bound that lands in a usable secant window above
+            # the residual roundoff floor; note it can exceed the value of near-zero
+            # entries (e.g. n_ph ~ 1e-18), which is acceptable because R_f is ~linear
+            # in n_ph and a large relative step there still returns a good derivative.
+            h_n = np.maximum(fd_step * np.abs(n_ph), fd_floor)
+            J_fn = np.zeros((NE, N_omega))
+            for k in range(N_omega):
+                n_ph_pert = n_ph.copy()
+                n_ph_pert[k] += h_n[k]
+                R_f_pert, _ = residual(f, n_ph_pert)
+                J_fn[:, k] = (R_f_pert - R_f) / h_n[k]
 
-        h_f = np.maximum(fd_step * np.abs(f), fd_floor)
-        J_nf = np.zeros((N_omega, NE))
-        for j in range(NE):
-            f_pert = f.copy()
-            f_pert[j] += h_f[j]
-            _, R_ph_pert = residual(f_pert, n_ph)
-            J_nf[:, j] = (R_ph_pert - R_ph) / h_f[j]
+            h_f = np.maximum(fd_step * np.abs(f), fd_floor)
+            J_nf = np.zeros((N_omega, NE))
+            for j in range(NE):
+                f_pert = f.copy()
+                f_pert[j] += h_f[j]
+                _, R_ph_pert = residual(f_pert, n_ph)
+                J_nf[:, j] = (R_ph_pert - R_ph) / h_f[j]
 
         J = np.block([[J_ff, J_fn], [J_nf, J_nn]])
         R = np.concatenate([R_f, R_ph])
@@ -289,6 +326,26 @@ def coupled_newton_solve(
         if not accepted:
             if norm < tol:
                 return f, n_ph
+            # Scale-invariant fallback: when the line search cannot reduce the
+            # residual further but Newton's own step is negligible relative to
+            # the state, we are at the fixed point. In the tiny-amplitude
+            # strong-drive regime (f, n_ph ~ 1e-10) the residual floors at
+            # ~1e-10 — above an absolute tol like 1e-12 — so without this the
+            # solver spuriously fails points that are in fact converged (the
+            # Fischer Fig. 6 transition NaNs). A genuinely stuck / near-singular
+            # step is large in the null direction, so newton_rel stays large and
+            # we still raise. Mirrors the accepted-step step_rtol exit below;
+            # gated on step_rtol>0 so the legacy absolute-tol path (the pinned
+            # suite) is bit-for-bit untouched.
+            if step_rtol > 0.0:
+                f_scale = float(np.max(np.abs(f))) or 1.0
+                n_scale = float(np.max(np.abs(n_ph))) or 1.0
+                newton_rel = max(
+                    float(np.max(np.abs(delta_f))) / f_scale,
+                    float(np.max(np.abs(delta_n))) / n_scale,
+                )
+                if newton_rel < step_rtol:
+                    return f, n_ph
             raise RuntimeError(
                 f"Coupled Newton line search failed at iteration {iteration}. "
                 f"max |residual| = {norm:.2e}"

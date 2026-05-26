@@ -112,6 +112,7 @@ class T3DiffusionBackend:
         coupled_newton_step_rtol: float = 0.0,
         coupled_newton_max_iter: int = 50,
         coupled_newton_fd_step: float = 1e-8,
+        coupled_newton_analytic_cross: bool = False,
         gap_tol: float = 1e-6,
         gap_max_iter: int = 20,
         gap_under_relaxation: float = 0.5,
@@ -301,6 +302,7 @@ class T3DiffusionBackend:
                 coupled_newton_step_rtol=coupled_newton_step_rtol,
                 coupled_newton_max_iter=coupled_newton_max_iter,
                 coupled_newton_fd_step=coupled_newton_fd_step,
+                coupled_newton_analytic_cross=coupled_newton_analytic_cross,
             )
 
         if state.material.T_c <= 0:
@@ -338,6 +340,7 @@ class T3DiffusionBackend:
                 coupled_newton_step_rtol=coupled_newton_step_rtol,
                 coupled_newton_max_iter=coupled_newton_max_iter,
                 coupled_newton_fd_step=coupled_newton_fd_step,
+                coupled_newton_analytic_cross=coupled_newton_analytic_cross,
             )
             last_solved = solved
 
@@ -410,6 +413,7 @@ class T3DiffusionBackend:
             coupled_newton_step_rtol=coupled_newton_step_rtol,
             coupled_newton_max_iter=coupled_newton_max_iter,
             coupled_newton_fd_step=coupled_newton_fd_step,
+            coupled_newton_analytic_cross=coupled_newton_analytic_cross,
         )
 
     def _steady_state_fixed_gap(
@@ -433,6 +437,7 @@ class T3DiffusionBackend:
         coupled_newton_step_rtol: float,
         coupled_newton_max_iter: int,
         coupled_newton_fd_step: float,
+        coupled_newton_analytic_cross: bool,
     ) -> T3DiffusionState:
         """Inner steady-state solve at fixed ``Δ``."""
         self._validate_gate2_scope(state.phonon)
@@ -550,6 +555,7 @@ class T3DiffusionBackend:
                 step_rtol=coupled_newton_step_rtol,
                 max_iter=coupled_newton_max_iter,
                 fd_step=coupled_newton_fd_step,
+                analytic_cross=coupled_newton_analytic_cross,
             )
         else:
             raise ValueError(
