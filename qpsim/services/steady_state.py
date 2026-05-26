@@ -41,6 +41,8 @@ def solve_steady_state(
     K_r0: np.ndarray | None,
     T_bath: float,
     *,
+    K_s0_phonon_side: np.ndarray | None = None,
+    K_r0_phonon_side: np.ndarray | None = None,
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
@@ -68,6 +70,17 @@ def solve_steady_state(
         SpectralContext with current Δ.
     K_s0, K_r0
         Base e-ph kernel matrices or ``None`` to disable the channel.
+    K_s0_phonon_side, K_r0_phonon_side
+        **Opt-in** phonon-side scattering and recombination/pair-breaking
+        kernels (build via
+        :func:`qpsim.collisions.phonon.build_scattering_kernel_phonon_side` and
+        :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`).
+        Forwarded to :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+        on the finite-τ_l Picard path; when supplied, the phonon
+        sub-step uses the F&C 2023 Eq. 12 prefactors instead of the
+        QP-side kernels. Ignored on the thermal-phonon path
+        (``phonon_escape_time is None``). ``None`` (default) preserves
+        legacy behavior bit-for-bit.
     T_bath
         Phonon bath temperature in K.
     photon_params
@@ -191,6 +204,8 @@ def solve_steady_state(
             f, ctx, K_s0, K_r0,
             omega_bins, omega_idx_diff, omega_idx_sum, diff_sign,
             T_bath, phonon_escape_time,
+            K_s0_phonon_side=K_s0_phonon_side,
+            K_r0_phonon_side=K_r0_phonon_side,
         )
 
         # Track branch state.

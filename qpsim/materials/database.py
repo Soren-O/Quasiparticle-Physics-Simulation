@@ -52,6 +52,15 @@ class Material:
     # materials that don't supply it will error if the Kaplan evaluator
     # is called with that material's ``tau_0_phonon``.
     tau_0_phonon: float | None = None  # τ_0^ph (ns)
+    # Pair-breaking phonon characteristic time (F&C 2023 Eq. 13;
+    # appears as ``τ_0^PB`` in the paper's phonon kinetic equation
+    # Eq. 12). For Al, F&C 2023 quotes 0.255 ns from the parameters
+    # in Table I. Used by the opt-in phonon-side F&C Eq. 12 kernels:
+    # scattering ``2K⁻/(π Δ τ_0^PB)`` and pair-breaking/recombination
+    # ``K⁺/(π Δ τ_0^PB)``. Distinct from ``tau_0`` (QP-side e-ph
+    # characteristic time): F&C Eq. 13 relates the two via a
+    # material-specific ratio (≈ 1.7×10³ for Al).
+    tau_0_pb_ns: float | None = None  # τ_0^PB (ns)
 
     # Normal-state transport.
     D_0: float = 0.0            # normal-state diffusion (μm²/ns)

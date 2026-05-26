@@ -73,6 +73,9 @@ def phonon_steady_state(
     diff_sign: np.ndarray,
     T_bath: float,
     tau_l: float,
+    *,
+    K_s0_phonon_side: np.ndarray | None = None,
+    K_r0_phonon_side: np.ndarray | None = None,
 ) -> np.ndarray:
     """Solve the Ph0 phonon-balance equation for ``n_ph(ω)`` given ``f``.
 
@@ -94,6 +97,15 @@ def phonon_steady_state(
     tau_l
         Phonon bath-escape time (ns). ``0.0`` means no substrate
         coupling; ``> 0`` means finite escape time.
+    K_s0_phonon_side, K_r0_phonon_side
+        **Opt-in** phonon-side scattering and recombination/pair-breaking
+        kernels ``2K⁻/(π Δ τ_0^PB)`` and ``K⁺/(π Δ τ_0^PB)`` (build via
+        :func:`qpsim.collisions.phonon.build_scattering_kernel_phonon_side` and
+        :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`).
+        Forwarded to :func:`compute_phonon_source_sink`; when supplied,
+        the phonon-equation rates use the F&C 2023 Eq. 12 prefactors
+        instead of the QP-side ``K_s0`` / ``K_r0``. ``None`` (default)
+        preserves legacy behavior bit-for-bit.
 
     Returns
     -------
@@ -104,6 +116,8 @@ def phonon_steady_state(
     a_ph, b_ph = compute_phonon_source_sink(
         f, ctx, K_s0, K_r0,
         omega_idx_diff, omega_idx_sum, diff_sign, n_omega,
+        K_s0_phonon_side=K_s0_phonon_side,
+        K_r0_phonon_side=K_r0_phonon_side,
     )
 
     if tau_l < 0.0:

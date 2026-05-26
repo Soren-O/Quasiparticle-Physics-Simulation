@@ -5,6 +5,7 @@ Delta_0: 180.0       # T=0 gap in μeV (typical Al: 175-190)
 T_c: 1.18            # K
 tau_0: 438.0         # ns (Kaplan 1976 for Al; QP characteristic time)
 tau_0_phonon: 0.242  # ns (Kaplan 1976 Table II; phonon τ_0^ph for Al)
+tau_0_pb_ns: 0.255   # ns (F&C 2023 Table I parameters → τ_0^PB ≈ 255 ps for Al)
 D_0: 60.0            # μm²/ns (normal-state; depends on resistivity)
 v_F: 1.36e6          # m/s (Fermi velocity in Al)
 rho_F: 1.74e28       # J⁻¹ m⁻³ (single-spin DOS at Fermi level)
