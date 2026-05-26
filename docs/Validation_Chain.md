@@ -34,13 +34,11 @@ documented tolerance tier.
 
 | Figure | Module | Tolerance |
 |---|---|---|
-| Fig 3, τ_l = 0 | `fig3_tau_l_zero.py` | 1e-12 (bit-identical) |
-| Fig 3, finite τ_l (ratios 0.5 / 1 / 2 / 5 / 10) | `fig3_finite_tau_l.py` | 1e-6 (iterative); ratio 10 via coupled Newton |
-| Fig 5, x_qp vs T* | `fig5_xqp.py` | 1e-6 |
-| Fig 6, gap suppression | `fig6_gap_suppression.py` | self-pinned, sc-gap + acoustic-escape τ_l |
-| Fig 7, Q_i(T_B) thermal | `fig7_qi_vs_t.py` | 1e-6 |
-| Fig 7, Q_i(T_B) with drive | `fig7_with_drive.py` | 1e-6 (via `nbar_loop`) |
-| Figs 9–13, Q_i(P_read) | `figs_9_13_qi_vs_pread.py` | 1e-6 (via `nbar_loop`) |
+| Fig 3, paper legend ratios 0 / 0.1 / 1 / 10 | `fig3_paper.py` | slow; 1620-bin paper grid + phonon-side Eq. 12 kernels |
+| Fig 5, paper-topology x_qp two-panel | `fig5_paper.py` | slow; Eq. 47 + Appendix-E analytic overlay |
+| Fig 6, paper-topology gap suppression | `fig6_paper.py` | slow; Eq. 53 overlay; (δΔ_T − δΔ)/δΔ_T ordinate |
+| Fig 7, paper-facing Q_i,tot(T_B) | `fig7_paper.py` | slow; Tables II/III parameters + Eq. 65 |
+| Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | 1e-4 (via `nbar_loop`); not a literal paper figure |
 
 ### Fischer 2024 (`validation/fischer_2024/`)
 

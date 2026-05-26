@@ -7,10 +7,10 @@ drive power from the previous converged ``n̄`` to keep iteration
 counts low — crucial for the high-power end where the map stiffens
 as ``Q_i`` drops and ``Q_tot → Q_i``.
 
-This is the logarithmic-in-P_read cut that complements the
-temperature sweep in :mod:`validation.fischer_2023.fig7_with_drive`.
-Both consume the same :func:`qpsim.services.nbar_loop.solve_nbar_loop`
-service.
+This is a logarithmic-in-P_read characterization sweep at fixed
+``T_B``; it consumes the same :func:`qpsim.services.nbar_loop.solve_nbar_loop`
+service used by the paper-track :mod:`fig7_paper` (which sweeps
+``T_B`` at Tables II/III drive powers).
 
 Parameters (Fischer 2023 Table I / default ``qi_vs_pread``):
 

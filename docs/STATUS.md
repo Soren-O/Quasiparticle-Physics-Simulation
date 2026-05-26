@@ -26,13 +26,11 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 | Figure | Module | Baseline dir | Status |
 |---|---|---|---|
-| Fischer 2023 Fig 3 τ_l = 0 | `validation/fischer_2023/fig3_tau_l_zero.py` | `ph0_constant/` | ✅ bit-identical (1e-12) |
-| Fischer 2023 Fig 3 finite τ_l, ratios {0.5, 1, 2, 5, 10} | `fig3_finite_tau_l.py` | `ph0_constant/` | ✅ iterative (1e-6); ratio 10 via coupled Newton |
-| Fischer 2023 Fig 5 x_qp vs T* | `fig5_xqp.py` | `ph0_constant/` | ✅ iterative (1e-6) |
-| Fischer 2023 Fig 6 gap suppression | `fig6_gap_suppression.py` | `ph0_kaplan/` | ✅ self-pinned, sc-gap + acoustic-escape τ_l |
-| Fischer 2023 Fig 7 Q_i(T_B) thermal | `fig7_qi_vs_t.py` | `ph0_constant/` | ✅ |
-| Fischer 2023 Fig 7 Q_i(T_B) with drive | `fig7_with_drive.py` | `ph0_constant/` | ✅ via `nbar_loop` service |
-| Fischer 2023 Figs 9-13 Q_i(P_read) | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ✅ via `nbar_loop` service |
+| Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ✅ paper-faithful (1620-bin grid, phonon-side Eq. 12 + pair-breaking kernels) |
+| Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ✅ paper-faithful; Eq. 47 + Appendix-E analytic overlay |
+| Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py` | `ph0_kaplan/` | ✅ paper-faithful ordinate (δΔ_T − δΔ)/δΔ_T; Eq. 53 overlay |
+| Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ Tables II/III parameters + Eq. 65 extrinsic-loss cap |
+| Fischer 2023 Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ✅ via `nbar_loop` service; not a literal paper figure |
 | Fischer 2024 Figs 5-7 f(E) | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ |
 | Fischer 2024 Fig 8 x_qp(T_B) | `fischer_2024/fig8_xqp_pb.py` | `ph0_constant/` | ✅ |
 | Transient photon-kick f(E, t) | `validation/transient/photon_kick_response.py` | `transient/` | ✅ demo, via `transient` service |

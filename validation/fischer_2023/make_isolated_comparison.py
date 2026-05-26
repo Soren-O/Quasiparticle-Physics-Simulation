@@ -1,8 +1,8 @@
 """Side-by-side: a paper figure (left) vs a single reproduction output (right).
 
 Usage:
-    python make_isolated_comparison.py fig6_gap_suppression.png Fischer2023Fig6.png \
-        comparisons/Fischer2023Fig6_gap_suppression_sidebyside.png
+    python make_isolated_comparison.py fig6_paper.png Fischer2023Fig6.png \
+        comparisons/Fischer2023Fig6_sidebyside.png
 
 The first arg is the file in output/ to use for the right panel. The
 second arg is the paper-figure file (in paper_figures/) to use for the
