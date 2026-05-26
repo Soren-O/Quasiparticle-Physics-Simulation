@@ -38,23 +38,68 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.collisions.phonon import build_phonon_frequency_map
+from qpsim.constants import KB_UEV_PER_K
+from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.materials.database import Material
 from qpsim.observables.quality_factor import compute_quality_factor
+from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.physics.kernels import thermal_phonon_occupation
+from qpsim.physics.spectral import SpectralContext
 from qpsim.services.nbar_loop import dbm_to_uev_per_ns, solve_nbar_loop
 
-from validation.fischer_2023.fig7_qi_vs_t import (
-    ALPHA_KI,
-    C_PHOT,
-    DELTA_0,
-    E_MAX_FACTOR,
-    E_MIN_FACTOR,
-    NUM_BINS,
-    OMEGA_0,
-    T_C,
-    TAU_0,
-    _build_state,
-    _fischer_material,
-)
+# ── Fischer 2023 Table I parameters ──────────────────────────────────
+
+DELTA_0 = 180.0
+TAU_0 = 438.0
+T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
+OMEGA_0 = DELTA_0 / 9.0    # 20 μeV — drive and probe
+ALPHA_KI = 0.5
+C_PHOT = 1e-9
+
+E_MIN_FACTOR = 1.0
+E_MAX_FACTOR = 10.0
+NUM_BINS = 405             # Q_i tolerance tier 1e-4; dE=4 μeV, ω₀/dE=5 (int)
+
+
+def _fischer_material() -> Material:
+    return Material(
+        name="Al_Fischer2023",
+        Delta_0=DELTA_0,
+        T_c=T_C,
+        tau_0=TAU_0,
+    )
+
+
+def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
+    E, _ = build_energy_grid(
+        gap=DELTA_0,
+        energy_min_factor=E_MIN_FACTOR,
+        energy_max_factor=E_MAX_FACTOR,
+        num_energy_bins=NUM_BINS,
+    )
+    dE = integration_widths_from_centers(E)
+    spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
+    omega, _, _, _ = build_phonon_frequency_map(E)
+    phonon = PhononState(
+        n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
+        omega_bins=omega.reshape(1, -1),
+        tau_l=np.zeros((1, omega.size)),
+        model=PhononModel.PH0_LOCAL,
+        branches=[PhononBranchSpec(name="debye_average")],
+    )
+    kT = KB_UEV_PER_K * T_bath
+    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return T3DiffusionState(
+        f=f_FD,
+        gap=DELTA_0,
+        spectral=spectral,
+        phonon=phonon,
+        material=material,
+        T_bath=T_bath,
+    )
+
 
 # ── Sweep parameters ─────────────────────────────────────────────────
 
