@@ -169,7 +169,6 @@ def _compute_tau_0_pb(spectral: SpectralContext) -> float:
 def _kBTstar_eq35(n_bar: float) -> float:
     """Fischer 2023 Eq. 35: $k_B T_* = (A\\bar n)^{1/6}$, in μeV.
 
-    Same expression as :func:`fig6_gap_suppression._kBTstar_analytic`.
     Reuses the module-level :data:`_A_EQ35` prefactor.
     """
     if n_bar <= 0:

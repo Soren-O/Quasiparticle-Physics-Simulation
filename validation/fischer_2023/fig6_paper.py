@@ -14,9 +14,9 @@ on the paper grid (1620 bins, $dE = 1\\,\\mu$eV). Solid lines: numerical
 joint kinetic-equation + self-consistent gap solve. Dashed lines:
 analytical Eq. 53.
 
-This script supersedes :mod:`fig6_gap_suppression`, which had the wrong
-ordinate ($\\delta\\Delta/\\Delta_\\mathrm{eq}$, monotonic in drive, no
-sign change) and a coarser 405-bin grid.
+The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)/\\delta\\Delta_T$,
+which goes negative on the strong-drive side; the 1620-bin grid resolves
+the sign change cleanly.
 
 Remaining paper-parity gap
 --------------------------
@@ -99,7 +99,7 @@ T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
 OMEGA_0 = DELTA_0 / 9.0    # 20 μeV
 C_PHOT = 1e-9              # ns^-1 (1 Hz)
 
-# Acoustic-escape film geometry (Fischer 2023 §V text + fig6_gap_suppression).
+# Acoustic-escape film geometry (Fischer 2023 §V text).
 FILM_THICKNESS_NM = 63.0
 SUBSTRATE_ETA = 0.2
 
@@ -239,8 +239,7 @@ def _compute_tau_0_pb(spectral: SpectralContext) -> float:
 def _kBTstar_eq35(n_bar: float) -> float:
     """Fischer 2023 Eq. 35: $k_B T_* = (A\\bar n)^{1/6}$, in μeV.
 
-    Same expression as :func:`fig5_paper._kBTstar_eq35` and
-    :func:`fig6_gap_suppression._kBTstar_analytic`.
+    Same expression as :func:`fig5_paper._kBTstar_eq35`.
     """
     if n_bar <= 0:
         return 0.0
@@ -342,9 +341,8 @@ def _solve_picard_sc_gap(
 ) -> T3DiffusionState:
     """Joint Picard + self-consistent BCS gap solve.
 
-    Same flag set as the existing :mod:`fig6_gap_suppression`
-    characterization. Inner Picard iterates (f, n_ph), outer iteration
-    re-solves the BCS gap equation against the converged $f$.
+    Inner Picard iterates (f, n_ph); outer iteration re-solves the BCS
+    gap equation against the converged $f$.
     """
     # gap_tol/picard_tol tightened from 1e-6/1e-8 to 1e-10/1e-12 because the
     # paper observable (Δ_driven - Δ_eq)/(Δ_0 - Δ_eq) divides by the

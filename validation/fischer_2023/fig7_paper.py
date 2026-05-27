@@ -1,9 +1,6 @@
 """Fischer 2023 Fig. 7 paper-facing Q_i(T_B) validation.
 
-This module is intentionally separate from :mod:`fig7_with_drive`.  The
-older module is a qpsim-native characterization sweep using Table I-like
-parameters and an nbar(P_read) loop.  Fischer Fig. 7 instead uses the
-experimental-comparison parameters from Tables II/III:
+Uses the experimental-comparison parameters from Tables II/III:
 
 * Delta_0 = 189 micro-eV, tau_0 = 63 ns, omega_0 = 22 micro-eV
 * c_phot = 0.06 Hz, tau_l = 170 ps, alpha = 0.13

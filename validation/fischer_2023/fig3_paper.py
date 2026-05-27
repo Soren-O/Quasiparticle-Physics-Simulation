@@ -1,17 +1,8 @@
 """Fischer 2023 Fig. 3 — paper-target legend-ratio reproduction.
 
-This is the Fig. 3 reproduction path: four curves at
-$\\tau_\\ell / \\tau_0^{PB} \\in \\{0, 0.1, 1, 10\\}$ on the paper's energy
-grid, with $\\tau_0^{PB}$ extracted through the phonon-side Kaplan
-pair-breaking rate.
-
-The two existing scripts in this directory cover only sub-sets:
-
-* :mod:`fig3_tau_l_zero` — the $\\tau_\\ell = 0$ panel, bit-identical pinned.
-* :mod:`fig3_finite_tau_l` — finite ratios at the *characterization* set
-  $\\{0.5, 1, 2, 5, 10\\}$ on a coarser 810-bin grid.
-
-Neither matches the paper's published legend. This script does:
+Four curves at $\\tau_\\ell / \\tau_0^{PB} \\in \\{0, 0.1, 1, 10\\}$ on the
+paper's energy grid, with $\\tau_0^{PB}$ extracted through the phonon-side
+Kaplan pair-breaking rate.
 
 * Paper grid: ``NE = 1620``, ``dE = 1 μeV``, integer-commensurate with
   $\\omega_0 = \\Delta_0/9 = 20\\,\\mu$eV.
@@ -21,9 +12,7 @@ Neither matches the paper's published legend. This script does:
 * Paper-style axis: $f(E)$ vs $E/\\Delta_0 - 1$ on $[0, 4]$, with photon-
   step markers at $n\\,\\omega_0/\\Delta_0$.
 
-The older qpsim-native extraction reused the QP-side recombination kernel
-inside the phonon equation and produced an apparent ~38x tau_0^PB mismatch.
-This module uses the F&C/Kaplan phonon-side pair-breaking kernel and the
+The module uses the F&C/Kaplan phonon-side pair-breaking kernel and the
 analytic near-threshold S_+ quadrature correction, giving tau_0^PB ~= 255 ps
 for the Table I parameters.
 
@@ -142,9 +131,7 @@ def _compute_tau_0_pb(spectral: SpectralContext) -> float:
     """Numerical τ_0^PB from the simulator's phonon-side kernel at f=0, ω≈2Δ.
 
     Uses the F&C 2023 Eq. 12 phonon-side kernel ``K⁺/(π Δ τ_0^PB)``
-    (built via :func:`build_recombination_kernel_phonon_side`) — same
-    convention as :func:`fig3_finite_tau_l._compute_tau_0_pb` post the
-    F23 phonon-side-kernel wiring.
+    (built via :func:`build_recombination_kernel_phonon_side`).
     """
     K_r0_phonon_side = build_recombination_kernel_phonon_side(
         spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
