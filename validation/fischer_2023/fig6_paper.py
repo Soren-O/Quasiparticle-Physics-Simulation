@@ -18,18 +18,22 @@ The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)
 which goes negative on the strong-drive side; the 1620-bin grid resolves
 the sign change cleanly.
 
-Remaining paper-parity gap
---------------------------
+$\\tau_\\ell$ model
+------------------
 
-**Kaplan thin-film $\\tau_\\ell$ vs.\\ paper's $\\tau_\\ell = \\tau_0^{PB}$**.
-The paper sets $\\tau_\\ell = \\tau_0^{PB} \\approx 255$ ps for Fig. 6.
-We use :func:`qpsim.physics.acoustic_escape_tau_l` with Fischer's
-63 nm film and $\\eta = 0.2$, which gives $\\tau_\\ell \\approx 368$ ps
-(Debye-averaged sound velocity). This is ~44 % longer than the paper's
-nominal $\\tau_0^{PB}$, so the absolute drive-onset axis is shifted in
-n̄. The dimensionless $T_*/\\Delta$ axis from Eq. 35 is independent of
-$\\tau_\\ell$, so the plot's x-axis is paper-faithful; the y-axis
-position of the curves is sensitive to $\\tau_\\ell$.
+The paper sets $\\tau_\\ell = \\tau_0^{PB} \\approx 255$ ps for Fig. 6, and
+that is the default here (``TAU_L_MODEL = "tau_0_pb"``, overridable via
+the ``FISCHER2023_FIG6_TAU_L_MODEL`` environment variable). The
+extracted $\\tau_0^{PB}$ diagnostic is pinned to the phonon-side
+F&C/Kaplan pair-breaking rate and reproduces the paper-quoted ~255 ps
+for the Table I parameters.
+
+For comparison, :func:`qpsim.physics.acoustic_escape_tau_l` with
+Fischer's 63 nm film and $\\eta = 0.2$ gives $\\tau_\\ell \\approx 368$ ps
+(Debye-averaged sound velocity) — ~44 % longer than the paper's nominal
+$\\tau_0^{PB}$. The dimensionless $T_*/\\Delta$ axis from Eq. 35 is
+independent of $\\tau_\\ell$, so the x-axis is invariant under the model
+choice; the y-axis position of the curves is sensitive to it.
 
 Eq. 53 reads
 
@@ -41,15 +45,9 @@ with qpsim's Fischer-convention $x_\\mathrm{qp}
 closed-form from the paper text, and the dashed overlay feeds it the
 analytical Eq. 47 + Appendix-E
 $x_\\mathrm{qp}$ from :func:`fig5_paper._xqp_analytic_eq47`, using the
-same scalar acoustic-escape $\\tau_\\ell$ as the numerical solve. The
-thermal counterpart $\\delta\\Delta_T$ uses the BCS gap calibration in
-the denominator, matching the numerical observable definition.
-
-The extracted $\\tau_0^{PB}$ diagnostic is now pinned to the phonon-side
-F&C/Kaplan pair-breaking rate and should reproduce the paper-quoted
-~255 ps value for the Table I parameters. Once the paper's exact
-$\\tau_\\ell$ convention lands, this script becomes the paper-faithful
-Fig. 6 reproduction rather than a paper-topology target.
+same scalar $\\tau_\\ell$ as the numerical solve. The thermal counterpart
+$\\delta\\Delta_T$ uses the BCS gap calibration in the denominator,
+matching the numerical observable definition.
 
 Fischer, Catelani --- Phys. Rev. Applied 19, 054087 (2023), Table I:
 parameters identical to :mod:`fig3_paper` and :mod:`fig5_paper`.
@@ -176,7 +174,7 @@ def _fischer_material() -> Material:
     """Al film with Fischer 2023 SC parameters and 63 nm thickness."""
     return replace(
         load_material("Al"),
-        name="Al_Fischer2023_Kaplan",
+        name="Al_Fischer2023",
         Delta_0=DELTA_0,
         T_c=T_C,
         tau_0=TAU_0,
@@ -207,10 +205,9 @@ def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]
 def _compute_tau_0_pb(spectral: SpectralContext) -> float:
     """Same definition as :func:`fig3_paper._compute_tau_0_pb`.
 
-    Reported only for the run-banner sanity check; the Kaplan thin-film
-    $\\tau_\\ell$ this script uses does **not** depend on this value,
-    unlike :mod:`fig3_paper` and :mod:`fig5_paper` whose $\\tau_\\ell$ is
-    set as a multiple of extracted $\\tau_0^{PB}$.
+    Reported for the run-banner sanity check and for the $x_{\\rm qp}$
+    Eq. 47 overlay; the numerical $\\tau_\\ell$ this script uses depends on
+    ``TAU_L_MODEL`` (default ``"tau_0_pb"`` ties it to this extraction).
     """
     K_r0_phonon_side = build_recombination_kernel_phonon_side(
         spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
@@ -309,7 +306,7 @@ def _build_state(
     f_seed: np.ndarray | None = None,
     n_ph_seed: np.ndarray | None = None,
 ) -> T3DiffusionState:
-    """Build a T3 state with Kaplan thin-film $\\tau_\\ell$ and (f, n_ph) seeds."""
+    """Build a T3 state with the ``TAU_L_MODEL`` $\\tau_\\ell$ and (f, n_ph) seeds."""
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
     omega_2d = omega.reshape(1, -1)
     if n_ph_seed is None:
@@ -651,7 +648,7 @@ def run(
         else:
             print("Sweep n̄ at three T_B with direct Delta[f] observable:")
     else:
-        print("Sweep n̄ at three T_B with self-consistent gap + Kaplan τ_ℓ:")
+        print(f"Sweep n̄ at three T_B with self-consistent gap + τ_ℓ (model={TAU_L_MODEL!r}):")
     (
         T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
         obs_num, obs_eq53, tau_l_arr,
@@ -725,7 +722,7 @@ def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
         ])
         writer.writerow([
             f"# tau_0_pb_ns={result.tau_0_pb_ns}  "
-            f"tau_l_ns={result.tau_l_ns}  (Kaplan thin-film)"
+            f"tau_l_ns={result.tau_l_ns}  (TAU_L_MODEL={TAU_L_MODEL!r})"
         ])
         writer.writerow([
             "T_bath_K", "n_bar", "T_star_over_delta",
