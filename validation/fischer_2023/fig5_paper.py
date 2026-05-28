@@ -492,6 +492,16 @@ NQP_PER_X_QP_PAPER = 2.0 * RHOF_AL_uev * DELTA_0
 
 
 _TAU_0_PB_RE = re.compile(r"tau_0_pb_ns=([\deE.+-]+)")
+_GRID_NE_RE = re.compile(r"NE=(\d+)")
+_E_MIN_RE = re.compile(r"E_min=([\deE.+-]+)\*Delta")
+_E_MAX_RE = re.compile(r"E_max=([\deE.+-]+)\*Delta")
+_HEADER_PARAM_RE = {
+    "delta_0": re.compile(r"Delta_0=([\deE.+-]+)"),
+    "tau_0": re.compile(r"tau_0=([\deE.+-]+)"),
+    "t_c": re.compile(r"T_c=([\deE.+-]+)"),
+    "omega_0": re.compile(r"omega_0=([\deE.+-]+)"),
+    "c_phot": re.compile(r"c_phot=([\deE.+-]+)"),
+}
 
 
 def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
@@ -621,6 +631,88 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
         lower_T_bath=np.array(lower_T_unique),
         lower_x_qp_num=lower_x_num,
         lower_x_qp_analytic=lower_x_ana,
+    )
+
+
+@dataclass(frozen=True)
+class BaselineMetadata:
+    """The config fingerprint :func:`write_baseline` stamps into the CSV
+    comment header — parsed back (or recomputed from the live config)
+    without touching the data rows or running the two-panel sweep.
+
+    Comparing the live config's fingerprint against the pinned baseline's is
+    the cheap preflight that lets the slow regression test reject a stale
+    config/baseline pairing in seconds rather than after the multi-minute run
+    (see :mod:`fig6_paper`, where the same pattern saves ~14 h). The four sweep
+    axes are compared separately against the baseline data rows.
+    """
+
+    delta_0: float
+    tau_0: float
+    t_c: float
+    omega_0: float
+    c_phot: float
+    num_bins: int
+    e_min_factor: float
+    e_max_factor: float
+    tau_0_pb_ns: float
+
+
+def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
+    """Parse a baseline CSV's comment header into a :class:`BaselineMetadata`.
+
+    Reads only the comment block (no data rows, no solve). Raises
+    ``RuntimeError`` if any stamped field is missing — an old/malformed header
+    should fail loudly rather than silently skip the check.
+    """
+    if path is None:
+        path = baseline_path()
+    text = path.read_text()
+
+    def _num(rx: re.Pattern[str], field: str) -> float:
+        m = rx.search(text)
+        if m is None:
+            raise RuntimeError(
+                f"Baseline header at {path} missing {field} metadata."
+            )
+        return float(m.group(1))
+
+    ne_m = _GRID_NE_RE.search(text)
+    if ne_m is None:
+        raise RuntimeError(f"Baseline header at {path} missing NE metadata.")
+    return BaselineMetadata(
+        delta_0=_num(_HEADER_PARAM_RE["delta_0"], "Delta_0"),
+        tau_0=_num(_HEADER_PARAM_RE["tau_0"], "tau_0"),
+        t_c=_num(_HEADER_PARAM_RE["t_c"], "T_c"),
+        omega_0=_num(_HEADER_PARAM_RE["omega_0"], "omega_0"),
+        c_phot=_num(_HEADER_PARAM_RE["c_phot"], "c_phot"),
+        num_bins=int(ne_m.group(1)),
+        e_min_factor=_num(_E_MIN_RE, "E_min"),
+        e_max_factor=_num(_E_MAX_RE, "E_max"),
+        tau_0_pb_ns=_num(_TAU_0_PB_RE, "tau_0_pb_ns"),
+    )
+
+
+def config_metadata() -> BaselineMetadata:
+    """Fingerprint the *current module config* would stamp into a fresh
+    baseline header — computed without the (multi-minute) two-panel sweep.
+
+    ``tau_0_pb_ns`` is produced by the exact :func:`_compute_tau_0_pb` call
+    :func:`run` makes, so it can never drift from a real run; everything else
+    is read straight off the module constants.
+    """
+    _, _, spectral = _build_grid_and_spectral()
+    tau_0_pb = _compute_tau_0_pb(spectral)
+    return BaselineMetadata(
+        delta_0=DELTA_0,
+        tau_0=TAU_0,
+        t_c=T_C,
+        omega_0=OMEGA_0,
+        c_phot=C_PHOT,
+        num_bins=NUM_BINS,
+        e_min_factor=E_MIN_FACTOR,
+        e_max_factor=E_MAX_FACTOR,
+        tau_0_pb_ns=tau_0_pb,
     )
 
 
