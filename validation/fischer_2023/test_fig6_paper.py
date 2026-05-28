@@ -21,14 +21,75 @@ import numpy as np
 import pytest
 
 from validation.fischer_2023.fig6_paper import (
+    N_BAR_VALUES,
+    T_BATH_VALUES,
     baseline_path,
+    config_metadata,
     read_baseline,
+    read_baseline_metadata,
     run,
 )
 
-pytestmark = pytest.mark.slow
+
+def _assert_config_matches_baseline(path) -> None:
+    """Cheap preflight (~1 s, no solve): the live module config must match the
+    pinned baseline's stamped header + sweep axes.
+
+    Gating the ~14 h :func:`run` behind this turns a stale config/baseline
+    pairing — a ``TAU_L_MODEL`` swap, a grid change, a sweep-range edit — into
+    a seconds-long failure instead of one discovered only after the full
+    sweep. Compares the config fingerprint against the baseline header, and
+    the configured sweep axes against the baseline's data rows.
+    """
+    cfg = config_metadata()
+    meta = read_baseline_metadata(path)
+    axes = read_baseline(path)
+
+    assert cfg.tau_l_model == meta.tau_l_model, (
+        f"TAU_L_MODEL config={cfg.tau_l_model!r} != baseline {meta.tau_l_model!r}; "
+        "regenerate the baseline or restore the model before the slow run."
+    )
+    assert cfg.num_bins == meta.num_bins, (
+        f"grid NE config={cfg.num_bins} != baseline {meta.num_bins}"
+    )
+    assert cfg.e_min_factor == pytest.approx(meta.e_min_factor)
+    assert cfg.e_max_factor == pytest.approx(meta.e_max_factor)
+    assert cfg.delta_0 == pytest.approx(meta.delta_0)
+    assert cfg.tau_0 == pytest.approx(meta.tau_0)
+    assert cfg.t_c == pytest.approx(meta.t_c, rel=1e-6)  # header stores 6 dp
+    assert cfg.omega_0 == pytest.approx(meta.omega_0)
+    assert cfg.c_phot == pytest.approx(meta.c_phot)
+    assert cfg.film_thickness_nm == pytest.approx(meta.film_thickness_nm)
+    assert cfg.eta == pytest.approx(meta.eta)
+    assert cfg.tau_0_pb_ns == pytest.approx(meta.tau_0_pb_ns, rel=1e-8)
+    assert cfg.tau_l_ns == pytest.approx(meta.tau_l_ns, rel=1e-8)
+    np.testing.assert_allclose(
+        np.asarray(T_BATH_VALUES, dtype=float), axes.T_bath,
+        rtol=0.0, atol=1e-14,
+        err_msg="T_bath sweep axis differs from baseline",
+    )
+    np.testing.assert_allclose(
+        N_BAR_VALUES, axes.n_bar, rtol=1e-12, atol=0.0,
+        err_msg="n_bar sweep axis (range/count) differs from baseline",
+    )
 
 
+def test_config_matches_baseline_metadata() -> None:
+    """Fast tripwire (not slow-marked): config fingerprint matches the pinned
+    baseline header.
+
+    This is the standing fast-suite guard that would have caught the τ_ℓ-model
+    / baseline mismatch that once wasted 9.5 h. The slow
+    ``test_matches_pinned_baseline`` re-runs the same check inline so the 14 h
+    sweep is gated even when this fast test is not selected.
+    """
+    path = baseline_path()
+    if not path.exists():
+        pytest.skip(f"Baseline not found at {path}.")
+    _assert_config_matches_baseline(path)
+
+
+@pytest.mark.slow
 def test_matches_pinned_baseline() -> None:
     path = baseline_path()
     if not path.exists():
@@ -36,6 +97,10 @@ def test_matches_pinned_baseline() -> None:
             f"Baseline not found at {path}. "
             "Generate it with: python -m validation.fischer_2023.fig6_paper"
         )
+
+    # Cheap preflight first (~1 s): reject a stale config/baseline pairing
+    # before the ~14 h run() below, instead of after it.
+    _assert_config_matches_baseline(path)
 
     baseline = read_baseline(path)
     result = run()

@@ -701,6 +701,19 @@ def plot_path() -> Path:
 
 _TAU_0_PB_RE = re.compile(r"tau_0_pb_ns=([\deE.+-]+)")
 _TAU_L_RE = re.compile(r"tau_l_ns=([\deE.+-]+)")
+_TAU_L_MODEL_RE = re.compile(r"TAU_L_MODEL='([^']*)'")
+_GRID_NE_RE = re.compile(r"NE=(\d+)")
+_E_MIN_RE = re.compile(r"E_min=([\deE.+-]+)\*Delta")
+_E_MAX_RE = re.compile(r"E_max=([\deE.+-]+)\*Delta")
+_HEADER_PARAM_RE = {
+    "delta_0": re.compile(r"Delta_0=([\deE.+-]+)"),
+    "tau_0": re.compile(r"tau_0=([\deE.+-]+)"),
+    "t_c": re.compile(r"T_c=([\deE.+-]+)"),
+    "omega_0": re.compile(r"omega_0=([\deE.+-]+)"),
+    "c_phot": re.compile(r"c_phot=([\deE.+-]+)"),
+    "film_thickness_nm": re.compile(r"film_thickness_nm=([\deE.+-]+)"),
+    "eta": re.compile(r"eta=([\deE.+-]+)"),
+}
 
 
 def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
@@ -818,6 +831,110 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
         paper_observable_eq53=obs_eq53,
         x_qp_num=x_qp_num,
         x_qp_eq47=x_qp_eq47,
+    )
+
+
+@dataclass(frozen=True)
+class BaselineMetadata:
+    """The config fingerprint :func:`write_baseline` stamps into the CSV
+    comment header — parsed back (or recomputed from the live config)
+    without touching the data rows or running the sweep.
+
+    Comparing the live config's fingerprint against the pinned baseline's is
+    the **cheap preflight** that lets the slow regression test reject a stale
+    config/baseline pairing in seconds instead of after the ~14 h sweep (the
+    failure mode that once burned 9.5 h: baseline pinned at
+    ``TAU_L_MODEL='acoustic_escape'`` / 368 ps while the script default is
+    ``'tau_0_pb'`` / 255 ps).
+    """
+
+    delta_0: float
+    tau_0: float
+    t_c: float
+    omega_0: float
+    c_phot: float
+    film_thickness_nm: float
+    eta: float
+    num_bins: int
+    e_min_factor: float
+    e_max_factor: float
+    tau_0_pb_ns: float
+    tau_l_ns: float
+    tau_l_model: str
+
+
+def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
+    """Parse a baseline CSV's comment header into a :class:`BaselineMetadata`.
+
+    Reads only the comment block (no data rows, no solve), so it is cheap
+    enough for a preflight. Raises ``RuntimeError`` if any field the writer
+    stamps is missing — a malformed/old header should fail loudly, not
+    silently skip the check.
+    """
+    if path is None:
+        path = baseline_path()
+    text = path.read_text()
+
+    def _num(rx: re.Pattern[str], field: str) -> float:
+        m = rx.search(text)
+        if m is None:
+            raise RuntimeError(
+                f"Baseline header at {path} missing {field} metadata."
+            )
+        return float(m.group(1))
+
+    ne_m = _GRID_NE_RE.search(text)
+    model_m = _TAU_L_MODEL_RE.search(text)
+    if ne_m is None or model_m is None:
+        raise RuntimeError(
+            f"Baseline header at {path} missing NE / TAU_L_MODEL metadata."
+        )
+    return BaselineMetadata(
+        delta_0=_num(_HEADER_PARAM_RE["delta_0"], "Delta_0"),
+        tau_0=_num(_HEADER_PARAM_RE["tau_0"], "tau_0"),
+        t_c=_num(_HEADER_PARAM_RE["t_c"], "T_c"),
+        omega_0=_num(_HEADER_PARAM_RE["omega_0"], "omega_0"),
+        c_phot=_num(_HEADER_PARAM_RE["c_phot"], "c_phot"),
+        film_thickness_nm=_num(_HEADER_PARAM_RE["film_thickness_nm"], "film_thickness_nm"),
+        eta=_num(_HEADER_PARAM_RE["eta"], "eta"),
+        num_bins=int(ne_m.group(1)),
+        e_min_factor=_num(_E_MIN_RE, "E_min"),
+        e_max_factor=_num(_E_MAX_RE, "E_max"),
+        tau_0_pb_ns=_num(_TAU_0_PB_RE, "tau_0_pb_ns"),
+        tau_l_ns=_num(_TAU_L_RE, "tau_l_ns"),
+        tau_l_model=model_m.group(1),
+    )
+
+
+def config_metadata() -> BaselineMetadata:
+    """Fingerprint the *current module config* would stamp into a fresh
+    baseline header — computed without the (~14 h) sweep.
+
+    ``tau_0_pb_ns`` and ``tau_l_ns`` are produced by the exact same calls
+    :func:`run` makes (:func:`_compute_tau_0_pb` and the ``τ_ℓ`` of a freshly
+    built state), so this can never drift from what a real run would write;
+    everything else is read straight off the module constants.
+    """
+    material = _fischer_material()
+    _, _, spectral = _build_grid_and_spectral()
+    tau_0_pb = _compute_tau_0_pb(spectral)
+    tau_l = float(
+        _build_state(material, spectral, T_BATH_VALUES[0]).phonon.tau_l[0, 0]
+    )
+    return BaselineMetadata(
+        delta_0=DELTA_0,
+        tau_0=TAU_0,
+        t_c=T_C,
+        omega_0=OMEGA_0,
+        c_phot=C_PHOT,
+        film_thickness_nm=FILM_THICKNESS_NM,
+        eta=SUBSTRATE_ETA,
+        num_bins=NUM_BINS,
+        e_min_factor=E_MIN_FACTOR,
+        e_max_factor=E_MAX_FACTOR,
+        tau_0_pb_ns=tau_0_pb,
+        tau_l_ns=tau_l,
+        tau_l_model=TAU_L_MODEL,
     )
 
 
