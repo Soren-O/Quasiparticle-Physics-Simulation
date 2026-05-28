@@ -35,6 +35,14 @@ from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
 
+# Picard convergence floors the per-bin relative-change denominator at this
+# fraction of the peak n_ph occupation, so near-zero bins — whose iterate-to-
+# iterate change is dominated by the inner Newton's ~tol float noise (~1e-11) —
+# cannot pin the convergence metric. See the convergence check in
+# :func:`solve_steady_state`.
+_PICARD_DENOM_FLOOR_FRAC = 1e-3
+
+
 def solve_steady_state(
     ctx: SpectralContext,
     K_s0: np.ndarray | None,
@@ -216,10 +224,20 @@ def solve_steady_state(
             if on_physical:
                 n_ph_physical = n_ph.copy()
 
-        # Convergence check on n_ph.
+        # Convergence on n_ph: per-bin relative change, but with the denominator
+        # floored at a small fraction of the peak occupation rather than at
+        # picard_tol. The inner Newton converges f only to ~tol, so n_ph carries
+        # a ~1e-11 absolute float-noise floor; the old "+ picard_tol" (1e-7)
+        # floor let a near-zero bin's noise (|Δn|~1e-11 at n_ph~1e-8..1e-6)
+        # masquerade as a ~1e-5 relative change that never reached picard_tol,
+        # stalling an otherwise-converged solve (Fischer Fig. 7 at -64 dBm,
+        # T_B=0.10 K). Bins carrying meaningful occupation keep their true
+        # relative tolerance, so the observable stays tightly converged.
         fp_change = np.abs(n_ph_new - n_ph)
-        fp_scale = np.maximum(np.abs(n_ph), np.abs(n_ph_new)) + picard_tol
-        max_rel_change = float(np.max(fp_change / fp_scale))
+        scale = np.maximum(np.abs(n_ph), np.abs(n_ph_new))
+        peak = float(np.max(scale))
+        denom = scale + _PICARD_DENOM_FLOOR_FRAC * peak
+        max_rel_change = float(np.max(fp_change / denom)) if peak > 0.0 else 0.0
 
         if max_rel_change < picard_tol:
             if use_anderson and x_qp_ref > 0 and not on_physical:
