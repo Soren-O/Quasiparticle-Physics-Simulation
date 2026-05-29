@@ -34,30 +34,33 @@ companion driver services. The canonical reference remains
   `τ_l/τ_PB ≥ 10` regime where Picard stalls.
 - `picard.py` — Mixed-Picard fixed point with optional Anderson
   acceleration; relative-L∞ convergence test.
-- `anderson.py` — Type-I Anderson, regularized least-squares with
-  `rcond=1e-10`. Returns `None` on `m < 2` so Picard falls back to a
-  plain mixed step.
+- `anderson.py` — Type-II Anderson (least-squares on residual
+  differences; "bad Broyden"), regularized with `rcond=1e-10`. Returns
+  `None` on `m < 2` so Picard falls back to a plain mixed step.
 
 ## Time integrators
 
 - `etd.py` — ETD2 collision substep (Heun-style predictor–corrector
   on the affine `(gain, loss_rate)` form). The exponential factor is
-  fallen back to its first-order Taylor series for `|μ·dt| < 1e-14`
-  to avoid catastrophic cancellation. Verified second-order in `dt`.
+  fallen back to its first-order Taylor series for `μ < 1e-14` (a
+  `dt`-independent decay-rate floor) to avoid catastrophic cancellation.
+  Verified second-order in `dt`.
 - `crank_nicolson.py` — Diffusion stepper with `(I − αL)` /
   `(I + αL)` operators, sparse LU factorization. Conservation
   preserved on reflective boundaries.
 - `spectral_flow_tvd.py` — TVD spectral-flow advection for the
-  gap-update term `(Δ/E) · Δ̇ ∂_E f`. Minmod limiter, upwind flux,
-  zero-flux boundary at `E < Δ`.
+  gap-update term `(Δ/E) · Δ̇ ∂_E f`. Monotonized-centered (MC) limiter
+  (3-arg minmod reconstruction), upwind flux, zero-flux boundary at `E < Δ`.
 - `ssprk.py` — SSPRK(2,2) (Heun) for combined transport+collision
   steps when ETD2 is not the right tool.
 
 ## Driver services (`qpsim.services.*`)
 
-- `steady_state.py` — routes among Newton / Picard / Anderson /
-  coupled-Newton based on the requested method and the phonon
-  configuration. Shape and grid validation happens at this layer.
+- `steady_state.py` — routes between Newton (frozen `n_ph`) and Picard
+  (finite `τ_l`) on the phonon configuration; Anderson is a Picard
+  sub-mode (`anderson_depth > 0`), and coupled-Newton is invoked directly
+  by callers that need it (e.g. fig6), not via this router. Shape and grid
+  validation happens at this layer.
 - `nbar_loop.py` — Fischer 2023 Eqs. 59–60 fixed point on `(n̄, Q_i)`
   for KID readout-power sweeps.
 - `transient.py` — `run_time_dependent` driver: ETD2 substeps,
