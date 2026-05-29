@@ -23,21 +23,37 @@ Usage:
 from __future__ import annotations
 
 import csv
+import inspect
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
-from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
-from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.materials.database import Material
 from qpsim.observables.ac_conductivity import compute_ac_conductivity
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
-from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+
+from validation import sweep_cache
+from validation.fischer_2023 import fig7_solve
+from validation.fischer_2023.fig7_solve import (
+    C_PHOT,
+    DELTA_0,
+    E_MAX_FACTOR,
+    E_MIN_FACTOR,
+    NUM_BINS,
+    OMEGA_0,
+    P_READ_DBM,
+    T_BATH_VALUES,
+    T_C,
+    TAU_0,
+    TAU_0_PB,
+    TAU_L,
+    TSTAR_OVER_DELTA,
+    _build_grid,
+    solve,
+    solver_fingerprint,
+)
 
 _CACHE_ROOT = Path("/private/tmp/qpsim-cache")
 _MPLCONFIGDIR = _CACHE_ROOT / "matplotlib"
@@ -47,29 +63,13 @@ _XDG_CACHE_HOME.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(_MPLCONFIGDIR))
 os.environ.setdefault("XDG_CACHE_HOME", str(_XDG_CACHE_HOME))
 
-# Fischer 2023 Tables II/III.
-DELTA_0 = 189.0
-TAU_0 = 63.0
-T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
-OMEGA_0 = 22.0
-C_PHOT = 0.06e-9
-TAU_0_PB = 0.040
-TAU_L = 0.170
+# Observable-only constants — they do NOT affect the kinetic solve, so they live
+# here rather than in fig7_solve: editing them keeps a cached solve warm. ALPHA_KI
+# (kinetic-inductance fraction) enters only Q_i,qp = pi Delta / (omega_0 alpha
+# sigma_1); Q_EXT only the parallel-loss cap (Eq. 65). Every solve-affecting
+# Table II/III constant (Delta_0, omega_0, tau_l, grid, P_read, T*/Delta, T_bath,
+# and the solver knobs) lives in fig7_solve and is imported above.
 ALPHA_KI = 0.13
-
-E_MIN_FACTOR = 1.0
-E_MAX_FACTOR = 10.0
-NUM_BINS = 1701  # h = Delta / 189, E in [Delta, 10 Delta].
-
-P_READ_DBM: tuple[float, ...] = (-100.0, -90.0, -80.0, -72.0, -68.0, -64.0)
-TSTAR_OVER_DELTA: dict[float, float] = {
-    -100.0: 0.12,
-    -90.0: 0.18,
-    -80.0: 0.26,
-    -72.0: 0.36,
-    -68.0: 0.42,
-    -64.0: 0.49,
-}
 Q_EXT_BY_DBM: dict[float, float] = {
     -100.0: 2.5e6,
     -90.0: 2.5e6,
@@ -78,11 +78,6 @@ Q_EXT_BY_DBM: dict[float, float] = {
     -68.0: 0.9e6,
     -64.0: 0.7e6,
 }
-
-# A compact curve grid.  The standalone reproduction uses a denser visual grid;
-# this is enough to pin the plateau and high-temperature rolloff without making
-# the slow validation suite painfully large.
-T_BATH_VALUES: tuple[float, ...] = (0.06, 0.10, 0.14, 0.18, 0.22, 0.26, 0.30, 0.34)
 
 
 @dataclass(frozen=True)
@@ -95,89 +90,52 @@ class Fig7PaperResult:
     sigma1_by_dbm: dict[float, np.ndarray]
 
 
-def _paper_material() -> Material:
-    return Material(
-        name="Al_Fischer2023_TableII",
-        Delta_0=DELTA_0,
-        T_c=T_C,
-        tau_0=TAU_0,
-        tau_0_pb_ns=TAU_0_PB,
-    )
-
-
-def _nbar_from_table_iii(power_dbm: float) -> float:
-    """Return nbar whose Tstar,0/Delta matches Fischer Table III."""
-    target = TSTAR_OVER_DELTA[float(power_dbm)] * DELTA_0
-    T_c_uev = T_C * KB_UEV_PER_K
-    denom = (
-        (105.0 / 64.0)
-        * T_c_uev**3
-        * DELTA_0
-        * (C_PHOT * TAU_0)
-        * OMEGA_0**2
-    )
-    return float(target**6 / denom)
-
-
 def _parallel_quality_factor(Q_qp: float, Q_ext: float) -> float:
     if not np.isfinite(Q_qp):
         return float(Q_ext)
     return float(1.0 / (1.0 / Q_qp + 1.0 / Q_ext))
 
 
-def _build_grid(num_bins: int = NUM_BINS) -> tuple[SpectralContext, np.ndarray]:
-    E, dE_scalar = build_energy_grid(
-        gap=DELTA_0,
-        energy_min_factor=E_MIN_FACTOR,
-        energy_max_factor=E_MAX_FACTOR,
-        num_energy_bins=num_bins,
-    )
-    shift = OMEGA_0 / dE_scalar
-    if abs(shift - round(shift)) > 1e-10:
-        raise ValueError(
-            f"Fig. 7 paper grid must be commensurate with omega_0. "
-            f"Got dE={dE_scalar:.6g}, omega_0/dE={shift:.6g}."
-        )
-    dE = integration_widths_from_centers(E)
-    spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
-    omega, _, _, _ = build_phonon_frequency_map(E)
-    return spectral, omega
+def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
+    """Derive sigma_1 / Q_i,qp / Q_i,tot from a raw :func:`fig7_solve.solve` payload.
 
+    The cheap downstream half of Fig. 7: rebuilds the (deterministic) spectral
+    grid and evaluates the Mattis-Bardeen sigma_1 and the quality factors per
+    (power, T_bath) point. A pure function of ``raw`` — this is what the cache
+    leaves uncached, so editing it never triggers a re-solve.
+    """
+    T_values = np.asarray(raw["temperatures"], dtype=float)
+    powers = tuple(float(p) for p in raw["powers_dbm"])
+    n_bar = np.asarray(raw["n_bar"], dtype=float)
+    num_bins = int(np.asarray(raw["num_bins"]).reshape(-1)[0])
+    f_solved = np.asarray(raw["f_solved"], dtype=float)
 
-def _fermi_dirac(E: np.ndarray, T_bath: float) -> np.ndarray:
-    kT = KB_UEV_PER_K * T_bath
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    spectral, _omega = _build_grid(num_bins)
 
+    n_bar_by_dbm = {p: float(n_bar[pi]) for pi, p in enumerate(powers)}
+    Q_qp_by_dbm = {p: np.zeros_like(T_values) for p in powers}
+    Q_tot_by_dbm = {p: np.zeros_like(T_values) for p in powers}
+    sigma1_by_dbm = {p: np.zeros_like(T_values) for p in powers}
 
-def _build_state(
-    material: Material,
-    spectral: SpectralContext,
-    omega: np.ndarray,
-    T_bath: float,
-    *,
-    f_seed: np.ndarray | None = None,
-    n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
-    f0 = _fermi_dirac(spectral.E, T_bath) if f_seed is None else f_seed.copy()
-    n_ph = (
-        thermal_phonon_occupation(omega, T_bath)
-        if n_ph_seed is None
-        else n_ph_seed.copy()
-    )
-    phonon = PhononState(
-        n_ph=n_ph.reshape(1, -1, 1),
-        omega_bins=omega.reshape(1, -1),
-        tau_l=np.full((1, omega.size), TAU_L),
-        model=PhononModel.PH0_LOCAL,
-        branches=[PhononBranchSpec(name="debye_average")],
-    )
-    return T3DiffusionState(
-        f=f0,
-        gap=DELTA_0,
-        spectral=spectral,
-        phonon=phonon,
-        material=material,
-        T_bath=T_bath,
+    for pi, p in enumerate(powers):
+        for i in range(T_values.size):
+            sigma1, _ = compute_ac_conductivity(f_solved[pi, i], spectral, OMEGA_0)
+            Q_qp = (
+                np.pi * DELTA_0 / (OMEGA_0 * ALPHA_KI * sigma1)
+                if sigma1 > 0.0
+                else float("inf")
+            )
+            Q_qp_by_dbm[p][i] = Q_qp
+            Q_tot_by_dbm[p][i] = _parallel_quality_factor(Q_qp, Q_EXT_BY_DBM[p])
+            sigma1_by_dbm[p][i] = sigma1
+
+    return Fig7PaperResult(
+        T_bath=T_values,
+        p_read_dbm=powers,
+        n_bar_by_dbm=n_bar_by_dbm,
+        Q_qp_by_dbm=Q_qp_by_dbm,
+        Q_tot_by_dbm=Q_tot_by_dbm,
+        sigma1_by_dbm=sigma1_by_dbm,
     )
 
 
@@ -187,59 +145,46 @@ def run(
     powers_dbm: tuple[float, ...] = P_READ_DBM,
     num_bins: int = NUM_BINS,
 ) -> Fig7PaperResult:
-    material = _paper_material()
-    spectral, omega = _build_grid(num_bins)
-    backend = T3DiffusionBackend()
+    """Solve the sweep and derive observables — the pure, uncached path.
 
-    T_values = np.array(temperatures, dtype=float)
-    n_bar_by_dbm = {p: _nbar_from_table_iii(p) for p in powers_dbm}
-    Q_qp_by_dbm = {p: np.zeros_like(T_values) for p in powers_dbm}
-    Q_tot_by_dbm = {p: np.zeros_like(T_values) for p in powers_dbm}
-    sigma1_by_dbm = {p: np.zeros_like(T_values) for p in powers_dbm}
-
-    for p_dbm in powers_dbm:
-        nbar = n_bar_by_dbm[p_dbm]
-        photon_params = {"omega_0": OMEGA_0, "n_bar": nbar, "c_phot": C_PHOT}
-
-        for i, T_bath in enumerate(T_values):
-            state = _build_state(
-                material,
-                spectral,
-                omega,
-                float(T_bath),
-            )
-            solved = backend.steady_state(
-                state,
-                method="picard",
-                use_phonon_side_kernel=True,
-                photon_params=photon_params,
-                picard_tol=1e-7,
-                picard_max_iter=500,
-                picard_mixing=0.2,
-                anderson_depth=3,
-                newton_tol=1e-11,
-                newton_max_iter=300,
-            )
-            sigma1, _ = compute_ac_conductivity(solved.f, solved.spectral, OMEGA_0)
-            Q_qp = (
-                np.pi * DELTA_0 / (OMEGA_0 * ALPHA_KI * sigma1)
-                if sigma1 > 0.0
-                else float("inf")
-            )
-            Q_qp_by_dbm[p_dbm][i] = Q_qp
-            Q_tot_by_dbm[p_dbm][i] = _parallel_quality_factor(
-                Q_qp, Q_EXT_BY_DBM[p_dbm],
-            )
-            sigma1_by_dbm[p_dbm][i] = sigma1
-
-    return Fig7PaperResult(
-        T_bath=T_values,
-        p_read_dbm=powers_dbm,
-        n_bar_by_dbm=n_bar_by_dbm,
-        Q_qp_by_dbm=Q_qp_by_dbm,
-        Q_tot_by_dbm=Q_tot_by_dbm,
-        sigma1_by_dbm=sigma1_by_dbm,
+    Exactly ``observables(solve(...))``. The ``@pytest.mark.slow`` regression
+    test calls this so it always truly recomputes against the pinned baseline;
+    the cached dev / regen path is :func:`run_cached`.
+    """
+    return observables(
+        solve(temperatures=temperatures, powers_dbm=powers_dbm, num_bins=num_bins)
     )
+
+
+def run_cached(
+    *,
+    temperatures: tuple[float, ...] = T_BATH_VALUES,
+    powers_dbm: tuple[float, ...] = P_READ_DBM,
+    num_bins: int = NUM_BINS,
+) -> Fig7PaperResult:
+    """Like :func:`run`, but the expensive solve is served from the disk cache
+    when nothing solve-relevant has changed (see :mod:`validation.sweep_cache`).
+
+    Used by the regen / ``__main__`` path. Editing the observables or plotting
+    code in this module does not invalidate the cached solve; any edit to
+    :mod:`fig7_solve` or to the ``qpsim`` solver subtree does. Disable entirely
+    with ``QPSIM_SWEEP_CACHE=0``.
+    """
+    kwargs = {
+        "temperatures": [float(x) for x in temperatures],
+        "powers_dbm": [float(x) for x in powers_dbm],
+        "num_bins": int(num_bins),
+    }
+    raw = sweep_cache.cached_solve(
+        "fischer_2023/fig7",
+        lambda: solve(
+            temperatures=temperatures, powers_dbm=powers_dbm, num_bins=num_bins
+        ),
+        fingerprint=solver_fingerprint(num_bins=num_bins),
+        kwargs=kwargs,
+        extra_source=inspect.getsource(fig7_solve),
+    )
+    return observables(raw)
 
 
 def baseline_path() -> Path:
@@ -446,8 +391,6 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
     # parallel with Q_ext (Eq. 65). Closed-form, no kinetic solve needed.
     from scipy.special import k0 as _k0
 
-    Tc_uev = T_C * KB_UEV_PER_K
-    A35 = (105.0 / 64.0) * Tc_uev ** 3 * DELTA_0 * (C_PHOT * TAU_0) * OMEGA_0 ** 2
     GAMMA0 = 19.3
 
     def _Qth(T_K: float) -> float:
@@ -505,7 +448,7 @@ def generate_baseline() -> tuple[Path, Path]:
     )
     print(f"  P_read (dBm): {list(P_READ_DBM)}")
     print(f"  T_B: {list(T_BATH_VALUES)}")
-    result = run()
+    result = run_cached()
     csv_path = write_baseline(result)
     pdf_path = write_plot(result)
     print(f"  wrote {csv_path}")

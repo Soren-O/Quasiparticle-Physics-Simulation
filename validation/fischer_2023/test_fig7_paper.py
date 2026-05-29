@@ -6,16 +6,17 @@ import numpy as np
 import pytest
 
 from validation.fischer_2023.fig7_paper import (
+    NUM_BINS,
     P_READ_DBM,
     Q_EXT_BY_DBM,
     T_BATH_VALUES,
-    _nbar_from_table_iii,
     baseline_path,
     config_metadata,
     read_baseline,
     read_baseline_metadata,
     run,
 )
+from validation.fischer_2023.fig7_solve import _nbar_from_table_iii
 
 
 def _assert_config_matches_baseline(path) -> None:
@@ -109,3 +110,71 @@ def test_low_temperature_plateau_is_extrinsic_limited() -> None:
     assert result.Q_tot_by_dbm[-64.0][0] == pytest.approx(
         Q_EXT_BY_DBM[-64.0], rel=1e-6,
     )
+
+
+class TestFig7CacheIntegration:
+    """The cached regen path (:func:`run_cached`) wraps the same solve/observables
+    split and serves an unchanged solve from disk. The expensive solve is stubbed
+    so the test is fast; it exercises the real cache + observables wiring (not the
+    Picard solver). Engine-level key/store properties are covered separately in
+    ``tests/validation/test_sweep_cache.py``.
+    """
+
+    def _stub_payload(self) -> dict:
+        # One (power, T) point on the real NUM_BINS grid; f is a placeholder
+        # occupation — observables only needs a valid array on the grid.
+        f_solved = np.full((1, 1, NUM_BINS), 1e-6, dtype=float)
+        return {
+            "f_solved": f_solved,
+            "temperatures": np.array([0.10], dtype=float),
+            "powers_dbm": np.array([-64.0], dtype=float),
+            "n_bar": np.array([1.234e5], dtype=float),
+            "num_bins": np.array([NUM_BINS]),
+        }
+
+    def test_run_cached_hits_disk_on_second_call(self, tmp_path, monkeypatch) -> None:
+        import validation.fischer_2023.fig7_paper as fp
+
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE", "1")
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE_DIR", str(tmp_path))
+
+        calls = {"n": 0}
+        payload = self._stub_payload()
+
+        def stub_solve(**kwargs):
+            calls["n"] += 1
+            return {k: v.copy() for k, v in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+
+        r1 = fp.run_cached(temperatures=(0.10,), powers_dbm=(-64.0,))
+        assert calls["n"] == 1  # cache miss -> solve ran once
+
+        r2 = fp.run_cached(temperatures=(0.10,), powers_dbm=(-64.0,))
+        assert calls["n"] == 1  # cache hit -> solve NOT re-run
+
+        ref = fp.observables(payload)
+        for res in (r1, r2):
+            np.testing.assert_allclose(res.Q_qp_by_dbm[-64.0], ref.Q_qp_by_dbm[-64.0])
+            np.testing.assert_allclose(res.Q_tot_by_dbm[-64.0], ref.Q_tot_by_dbm[-64.0])
+            np.testing.assert_allclose(res.sigma1_by_dbm[-64.0], ref.sigma1_by_dbm[-64.0])
+            assert res.n_bar_by_dbm[-64.0] == pytest.approx(1.234e5)
+
+    def test_run_cached_disabled_always_recomputes(self, tmp_path, monkeypatch) -> None:
+        import validation.fischer_2023.fig7_paper as fp
+
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE", "0")
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE_DIR", str(tmp_path))
+
+        calls = {"n": 0}
+        payload = self._stub_payload()
+
+        def stub_solve(**kwargs):
+            calls["n"] += 1
+            return {k: v.copy() for k, v in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+
+        fp.run_cached(temperatures=(0.10,), powers_dbm=(-64.0,))
+        fp.run_cached(temperatures=(0.10,), powers_dbm=(-64.0,))
+        assert calls["n"] == 2  # disabled -> recompute each call
