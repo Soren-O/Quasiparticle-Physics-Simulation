@@ -1,12 +1,14 @@
-"""Quasiparticle number density and Fischer-convention ``x_qp``.
+"""Quasiparticle number density and qpsim-convention ``x_qp``.
 
 Two observables:
 
 * :func:`qp_number_density` — returns ``n_qp = 4 ρ_F ∫_Δ^∞ ρ(E) f(E) dE``,
   the QP number density per volume (the factor-of-4 absorbs spin × 2 and
   particle/hole × 2, matching Fischer 2023 Eq. 4 normalization).
-* :func:`qp_fraction` — returns the dimensionless ``x_qp = n_qp / (4 ρ_F Δ_0)``.
-  The ``ρ_F`` factor cancels, so this function doesn't need it.
+* :func:`qp_fraction` — returns the dimensionless ``x_qp = n_qp / (4 ρ_F Δ_0)``,
+  which is **half** the Fischer/Catelani paper convention ``n_qp / (2 ρ_F Δ_0)``
+  (see that function's docstring). The ``ρ_F`` factor cancels, so it isn't an
+  argument.
 
 Both take a :class:`SpectralContext` for ``ρ(E)`` (BCS or Dynes) and
 the cell-centered integration weights ``dE``.
