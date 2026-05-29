@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.collisions.phonon import (
     build_recombination_kernel_base,
     build_scattering_kernel_base,
@@ -10,7 +11,11 @@ from qpsim.collisions.phonon import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.spectral import SpectralContext
-from qpsim.services.steady_state import solve_steady_state
+from qpsim.services.steady_state import (
+    _PICARD_DENOM_FLOOR_FRAC,
+    _picard_max_rel_change,
+    solve_steady_state,
+)
 
 
 def _setup(T_bath: float = 0.3, T_c: float = 1.2, num: int = 30):
@@ -82,3 +87,56 @@ class TestFiniteTauLPath:
         kT = KB_UEV_PER_K * T_bath
         f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
         np.testing.assert_allclose(f, f_FD, atol=1e-4)
+
+
+class TestPicardConvergenceMetric:
+    """Unit tests for the finite-τ_l Picard convergence metric.
+
+    Regression coverage for the near-zero-bin stall fixed in f041a85
+    (Fischer Fig. 7 at P_read=-64 dBm, T_B=0.10 K): a fully-settled solve whose
+    only "unconverged" bin was a sub-gap occupation oscillating at the inner
+    Newton's ~1e-11 float-noise floor.
+    """
+
+    def test_near_zero_bin_noise_does_not_pin_metric(self) -> None:
+        # One dominant bin settled to its true relative tolerance, plus a
+        # near-zero sub-gap bin carrying only ~1e-11 inner-Newton float noise
+        # on a ~1e-6 occupation (|Δ|/n ~ 1e-5). The peak-scaled floor must
+        # treat the near-zero bin as negligible and report convergence.
+        picard_tol = 1e-7  # Fischer Fig. 7's picard_tol
+        peak = 8.0
+        n_ph = np.array([peak, 1e-6])
+        n_ph_new = np.array([peak * (1.0 + 1e-9), 1e-6 + 1e-11])
+
+        assert _picard_max_rel_change(n_ph, n_ph_new) < picard_tol
+
+        # The OLD metric (denominator floored at picard_tol) would have stalled:
+        # the near-zero bin's noise masquerades as a ~1e-5 relative change.
+        old_denom = np.maximum(np.abs(n_ph), np.abs(n_ph_new)) + picard_tol
+        old_metric = float(np.max(np.abs(n_ph_new - n_ph) / old_denom))
+        assert old_metric > picard_tol
+
+    def test_peak_bin_keeps_true_relative_tolerance(self) -> None:
+        # A real change on the dominant bin must still register at ~its true
+        # relative size — the floor must not loosen meaningful bins.
+        n_ph = np.array([8.0, 4.0])
+        n_ph_new = np.array([8.0 * (1.0 + 1e-3), 4.0])
+        assert _picard_max_rel_change(n_ph, n_ph_new) == pytest.approx(1e-3, rel=0.05)
+
+    def test_sub_peak_bin_above_floor_keeps_true_relative(self) -> None:
+        # A bin at 10 % of peak sits well above the 0.1 %-of-peak floor, so a
+        # 1 % change there is caught at close to its true relative size.
+        n_ph = np.array([8.0, 0.8])
+        n_ph_new = np.array([8.0, 0.8 * (1.0 + 1e-2)])
+        expected = 0.008 / (0.808 + _PICARD_DENOM_FLOOR_FRAC * 8.0)
+        metric = _picard_max_rel_change(n_ph, n_ph_new)
+        assert metric == pytest.approx(expected, rel=1e-9)
+        assert metric > 1e-3
+
+    def test_all_zero_is_trivially_converged(self) -> None:
+        z = np.zeros(5)
+        assert _picard_max_rel_change(z, z) == 0.0
+
+    def test_identical_iterates_are_converged(self) -> None:
+        n_ph = np.array([8.0, 1e-6, 0.0])
+        assert _picard_max_rel_change(n_ph, n_ph.copy()) == 0.0
