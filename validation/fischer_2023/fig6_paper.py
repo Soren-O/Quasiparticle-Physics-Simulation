@@ -72,7 +72,7 @@ import qpsim.observables.gap_suppression as _gap_suppression_mod
 from qpsim.constants import KB_UEV_PER_K
 
 from validation import sweep_cache
-from validation.fischer_2023 import fig6_solve
+from validation.fischer_2023 import fig5_paper, fig5_solve, fig6_solve
 from validation.fischer_2023.fig6_solve import (
     C_PHOT,
     DELTA_0,
@@ -175,8 +175,9 @@ def run_cached(
 
     Used by the regen / ``__main__`` path. Editing the plotting code here keeps
     the cached solve warm; editing :mod:`fig6_solve`, the qpsim solver subtree,
-    or the qpsim ``gap_suppression`` / ``density`` modules (whose outputs the
-    gated solve stores) invalidates it. Disable with ``QPSIM_SWEEP_CACHE=0``. The
+    the qpsim ``gap_suppression`` / ``density`` modules, or ``fig5_paper`` /
+    ``fig5_solve`` (the Eq.47 overlay helper) — all of whose outputs the gated
+    solve stores — invalidates it. Disable with ``QPSIM_SWEEP_CACHE=0``. The
     grid / n̄ / picard-tol live on :mod:`fig6_solve` (mutated by --fast), so the
     fingerprint distinguishes a --fast run from a paper run.
     """
@@ -184,6 +185,13 @@ def run_cached(
         inspect.getsource(fig6_solve)
         + inspect.getsource(_gap_suppression_mod)
         + inspect.getsource(_density_mod)
+        # fig6's solve stores the Eq.47/Eq.53 analytic overlay, computed via
+        # fig5_paper._xqp_analytic_eq47 (which transitively reads fig5_solve's
+        # Table-I constants / _A_EQ35). Those modules live under validation/ —
+        # outside solve_source_digest's qpsim/ scope — so fold their source in,
+        # else run_cached() could serve a stale overlay after a fig5 edit.
+        + inspect.getsource(fig5_paper)
+        + inspect.getsource(fig5_solve)
     )
     kwargs = {
         "direct_gap_observable": bool(direct_gap_observable),
