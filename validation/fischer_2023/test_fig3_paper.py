@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 
 from validation.fischer_2023.fig3_paper import (
-    PAPER_RATIOS,
     baseline_path,
     config_metadata,
     read_baseline,
@@ -99,3 +98,78 @@ def test_matches_pinned_baseline() -> None:
             atol=1e-6,
             err_msg=f"Mismatch at τ_l/τ_0^PB = {ratio}",
         )
+
+
+class TestFig3CacheIntegration:
+    """The cached regen path (:func:`run_cached`) wraps the same solve/observables
+    split and serves an unchanged continuation solve from disk. The expensive
+    solve is stubbed so the test is fast; it exercises the real cache +
+    observables wiring. Engine-level key/store properties are covered in
+    ``tests/validation/test_sweep_cache.py``.
+    """
+
+    def _stub_payload(self) -> dict:
+        # Synthetic raw payload (fig3's observables is a pure unpack — no grid
+        # rebuild — so a tiny placeholder array suffices).
+        ne = 8
+        return {
+            "E": np.linspace(180.0, 200.0, ne),
+            "f_FD": np.full(ne, 1e-9),
+            "f_ratios": np.full((3, ne), 1e-8),
+            "ratios": np.array([0.0, 0.1, 1.0]),
+            "tau_0_pb_ns": np.array([0.2515]),
+        }
+
+    def _cfg(self) -> dict:
+        return {
+            "num_bins": 162,
+            "paper_ratios": (0.0, 0.1, 1.0),
+            "continuation_ratios": (0.1, 0.3, 0.5, 1.0),
+        }
+
+    def test_run_cached_hits_disk_on_second_call(self, tmp_path, monkeypatch) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE", "1")
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE_DIR", str(tmp_path))
+
+        calls = {"n": 0}
+        payload = self._stub_payload()
+
+        def stub_solve(**kwargs):
+            calls["n"] += 1
+            return {k: v.copy() for k, v in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+
+        r1 = fp.run_cached(**self._cfg())
+        assert calls["n"] == 1  # cache miss -> solve ran once
+
+        r2 = fp.run_cached(**self._cfg())
+        assert calls["n"] == 1  # cache hit -> solve NOT re-run
+
+        ref = fp.observables(payload)
+        for res in (r1, r2):
+            assert res.ratios == ref.ratios
+            assert res.tau_0_pb_ns == pytest.approx(ref.tau_0_pb_ns)
+            for r in ref.ratios:
+                np.testing.assert_array_equal(res.f_by_ratio[r], ref.f_by_ratio[r])
+
+    def test_run_cached_disabled_always_recomputes(self, tmp_path, monkeypatch) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE", "0")
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE_DIR", str(tmp_path))
+
+        calls = {"n": 0}
+        payload = self._stub_payload()
+
+        def stub_solve(**kwargs):
+            calls["n"] += 1
+            return {k: v.copy() for k, v in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+
+        fp.run_cached(**self._cfg())
+        fp.run_cached(**self._cfg())
+        assert calls["n"] == 2  # disabled -> recompute each call

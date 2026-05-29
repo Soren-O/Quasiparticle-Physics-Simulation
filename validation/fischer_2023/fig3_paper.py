@@ -33,56 +33,35 @@ Usage --- generate baseline + PDF::
 from __future__ import annotations
 
 import csv
+import inspect
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
-from qpsim.collisions.phonon import (
-    build_phonon_frequency_map,
-    build_recombination_kernel_phonon_side,
-    compute_phonon_source_sink,
-)
 from qpsim.constants import KB_UEV_PER_K
-from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
-from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
 
-# ── Fischer 2023 Table I parameters ──────────────────────────────────
-
-DELTA_0 = 180.0            # μeV
-TAU_0 = 438.0              # ns
-T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
-T_BATH = 0.1               # K
-OMEGA_0 = DELTA_0 / 9.0    # 20 μeV (sub-gap, integer-commensurate with dE)
-N_BAR = 1e7
-C_PHOT = 1e-9              # ns^-1 (1 Hz)
-
-# Paper grid: 1620 bins, dE = 1 μeV. ω_0 / dE = 20 (integer).
-E_MIN_FACTOR = 1.0
-E_MAX_FACTOR = 10.0
-NUM_BINS = 1620
-
-# Paper-target legend ratios (Fischer 2023 Fig. 3).
-PAPER_RATIOS: tuple[float, ...] = (0.0, 0.1, 1.0, 10.0)
-
-# Continuation ladder: smooth ramp through intermediate ratios so the
-# Picard fixed point stays in the basin of attraction. Targets pulled
-# out and stored; non-target ratios are discarded after the continuation
-# step. Picard struggles above ratio ~5 (the map is non-contractile near
-# the strong-bottleneck branch), so the final 5 → 10 step switches to
-# coupled Newton on the joint (f, n_ph) state.
-CONTINUATION_RATIOS: tuple[float, ...] = (
-    0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0,
+from validation import sweep_cache
+from validation.fischer_2023 import fig3_solve
+from validation.fischer_2023.fig3_solve import (
+    C_PHOT,
+    CONTINUATION_RATIOS,
+    DELTA_0,
+    E_MAX_FACTOR,
+    E_MIN_FACTOR,
+    N_BAR,
+    NUM_BINS,
+    OMEGA_0,
+    PAPER_RATIOS,
+    T_BATH,
+    T_C,
+    TAU_0,
+    _build_grid_and_spectral,
+    _compute_tau_0_pb,
+    solve,
+    solver_fingerprint,
 )
-
-# τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
-PAPER_TAU_0_PB_PS = 255.0
-TAU_0_PB_WARN_FACTOR = 1.05
-"""Warn if the numerical tau_0^PB diverges from the paper-quoted 255 ps."""
 
 
 @dataclass(frozen=True)
@@ -96,229 +75,79 @@ class Fig3PaperResult:
     f_FD: np.ndarray            # thermal reference at T_bath
 
 
-def _fischer_material() -> Material:
-    return Material(
-        name="Al_Fischer2023",
-        Delta_0=DELTA_0,
-        T_c=T_C,
-        tau_0=TAU_0,
-        tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,  # F&C 2023 Table I: τ_0^PB = 255 ps
-    )
+def observables(raw: Mapping[str, np.ndarray]) -> Fig3PaperResult:
+    """Repackage a raw :func:`fig3_solve.solve` payload into a Fig3PaperResult.
 
-
-def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]:
-    """Build the paper-grid energy axis + dE widths + spectral context."""
-    E, _ = build_energy_grid(
-        gap=DELTA_0,
-        energy_min_factor=E_MIN_FACTOR,
-        energy_max_factor=E_MAX_FACTOR,
-        num_energy_bins=NUM_BINS,
-    )
-    dE = integration_widths_from_centers(E)
-    dE_scalar = float(dE[0])
-    m = round(OMEGA_0 / dE_scalar)
-    frac_err = abs(OMEGA_0 - m * dE_scalar) / OMEGA_0
-    if frac_err > 1e-10:
-        raise RuntimeError(
-            f"Fischer Fig. 3 paper grid not commensurate: "
-            f"ω_0 = {OMEGA_0}, m·dE = {m * dE_scalar}, frac_err = {frac_err}."
-        )
-    spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
-    return E, dE, spectral
-
-
-def _compute_tau_0_pb(spectral: SpectralContext) -> float:
-    """Numerical τ_0^PB from the simulator's phonon-side kernel at f=0, ω≈2Δ.
-
-    Uses the F&C 2023 Eq. 12 phonon-side kernel ``K⁺/(π Δ τ_0^PB)``
-    (built via :func:`build_recombination_kernel_phonon_side`).
+    Fig. 3's plotted quantity is the converged f(E) per ratio, so there is no
+    expensive downstream derivation here — this is a pure unpacking of the cached
+    arrays. It exists to keep the ``run() = observables(solve())`` split uniform
+    with the other figures and to be the boundary the cache leaves uncached.
     """
-    K_r0_phonon_side = build_recombination_kernel_phonon_side(
-        spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
-    )
-    omega_bins, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
-        spectral.E,
-    )
-    f_zero = np.zeros(spectral.E.size)
-    _, b_ph = compute_phonon_source_sink(
-        f_zero, spectral, None, None,
-        idx_diff, idx_sum, diff_sign,
-        omega_bins.size,
-        enable_scattering=False, enable_recombination=True,
-        K_r0_phonon_side=K_r0_phonon_side,
-    )
-    threshold = 2.0 * spectral.gap
-    above = (omega_bins >= threshold) & (b_ph < -1e-30)
-    if not np.any(above):
-        raise RuntimeError(
-            "Could not find a phonon bin above 2Δ with a pair-breaking rate."
-        )
-    first_idx = int(np.argmax(above))
-    return float(1.0 / -b_ph[first_idx])
-
-
-def _build_state(
-    material: Material,
-    spectral: SpectralContext,
-    f_seed: np.ndarray,
-    tau_l_scalar: float,
-    *,
-    n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
-    """Build a T3 state with the given τ_l scalar + (f, n_ph) seeds."""
-    omega, _, _, _ = build_phonon_frequency_map(spectral.E)
-    if n_ph_seed is None:
-        n_ph_seed = thermal_phonon_occupation(omega, T_BATH)
-    phonon = PhononState(
-        n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
-        omega_bins=omega.reshape(1, -1),
-        tau_l=np.full((1, omega.size), tau_l_scalar),
-        model=PhononModel.PH0_LOCAL,
-        branches=[PhononBranchSpec(name="debye_average")],
-    )
-    return T3DiffusionState(
-        f=f_seed.copy(),
-        gap=DELTA_0,
-        spectral=spectral,
-        phonon=phonon,
-        material=material,
-        T_bath=T_BATH,
-    )
-
-
-def _solve_tau_l_zero(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
-    photon_params: dict[str, float],
-) -> T3DiffusionState:
-    """τ_l = 0: thermal-phonon shortcut. Newton-on-f only."""
-    return backend.steady_state(
-        state,
-        use_thermal_phonons=True,
-        photon_params=photon_params,
-        newton_tol=1e-12,
-        newton_max_iter=500,
-    )
-
-
-def _solve_picard(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
-    photon_params: dict[str, float],
-    *,
-    mixing: float,
-) -> T3DiffusionState:
-    """Picard + Anderson on (f, n_ph). Mixing under-relaxed at high ratios."""
-    return backend.steady_state(
-        state,
-        method="picard",
-        photon_params=photon_params,
-        use_phonon_side_kernel=True,
-        picard_tol=1e-8,
-        picard_max_iter=10000,
-        picard_mixing=mixing,
-        anderson_depth=0,
-        newton_tol=1e-12,
-        newton_max_iter=500,
-    )
-
-
-def _solve_coupled_newton(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
-    photon_params: dict[str, float],
-) -> T3DiffusionState:
-    """Coupled Newton on the joint (f, n_ph) vector (strong-bottleneck branch)."""
-    return backend.steady_state(
-        state,
-        method="coupled_newton",
-        photon_params=photon_params,
-        use_phonon_side_kernel=True,
-        coupled_newton_tol=1e-10,
-        coupled_newton_max_iter=50,
-        coupled_newton_fd_step=1e-8,
-    )
-
-
-def _picard_mixing_for_ratio(ratio: float) -> float:
-    return 0.15 if ratio > 2.0 else 0.30
-
-
-def run() -> Fig3PaperResult:
-    """Solve Fischer Fig. 3 at all paper ratios via continuation."""
-    material = _fischer_material()
-    E, _, spectral = _build_grid_and_spectral()
-
-    tau_0_pb = _compute_tau_0_pb(spectral)
-    tau_0_pb_ps = tau_0_pb * 1000.0  # ns → ps
-    ratio_paper = tau_0_pb_ps / PAPER_TAU_0_PB_PS
-    print(f"  τ_0^PB (phonon-side extracted)       = {tau_0_pb:.4f} ns "
-          f"({tau_0_pb_ps:.1f} ps)")
-    print(f"  Paper-quoted τ_0^PB                   ≈ {PAPER_TAU_0_PB_PS:.0f} ps")
-    if ratio_paper > TAU_0_PB_WARN_FACTOR or ratio_paper < 1.0 / TAU_0_PB_WARN_FACTOR:
-        print(
-            f"  ⚠ τ_0^PB normalization mismatch: extracted/paper = {ratio_paper:.2f}×.",
-            flush=True,
-        )
-
-    kT = KB_UEV_PER_K * T_BATH
-    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
-
-    backend = T3DiffusionBackend()
-    photon_params = {"omega_0": OMEGA_0, "n_bar": N_BAR, "c_phot": C_PHOT}
-
-    f_by_ratio: dict[float, np.ndarray] = {}
-
-    # ── ratio 0: thermal-phonon shortcut (Newton-only, paper τ_l=0 curve) ──
-    state0 = _build_state(material, spectral, f_FD, tau_l_scalar=0.0)
-    print("  τ_l/τ_0^PB = 0     → target  thermal-phonon shortcut", flush=True)
-    converged0 = _solve_tau_l_zero(backend, state0, photon_params)
-    f_by_ratio[0.0] = converged0.f.copy()
-
-    # ── continuation ladder for finite ratios ──
-    f_seed = converged0.f.copy()
-    n_ph_seed: np.ndarray | None = None  # bath thermal at first finite step
-    for ratio in CONTINUATION_RATIOS:
-        tau_l = ratio * tau_0_pb
-        state = _build_state(
-            material, spectral, f_seed, tau_l, n_ph_seed=n_ph_seed,
-        )
-        is_target = ratio in PAPER_RATIOS
-        tag = "→ target  " if is_target else "(continuation)"
-
-        if ratio > 5.0:
-            print(
-                f"  τ_l/τ_0^PB = {ratio:<4g}  {tag} coupled_newton "
-                f"(seeded from prior-ratio (f, n_ph))",
-                flush=True,
-            )
-            converged = _solve_coupled_newton(backend, state, photon_params)
-        else:
-            mixing = _picard_mixing_for_ratio(ratio)
-            print(
-                f"  τ_l/τ_0^PB = {ratio:<4g}  {tag} picard "
-                f"(mixing={mixing}, AA=0)",
-                flush=True,
-            )
-            converged = _solve_picard(backend, state, photon_params, mixing=mixing)
-
-        if is_target:
-            f_by_ratio[ratio] = converged.f.copy()
-        f_seed = converged.f.copy()
-        n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
-
-    # Sanity-check all paper ratios captured.
-    missing = [r for r in PAPER_RATIOS if r not in f_by_ratio]
-    if missing:
-        raise RuntimeError(f"Continuation did not capture paper ratios: {missing}")
-
+    E = np.asarray(raw["E"], dtype=float)
+    f_FD = np.asarray(raw["f_FD"], dtype=float)
+    ratios = tuple(float(r) for r in raw["ratios"])
+    tau_0_pb_ns = float(np.asarray(raw["tau_0_pb_ns"]).reshape(-1)[0])
+    f_ratios = np.asarray(raw["f_ratios"], dtype=float)
+    f_by_ratio = {r: f_ratios[i] for i, r in enumerate(ratios)}
     return Fig3PaperResult(
         E=E,
-        tau_0_pb_ns=tau_0_pb,
-        ratios=PAPER_RATIOS,
+        tau_0_pb_ns=tau_0_pb_ns,
+        ratios=ratios,
         f_by_ratio=f_by_ratio,
         f_FD=f_FD,
     )
+
+
+def run(
+    *,
+    num_bins: int = NUM_BINS,
+    paper_ratios: tuple[float, ...] = PAPER_RATIOS,
+    continuation_ratios: tuple[float, ...] = CONTINUATION_RATIOS,
+) -> Fig3PaperResult:
+    """Solve Fischer Fig. 3 and repackage — the pure, uncached path.
+
+    Exactly ``observables(solve(...))``. The ``@pytest.mark.slow`` regression
+    test calls this (no args) so it always truly recomputes against the pinned
+    baseline; the cached dev / regen path is :func:`run_cached`.
+    """
+    return observables(
+        solve(
+            num_bins=num_bins,
+            paper_ratios=paper_ratios,
+            continuation_ratios=continuation_ratios,
+        )
+    )
+
+
+def run_cached(
+    *,
+    num_bins: int = NUM_BINS,
+    paper_ratios: tuple[float, ...] = PAPER_RATIOS,
+    continuation_ratios: tuple[float, ...] = CONTINUATION_RATIOS,
+) -> Fig3PaperResult:
+    """Like :func:`run`, but the expensive continuation solve is served from the
+    disk cache when nothing solve-relevant has changed (see
+    :mod:`validation.sweep_cache`). Used by the regen / ``__main__`` path; editing
+    the plotting / observable code here does not invalidate the cached solve.
+    Disable with ``QPSIM_SWEEP_CACHE=0``.
+    """
+    kwargs = {
+        "num_bins": int(num_bins),
+        "paper_ratios": [float(r) for r in paper_ratios],
+        "continuation_ratios": [float(r) for r in continuation_ratios],
+    }
+    raw = sweep_cache.cached_solve(
+        "fischer_2023/fig3",
+        lambda: solve(
+            num_bins=num_bins,
+            paper_ratios=paper_ratios,
+            continuation_ratios=continuation_ratios,
+        ),
+        fingerprint=solver_fingerprint(num_bins=num_bins),
+        kwargs=kwargs,
+        extra_source=inspect.getsource(fig3_solve),
+    )
+    return observables(raw)
 
 
 def baseline_path() -> Path:
@@ -585,7 +414,7 @@ def generate_baseline() -> tuple[Path, Path]:
     )
     print(f"  Grid: NE={NUM_BINS}, dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS:.3f} μeV")
     print(f"  Paper ratios: {list(PAPER_RATIOS)}")
-    result = run()
+    result = run_cached()
     csv_path = write_baseline(result)
     pdf_path = write_plot(result)
     print(f"  Baseline CSV: {csv_path}")
