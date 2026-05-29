@@ -125,9 +125,11 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig6PaperResult:
     Fig. 6's numerical observable gates the solve's seed chain (a fold sits past
     each curve's peak), so it is computed inside the cached solve, not re-derived
     here — this is a pure unpack. Because the gated solve stores outputs of the
-    qpsim ``gap_suppression`` (direct mode) and ``density`` modules,
-    :func:`run_cached` folds those modules' source into the cache key so editing
-    them invalidates the cached solve.
+    qpsim ``gap_suppression`` (direct mode) and ``density`` modules **and** the
+    Eq.47/Eq.53 analytic overlay (via ``fig5_paper._xqp_analytic_eq47``, which
+    transitively reads ``fig5_solve``), :func:`run_cached` folds all of those
+    sources into the cache key so editing any of them invalidates the cached
+    solve.
     """
     delta_eq = np.asarray(raw["delta_eq"], dtype=float)
     return Fig6PaperResult(
