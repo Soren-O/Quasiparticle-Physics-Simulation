@@ -1,8 +1,11 @@
-"""Anderson (Type-I) acceleration for fixed-point iterations.
+"""Anderson (Type-II) acceleration for fixed-point iterations.
 
 Given a history of iterates ``x_k`` and their fixed-point-map images
 ``G(x_k)``, computes an extrapolated iterate by solving a small
-least-squares problem in the residual differences.
+least-squares problem in the residual differences. The
+least-squares-on-residual-differences form (with the update
+``x = G(x_k) − ΔG·θ``) is the Type-II / "bad Broyden" Anderson update
+(Walker & Ni 2011); it is a valid acceleration regardless of the label.
 
 Ported from ``_anderson_extrapolate`` in
 ``qpsim/numerics/steady_state.py``.
@@ -22,7 +25,7 @@ def anderson_extrapolate(
     *,
     clip_non_negative: bool = False,
 ) -> np.ndarray | None:
-    """Type-I Anderson extrapolation on the raw fixed-point map.
+    """Type-II Anderson extrapolation on the raw fixed-point map.
 
     Given the current iterate ``x``, its image ``gx = G(x)``, and the
     history of prior ``(x_k, G(x_k))`` pairs, returns an extrapolated
