@@ -30,68 +30,39 @@ Usage --- generate baseline + PDF::
 from __future__ import annotations
 
 import csv
+import inspect
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
-from qpsim.collisions.phonon import (
-    build_phonon_frequency_map,
-    build_recombination_kernel_phonon_side,
-    compute_phonon_source_sink,
-)
 from qpsim.constants import KB_UEV_PER_K
-from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
-from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
 
-# ── Fischer 2023 Table I parameters (shared with fig3_paper) ─────────
-
-DELTA_0 = 180.0
-TAU_0 = 438.0
-T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
-OMEGA_0 = DELTA_0 / 9.0
-C_PHOT = 1e-9
-
-# Paper grid: 1620 bins, dE = 1 μeV (same as fig3_paper.py).
-E_MIN_FACTOR = 1.0
-E_MAX_FACTOR = 10.0
-NUM_BINS = 1620
-
-# Eq. 35 prefactor (μeV^6) — A·n̄ has units μeV^6, (A·n̄)^(1/6) is in μeV.
-_A_EQ35 = (
-    (105.0 / 64.0)
-    * (KB_UEV_PER_K * T_C) ** 3
-    * C_PHOT
-    * TAU_0
-    * OMEGA_0 ** 2
-    * DELTA_0
+from validation import sweep_cache
+from validation.fischer_2023 import fig5_solve
+from validation.fischer_2023.fig5_solve import (
+    _A_EQ35,
+    C_PHOT,
+    DELTA_0,
+    E_MAX_FACTOR,
+    E_MIN_FACTOR,
+    LOWER_NBAR,
+    LOWER_T_BATH_K,
+    LOWER_T_STAR_OVER_DELTA,
+    NUM_BINS,
+    OMEGA_0,
+    T_C,
+    TAU_0,
+    UPPER_NBAR_VALUES,
+    UPPER_T_BATH_K,
+    _build_grid_and_spectral,
+    _compute_tau_0_pb,
+    solve,
+    solver_fingerprint,
 )
-
-# Upper panel — three bath temperatures, swept over n̄ chosen so the
-# T_*/Δ axis (Eq. 35) covers the paper's plotted range [0.30, 0.95].
-UPPER_T_BATH_K: tuple[float, ...] = (0.10, 0.15, 0.20)
-UPPER_T_STAR_OVER_DELTA: np.ndarray = np.linspace(0.30, 0.95, 14)
-UPPER_NBAR_VALUES: np.ndarray = (UPPER_T_STAR_OVER_DELTA * DELTA_0) ** 6 / _A_EQ35
-
-# Lower panel — sweep T_B at three FIXED T_*/Δ values. The paper plots
-# fixed T_*/Δ; under Eq. 35 with A independent of T_B, fixed T_*/Δ
-# corresponds to a fixed n̄, so the per-T_*/Δ continuation is just a
-# T_B sweep at the corresponding n̄.
-LOWER_T_STAR_OVER_DELTA: tuple[float, ...] = (0.50, 0.66, 0.74)
-LOWER_NBAR: tuple[float, ...] = tuple(
-    float((t * DELTA_0) ** 6 / _A_EQ35) for t in LOWER_T_STAR_OVER_DELTA
-)
-LOWER_T_BATH_K: np.ndarray = np.linspace(0.10, 0.40, 13)
-
-# τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
-PAPER_TAU_0_PB_PS = 255.0
-TAU_0_PB_WARN_FACTOR = 1.05
-"""Warn if the numerical tau_0^PB diverges from the paper-quoted 255 ps."""
 
 
 @dataclass(frozen=True)
@@ -110,60 +81,6 @@ class Fig5PaperResult:
     lower_T_bath: np.ndarray
     lower_x_qp_num: np.ndarray
     lower_x_qp_analytic: np.ndarray
-
-
-def _fischer_material() -> Material:
-    return Material(
-        name="Al_Fischer2023",
-        Delta_0=DELTA_0,
-        T_c=T_C,
-        tau_0=TAU_0,
-        tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,  # F&C 2023 Table I: τ_0^PB = 255 ps
-    )
-
-
-def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]:
-    E, _ = build_energy_grid(
-        gap=DELTA_0,
-        energy_min_factor=E_MIN_FACTOR,
-        energy_max_factor=E_MAX_FACTOR,
-        num_energy_bins=NUM_BINS,
-    )
-    dE = integration_widths_from_centers(E)
-    dE_scalar = float(dE[0])
-    m = round(OMEGA_0 / dE_scalar)
-    if abs(OMEGA_0 - m * dE_scalar) / OMEGA_0 > 1e-10:
-        raise RuntimeError(
-            f"Fischer Fig. 5 paper grid not commensurate: ω_0={OMEGA_0}, m·dE={m*dE_scalar}"
-        )
-    spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
-    return E, dE, spectral
-
-
-def _compute_tau_0_pb(spectral: SpectralContext) -> float:
-    """Same definition as :func:`fig3_paper._compute_tau_0_pb`."""
-    K_r0_phonon_side = build_recombination_kernel_phonon_side(
-        spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
-    )
-    omega_bins, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
-        spectral.E,
-    )
-    f_zero = np.zeros(spectral.E.size)
-    _, b_ph = compute_phonon_source_sink(
-        f_zero, spectral, None, None,
-        idx_diff, idx_sum, diff_sign,
-        omega_bins.size,
-        enable_scattering=False, enable_recombination=True,
-        K_r0_phonon_side=K_r0_phonon_side,
-    )
-    threshold = 2.0 * spectral.gap
-    above = (omega_bins >= threshold) & (b_ph < -1e-30)
-    if not np.any(above):
-        raise RuntimeError(
-            "Could not find a phonon bin above 2Δ with a pair-breaking rate."
-        )
-    first_idx = int(np.argmax(above))
-    return float(1.0 / -b_ph[first_idx])
 
 
 def _kBTstar_eq35(n_bar: float) -> float:
@@ -256,206 +173,120 @@ def _xqp_analytic_eq47(
     return float(N / (4.0 * DELTA_0))
 
 
-def _build_state(
-    material: Material,
-    spectral: SpectralContext,
-    T_bath: float,
-    tau_l_scalar: float,
-    *,
-    f_seed: np.ndarray | None = None,
-    n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
-    omega, _, _, _ = build_phonon_frequency_map(spectral.E)
-    if n_ph_seed is None:
-        n_ph_seed = thermal_phonon_occupation(omega, T_bath)
-    phonon = PhononState(
-        n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
-        omega_bins=omega.reshape(1, -1),
-        tau_l=np.full((1, omega.size), tau_l_scalar),
-        model=PhononModel.PH0_LOCAL,
-        branches=[PhononBranchSpec(name="debye_average")],
-    )
-    if f_seed is None:
-        kT = KB_UEV_PER_K * T_bath
-        f_seed = 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
-    return T3DiffusionState(
-        f=f_seed.copy(),
-        gap=DELTA_0,
-        spectral=spectral,
-        phonon=phonon,
-        material=material,
-        T_bath=T_bath,
-    )
+def observables(raw: Mapping[str, np.ndarray]) -> Fig5PaperResult:
+    """Derive x_qp / Eq.-47 overlay / Eq.-35 T_* axis from a raw solve payload.
 
-
-def _solve_picard(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
-    photon_params: dict[str, float],
-    *,
-    mixing: float = 0.30,
-) -> T3DiffusionState:
-    return backend.steady_state(
-        state,
-        method="picard",
-        photon_params=photon_params,
-        use_phonon_side_kernel=True,
-        picard_tol=1e-8,
-        picard_max_iter=10000,
-        picard_mixing=mixing,
-        anderson_depth=0,
-        newton_tol=1e-12,
-        newton_max_iter=500,
-    )
-
-
-def _check_tau_0_pb(tau_0_pb: float) -> None:
-    tau_ps = tau_0_pb * 1000.0
-    print(f"  τ_0^PB (phonon-side extracted)       = {tau_0_pb:.4f} ns "
-          f"({tau_ps:.1f} ps)")
-    print(f"  Paper-quoted τ_0^PB                   ≈ {PAPER_TAU_0_PB_PS:.0f} ps")
-    ratio = tau_ps / PAPER_TAU_0_PB_PS
-    if ratio > TAU_0_PB_WARN_FACTOR or ratio < 1.0 / TAU_0_PB_WARN_FACTOR:
-        print(
-            f"  ⚠ τ_0^PB normalization mismatch: extracted/paper = {ratio:.2f}×.",
-            flush=True,
-        )
-
-
-def _solve_upper_panel(
-    backend: T3DiffusionBackend,
-    material: Material,
-    spectral: SpectralContext,
-    tau_l: float,
-    tau_0_pb: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Upper panel: x_qp vs T_*/Δ, sweep n̄ at three T_B.
-
-    Returns (T_star_over_delta, x_qp_num, x_qp_analytic), each shape
-    (len(UPPER_T_BATH_K), len(UPPER_NBAR_VALUES)).
+    The cheap downstream half of Fig. 5: rebuilds the (deterministic) spectral
+    grid and evaluates ``qp_fraction`` per converged f, plus the analytic
+    overlays. A pure function of ``raw`` — the cache leaves it uncached so editing
+    it (or the analytic helpers / plots below) never triggers a re-solve.
     """
-    n_T = len(UPPER_T_BATH_K)
-    n_n = UPPER_NBAR_VALUES.size
-    T_star = np.zeros((n_T, n_n))
-    x_num = np.zeros((n_T, n_n))
-    x_ana = np.zeros((n_T, n_n))
+    num_bins = int(np.asarray(raw["num_bins"]).reshape(-1)[0])
+    tau_0_pb = float(np.asarray(raw["tau_0_pb_ns"]).reshape(-1)[0])
+    tau_l = float(np.asarray(raw["tau_l_ns"]).reshape(-1)[0])
+    up_T = np.asarray(raw["upper_T_bath"], dtype=float)
+    up_N = np.asarray(raw["upper_nbar"], dtype=float)
+    lo_N = np.asarray(raw["lower_nbar"], dtype=float)
+    lo_T = np.asarray(raw["lower_T_bath"], dtype=float)
+    upper_f = np.asarray(raw["upper_f"], dtype=float)
+    lower_f = np.asarray(raw["lower_f"], dtype=float)
 
-    for i, T_bath in enumerate(UPPER_T_BATH_K):
-        f_seed: np.ndarray | None = None
-        n_ph_seed: np.ndarray | None = None
-        # n̄ continuation: warm-start each step from the previous-n̄
-        # converged (f, n_ph). At the lowest n̄ the drive is negligible
-        # and the solution is essentially f_FD, which makes the start
-        # very cheap.
-        for j, n_bar in enumerate(UPPER_NBAR_VALUES):
-            state = _build_state(
-                material, spectral, T_bath, tau_l,
-                f_seed=f_seed, n_ph_seed=n_ph_seed,
+    _, _, spectral = _build_grid_and_spectral(num_bins)
+
+    upper_T_star = np.zeros((up_T.size, up_N.size))
+    upper_x_num = np.zeros_like(upper_T_star)
+    upper_x_ana = np.zeros_like(upper_T_star)
+    for i in range(up_T.size):
+        for j in range(up_N.size):
+            upper_x_num[i, j] = qp_fraction(upper_f[i, j], spectral, delta_0=DELTA_0)
+            upper_x_ana[i, j] = _xqp_analytic_eq47(
+                float(up_T[i]), float(up_N[j]), tau_l=tau_l, tau_0_pb=tau_0_pb,
             )
-            photon_params = {
-                "omega_0": OMEGA_0, "n_bar": float(n_bar), "c_phot": C_PHOT,
-            }
-            converged = _solve_picard(backend, state, photon_params)
-            x_num[i, j] = qp_fraction(
-                converged.f, converged.spectral, delta_0=DELTA_0,
+            upper_T_star[i, j] = _kBTstar_eq35(float(up_N[j])) / DELTA_0
+
+    lower_x_num = np.zeros((lo_N.size, lo_T.size))
+    lower_x_ana = np.zeros_like(lower_x_num)
+    for i in range(lo_N.size):
+        for j in range(lo_T.size):
+            lower_x_num[i, j] = qp_fraction(lower_f[i, j], spectral, delta_0=DELTA_0)
+            lower_x_ana[i, j] = _xqp_analytic_eq47(
+                float(lo_T[j]), float(lo_N[i]), tau_l=tau_l, tau_0_pb=tau_0_pb,
             )
-            x_ana[i, j] = _xqp_analytic_eq47(
-                T_bath, float(n_bar), tau_l=tau_l, tau_0_pb=tau_0_pb,
-            )
-            T_star[i, j] = _kBTstar_eq35(float(n_bar)) / DELTA_0
-            f_seed = converged.f.copy()
-            n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
-            print(
-                f"  upper  T_B={T_bath:.2f} K  n̄={n_bar:.2e}  "
-                f"T_*/Δ={T_star[i, j]:.3f}  x_qp(num)={x_num[i, j]:.3e}",
-                flush=True,
-            )
-
-    return T_star, x_num, x_ana
-
-
-def _solve_lower_panel(
-    backend: T3DiffusionBackend,
-    material: Material,
-    spectral: SpectralContext,
-    tau_l: float,
-    tau_0_pb: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Lower panel: x_qp vs T_B, sweep T_B at three n̄ values.
-
-    Returns (x_qp_num, x_qp_analytic), each shape
-    (len(LOWER_NBAR), len(LOWER_T_BATH_K)).
-    """
-    n_n = len(LOWER_NBAR)
-    n_T = LOWER_T_BATH_K.size
-    x_num = np.zeros((n_n, n_T))
-    x_ana = np.zeros((n_n, n_T))
-
-    for i, n_bar in enumerate(LOWER_NBAR):
-        f_seed: np.ndarray | None = None
-        n_ph_seed: np.ndarray | None = None
-        # T_B continuation low → high. At the lowest T_B the drive
-        # dominates and convergence is hardest; warm-start from the
-        # adjacent T_B's converged state to keep Picard in-basin.
-        for j, T_bath in enumerate(LOWER_T_BATH_K):
-            state = _build_state(
-                material, spectral, float(T_bath), tau_l,
-                f_seed=f_seed, n_ph_seed=n_ph_seed,
-            )
-            photon_params = {
-                "omega_0": OMEGA_0, "n_bar": float(n_bar), "c_phot": C_PHOT,
-            }
-            converged = _solve_picard(backend, state, photon_params)
-            x_num[i, j] = qp_fraction(
-                converged.f, converged.spectral, delta_0=DELTA_0,
-            )
-            x_ana[i, j] = _xqp_analytic_eq47(
-                float(T_bath), float(n_bar), tau_l=tau_l, tau_0_pb=tau_0_pb,
-            )
-            f_seed = converged.f.copy()
-            n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
-            print(
-                f"  lower  n̄={n_bar:.2e}  T_B={T_bath:.3f} K  "
-                f"x_qp(num)={x_num[i, j]:.3e}",
-                flush=True,
-            )
-
-    return x_num, x_ana
-
-
-def run() -> Fig5PaperResult:
-    """Solve Fischer Fig. 5 — both panels, τ_l = τ_0^PB."""
-    material = _fischer_material()
-    _, _, spectral = _build_grid_and_spectral()
-
-    tau_0_pb = _compute_tau_0_pb(spectral)
-    _check_tau_0_pb(tau_0_pb)
-    tau_l = 1.0 * tau_0_pb  # paper: τ_ℓ = τ_0^PB throughout Fig. 5
-
-    backend = T3DiffusionBackend()
-
-    print("Upper panel — sweep n̄ at three T_B:")
-    upper_T_star, upper_x_num, upper_x_ana = _solve_upper_panel(
-        backend, material, spectral, tau_l, tau_0_pb,
-    )
-
-    print("Lower panel — sweep T_B at three n̄:")
-    lower_x_num, lower_x_ana = _solve_lower_panel(
-        backend, material, spectral, tau_l, tau_0_pb,
-    )
 
     return Fig5PaperResult(
         tau_0_pb_ns=tau_0_pb,
-        upper_T_bath=np.array(UPPER_T_BATH_K),
-        upper_nbar=UPPER_NBAR_VALUES,
+        upper_T_bath=up_T,
+        upper_nbar=up_N,
         upper_T_star=upper_T_star,
         upper_x_qp_num=upper_x_num,
         upper_x_qp_analytic=upper_x_ana,
-        lower_nbar=np.array(LOWER_NBAR),
-        lower_T_bath=LOWER_T_BATH_K,
+        lower_nbar=lo_N,
+        lower_T_bath=lo_T,
         lower_x_qp_num=lower_x_num,
         lower_x_qp_analytic=lower_x_ana,
     )
+
+
+def run(
+    *,
+    num_bins: int = NUM_BINS,
+    upper_T_bath: tuple[float, ...] = UPPER_T_BATH_K,
+    upper_nbar: np.ndarray | tuple[float, ...] = UPPER_NBAR_VALUES,
+    lower_nbar: tuple[float, ...] = LOWER_NBAR,
+    lower_T_bath: np.ndarray | tuple[float, ...] = LOWER_T_BATH_K,
+) -> Fig5PaperResult:
+    """Solve both panels and derive observables — the pure, uncached path.
+
+    Exactly ``observables(solve(...))``. The ``@pytest.mark.slow`` regression
+    test calls this (no args) so it always truly recomputes against the pinned
+    baseline; the cached dev / regen path is :func:`run_cached`.
+    """
+    return observables(
+        solve(
+            num_bins=num_bins,
+            upper_T_bath=upper_T_bath,
+            upper_nbar=upper_nbar,
+            lower_nbar=lower_nbar,
+            lower_T_bath=lower_T_bath,
+        )
+    )
+
+
+def run_cached(
+    *,
+    num_bins: int = NUM_BINS,
+    upper_T_bath: tuple[float, ...] = UPPER_T_BATH_K,
+    upper_nbar: np.ndarray | tuple[float, ...] = UPPER_NBAR_VALUES,
+    lower_nbar: tuple[float, ...] = LOWER_NBAR,
+    lower_T_bath: np.ndarray | tuple[float, ...] = LOWER_T_BATH_K,
+) -> Fig5PaperResult:
+    """Like :func:`run`, but the expensive two-panel solve is served from the
+    disk cache when nothing solve-relevant has changed (see
+    :mod:`validation.sweep_cache`). Used by the regen / ``__main__`` path; editing
+    the observables / analytic overlays / plotting here does not invalidate the
+    cached solve. Disable with ``QPSIM_SWEEP_CACHE=0``.
+    """
+    kwargs = {
+        "num_bins": int(num_bins),
+        "upper_T_bath": [float(x) for x in upper_T_bath],
+        "upper_nbar": [float(x) for x in np.asarray(upper_nbar, dtype=float)],
+        "lower_nbar": [float(x) for x in lower_nbar],
+        "lower_T_bath": [float(x) for x in np.asarray(lower_T_bath, dtype=float)],
+    }
+    raw = sweep_cache.cached_solve(
+        "fischer_2023/fig5",
+        lambda: solve(
+            num_bins=num_bins,
+            upper_T_bath=upper_T_bath,
+            upper_nbar=upper_nbar,
+            lower_nbar=lower_nbar,
+            lower_T_bath=lower_T_bath,
+        ),
+        fingerprint=solver_fingerprint(num_bins=num_bins),
+        kwargs=kwargs,
+        extra_source=inspect.getsource(fig5_solve),
+    )
+    return observables(raw)
 
 
 def baseline_path() -> Path:
@@ -726,7 +557,7 @@ def _nqp_to_x_qp_paper(n_qp: np.ndarray | float) -> np.ndarray | float:
     return n_qp / NQP_PER_X_QP_PAPER
 
 
-def _twin_paper_x_qp_axis(ax) -> None:
+def _twin_paper_x_qp_axis(ax: Any) -> None:
     """Mirror left N axis with the paper-convention x_qp on the right."""
     ax2 = ax.twinx()
     ax2.set_yscale("log")
@@ -838,7 +669,7 @@ def generate_baseline() -> tuple[Path, Path]:
     print(f"  Lower panel: n̄={list(LOWER_NBAR)}, T_B ∈ "
           f"[{LOWER_T_BATH_K[0]:.3f}, {LOWER_T_BATH_K[-1]:.3f}] K "
           f"({LOWER_T_BATH_K.size} pts)")
-    result = run()
+    result = run_cached()
     csv_path = write_baseline(result)
     pdf_path = write_plot(result)
     print(f"  Baseline CSV: {csv_path}")

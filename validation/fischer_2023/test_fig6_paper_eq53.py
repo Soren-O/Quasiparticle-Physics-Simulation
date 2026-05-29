@@ -21,7 +21,7 @@ import pytest
 from qpsim.constants import KB_UEV_PER_K
 
 from validation.fischer_2023.fig5_paper import _kBTstar_eq35, _xqp_analytic_eq47
-from validation.fischer_2023.fig6_paper import (
+from validation.fischer_2023.fig6_solve import (
     DELTA_0,
     _build_grid_and_spectral,
     _paper_eq53_analytic_drive,
