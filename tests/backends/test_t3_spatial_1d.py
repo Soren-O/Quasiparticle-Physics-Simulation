@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.backends.t3_spatial_1d import (
     T3Spatial1DBackend,
     T3Spatial1DState,
@@ -11,7 +12,8 @@ from qpsim.backends.t3_spatial_1d import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.transport.diffusion.base import DiffusionModel
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
@@ -99,3 +101,178 @@ class TestT3Spatial1DCollisions:
 
         assert out.f[target, 0] > out.f[target, -1]
         assert out.f[target, 0] > state.f[target, 0]
+
+
+def _model_state(base: T3Spatial1DState, f: np.ndarray, model: DiffusionModel) -> T3Spatial1DState:
+    return T3Spatial1DState(
+        f=f,
+        x=base.x,
+        gap=base.gap,
+        spectral=base.spectral,
+        material=base.material,
+        T_bath=0.0,
+        diffusion_model=model,
+    )
+
+
+class TestT3Spatial1DDiffusionModels:
+    def test_default_model_is_a1(self) -> None:
+        assert _build_state().diffusion_model is DiffusionModel.A1
+
+    def test_each_closure_conserves_weighted_density(self) -> None:
+        backend = T3Spatial1DBackend()
+        base = _build_state(T_bath=0.0)
+        NE, _NX = base.f.shape
+        packet = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
+        for model in DiffusionModel:
+            state = _model_state(base, packet.copy(), model)
+            weight = base.spectral.rho[:, None] ** model.p
+            before = float(np.sum(weight * state.f))
+            evolving = state
+            for _ in range(30):
+                evolving = backend.apply_transport(evolving, 1.0)
+            after = float(np.sum(weight * evolving.f))
+            assert abs(after - before) / abs(before) < 1e-12, model
+
+    def test_c_path_matches_legacy_modal_step(self) -> None:
+        base = _build_state(T_bath=0.0)
+        NE, NX = base.f.shape
+        f0 = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
+        state = _model_state(base, f0.copy(), DiffusionModel.C)
+        new = T3Spatial1DBackend().apply_transport(state, dt=2.0).f
+
+        # Legacy modal Crank-Nicolson step with the D_E = D0/N1 closure.
+        dx = state.dx
+        main = -2.0 * np.ones(NX)
+        main[0] = -1.0
+        main[-1] = -1.0
+        lap = (
+            np.diag(main)
+            + np.diag(np.ones(NX - 1), 1)
+            + np.diag(np.ones(NX - 1), -1)
+        ) / dx**2
+        w, V = np.linalg.eigh(lap)
+        alpha = 0.5 * 2.0 * state.spectral.D_E[:, None] * w[None, :]
+        old = np.clip(((f0 @ V) * (1.0 + alpha) / (1.0 - alpha)) @ V.T, 0.0, 1.0)
+        np.testing.assert_allclose(new, old, atol=1e-12)
+
+    def test_a1_and_c_dynamics_differ(self) -> None:
+        base = _build_state(T_bath=0.0)
+        NE, _NX = base.f.shape
+        f0 = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
+        out = {
+            model: T3Spatial1DBackend().apply_transport(
+                _model_state(base, f0.copy(), model), 2.0
+            ).f
+            for model in (DiffusionModel.A1, DiffusionModel.C)
+        }
+        assert np.max(np.abs(out[DiffusionModel.A1] - out[DiffusionModel.C])) > 1e-3
+
+
+def _varying_gap_setup(*, NE: int = 16, NX: int = 21, interface: bool = False):
+    material = load_material("Al")
+    base_gap = material.Delta_0
+    gap_max = 1.6 * base_gap
+    E, _ = build_energy_grid(
+        gap=gap_max, energy_min_factor=1.05, energy_max_factor=4.0, num_energy_bins=NE
+    )
+    spectral = SpectralContext(
+        E_bins=E,
+        dE_bins=integration_widths_from_centers(E),
+        gap=gap_max,
+        diffusion_coefficient=6.0,
+    )
+    x = np.linspace(0.0, 100.0, NX)
+    if interface:
+        profile = np.where(np.arange(NX) < NX // 2, gap_max, base_gap).astype(float)
+    else:
+        profile = np.linspace(base_gap, gap_max, NX)
+    return material, spectral, x, gap_max, profile
+
+
+class TestT3Spatial1DVaryingGap:
+    def test_gap_profile_shape_validation(self) -> None:
+        material, spectral, x, gap_max, _ = _varying_gap_setup()
+        NE = spectral.E.size
+        bad = T3Spatial1DState(
+            f=np.zeros((NE, x.size)),
+            x=x,
+            gap=gap_max,
+            spectral=spectral,
+            material=material,
+            T_bath=0.1,
+            gap_profile=np.ones(x.size + 1),
+        )
+        with pytest.raises(ValueError, match="gap_profile"):
+            T3Spatial1DBackend().apply_transport(bad, 1.0)
+
+    def test_varying_gap_conserves_weighted_density(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup()
+        NE = spectral.E.size
+        N1 = np.column_stack([bcs_density_of_states(spectral.E, float(g)) for g in profile])
+        f0 = np.tile(0.2 * np.exp(-((x - 30.0) / 18.0) ** 2), (NE, 1))
+        state = T3Spatial1DState(
+            f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
+            T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
+        )
+        before = float(np.sum(N1 * state.f))  # p = 1 for A1
+        backend = T3Spatial1DBackend()
+        evolving = state
+        for _ in range(30):
+            evolving = backend.apply_transport(evolving, 1.0)
+        after = float(np.sum(N1 * evolving.f))
+        assert abs(after - before) / abs(before) < 1e-12
+
+    def test_interface_conserves_and_jumps(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        N1 = np.column_stack([bcs_density_of_states(spectral.E, float(g)) for g in profile])
+        f0 = np.zeros((NE, NX))
+        f0[:, : NX // 2] = 0.4
+        state = T3Spatial1DState(
+            f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
+            T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
+            interface_conductance=2.0,
+        )
+        before = float(np.sum(N1 * state.f))
+        out = T3Spatial1DBackend().apply_transport(state, 0.5)
+        after = float(np.sum(N1 * out.f))
+        assert abs(after - before) / abs(before) < 1e-12  # current continuity
+        k, e = NX // 2 - 1, NE - 1
+        assert out.f[e, k] > out.f[e, k + 1] + 1e-6  # f-discontinuity at the interface
+
+    def test_interface_differs_from_bulk(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        f0 = np.zeros((NE, NX))
+        f0[:, : NX // 2] = 0.4
+
+        def step(conductance: float | None) -> np.ndarray:
+            state = T3Spatial1DState(
+                f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
+                T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
+                interface_conductance=conductance,
+            )
+            return T3Spatial1DBackend().apply_transport(state, 0.5).f
+
+        assert np.max(np.abs(step(0.1) - step(None))) > 1e-3
+
+    def test_a1_a2_distinct_under_interface_relaxation(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        f0 = np.zeros((NE, NX))
+        f0[:, : NX // 2] = 0.4
+        backend = T3Spatial1DBackend()
+
+        def relax(model: DiffusionModel) -> np.ndarray:
+            state = T3Spatial1DState(
+                f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
+                T_bath=0.1, diffusion_model=model, gap_profile=profile,
+                interface_conductance=2.0,
+            )
+            for _ in range(1500):
+                state = backend.apply_transport(state, 2.0)
+            return state.f
+
+        diff = np.max(np.abs(relax(DiffusionModel.A1) - relax(DiffusionModel.A2)))
+        assert diff > 1e-3

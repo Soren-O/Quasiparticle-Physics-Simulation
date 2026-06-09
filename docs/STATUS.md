@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-04-26 (seventh session).
+Last updated: 2026-06-09 (spatial diffusion-operator family A1 + §7.5 benchmarks; prior: 2026-04-26 seventh session).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -44,6 +44,31 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 - Detailed balance: e-ph, sub-gap photon, pair-breaking photon channels vanish at `(f_FD(T), n_BE(ω, T))`.
 - Mattis-Bardeen thermal limits: σ_1 → 0 at T → 0, σ_2 → π Δ / ω kinetic-inductance limit.
 - Gap-equation round-trip: `solve_gap(f_FD(T_B))` recovers `Δ_eq`.
+
+## Spatial diffusion operators (A1 / §7.5)
+
+`qpsim.transport.diffusion.base` — `DiffusionModel` operator family
+parametrized by `(p, q)`, `L_{p,q}[f] = N_1^{-p} d_x(D_N N_1^q d_x f)`:
+**A1 = (1, 2)** dirty-limit Keldysh–Usadel (default; conserves `N_1 f`, rate
+`D_N N_1`), A2 = (2, 2) rejected diagnostic, C = (0, -1) legacy `D_E` closure,
+B = (0, -2) constant-τ. Corrects the old `transport.diffusion` "usadel = A2"
+mislabel (the dirty Usadel operator is A1, not A2). See
+`docs/Diffusion_Operators.md`.
+
+`T3Spatial1DBackend.apply_transport` is now an exactly-conservative
+finite-volume Crank–Nicolson step on the conserved density `u = N_1^p f`
+(harmonic-mean faces, reflective ends; `Σ_x N_1^p f` conserved to ~1e-15);
+reproduces the legacy modal C-step to round-off. Optional `gap_profile`
+(per-cell DOS) + `interface_conductance` add a Kaplan–Larkin two-gap
+interface `F = G_N N_1^L N_1^R (f_L - f_R)` (current-continuous,
+f-discontinuous). Default model flipped C → A1; prelim scripts unchanged
+(their committed outputs are historical C runs).
+
+§7.5 benchmarks in `validation/diffusion_operators/` (fast co-located tests +
+`python -m …` scripts → CSV/figure under `outputs/`): `uniform_gap_packet`
+(measured `D_eff(E)/D_N` traces `N_1^{q-p}`), `gap_gradient_drift` (COM drift
+`D_N q N_1^{q-p-1} d_x N_1`; A1/A2 drift up the gap, C/B down), `interface_trap`
+(current-continuity + f-discontinuity; A1 vs A2 distinct closed equilibria).
 
 ## Services (`qpsim.services.*`)
 
