@@ -9,7 +9,10 @@ from qpsim.collisions.phonon import (
     apply_phonon_collision,
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
+    compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
 )
@@ -84,6 +87,92 @@ class TestKernelBuilders:
             ctx, tau_0=1.0, T_c=1.2, coherence=CoherenceAssignment.PHOTON
         )
         assert not np.allclose(K_r_phonon, K_r_photon)
+
+
+class TestPhononSidePairBreaking:
+    def test_scattering_kernel_uses_eq12_prefactor(self) -> None:
+        gap = 180.0
+        tau_0_pb = 0.255
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=1620
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        K_ph = build_scattering_kernel_phonon_side(ctx, tau_0_pb_ns=tau_0_pb)
+
+        expected = (2.0 / (np.pi * gap * tau_0_pb)) * ctx.K_minus
+        np.testing.assert_allclose(K_ph, expected)
+
+    def test_source_sink_uses_phonon_side_scattering_override(self) -> None:
+        gap = 180.0
+        tau_0_pb = 0.255
+        tau_0 = 438.0
+        T_c = gap / (1.764 * KB_UEV_PER_K)
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=400
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(E)
+        K_qp = build_scattering_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
+        K_ph = build_scattering_kernel_phonon_side(ctx, tau_0_pb_ns=tau_0_pb)
+
+        f = np.zeros(ctx.E.size)
+        source_idx = 250
+        target_idx = 70
+        f[source_idx] = 1e-6
+        omega_idx = idx_diff[source_idx, target_idx]
+
+        a_legacy, _ = compute_phonon_source_sink(
+            f, ctx, K_qp, None,
+            idx_diff, idx_sum, diff_sign, omega.size,
+            enable_recombination=False,
+        )
+        a_phonon_side, _ = compute_phonon_source_sink(
+            f, ctx, K_qp, None,
+            idx_diff, idx_sum, diff_sign, omega.size,
+            enable_recombination=False,
+            K_s0_phonon_side=K_ph,
+        )
+
+        common = (
+            ctx.dE[target_idx]
+            * ctx.rho[source_idx]
+            * f[source_idx]
+            * ctx.rho[target_idx]
+        )
+        np.testing.assert_allclose(
+            a_legacy[omega_idx],
+            common * K_qp[source_idx, target_idx],
+        )
+        np.testing.assert_allclose(
+            a_phonon_side[omega_idx],
+            common * K_ph[source_idx, target_idx],
+        )
+        assert a_phonon_side[omega_idx] > 5.0 * a_legacy[omega_idx]
+
+    def test_first_pair_breaking_bin_matches_tau0pb(self) -> None:
+        gap = 180.0
+        tau_0_pb = 0.255
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=1620
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(E)
+        K_ph = build_recombination_kernel_phonon_side(ctx, tau_0_pb_ns=tau_0_pb)
+
+        _, b_ph = compute_phonon_source_sink(
+            np.zeros(ctx.E.size), ctx, None, None,
+            idx_diff, idx_sum, diff_sign, omega.size,
+            enable_scattering=False,
+            enable_recombination=True,
+            K_r0_phonon_side=K_ph,
+        )
+
+        mask = (omega > 2.0 * gap) & (b_ph < 0.0)
+        first_idx = int(np.argmax(mask))
+        assert 1.0 / -b_ph[first_idx] == pytest.approx(tau_0_pb, rel=2e-3)
 
 
 class TestCollisionRates:
