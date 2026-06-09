@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.optimize import root
+from scipy.optimize import least_squares, root
 from scipy.special import lambertw
 
 
@@ -619,6 +619,210 @@ def solve_rate_equation_steady_state(
 
 
 # ─────────────────────────────────────────────────────────────────────
+#  Analytic T → 0 seed (SI Eqs. S64–S71).
+# ─────────────────────────────────────────────────────────────────────
+
+
+def analytic_low_T_seed(
+    coefs: M25Coefficients,
+    T_kelvin: float,
+    *,
+    case: str = "large_asymmetry",
+) -> np.ndarray:
+    r"""Return a length-4 ``(p_1, x_L, x_{R>}, x_{R<})`` analytic seed.
+
+    Implements the M25 SI low-temperature analytical expressions:
+
+    * ``case="small_asymmetry"`` — SI Eqs. S64–S66 (T ≪ ω_LR, gap
+      asymmetry ≪ ω_10). The physical ordering is roughly
+      ``x_L ≃ x_R> ≃ x_R<`` all at the same scale,
+      ``x_L ≃ √(g^L / r^L)`` (Eq. S65),
+      ``x_R> = (Γ̄^L − (1−ξ) Γ̃^L_01) x_L / Γ̄^R>`` (Eq. S64),
+      ``x_R< = √(g^R / r^R<) − x_R>`` (Eq. S66).
+
+    * ``case="large_asymmetry"`` — SI Eqs. S69–S71 (T < T̄, gap
+      asymmetry comparable to ω_10). The physical ordering is
+      ``x_R< ≫ x_L ≫ x_R>``, with
+      ``x_R< = √((g^L/δ + g^R< + g^R>) / r^R<)`` (Eq. S69),
+      ``x_L`` from Eq. S70 and ``x_R>`` from Eq. S71 (linear system in
+      the assumption ``δ Γ̄^L ≫ r^L x_L`` and
+      ``Γ̄^R> + τ_R^{-1} ≫ r^R> x_R> + r^R< x_R<``).
+
+    The qubit excited-state population ``p_1`` is taken from the
+    detailed-balance expression
+    ``p_1 ≃ Γ̃^{ph}_{01}/(Γ̃^{ee}_{10}(1+e^{-ω_10/T}))
+            + e^{-ω_10/T}/(1+e^{-ω_10/T})`` (SI Eq. S73 with
+    ``Γ̃^L_{01} x_L = Γ̃^{R>}_{01} x_{R>} = 0`` at zeroth iteration —
+    valid for T ≪ ω_10 − ω_LR; the caption to Fig. S3 confirms this is
+    the form used in the SI's analytic plots). The temperature
+    ``T_kelvin`` enters only through this Boltzmann factor.
+
+    Parameters
+    ----------
+    coefs
+        Rate coefficients at the target temperature. The
+        :func:`rate_equation_coefficients.coefficients_from_physical_parameters_with_photon_drive`
+        builder is the typical caller.
+    T_kelvin
+        Bath temperature ``T`` in Kelvin (used only in the
+        ``e^{-ω_10/T}`` thermal factor for ``p_1``).
+    case
+        ``"large_asymmetry"`` for the M25 Fig 3b regime
+        (``ω_LR/2π ≳ 1 GHz``) or ``"small_asymmetry"`` for Fig 3a.
+        See SI Note VI A vs VI B.
+
+    Returns
+    -------
+    np.ndarray
+        Length-4 array ``(p_1, x_L, x_{R>}, x_{R<})``. Values are
+        clamped to the strict positive half-line (``≥ 1e-30``) to
+        keep the seed inside Newton's basin for the photon-driven
+        branch.
+
+    Notes
+    -----
+    The seed is structurally consistent with the SI's iterative
+    procedure but evaluated at the **zeroth iteration**: we use the
+    p_1 from Eq. S73 to evaluate Γ̄^L (Eq. S61) and Γ̄^R> (Eq. S62)
+    once, then plug into S64-S66 / S69-S71. Newton then polishes
+    against the full residual.
+    """
+    if case not in ("large_asymmetry", "small_asymmetry"):
+        raise ValueError(
+            f"case must be 'large_asymmetry' or 'small_asymmetry'; "
+            f"got {case!r}"
+        )
+    if T_kelvin <= 0:
+        raise ValueError(f"T_kelvin must be positive; got {T_kelvin}")
+
+    # ── p_1 from SI Eq. S73 at zeroth iteration ─────────────────────
+    # Need ω_10 in Kelvin; derive from gamma_ee detailed balance:
+    # Γ̃^{ee}_{01} = e^{-ω_10/T} · Γ̃^{ee}_{10}  (M25 text above Eq. 4).
+    # When both ee entries are zero (no qubit drive), use 0 for the
+    # Boltzmann factor (T1-limit by photon drive only).
+    ee_01 = float(coefs.gamma_ee[0, 1])
+    ee_10 = float(coefs.gamma_ee[1, 0])
+    if ee_10 > 0.0 and ee_01 > 0.0:
+        # Recover e^{-ω_10/T} from the supplied detailed-balance ratio.
+        boltzmann = ee_01 / ee_10
+        # Numerical safety: coefficients_from_physical_parameters
+        # enforces detailed balance with the input T, so this matches
+        # exp(-ω_10/T_kelvin) up to float64 rounding.
+        boltzmann = float(np.clip(boltzmann, 0.0, 1.0))
+    else:
+        boltzmann = 0.0
+
+    Gamma_ph_01 = float(coefs.gamma_ph[0, 1])
+    p_1 = (
+        Gamma_ph_01 / (ee_10 * (1.0 + boltzmann)) if ee_10 > 0.0 else 0.0
+    ) + (boltzmann / (1.0 + boltzmann))
+    p_1 = float(np.clip(p_1, 1e-12, 1.0 - 1e-12))
+    p_0 = 1.0 - p_1
+
+    # ── Γ̄^L and Γ̄^R> at this p_1 (SI Eqs. S61, S62) ────────────────
+    gL = coefs.gammas_L
+    gRgt = coefs.gammas_Rgt
+    Gamma_bar_L = (
+        p_0 * (gL[0, 0] + gL[0, 1]) + p_1 * (gL[1, 1] + gL[1, 0])
+    )
+    Gamma_bar_Rgt = (
+        p_0 * (gRgt[0, 0] + gRgt[0, 1]) + p_1 * (gRgt[1, 1] + gRgt[1, 0])
+    )
+
+    # Effective generation rates at this p_1 (M25 main text:
+    # g^{ph}_α(p) = p_0 · array[0] + p_1 · array[1] plus thermal scalar).
+    g_L_eff = (
+        coefs.g_L
+        + p_0 * float(coefs.g_ph_L_per_state[0])
+        + p_1 * float(coefs.g_ph_L_per_state[1])
+    )
+    g_Rgt_eff = (
+        coefs.g_Rgt
+        + p_0 * float(coefs.g_ph_Rgt_per_state[0])
+        + p_1 * float(coefs.g_ph_Rgt_per_state[1])
+    )
+    g_Rlt_eff = (
+        coefs.g_Rlt
+        + p_0 * float(coefs.g_ph_Rlt_per_state[0])
+        + p_1 * float(coefs.g_ph_Rlt_per_state[1])
+    )
+    g_R_total = g_Rlt_eff + g_Rgt_eff
+
+    delta = float(coefs.delta)
+    xi = float(coefs.xi)
+    Gamma_L_01 = float(coefs.gammas_L[0, 1])
+    Gamma_Rlt_10 = float(coefs.gammas_Rlt[1, 0])
+
+    floor = 1e-30
+    if case == "small_asymmetry":
+        # SI Eqs. S64–S66 (T ≪ ω_LR, small gap asymmetry).
+        # x_L ≃ √(g^L / r^L)   (Eq. S65 simplified form, valid when
+        #     Γ̃^L_01 ≪ √(g^L r^L) — the dominant branch is recombination
+        #     against the photon drive).
+        if coefs.r_L > 0.0 and g_L_eff > 0.0:
+            x_L = float(np.sqrt(g_L_eff / coefs.r_L))
+        else:
+            x_L = floor
+        # x_R> = (Γ̄^L − (1 − ξ) Γ̃^L_01) x_L / Γ̄^R>     (Eq. S64).
+        if Gamma_bar_Rgt > 0.0:
+            x_Rgt = max(
+                (Gamma_bar_L - (1.0 - xi) * Gamma_L_01) * x_L / Gamma_bar_Rgt,
+                floor,
+            )
+        else:
+            x_Rgt = floor
+        # x_R< = √(g^R / r^R<) − x_R>     (Eq. S66).
+        if coefs.r_Rlt > 0.0 and g_R_total > 0.0:
+            x_Rlt = max(
+                float(np.sqrt(g_R_total / coefs.r_Rlt)) - x_Rgt, floor,
+            )
+        else:
+            x_Rlt = floor
+    else:  # large_asymmetry
+        # SI Eq. S69: x_R< = √((g^L/δ + g^R< + g^R>) / r^R<).
+        if coefs.r_Rlt > 0.0:
+            inside = max(g_L_eff / max(delta, floor) + g_R_total, 0.0)
+            x_Rlt = max(float(np.sqrt(inside / coefs.r_Rlt)), floor)
+        else:
+            x_Rlt = floor
+
+        tau_R_inv = float(coefs.tau_R_inv)
+        tau_E_inv = float(coefs.tau_E_inv)
+        # Common denominator for Eqs. S70 and S71:
+        # D = Γ̄^L · τ_R^{-1} + Γ̄^R> · p_0 · Γ̃^L_01 · (1 − ξ).
+        D = (
+            Gamma_bar_L * tau_R_inv
+            + Gamma_bar_Rgt * p_0 * Gamma_L_01 * (1.0 - xi)
+        )
+        # Common term in numerators: (g^L/δ + p_1 Γ̃^{R<}_10 x_R<).
+        N1 = g_L_eff / max(delta, floor) + p_1 * Gamma_Rlt_10 * x_Rlt
+        # Second numerator term: (g^R> + τ_E^{-1} x_R<) · Γ̄^R>  for x_L
+        #                     and (g^R> + τ_E^{-1} x_R<) · Γ̄^L  for x_R>.
+        N2 = g_Rgt_eff + tau_E_inv * x_Rlt
+
+        if D > 0.0:
+            # SI Eq. S70: x_L = [N1 (Γ̄^R> + τ_R^{-1}) + N2 · Γ̄^R>] / D.
+            x_L = (N1 * (Gamma_bar_Rgt + tau_R_inv) + N2 * Gamma_bar_Rgt) / D
+            # SI Eq. S71: x_R> = [N1 · (Γ̄^L − p_0 Γ̃^L_01 (1−ξ)) + N2 · Γ̄^L] / D.
+            x_Rgt = (
+                N1 * (Gamma_bar_L - p_0 * Gamma_L_01 * (1.0 - xi))
+                + N2 * Gamma_bar_L
+            ) / D
+        else:
+            # Degenerate denominator: fall back to S64-S66 ordering with
+            # x_L sized by photon-driven balance and x_R> small.
+            x_L = (
+                float(np.sqrt(g_L_eff / coefs.r_L))
+                if coefs.r_L > 0.0 and g_L_eff > 0.0 else floor
+            )
+            x_Rgt = floor
+        x_L = max(x_L, floor)
+        x_Rgt = max(x_Rgt, floor)
+
+    return np.array([p_1, x_L, x_Rgt, x_Rlt], dtype=float)
+
+
+# ─────────────────────────────────────────────────────────────────────
 #  Multi-seed branch picker — selects the photon-driven nonequilibrium
 #  branch from the M25 system's multiple fixed points.
 # ─────────────────────────────────────────────────────────────────────
@@ -702,6 +906,103 @@ def _solve_with_lm(
     )
 
 
+def _solve_with_lsq(
+    coefs: M25Coefficients,
+    seed: np.ndarray,
+    *,
+    residual_ceiling_Hz: float,
+) -> M25SteadyState | None:
+    r"""Try ``scipy.optimize.least_squares`` with bounds from ``seed``.
+
+    Bounded Levenberg-Marquardt (``method='trf'``) on the same residual,
+    constrained to ``p_1 ∈ [0, 1]`` and ``x_α ≥ 0``. Unlike the
+    unbounded ``hybr`` and ``lm`` solvers, the trust-region reflective
+    method physically cannot leave the feasible box, so it does not
+    drift to negative densities and trigger the post-hoc rejection
+    that loses the small-asymmetry branch in M25 Fig 3a.
+
+    Used only as an additional candidate source in the multi-seed
+    picker — the standalone :func:`solve_rate_equation_steady_state`
+    keeps the original hybr semantics.
+
+    Returns ``None`` if the solve fails, the post-hoc physical-branch
+    check fails, or the residual exceeds ``residual_ceiling_Hz``.
+    """
+    # Lower bound: every component nonnegative. Upper bound: p_1 ≤ 1,
+    # densities unbounded above (the physical branch can sit at any
+    # positive scale; the residual itself prevents runaway).
+    lower = np.zeros(4)
+    upper = np.array([1.0, np.inf, np.inf, np.inf])
+    # trf requires the seed strictly inside the box. Clip with a small
+    # epsilon away from the bounds so the trust region can move freely
+    # at the start. (The choice 1e-30 matches analytic_low_T_seed's
+    # floor and is well below any physical density of interest.)
+    seed_clipped = np.clip(np.asarray(seed, dtype=float), 1e-30, None)
+    seed_clipped[0] = float(np.clip(seed_clipped[0], 1e-30, 1.0 - 1e-30))
+    try:
+        sol = least_squares(
+            _rate_equation_residual,
+            seed_clipped,
+            args=(coefs,),
+            method="trf",
+            bounds=(lower, upper),
+            # Match the hybr/lm tolerance budget on the problem:
+            # M25 Fig 3 inputs cancel ~1e10 Hz tunneling currents to a
+            # ~1e-5 Hz residual floor, so xtol/ftol below ~1e-12 just
+            # spin on round-off without reaching a meaningfully better
+            # fixed point. ``max_nfev=500`` matches the default budget
+            # of :func:`solve_rate_equation_steady_state`; the lsq
+            # solver only needs to be competitive with hybr for one
+            # candidate, not exhaustively explore the seed grid.
+            xtol=1e-12,
+            ftol=1e-12,
+            gtol=1e-12,
+            max_nfev=500,
+        )
+    except Exception:
+        return None
+    residual_inf_norm = float(np.max(np.abs(sol.fun)))
+    if residual_inf_norm > residual_ceiling_Hz:
+        return None
+    p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
+    # Box constraints guarantee p_1 ∈ [0, 1] and x_α ≥ 0, but the
+    # multi-seed picker treats x_α = 0 as unphysical (would yield
+    # log(0) for the chemical-potential plot). Reject as in
+    # _solve_with_lm.
+    if not (0.0 <= p_1 <= 1.0):
+        return None
+    if min(x_L, x_Rgt, x_Rlt) <= 0.0:
+        return None
+    return M25SteadyState(
+        p_0=1.0 - p_1,
+        p_1=p_1,
+        x_L=x_L,
+        x_Rgt=x_Rgt,
+        x_Rlt=x_Rlt,
+        residual_inf_norm=residual_inf_norm,
+        n_function_evaluations=int(sol.nfev),
+    )
+
+
+def _candidate_satisfies_ordering(
+    sol: M25SteadyState, expected_ordering: tuple[str, ...]
+) -> bool:
+    """Return True iff ``sol`` densities are sorted descending by name.
+
+    ``expected_ordering`` is a tuple of density labels drawn from
+    ``{"x_L", "x_Rgt", "x_Rlt"}`` listed in **descending** order, e.g.
+    ``("x_Rlt", "x_L", "x_Rgt")`` enforces ``x_R< ≥ x_L ≥ x_R>``
+    (the M25 large-asymmetry physical branch).
+    """
+    name_to_value = {
+        "x_L": sol.x_L,
+        "x_Rgt": sol.x_Rgt,
+        "x_Rlt": sol.x_Rlt,
+    }
+    values = [name_to_value[name] for name in expected_ordering]
+    return all(values[i] >= values[i + 1] for i in range(len(values) - 1))
+
+
 def solve_rate_equation_steady_state_multi_seed(
     coefs: M25Coefficients,
     *,
@@ -711,6 +1012,8 @@ def solve_rate_equation_steady_state_multi_seed(
     accept_lm_convergence: bool = True,
     residual_tol_relative: float = 1e-3,
     max_function_evaluations: int = 500,
+    branch_picker_mode: str = "max_x_L",
+    expected_ordering: tuple[str, ...] | None = None,
 ) -> M25SteadyState:
     """Pick the photon-driven nonequilibrium branch by multi-seed solve.
 
@@ -718,23 +1021,44 @@ def solve_rate_equation_steady_state_multi_seed(
     parameters there are several positive-density fixed points plus
     the thermal branch. Each ``initial_guess`` to
     :func:`solve_rate_equation_steady_state` selects one of them.
-    The "right" branch (the one matching M25 paper Fig 3 / Fig 4
-    plots) is the photon-driven nonequilibrium one — typically the
-    one with the largest ``x_L``.
 
-    This helper tries the default seed plus a small grid of hand-
-    tuned x seeds (and any caller-supplied ``extra_seeds``), keeps
-    only converged positive-density solutions, and selects one as
-    follows:
+    Three branch-picker modes are supported (``branch_picker_mode``):
 
-    * If ``preferred_seed`` is given (typically the previous
-      temperature point's solution in a sweep) AND its solve
-      converges to a positive-density branch within
-      ``branch_continuation_ratio`` of the max-x_L candidate,
-      return THAT solution. This keeps the sweep on the same branch
-      across small parameter changes.
-    * Otherwise return the candidate with the largest ``x_L`` —
-      the most-non-equilibrium branch.
+    * ``"max_x_L"`` (default, original behavior): return the candidate
+      with the largest ``x_L``. Validated against early M25 baselines
+      but **picks the wrong branch** at low T for the large-asymmetry
+      case in M25 Fig 3a/4a — paper's physical branch has
+      ``x_R< >> x_L >> x_R>``, while max-x_L selects the inverted
+      ordering and inflates parity rates by ~600× (see
+      ``qpsim_validation_plan.tex`` page 10). Kept as default only for
+      backward compatibility.
+
+    * ``"min_residual"``: return the candidate with the smallest
+      residual ∞-norm. Aligns with the paper's expectation that the
+      physical fixed point is the cleanest numerical solution and
+      avoids picking spurious high-x_L roots that often sit on the
+      cancellation floor. Recommended for paper-target M25 runs.
+
+    * ``"lock_to_preferred"``: if ``preferred_seed`` converges to a
+      positive-density branch, **always** return it (no max-x_L /
+      branch_continuation_ratio escape hatch). For first-call no-seed
+      cases, falls back to ``"min_residual"``. Pair with a low-T
+      starting point and prev-T continuation to track a single branch
+      across the sweep.
+
+    ``preferred_seed`` exception (legacy): when in ``"max_x_L"`` mode,
+    if the preferred-seed solution lies within ``branch_continuation_ratio``
+    of the max-x_L candidate it is returned in preference to the max.
+    The new modes ignore this ratio.
+
+    ``expected_ordering`` (optional): a length-2 or length-3 tuple of
+    density labels drawn from ``{"x_L", "x_Rgt", "x_Rlt"}`` listed in
+    descending order (e.g. ``("x_Rlt", "x_L", "x_Rgt")`` for the
+    M25 Fig 3b large-asymmetry physical branch ``x_R< ≥ x_L ≥ x_R>``).
+    When set, candidates that violate the ordering are filtered out
+    **before** the branch-picker dispatch. If no candidate satisfies
+    the ordering, a stderr warning is emitted and the picker falls
+    back to the unfiltered candidate set.
 
     Raises ``RuntimeError`` if no seed yields a physical solution.
     """
@@ -768,19 +1092,86 @@ def solve_rate_equation_steady_state_multi_seed(
         # candidates with residual below the same 1.0 Hz safety ceiling
         # used for hybr's no-progress bypass.
         if seed is None:
-            continue  # lm needs an explicit seed
+            continue  # lm and lsq need an explicit seed
         lm_sol = _solve_with_lm(coefs, seed, residual_ceiling_Hz=1.0)
         if lm_sol is not None:
             candidates.append((seed, lm_sol))
+
+        # Tertiary: bounded least-squares (trust-region reflective).
+        # Both hybr and lm are unbounded and can drift to negative
+        # densities — when the post-hoc rejection fires the seed is
+        # lost as a candidate source even though the physical fixed
+        # point sits right at the seed (M25 Fig 3a small-asymmetry
+        # case at low T). The bounded solver enforces ``p_1 ∈ [0, 1]``
+        # and ``x_α ≥ 0`` during iteration, so the analytic-seed root
+        # is recovered as a candidate. Same residual ceiling as lm.
+        lsq_sol = _solve_with_lsq(coefs, seed, residual_ceiling_Hz=1.0)
+        if lsq_sol is not None:
+            candidates.append((seed, lsq_sol))
     if not candidates:
         raise RuntimeError(
             "M25 multi-seed solve: no seed produced a positive-density "
             "physical solution. Coefficients may be degenerate or the "
             "seed grid may not bracket the relevant branch."
         )
-    max_sol = max(candidates, key=lambda c: c[1].x_L)[1]
+
+    # Density-ordering filter (optional). Applied before branch picker
+    # dispatch so all picker modes (max_x_L, min_residual, lock_to_preferred)
+    # see only candidates consistent with the paper's expected ordering.
+    candidates_for_picker = candidates
+    if expected_ordering is not None:
+        valid_names = {"x_L", "x_Rgt", "x_Rlt"}
+        if not all(name in valid_names for name in expected_ordering):
+            raise ValueError(
+                f"expected_ordering must contain only labels from "
+                f"{sorted(valid_names)}; got {expected_ordering}"
+            )
+        if len(set(expected_ordering)) != len(expected_ordering):
+            raise ValueError(
+                f"expected_ordering must not repeat labels; got "
+                f"{expected_ordering}"
+            )
+        filtered = [
+            (seed, sol) for seed, sol in candidates
+            if _candidate_satisfies_ordering(sol, expected_ordering)
+        ]
+        if filtered:
+            candidates_for_picker = filtered
+        else:
+            import sys
+            print(
+                f"M25 multi-seed: no candidate satisfies "
+                f"expected_ordering={expected_ordering}; falling back to "
+                f"unfiltered candidate set ({len(candidates)} candidates).",
+                file=sys.stderr,
+            )
+
+    # Branch picker dispatch.
+    if branch_picker_mode == "lock_to_preferred":
+        if preferred_seed is not None:
+            for seed, sol in candidates_for_picker:
+                if seed is preferred_seed:
+                    return sol
+        # Fall back to min_residual when no preferred seed converged.
+        return min(
+            candidates_for_picker, key=lambda c: c[1].residual_inf_norm,
+        )[1]
+
+    if branch_picker_mode == "min_residual":
+        return min(
+            candidates_for_picker, key=lambda c: c[1].residual_inf_norm,
+        )[1]
+
+    if branch_picker_mode != "max_x_L":
+        raise ValueError(
+            f"Unknown branch_picker_mode={branch_picker_mode!r}. "
+            "Use 'max_x_L', 'min_residual', or 'lock_to_preferred'."
+        )
+
+    # Default: max-x_L with optional preferred-seed override.
+    max_sol = max(candidates_for_picker, key=lambda c: c[1].x_L)[1]
     if preferred_seed is not None:
-        for seed, sol in candidates:
+        for seed, sol in candidates_for_picker:
             if seed is preferred_seed and (
                 sol.x_L * branch_continuation_ratio >= max_sol.x_L
             ):
