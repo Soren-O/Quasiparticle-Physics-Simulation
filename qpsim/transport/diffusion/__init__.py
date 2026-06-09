@@ -1,8 +1,36 @@
 """Diffusion-model dispatch.
 
-Modules planned (New Framework Plan §5):
-- base.py — DiffusionModel enum
-- legacy.py — D(E) = D_0 √(1 − (Δ/E)²) (Fischer-matching)
-- boltzmann.py — D(E) = D_0 [1 − (Δ/E)²]
-- usadel.py — (D/N_1²) ∇ [N_1² ∇ f]
+Re-exports the :class:`~qpsim.transport.diffusion.base.DiffusionModel`
+operator family (A1 / A2 / B / C) and its dressing helpers. See
+:mod:`qpsim.transport.diffusion.base` for the ``(p, q)`` parametrization
+and the A1 = dirty-Usadel / A2 = rejected-diagnostic distinction.
+
+History: earlier drafts planned separate ``legacy.py`` / ``boltzmann.py``
+/ ``usadel.py`` modules. That planned ``usadel.py`` form,
+``(D / N_1^2) d_x[ N_1^2 d_x f ]``, is the *rejected* diagnostic A2 (it
+conserves ``N_1^2 f``), not the dirty-limit Usadel operator -- which is A1
+(conserves ``N_1 f``). The family is now one parametrized module rather
+than a file per closure.
 """
+
+from __future__ import annotations
+
+from qpsim.transport.diffusion.base import (
+    DEFAULT_DIFFUSION_MODEL,
+    DiffusionModel,
+    density_weight,
+    dressing_exponents,
+    effective_rate,
+    flux_weight,
+    from_name,
+)
+
+__all__ = [
+    "DEFAULT_DIFFUSION_MODEL",
+    "DiffusionModel",
+    "density_weight",
+    "dressing_exponents",
+    "effective_rate",
+    "flux_weight",
+    "from_name",
+]
