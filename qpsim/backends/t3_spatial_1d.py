@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 from scipy import sparse
@@ -22,8 +23,19 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_base,
 )
 from qpsim.materials.database import Material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.solvers.crank_nicolson import build_cn_operators
 from qpsim.solvers.etd import etd2_step
+from qpsim.transport.diffusion.base import (
+    DEFAULT_DIFFUSION_MODEL,
+    DiffusionModel,
+    density_weight,
+    flux_weight,
+)
+
+#: One energy's cached Crank-Nicolson transport operator:
+#: ``(B, LU[A], active_indices, N_1**p)`` for ``A u^{n+1} = B u^n``.
+_EnergyOp = tuple[Any, Any, np.ndarray, np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -81,7 +93,21 @@ class T3SpatialFlux1D:
 
 @dataclass
 class T3Spatial1DState:
-    """T3 occupation on an ``(energy, position)`` mesh."""
+    """T3 occupation on an ``(energy, position)`` mesh.
+
+    ``diffusion_model`` selects the spatial-diffusion operator (see
+    :class:`qpsim.transport.diffusion.base.DiffusionModel`); it defaults
+    to the physically correct dirty-limit Usadel reduction ``A1``.
+
+    ``gap_profile`` (optional, shape ``(NX,)``) gives a spatially-varying
+    gap so the DOS ``N_1(E, x)`` -- and hence the transport dressing -- is
+    evaluated per cell; ``None`` means a uniform scalar gap. With a
+    ``gap_profile`` and a finite ``interface_conductance`` ``G_N``, every
+    face where the gap steps becomes a Kaplan-Larkin interface carrying the
+    current ``F = G_N N_1^L N_1^R (f_L - f_R)`` instead of a bulk diffusive
+    flux. Both only affect transport; the collision term still uses the
+    scalar-gap ``spectral`` context.
+    """
 
     f: np.ndarray
     x: np.ndarray
@@ -89,6 +115,9 @@ class T3Spatial1DState:
     spectral: SpectralContext
     material: Material
     T_bath: float
+    diffusion_model: DiffusionModel = DEFAULT_DIFFUSION_MODEL
+    gap_profile: np.ndarray | None = None
+    interface_conductance: float | None = None
 
     @property
     def dx(self) -> float:
@@ -122,9 +151,9 @@ class T3Spatial1DBackend:
     """Spatial diffusion + local collision time stepper for 1D Al strips."""
 
     def __init__(self) -> None:
-        self._transport_eigen_cache: dict[
-            tuple[int, float],
-            tuple[np.ndarray, np.ndarray],
+        self._transport_cn_cache: dict[
+            tuple[object, ...],
+            list[_EnergyOp | None],
         ] = {}
         self._collision_cache: dict[
             tuple[int, float, float, float],
@@ -132,7 +161,19 @@ class T3Spatial1DBackend:
         ] = {}
 
     def apply_transport(self, state: T3Spatial1DState, dt: float) -> T3Spatial1DState:
-        """Crank-Nicolson diffusion step with reflective end boundaries."""
+        """Conservative finite-volume diffusion step (Crank-Nicolson).
+
+        Advances each energy under the selected
+        :class:`~qpsim.transport.diffusion.base.DiffusionModel`,
+        ``d_t (N_1**p f) = d_x( D_0 N_1**q  d_x f )``, on the conserved
+        density ``u = N_1**p f`` with harmonic-mean face weights
+        ``W = D_0 N_1**q`` and reflective (zero-flux) ends -- so
+        ``sum_x N_1**p f`` is conserved per energy to round-off. Recovers
+        ``f = u / N_1**p`` and clips to ``[0, 1]``.
+
+        With ``(p, q) = (0, -1)`` (model ``C``) at a uniform gap this is the
+        same PDE as the legacy ``D_E = D_0 sqrt(1 - (Delta/E)**2)`` step.
+        """
         self._validate_state(state)
         if dt <= 0.0:
             raise ValueError("dt must be positive.")
@@ -141,20 +182,115 @@ class T3Spatial1DBackend:
         if NX == 1:
             return state
 
-        key = (NX, state.dx)
-        cached = self._transport_eigen_cache.get(key)
-        if cached is None:
-            laplacian = _reflective_1d_laplacian(NX, state.dx).toarray()
-            cached = np.linalg.eigh(laplacian)
-            self._transport_eigen_cache[key] = cached
-        eigenvalues, eigenvectors = cached
+        ops = self._build_transport_operators(state, dt)
+        f_new = state.f.copy()
+        for i, op in enumerate(ops):
+            if op is None:
+                continue
+            b_mat, lu, idx, rho_p = op
+            u = rho_p * f_new[i, idx]
+            u_next = lu.solve(b_mat @ u)
+            f_new[i, idx] = np.clip(u_next / rho_p, 0.0, 1.0)
 
-        modal = state.f @ eigenvectors
-        alpha = 0.5 * dt * state.spectral.D_E[:, None] * eigenvalues[None, :]
-        amplification = (1.0 + alpha) / (1.0 - alpha)
-        f_new = (modal * amplification) @ eigenvectors.T
+        return replace(state, f=f_new)
 
-        return replace(state, f=np.clip(f_new, 0.0, 1.0))
+    def _build_transport_operators(
+        self, state: T3Spatial1DState, dt: float
+    ) -> list[_EnergyOp | None]:
+        """Per-energy Crank-Nicolson transport operators (cached).
+
+        One entry per energy bin: ``(B, LU[A], active_indices, N_1**p)``
+        for the conserved-density update ``A u^{n+1} = B u^n``, or ``None``
+        where the bin has fewer than two states above the gap (nothing to
+        diffuse).
+        """
+        NE, _NX = state.f.shape
+        model = state.diffusion_model
+        p, q = model.p, model.q
+        D0 = float(state.spectral.diffusion_coefficient)
+        dx = state.dx
+        inv_dx2 = 1.0 / (dx * dx)
+        N1 = self._n1_per_cell(state)
+        interface_faces = self._interface_faces(state)
+        G_N = state.interface_conductance
+        g_interface = (
+            float(G_N) if (interface_faces and G_N is not None) else 0.0
+        )
+
+        key = (_NX, float(dx), float(dt), model, D0, self._gap_cache_key(state))
+        cached = self._transport_cn_cache.get(key)
+        if cached is not None:
+            return cached
+
+        ops: list[_EnergyOp | None] = []
+        for i in range(NE):
+            N1_i = N1[i]
+            active = N1_i > 0.0
+            na = int(np.count_nonzero(active))
+            if na < 2:
+                ops.append(None)
+                continue
+            idx = np.flatnonzero(active)
+            if int(idx[-1] - idx[0]) + 1 != na:
+                raise NotImplementedError(
+                    "Non-contiguous active spatial region is not supported "
+                    "by the 1D transport operator."
+                )
+            N1_a = N1_i[idx]
+            rho_p = density_weight(N1_a, p)
+            w_cell = flux_weight(D0, N1_a, q)
+            g_face = _harmonic_face_weights(w_cell) * inv_dx2
+            if interface_faces:
+                for m in range(na - 1):
+                    if int(idx[m]) in interface_faces:
+                        # Kaplan-Larkin finite interface conductance:
+                        # F = G_N N_1^L N_1^R (f_L - f_R), dx-independent
+                        # (the 1/dx is the flux-divergence factor). With
+                        # N_1=0 on one side (sub-gap there) the interface
+                        # is automatically closed.
+                        g_face[m] = g_interface * N1_a[m] * N1_a[m + 1] / dx
+            laplacian = _flux_laplacian_from_conductances(g_face, na)
+            operator = (laplacian @ sparse.diags(1.0 / rho_p)).tocsr()
+            b_mat, lu = build_cn_operators(operator, dt, 1.0)
+            ops.append((b_mat, lu, idx, rho_p))
+
+        self._transport_cn_cache[key] = ops
+        return ops
+
+    def _n1_per_cell(self, state: T3Spatial1DState) -> np.ndarray:
+        """BCS density of states ``N_1(E_i, x_j)``, shape ``(NE, NX)``.
+
+        Uniform-gap path (no ``gap_profile``): ``N_1`` is x-independent,
+        the spectral context's DOS at the scalar gap broadcast across the
+        mesh. With a ``gap_profile`` it is evaluated per cell from the local
+        gap, giving the spatially-varying DOS the dressings act on.
+        """
+        _NE, NX = state.f.shape
+        if state.gap_profile is None:
+            return np.repeat(state.spectral.rho[:, None], NX, axis=1)
+        E = state.spectral.E
+        columns = [bcs_density_of_states(E, float(g)) for g in state.gap_profile]
+        return np.column_stack(columns)
+
+    @staticmethod
+    def _interface_faces(state: T3Spatial1DState) -> set[int]:
+        """Full-grid face indices carrying a Kaplan-Larkin interface.
+
+        A face ``k`` (between cells ``k`` and ``k+1``) is an interface when a
+        ``gap_profile`` is present, a finite ``interface_conductance`` is
+        set, and the gap steps across that face.
+        """
+        if state.gap_profile is None or state.interface_conductance is None:
+            return set()
+        gap = state.gap_profile
+        return {int(k) for k in np.flatnonzero(gap[:-1] != gap[1:])}
+
+    @staticmethod
+    def _gap_cache_key(state: T3Spatial1DState) -> object:
+        """Transport-operator cache discriminator for the gap profile."""
+        if state.gap_profile is None:
+            return float(state.spectral.gap)
+        return (state.gap_profile.tobytes(), state.interface_conductance)
 
     def apply_collisions(
         self,
@@ -330,20 +466,48 @@ class T3Spatial1DBackend:
             raise ValueError("state.f contains non-finite values.")
         if np.any((f < 0.0) | (f > 1.0)):
             raise ValueError("state.f must lie in [0, 1].")
+        if state.gap_profile is not None:
+            gap_profile = np.asarray(state.gap_profile)
+            if gap_profile.shape != (f.shape[1],):
+                raise ValueError(
+                    f"gap_profile must have shape (NX,)=({f.shape[1]},); "
+                    f"got {gap_profile.shape}."
+                )
+            if np.any(~np.isfinite(gap_profile)) or np.any(gap_profile < 0.0):
+                raise ValueError("gap_profile must be finite and non-negative.")
 
 
-def _reflective_1d_laplacian(NX: int, dx: float) -> sparse.csr_matrix:
-    """Finite-volume 1D Laplacian with zero-flux boundary faces."""
-    if NX <= 0:
-        raise ValueError("NX must be positive.")
-    if dx <= 0.0:
-        raise ValueError("dx must be positive.")
-    if NX == 1:
-        return sparse.csr_matrix((1, 1))
+def _harmonic_face_weights(W_cell: np.ndarray) -> np.ndarray:
+    """Harmonic-mean interior-face weights ``2 W_j W_{j+1} / (W_j + W_{j+1})``.
 
-    main = -2.0 * np.ones(NX)
-    upper = np.ones(NX - 1)
-    lower = np.ones(NX - 1)
-    main[0] = -1.0
-    main[-1] = -1.0
-    return sparse.diags([lower, main, upper], offsets=[-1, 0, 1], format="csr") / dx**2
+    Matches :func:`qpsim.grid.spatial_grid.build_variable_diffusion_laplacian`,
+    so the discrete flux stays conservative across jumps in ``W``. A face with
+    a zero-``W`` neighbour (no states there) gets zero weight.
+    """
+    w_left = W_cell[:-1]
+    w_right = W_cell[1:]
+    denom = w_left + w_right
+    w_face = np.zeros(W_cell.size - 1, dtype=float)
+    nonzero = denom > 0.0
+    w_face[nonzero] = 2.0 * w_left[nonzero] * w_right[nonzero] / denom[nonzero]
+    return w_face
+
+
+def _flux_laplacian_from_conductances(
+    g_face: np.ndarray, n: int
+) -> sparse.csr_matrix:
+    """Tridiagonal ``d_x(.)`` operator from per-face conductances.
+
+    Each interior face ``j`` couples cells ``j`` and ``j+1`` as
+    ``du_j/dt -= g_face[j] (u_j - u_{j+1})`` (and the antisymmetric term on
+    cell ``j+1``). Row and column sums vanish -- zero-flux ends -- so the
+    Crank-Nicolson update conserves ``sum_x u`` exactly. Bulk diffusion uses
+    ``g_face = W_face / dx**2``; a Kaplan-Larkin interface overrides its face
+    with ``G_N N_1^L N_1^R / dx``. With constant ``g_face`` this is the
+    standard reflective Laplacian.
+    """
+    off = np.asarray(g_face, dtype=float)
+    main = np.zeros(n, dtype=float)
+    main[:-1] -= off
+    main[1:] -= off
+    return sparse.diags([off, main, off], offsets=[-1, 0, 1], format="csr")
