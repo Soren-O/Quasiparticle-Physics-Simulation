@@ -6,9 +6,11 @@ With a spatially-varying gap the conserved density ``u = N_1^p f`` obeys
 
     v_com = <d_x D_eff> + <v_d> = D_N q N_1^{q-p-1} d_x N_1 ,
 
-so the dressing sign flips with ``q``: A1/A2 (``q = 2``) drift *up* the gap
-gradient, C/B (``q < 0``) drift *down* it, and A1 vs A2 differ by one power
-of ``N_1`` (ratio ``1/N_1``). We launch a narrow packet at every energy in a
+so the drift is controlled by ``q``: the dirty-limit operator A1
+(``q = 0``) has *no* DOS-gradient drift, the diagnostics A1P/A2
+(``q = 2``) drift *up* the gap gradient (differing by one power of
+``N_1``, ratio ``1/N_1``), and C/B (``q < 0``) drift *down* it. We launch
+a narrow packet at every energy in a
 fixed gap ramp (no collisions) and read each energy's center-of-mass drift.
 
 Run ``python -m validation.diffusion_operators.gap_gradient_drift`` to write
@@ -150,7 +152,7 @@ def main() -> None:
     write_csv(out / "gap_gradient_drift.csv", header, rows)
 
     fig, ax = plt.subplots(figsize=(6.0, 4.5))
-    colors = {"A1": "C0", "A2": "C1", "C": "C2", "B": "C3"}
+    colors = {"A1": "C0", "A1P": "C4", "A2": "C1", "C": "C2", "B": "C3"}
     for name in result.drift_measured:
         ax.plot(
             result.E / result.gap_max,

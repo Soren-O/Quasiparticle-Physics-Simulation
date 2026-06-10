@@ -1,4 +1,4 @@
-"""Fast invariants for the Kaplan-Larkin interface-trap benchmark."""
+"""Fast invariants for the Kupriyanov-Lukichev interface-trap benchmark."""
 
 from __future__ import annotations
 

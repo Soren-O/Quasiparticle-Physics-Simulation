@@ -24,6 +24,19 @@ def bcs_density_of_states(E: np.ndarray, gap: float) -> np.ndarray:
     return rho
 
 
+def bcs_anomalous_weight(E: np.ndarray, gap: float) -> np.ndarray:
+    """BCS anomalous weight N₂(E) = Δ / √(E² − Δ²) for E > Δ, else 0.
+
+    The companion to :func:`bcs_density_of_states` (N₂ = (Δ/E) N₁); it
+    enters the coherence-factor combination N₁N₁′ − N₂N₂′ carried by the
+    Kupriyanov–Lukichev interface projection of the energy channel.
+    """
+    n2 = np.zeros_like(E, dtype=float)
+    valid = gap < E
+    n2[valid] = gap / np.sqrt(E[valid] ** 2 - gap ** 2)
+    return n2
+
+
 def dynes_density_of_states(E: np.ndarray, gap: float, gamma: float) -> np.ndarray:
     """Dynes DOS: Re{(E − iΓ) / √((E − iΓ)² − Δ²)}. Γ=0 falls back to BCS."""
     if gamma <= 0:

@@ -49,26 +49,35 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 `qpsim.transport.diffusion.base` — `DiffusionModel` operator family
 parametrized by `(p, q)`, `L_{p,q}[f] = N_1^{-p} d_x(D_N N_1^q d_x f)`:
-**A1 = (1, 2)** dirty-limit Keldysh–Usadel (default; conserves `N_1 f`, rate
-`D_N N_1`), A2 = (2, 2) rejected diagnostic, C = (0, -1) legacy `D_E` closure,
-B = (0, -2) constant-τ. Corrects the old `transport.diffusion` "usadel = A2"
-mislabel (the dirty Usadel operator is A1, not A2). See
-`docs/Diffusion_Operators.md`.
+**A1 = (1, 0)** dirty-limit Keldysh–Usadel (default; conserves `N_1 f`,
+undressed flux `D_L` — 1 above the local gap edge, 0 below — rate
+`D_N / N_1`, same uniform-gap rate as C), A1P = (1, 2) transverse-dressing
+diagnostic (the pre-errata energy-channel assignment), A2 = (2, 2)
+diagnostic, C = (0, -1) legacy `D_E` closure, B = (0, -2) constant-τ.
+June 2026 advanced-propagator errata (g^A = -τ³(g^R)†τ³): the `N_1²` flux
+dressing belongs to the transverse (charge) channel, so the energy-mode
+operator is (1, 0), not (1, 2); see `docs/Diffusion_Operators.md` and the
+qp-diffusion paper's `verify_gA_convention.py`.
 
-`T3Spatial1DBackend.apply_transport` is now an exactly-conservative
+`T3Spatial1DBackend.apply_transport` is an exactly-conservative
 finite-volume Crank–Nicolson step on the conserved density `u = N_1^p f`
 (harmonic-mean faces, reflective ends; `Σ_x N_1^p f` conserved to ~1e-15);
-reproduces the legacy modal C-step to round-off. Optional `gap_profile`
-(per-cell DOS) + `interface_conductance` add a Kaplan–Larkin two-gap
-interface `F = G_N N_1^L N_1^R (f_L - f_R)` (current-continuous,
-f-discontinuous). Default model flipped C → A1; prelim scripts unchanged
+reproduces the legacy modal C-step to round-off (A1 coincides with it at a
+uniform gap). Optional `gap_profile`
+(per-cell DOS) + `interface_conductance` add a Kupriyanov–Lukichev two-gap
+interface `F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R)` — the
+coherence-factor energy-channel weight, regular at matched gaps
+(current-continuous, f-discontinuous). Prelim scripts unchanged
 (their committed outputs are historical C runs).
 
 §7.5 benchmarks in `validation/diffusion_operators/` (fast co-located tests +
 `python -m …` scripts → CSV/figure under `outputs/`): `uniform_gap_packet`
-(measured `D_eff(E)/D_N` traces `N_1^{q-p}`), `gap_gradient_drift` (COM drift
-`D_N q N_1^{q-p-1} d_x N_1`; A1/A2 drift up the gap, C/B down), `interface_trap`
-(current-continuity + f-discontinuity; A1 vs A2 distinct closed equilibria).
+(measured `D_eff(E)/D_N` traces `N_1^{q-p}`; A1 ≡ C at uniform gap),
+`gap_gradient_drift` (COM drift
+`D_N q N_1^{q-p-1} d_x N_1`; A1 no drift, A1P/A2 drift up the gap, C/B down),
+`interface_trap`
+(current-continuity + f-discontinuity with the coherence weight; A1 vs A2
+distinct closed equilibria).
 
 ## Services (`qpsim.services.*`)
 

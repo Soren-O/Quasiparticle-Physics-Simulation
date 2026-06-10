@@ -156,7 +156,11 @@ class TestT3Spatial1DDiffusionModels:
         old = np.clip(((f0 @ V) * (1.0 + alpha) / (1.0 - alpha)) @ V.T, 0.0, 1.0)
         np.testing.assert_allclose(new, old, atol=1e-12)
 
-    def test_a1_and_c_dynamics_differ(self) -> None:
+    def test_a1_and_c_coincide_at_uniform_gap(self) -> None:
+        # A1 (conserves N1 f, undressed flux) and C (bare f, 1/N1-dressed
+        # flux) share the uniform-gap rate D0/N1, so with N1 x-independent
+        # their f-dynamics are identical -- the dirty-Usadel and clean/BRT
+        # reductions agree at a uniform gap.
         base = _build_state(T_bath=0.0)
         NE, _NX = base.f.shape
         f0 = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
@@ -166,7 +170,23 @@ class TestT3Spatial1DDiffusionModels:
             ).f
             for model in (DiffusionModel.A1, DiffusionModel.C)
         }
-        assert np.max(np.abs(out[DiffusionModel.A1] - out[DiffusionModel.C])) > 1e-3
+        np.testing.assert_allclose(
+            out[DiffusionModel.A1], out[DiffusionModel.C], atol=1e-12
+        )
+
+    def test_a1_and_a1p_dynamics_differ(self) -> None:
+        # The diagnostic A1P carries the transverse N1^2 dressing and
+        # separates from A1 already at a uniform gap.
+        base = _build_state(T_bath=0.0)
+        NE, _NX = base.f.shape
+        f0 = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
+        out = {
+            model: T3Spatial1DBackend().apply_transport(
+                _model_state(base, f0.copy(), model), 2.0
+            ).f
+            for model in (DiffusionModel.A1, DiffusionModel.A1P)
+        }
+        assert np.max(np.abs(out[DiffusionModel.A1] - out[DiffusionModel.A1P])) > 1e-3
 
 
 def _varying_gap_setup(*, NE: int = 16, NX: int = 21, interface: bool = False):
@@ -222,6 +242,28 @@ class TestT3Spatial1DVaryingGap:
             evolving = backend.apply_transport(evolving, 1.0)
         after = float(np.sum(N1 * evolving.f))
         assert abs(after - before) / abs(before) < 1e-12
+
+    def test_a1_and_c_differ_in_gap_ramp(self) -> None:
+        # A1 and C coincide at a uniform gap but separate once the gap
+        # varies: A1 has no DOS-gradient drift (the spectral factor sits
+        # outside the divergence), C dresses the flux inside it.
+        material, spectral, x, gap_max, profile = _varying_gap_setup()
+        NE, NX = spectral.E.size, x.size
+        f0 = np.tile(0.2 * np.exp(-((x - 30.0) / 18.0) ** 2), (NE, 1))
+
+        def step(model: DiffusionModel) -> np.ndarray:
+            state = T3Spatial1DState(
+                f=f0.copy(), x=x, gap=gap_max, spectral=spectral,
+                material=material, T_bath=0.1, diffusion_model=model,
+                gap_profile=profile,
+            )
+            out = state
+            backend = T3Spatial1DBackend()
+            for _ in range(10):
+                out = backend.apply_transport(out, 1.0)
+            return out.f
+
+        assert np.max(np.abs(step(DiffusionModel.A1) - step(DiffusionModel.C))) > 1e-4
 
     def test_interface_conserves_and_jumps(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)

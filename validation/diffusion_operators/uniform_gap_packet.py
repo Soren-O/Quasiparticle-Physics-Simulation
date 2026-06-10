@@ -10,9 +10,10 @@ amplification exactly,
     D_eff = (2/dt) (1 - amp)/(1 + amp) / lambda_1 ,
 
 with ``lambda_1 = (2/dx^2)(1 - cos(pi/NX))`` the discrete fundamental
-eigenvalue. ``D_eff(E)/D_N`` then traces ``N_1^{q-p}``: rising toward the
-gap edge for A1, flat for A2, falling for C, steeply falling for B. ``n_qp``
-is conserved to round-off for every model.
+eigenvalue. ``D_eff(E)/D_N`` then traces ``N_1^{q-p}``: falling toward the
+gap edge for A1 and C (which share the uniform-gap rate ``D_N/N_1``),
+rising for the transverse-dressed diagnostic A1P, flat for A2, steeply
+falling for B. ``n_qp`` is conserved to round-off for every model.
 
 Run ``python -m validation.diffusion_operators.uniform_gap_packet`` to write
 the CSV + figure under ``outputs/diffusion_operators/``.
@@ -153,7 +154,7 @@ def main() -> None:
     write_csv(out / "uniform_gap_packet.csv", header, rows)
 
     fig, ax = plt.subplots(figsize=(6.0, 4.5))
-    colors = {"A1": "C0", "A2": "C1", "C": "C2", "B": "C3"}
+    colors = {"A1": "C0", "A1P": "C4", "A2": "C1", "C": "C2", "B": "C3"}
     for name in result.deff_over_dn:
         ax.plot(
             result.E / result.gap,

@@ -23,7 +23,11 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_base,
 )
 from qpsim.materials.database import Material
-from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.physics.spectral import (
+    SpectralContext,
+    bcs_anomalous_weight,
+    bcs_density_of_states,
+)
 from qpsim.solvers.crank_nicolson import build_cn_operators
 from qpsim.solvers.etd import etd2_step
 from qpsim.transport.diffusion.base import (
@@ -103,8 +107,11 @@ class T3Spatial1DState:
     gap so the DOS ``N_1(E, x)`` -- and hence the transport dressing -- is
     evaluated per cell; ``None`` means a uniform scalar gap. With a
     ``gap_profile`` and a finite ``interface_conductance`` ``G_N``, every
-    face where the gap steps becomes a Kaplan-Larkin interface carrying the
-    current ``F = G_N N_1^L N_1^R (f_L - f_R)`` instead of a bulk diffusive
+    face where the gap steps becomes a Kupriyanov-Lukichev interface
+    carrying the energy-channel current
+    ``F = G_N (N_1^L N_1^R - N_2^L N_2^R) (f_L - f_R)`` -- the
+    coherence-factor (Maki-Griffin) weight, regular at matched gaps --
+    instead of a bulk diffusive
     flux. Both only affect transport; the collision term still uses the
     scalar-gap ``spectral`` context.
     """
@@ -211,6 +218,7 @@ class T3Spatial1DBackend:
         dx = state.dx
         inv_dx2 = 1.0 / (dx * dx)
         N1 = self._n1_per_cell(state)
+        N2 = self._n2_per_cell(state)
         interface_faces = self._interface_faces(state)
         G_N = state.interface_conductance
         g_interface = (
@@ -225,6 +233,7 @@ class T3Spatial1DBackend:
         ops: list[_EnergyOp | None] = []
         for i in range(NE):
             N1_i = N1[i]
+            N2_i = N2[i]
             active = N1_i > 0.0
             na = int(np.count_nonzero(active))
             if na < 2:
@@ -237,18 +246,26 @@ class T3Spatial1DBackend:
                     "by the 1D transport operator."
                 )
             N1_a = N1_i[idx]
+            N2_a = N2_i[idx]
             rho_p = density_weight(N1_a, p)
             w_cell = flux_weight(D0, N1_a, q)
             g_face = _harmonic_face_weights(w_cell) * inv_dx2
             if interface_faces:
                 for m in range(na - 1):
                     if int(idx[m]) in interface_faces:
-                        # Kaplan-Larkin finite interface conductance:
-                        # F = G_N N_1^L N_1^R (f_L - f_R), dx-independent
-                        # (the 1/dx is the flux-divergence factor). With
-                        # N_1=0 on one side (sub-gap there) the interface
-                        # is automatically closed.
-                        g_face[m] = g_interface * N1_a[m] * N1_a[m + 1] / dx
+                        # Kupriyanov-Lukichev finite interface conductance,
+                        # energy channel:
+                        # F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R),
+                        # dx-independent (the 1/dx is the flux-divergence
+                        # factor). The coherence-factor weight equals
+                        # (E^2 - D_L D_R)/(Omega_L Omega_R) > 0 above both
+                        # gaps and is regular at matched gaps; with
+                        # N_1 = N_2 = 0 on one side (sub-gap there) the
+                        # interface is automatically closed.
+                        weight = (
+                            N1_a[m] * N1_a[m + 1] - N2_a[m] * N2_a[m + 1]
+                        )
+                        g_face[m] = g_interface * weight / dx
             laplacian = _flux_laplacian_from_conductances(g_face, na)
             operator = (laplacian @ sparse.diags(1.0 / rho_p)).tocsr()
             b_mat, lu = build_cn_operators(operator, dt, 1.0)
@@ -272,9 +289,23 @@ class T3Spatial1DBackend:
         columns = [bcs_density_of_states(E, float(g)) for g in state.gap_profile]
         return np.column_stack(columns)
 
+    def _n2_per_cell(self, state: T3Spatial1DState) -> np.ndarray:
+        """BCS anomalous weight ``N_2(E_i, x_j)``, shape ``(NE, NX)``.
+
+        Companion to :meth:`_n1_per_cell`; used by the coherence-factor
+        weight of the Kupriyanov-Lukichev interface faces.
+        """
+        _NE, NX = state.f.shape
+        E = state.spectral.E
+        if state.gap_profile is None:
+            n2 = bcs_anomalous_weight(E, float(state.spectral.gap))
+            return np.repeat(n2[:, None], NX, axis=1)
+        columns = [bcs_anomalous_weight(E, float(g)) for g in state.gap_profile]
+        return np.column_stack(columns)
+
     @staticmethod
     def _interface_faces(state: T3Spatial1DState) -> set[int]:
-        """Full-grid face indices carrying a Kaplan-Larkin interface.
+        """Full-grid face indices carrying a Kupriyanov-Lukichev interface.
 
         A face ``k`` (between cells ``k`` and ``k+1``) is an interface when a
         ``gap_profile`` is present, a finite ``interface_conductance`` is
@@ -502,9 +533,9 @@ def _flux_laplacian_from_conductances(
     ``du_j/dt -= g_face[j] (u_j - u_{j+1})`` (and the antisymmetric term on
     cell ``j+1``). Row and column sums vanish -- zero-flux ends -- so the
     Crank-Nicolson update conserves ``sum_x u`` exactly. Bulk diffusion uses
-    ``g_face = W_face / dx**2``; a Kaplan-Larkin interface overrides its face
-    with ``G_N N_1^L N_1^R / dx``. With constant ``g_face`` this is the
-    standard reflective Laplacian.
+    ``g_face = W_face / dx**2``; a Kupriyanov-Lukichev interface overrides
+    its face with ``G_N (N_1^L N_1^R - N_2^L N_2^R) / dx``. With constant
+    ``g_face`` this is the standard reflective Laplacian.
     """
     off = np.asarray(g_face, dtype=float)
     main = np.zeros(n, dtype=float)

@@ -29,7 +29,8 @@ def _N1(gap: float = 180.0, num: int = 40) -> np.ndarray:
 
 class TestDressingExponents:
     def test_pq_table(self) -> None:
-        assert dressing_exponents(DiffusionModel.A1) == (1, 2)
+        assert dressing_exponents(DiffusionModel.A1) == (1, 0)
+        assert dressing_exponents(DiffusionModel.A1P) == (1, 2)
         assert dressing_exponents(DiffusionModel.A2) == (2, 2)
         assert dressing_exponents(DiffusionModel.C) == (0, -1)
         assert dressing_exponents(DiffusionModel.B) == (0, -2)
@@ -45,6 +46,7 @@ class TestDressingExponents:
 class TestFromName:
     def test_member_names_case_insensitive(self) -> None:
         assert from_name("A1") is DiffusionModel.A1
+        assert from_name("a1p") is DiffusionModel.A1P
         assert from_name(" c ") is DiffusionModel.C
         assert from_name("b") is DiffusionModel.B
 
@@ -70,13 +72,27 @@ class TestWeights:
     def test_effective_rate_table(self) -> None:
         N1 = _N1()
         D0 = 6.0
-        np.testing.assert_allclose(effective_rate(D0, N1, DiffusionModel.A1), D0 * N1, rtol=1e-12)
+        np.testing.assert_allclose(effective_rate(D0, N1, DiffusionModel.A1), D0 / N1, rtol=1e-12)
+        np.testing.assert_allclose(
+            effective_rate(D0, N1, DiffusionModel.A1P), D0 * N1, rtol=1e-12
+        )
         np.testing.assert_allclose(
             effective_rate(D0, N1, DiffusionModel.A2), D0 * np.ones_like(N1), rtol=1e-12
         )
         np.testing.assert_allclose(effective_rate(D0, N1, DiffusionModel.C), D0 / N1, rtol=1e-12)
         np.testing.assert_allclose(
             effective_rate(D0, N1, DiffusionModel.B), D0 / N1**2, rtol=1e-12
+        )
+
+    def test_a1_and_c_share_uniform_gap_rate(self) -> None:
+        # The dirty-limit A1 and the clean/BRT closure C agree on the
+        # uniform-gap rate D0/N1; they differ in conserved density and
+        # inhomogeneous-gap structure, not in the rate.
+        N1 = _N1()
+        np.testing.assert_allclose(
+            effective_rate(6.0, N1, DiffusionModel.A1),
+            effective_rate(6.0, N1, DiffusionModel.C),
+            rtol=1e-12,
         )
 
     def test_closure_C_matches_legacy_DE(self) -> None:
@@ -87,18 +103,25 @@ class TestWeights:
         legacy = np.sqrt(1.0 - (gap / E) ** 2)
         np.testing.assert_allclose(effective_rate(1.0, N1, DiffusionModel.C), legacy, rtol=1e-12)
 
-    def test_a1_rises_and_C_falls_toward_gap(self) -> None:
-        # E[0] is nearest the gap (N1 largest): A1 rate rises there, C falls.
+    def test_a1_falls_and_a1p_rises_toward_gap(self) -> None:
+        # E[0] is nearest the gap (N1 largest): the A1 rate falls there
+        # (same suppression as C); the diagnostic A1P rises.
         N1 = _N1()
         a1 = effective_rate(6.0, N1, DiffusionModel.A1)
+        a1p = effective_rate(6.0, N1, DiffusionModel.A1P)
         c = effective_rate(6.0, N1, DiffusionModel.C)
-        assert a1[0] > a1[-1]
+        assert a1[0] < a1[-1]
+        assert a1p[0] > a1p[-1]
         assert c[0] < c[-1]
 
     def test_subgap_guard_keeps_finite(self) -> None:
         N1 = np.array([0.0, 2.0])  # first bin sub-gap (no states)
         for model in DiffusionModel:
             assert np.all(np.isfinite(effective_rate(1.0, N1, model)))
-        # Negative exponents go to zero (no states -> no transport), not inf.
+        # Zero and negative exponents go to zero (no states -> no
+        # transport), not 1 or inf.
         assert effective_rate(1.0, N1, DiffusionModel.C)[0] == 0.0
         assert flux_weight(1.0, N1, -2)[0] == 0.0
+        # q = 0 is the dirty-limit indicator D_L: 1 above the local gap
+        # edge, 0 below it.
+        np.testing.assert_allclose(flux_weight(3.0, N1, 0), [0.0, 3.0])

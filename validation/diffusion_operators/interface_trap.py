@@ -1,15 +1,17 @@
-"""Benchmark 3: Kaplan-Larkin two-gap interface trap.
+"""Benchmark 3: Kupriyanov-Lukichev two-gap interface trap.
 
 Two superconducting regions of unequal gap are joined at one face by a
-finite interface conductance carrying ``F = G_N N_1^L N_1^R (f_L - f_R)``
-(dx-independent), matched to the bulk flux ``-D_N N_1^2 d_x f``.
+finite interface conductance carrying the energy-channel current
+``F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R)`` (dx-independent) -- the
+coherence-factor (Maki-Griffin) weight -- matched to the bulk flux
+``-D_N N_1^q d_x f`` of the selected operator.
 
 * Driven steady state (source on the high-gap end, sink on the low-gap
   end): the spatial current is continuous across the interface, while the
   bare occupation ``f`` is *discontinuous* there, with the jump fixed by
-  ``f_L - f_R = F / (G_N N_1^L N_1^R)`` -- a resistive interface. Because
-  the steady state depends only on ``q``, A1 and A2 coincide here while C
-  (different ``q``) differs.
+  ``f_L - f_R = F / (G_N [N_1^L N_1^R - N_2^L N_2^R])`` -- a resistive
+  interface. Because the steady state depends only on ``q``, the
+  equal-``q`` diagnostics A1P and A2 coincide here while A1 and C differ.
 * Closed relaxation (inject the high-gap side, reflective ends): A1
   (conserves ``N_1 f``) and A2 (conserves ``N_1^2 f``) relax to *distinct*
   equilibria -- the ``p`` dressing that the driven steady state cannot see.
@@ -31,7 +33,12 @@ from qpsim.transport.diffusion.base import DiffusionModel, flux_weight
 
 from validation.diffusion_operators import D0_DEFAULT, results_dir, write_csv
 
-_DRIVEN_MODELS = (DiffusionModel.A1, DiffusionModel.A2, DiffusionModel.C)
+_DRIVEN_MODELS = (
+    DiffusionModel.A1,
+    DiffusionModel.A1P,
+    DiffusionModel.A2,
+    DiffusionModel.C,
+)
 
 
 @dataclass(frozen=True)
@@ -92,12 +99,18 @@ def run(
     drive_energy = float(E[ed])
 
     backend = T3Spatial1DBackend()
-    n1_full = backend._n1_per_cell(
-        _make_state(np.zeros((NE, NX)), x, gap_hi, spectral, material, DiffusionModel.A1, gap_profile)
+    probe = _make_state(
+        np.zeros((NE, NX)), x, gap_hi, spectral, material, DiffusionModel.A1, gap_profile
     )
+    n1_full = backend._n1_per_cell(probe)
+    n2_full = backend._n2_per_cell(probe)
     n1_cell = n1_full[ed]
     n1_left = float(n1_cell[interface_face])
     n1_right = float(n1_cell[interface_face + 1])
+    n2_left = float(n2_full[ed][interface_face])
+    n2_right = float(n2_full[ed][interface_face + 1])
+    # Kupriyanov-Lukichev energy-channel interface weight (coherence factor).
+    w_kl = n1_left * n1_right - n2_left * n2_right
 
     driven_profiles: dict[str, np.ndarray] = {}
     interface_jump: dict[str, float] = {}
@@ -117,15 +130,16 @@ def run(
         w_cell = flux_weight(D0, n1_cell, model.q)
         w_face = _harmonic(w_cell)
         f_left = w_face[k - 1] * (f[k - 1] - f[k]) / dx
-        f_int = G_N * n1_left * n1_right * (f[k] - f[k + 1])
+        f_int = G_N * w_kl * (f[k] - f[k + 1])
         f_right = w_face[k + 1] * (f[k + 1] - f[k + 2]) / dx
         currents[model.name] = (float(f_left), float(f_int), float(f_right))
         interface_jump[model.name] = float(f[k] - f[k + 1])
         bulk_drop[model.name] = float(abs(f[k - 1] - f[k]))
         # K-L cross-check: the observed jump should equal the *bulk* current
         # (computed from bulk f-differences) divided by the interface
-        # conductance -- f_L - f_R = F_bulk / (G_N N_1^L N_1^R).
-        jump_predicted[model.name] = float(f_left / (G_N * n1_left * n1_right))
+        # conductance times the coherence-factor weight --
+        # f_L - f_R = F_bulk / (G_N [N_1^L N_1^R - N_2^L N_2^R]).
+        jump_predicted[model.name] = float(f_left / (G_N * w_kl))
 
     relax_profiles: dict[str, np.ndarray] = {}
     for model in (DiffusionModel.A1, DiffusionModel.A2):
