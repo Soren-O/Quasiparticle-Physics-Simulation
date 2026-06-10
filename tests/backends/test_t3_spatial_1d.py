@@ -318,3 +318,134 @@ class TestT3Spatial1DVaryingGap:
 
         diff = np.max(np.abs(relax(DiffusionModel.A1) - relax(DiffusionModel.A2)))
         assert diff > 1e-3
+
+
+def _kl_weight(E: np.ndarray, gap_L: float, gap_R: float) -> np.ndarray:
+    """Analytic KL energy weight 𝒲_L = N₁N₁′ − N₂N₂′ (eq:scalar_BC_energy)."""
+    from qpsim.physics.spectral import bcs_anomalous_weight
+
+    return (
+        bcs_density_of_states(E, gap_L) * bcs_density_of_states(E, gap_R)
+        - bcs_anomalous_weight(E, gap_L) * bcs_anomalous_weight(E, gap_R)
+    )
+
+
+class TestKupriyanovLukichevWeightFixtures:
+    """Paper fixtures for the KL energy-channel weight (eq:scalar_BC_energy).
+
+    𝒲_L = N₁N₁′ − N₂N₂′ must be exactly 1 at matched gaps (the
+    coherence-factor cancellation that removes the SIS matched-gap
+    singularity carried by the charge-channel product N₁N₁′) and reduce
+    to N₁ against a normal contact.
+    """
+
+    def test_matched_gap_weight_is_one(self) -> None:
+        gap = 180.0
+        E = np.linspace(gap * 1.0001, gap * 8.0, 4000)
+        W = _kl_weight(E, gap, gap)
+        np.testing.assert_allclose(W, 1.0, rtol=1e-9)
+
+    def test_normal_contact_weight_is_N1(self) -> None:
+        gap = 180.0
+        E = np.linspace(gap * 1.0001, gap * 8.0, 4000)
+        W = _kl_weight(E, gap, 0.0)
+        np.testing.assert_allclose(W, bcs_density_of_states(E, gap), rtol=1e-12)
+
+    def test_sub_gap_side_closes_interface(self) -> None:
+        gap_L, gap_R = 288.0, 180.0
+        E = np.linspace(gap_R * 1.001, gap_L * 0.999, 200)  # above R, below L
+        np.testing.assert_array_equal(_kl_weight(E, gap_L, gap_R), 0.0)
+
+    def test_backend_face_carries_exact_weight(self) -> None:
+        # Extract the interface face conductance from the assembled CN
+        # operator: B = I + (dt/2)·L·diag(1/ρ_p), so the (m, m+1) entry
+        # is (dt/2)·g_face[m]/ρ_p[m+1] with g_face = G_N·𝒲_L/dx at the
+        # gap step.
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        G_N, dt = 2.0, 0.5
+        state = T3Spatial1DState(
+            f=np.zeros((NE, NX)), x=x, gap=gap_max, spectral=spectral,
+            material=material, T_bath=0.1, diffusion_model=DiffusionModel.A1,
+            gap_profile=profile, interface_conductance=G_N,
+        )
+        ops = T3Spatial1DBackend()._build_transport_operators(state, dt)
+        dx = state.dx
+        face = NX // 2 - 1  # the gap steps between cells face, face+1
+        gap_L, gap_R = float(profile[face]), float(profile[face + 1])
+        checked = 0
+        for i, op in enumerate(ops):
+            E_i = float(spectral.E[i])
+            if op is None or E_i <= max(gap_L, gap_R):
+                continue
+            b_mat, _, idx, rho_p = op
+            assert idx[0] == 0 and idx[-1] == NX - 1  # fully active energy
+            m = face
+            W_expected = float(_kl_weight(np.array([E_i]), gap_L, gap_R)[0])
+            B = b_mat.toarray()
+            W_measured = B[m, m + 1] * rho_p[m + 1] * dx / (0.5 * dt * G_N)
+            np.testing.assert_allclose(W_measured, W_expected, rtol=1e-10)
+            checked += 1
+        assert checked > 0
+
+
+class TestGapEdgePacketFixture:
+    """Paper fixture: a packet pushed against a spatial gap ramp must
+    conserve ∫N₁f with zero leakage past the local gap edge (the
+    weak-form zero-flux face of paper §V — diffusive Andreev
+    retroreflection for the energy mode)."""
+
+    def test_packet_conserves_with_zero_subedge_leakage(self) -> None:
+        # Custom grid: the energies must span the gap band
+        # (base_gap, gap_max) so mid-band energies have their local edge
+        # inside the strip (the shared helper's grid starts above
+        # gap_max and would never see an edge).
+        material = load_material("Al")
+        base_gap = material.Delta_0
+        gap_max = 1.6 * base_gap
+        NE, NX = 24, 41
+        E, _ = build_energy_grid(
+            gap=base_gap, energy_min_factor=1.02,
+            energy_max_factor=4.8, num_energy_bins=NE,
+        )
+        spectral = SpectralContext(
+            E_bins=E, dE_bins=integration_widths_from_centers(E),
+            gap=gap_max, diffusion_coefficient=6.0,
+        )
+        x = np.linspace(0.0, 100.0, NX)
+        profile = np.linspace(base_gap, gap_max, NX)
+        N1 = np.column_stack(
+            [bcs_density_of_states(spectral.E, float(g)) for g in profile]
+        )
+        # Packet near the low-gap end; diffusion pushes it up the ramp
+        # into each energy's local edge.
+        f0 = np.tile(0.3 * np.exp(-(((x - 15.0) / 8.0) ** 2)), (NE, 1))
+        f0[N1 == 0.0] = 0.0  # no occupation below the local edge
+        state = T3Spatial1DState(
+            f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
+            T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
+        )
+        before = (N1 * state.f).sum(axis=1)  # per-energy conserved density
+
+        backend = T3Spatial1DBackend()
+        evolving = state
+        for _ in range(200):
+            evolving = backend.apply_transport(evolving, 1.0)
+
+        after = (N1 * evolving.f).sum(axis=1)
+        sub_edge = N1 == 0.0
+
+        # mid-band energies (edge inside the grid) must have hit the edge
+        mid_band = (spectral.E > profile.min()) & (spectral.E < profile.max())
+        assert mid_band.any()
+        hit = 0
+        for i in np.flatnonzero(mid_band):
+            active = np.flatnonzero(N1[i] > 0.0)
+            if active.size and evolving.f[i, active[-1]] > 1e-6:
+                hit += 1
+        assert hit > 0
+
+        # exact conservation of the per-energy ∫N₁f and zero leakage
+        nz = before > 0
+        np.testing.assert_allclose(after[nz], before[nz], rtol=1e-11)
+        assert float(np.abs(evolving.f[sub_edge]).max(initial=0.0)) == 0.0
