@@ -62,7 +62,12 @@ def test_matches_pinned_baseline() -> None:
         result.T_bath, baseline.T_bath, rtol=0.0, atol=1e-14,
     )
     assert result.drives_hz == baseline.drives_hz
-    assert result.drives_ns_inv == baseline.drives_ns_inv
+    # drives_ns_inv is derived (drives_hz * 1e-9) but round-trips through
+    # the baseline header's lossy %g serialization: float("1e-11") differs
+    # from 0.01 * 1e-9 in the last ulp, so exact equality can never hold.
+    np.testing.assert_allclose(
+        result.drives_ns_inv, baseline.drives_ns_inv, rtol=1e-12, atol=0.0,
+    )
 
     np.testing.assert_allclose(
         result.x_qp_thermal, baseline.x_qp_thermal, rtol=1e-6, atol=1e-14,
