@@ -121,6 +121,20 @@ Lead 2 (spatial runner dropping nondefault fields) fixed with
   all pre-fix physics, no in-repo generator/consumer, canonical pins
   tracked separately.
 
+## Merge decision (secondary task 1): NOT YET — blocked by the other track
+
+`a1-diffusion-operators` is 44 commits ahead of `main`, zero behind
+(fast-forward, no conflicts). Everything this audit track owns is
+green. But the branch's 2 known test failures
+(`test_m25_junction::test_fig3a_quantitative_match`,
+`test_rate_equation::test_accept_lm_convergence_bypasses_residual_check`)
+were verified to **pass on main** (throwaway worktree, 2026-06-10):
+they are regressions introduced by the branch's in-flight 412-line
+`rate_equation.py` WIP — the separate rate_equation track of handoff
+secondary task 2, not pre-existing landscape. Merging now would redden
+main on tests it currently passes. Merge once that track lands its
+fix-or-baseline-regen; no other blocker remains.
+
 ## Standing caveats / out of scope
 
 - Spectral-flow top-boundary and gap-anchored-grid caveats (documented
