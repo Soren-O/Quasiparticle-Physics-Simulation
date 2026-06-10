@@ -18,7 +18,7 @@ import csv
 import json
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -193,14 +193,10 @@ class FinitePhononSpatialRunner:
             source,
             readout_drive=readout_drive,
         )
-        state = T3Spatial1DState(
-            f=f_mid,
-            x=state.x,
-            gap=state.gap,
-            spectral=state.spectral,
-            material=state.material,
-            T_bath=state.T_bath,
-        )
+        # replace() keeps every other field — a positional rebuild here
+        # used to silently reset defaulted physics (diffusion_model,
+        # gap_profile, interface_conductance) mid-step.
+        state = replace(state, f=f_mid)
         self._phonon_escape_step(state, dt_ns)
         state = self.transport.apply_transport(state, 0.5 * dt_ns)
 
