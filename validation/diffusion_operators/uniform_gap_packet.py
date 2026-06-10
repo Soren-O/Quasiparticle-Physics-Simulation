@@ -155,13 +155,16 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(6.0, 4.5))
     colors = {"A1": "C0", "A1P": "C4", "A2": "C1", "C": "C2", "B": "C3"}
+    # A1 and C coincide exactly at uniform gap: draw A1 wide and C dashed so
+    # the coincidence is visible rather than an overplot.
+    styles = {"A1": dict(ls="-", lw=2.4), "C": dict(ls="--", lw=1.2)}
     for name in result.deff_over_dn:
         ax.plot(
             result.E / result.gap,
             result.analytic_over_dn[name],
-            "-",
             color=colors.get(name),
             label=f"{name} analytic",
+            **styles.get(name, dict(ls="-", lw=1.2)),
         )
         ax.plot(
             result.E / result.gap,
@@ -173,7 +176,6 @@ def main() -> None:
     ax.set_xlabel(r"$E / \Delta$")
     ax.set_ylabel(r"$D_{\rm eff}(E) / D_N$")
     ax.set_yscale("log")
-    ax.set_title("Uniform-gap packet: effective diffusivity vs energy")
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(out / "uniform_gap_packet.pdf")

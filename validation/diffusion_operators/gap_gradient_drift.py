@@ -171,7 +171,6 @@ def main() -> None:
     ax.axhline(0.0, color="k", lw=0.6)
     ax.set_xlabel(r"$E / \Delta_{\max}$")
     ax.set_ylabel(r"$v_{\rm com}$  ($\mu$m/ns)")
-    ax.set_title("Gap-gradient drift: COM velocity vs energy")
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(out / "gap_gradient_drift.pdf")
