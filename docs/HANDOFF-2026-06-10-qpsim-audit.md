@@ -23,7 +23,7 @@ record is in the qp-diffusion-paper project's Claude memory
   one-page version of the spec** — every kinetic coefficient, its value, and
   which scalar mode it dresses.
 - **Code (the worksite):** `~/Developer/qpsim`, branch `a1-diffusion-operators`,
-  HEAD `8315c5f`. Tests: `.venv/bin/python -m pytest tests/
+  HEAD `85716bd` (docs-only commits atop code HEAD `8315c5f`). Tests: `.venv/bin/python -m pytest tests/
   validation/diffusion_operators/ -q`. Last recorded status: 594 pass, 2 known
   failures (`test_m25_junction::test_fig3a_quantitative_match`,
   `test_rate_equation::test_accept_lm_convergence...`) — the foundation's
@@ -111,12 +111,66 @@ unexploited):
 - Edge fixture: a packet pushed against a gap ramp must conserve ∫N₁f to
   round-off with zero leakage past the local edge.
 
+## Pre-adjudicated leads (external GPT spot-audit, 2026-06-10, re-verified)
+
+A second external model spot-audited qpsim against the paper + thesis Ch. 4
+the day this handoff was written. Every claim below was re-verified at the
+cited line before being recorded here. Its clean corroborations — diffusion
+taxonomy + A1 default (`transport/diffusion/base.py:77,102`), conservative
+N₁^p f update (`backends/t3_spatial_1d.py:170`), KL energy weight (`:256`),
+e-ph/photon coherence factors, gap equation, spectral-flow conservation, plus
+a green 126-test targeted subset — raise confidence but replace nothing; the
+audit order above stands.
+
+1. **Recombination factor 2 — fold into audit step 5 (in scope).**
+   `collisions/phonon.py:537` applies `loss_rate += 2.0·(K_r0·N_emit)@(ρ f dE)`
+   with the gain mirrored at `:538` ("factor-2 pair convention", `:570`).
+   Adjudicate against Kaplan and eq:J1_occ_bridge. Trap: detailed balance is
+   BLIND to this factor (it multiplies gain and loss symmetrically) — check
+   the absolute decay rate against Kaplan's analytic τ_r(E) (or a
+   Rothwarf–Taylor R fixture), and reconcile the kernel-builder prefactors
+   while there.
+2. **Spatial runner silently drops nondefault physics — quick fix.**
+   `FinitePhononSpatialRunner` (`scripts/run_prelim_spatial_finite_phonon_one.py:196`)
+   rebuilds `T3Spatial1DState` without `diffusion_model` / `gap_profile` /
+   `interface_conductance` (defaulted fields, `backends/t3_spatial_1d.py:125`),
+   resetting them mid-step. Harmless for today's uniform default-A1 runs,
+   wrong for any nondefault run. Fix: `dataclasses.replace(state, f=f_mid)`.
+   Full gate applies.
+3. **τ_l = 0 means opposite things in two modules — reconcile during step 5.**
+   `backends/t3_diffusion.py:159` (`use_thermal_phonons` doc): τ_l = 0 is
+   Fischer's instantaneous-thermalization limit, n_ph pinned at the bath.
+   `phonon_models/ph0_local.py:12`: τ_l = 0 is a sentinel for NO substrate
+   coupling, n_ph = −a_ph/b_ph — the opposite (τ_l → ∞) limit of the same
+   escape term. Each module is internally consistent; the API is a trap.
+   Reconcile naming/docstrings (e.g. `tau_l=None` for the no-bath sentinel);
+   do not change numerics silently.
+4. **Phonon-side kernel default — decision item, OUTSIDE the paper spec.**
+   Phonon-equation rates default to the legacy QP-side kernels; the F&C 2023
+   Eq. 12 phonon-side form exists but is opt-in (`use_phonon_side_kernel=False`,
+   `backends/t3_diffusion.py:101,174`; `collisions/phonon.py:261`), and the
+   prelim finite-phonon script never opts in (its `_phonon_escape_step` passes
+   no phonon-side kernels). The paper does not govern phonon dynamics (single
+   passing mention, paper.tex:370) — this is thesis-Ch.4/F&C faithfulness, and
+   the False default is documented as deliberate ("legacy bit-for-bit").
+   Do NOT flip it mid-audit; flipping is a separately commissioned decision
+   with baseline regeneration.
+
+The same spot-audit re-confirmed the f_T scope fence (qpsim implements the
+scalar reduction only, `backends/t3_diffusion.py:46`); secondary task 3 is
+unchanged.
+
 ## Secondary tasks
 
 1. **Merge decision** for `a1-diffusion-operators` → main (carry-over; do after
-   the audit is clean). Note two untracked files at the qpsim root
-   (`validation/baselines/ph0_constant/fischer_fig3_qpsim_native.{csv,pdf}`) —
-   decide commit-or-clean, don't leave them floating.
+   the audit is clean). Note the untracked baseline artifacts: when this
+   handoff was written there were two
+   (`validation/baselines/ph0_constant/fischer_fig3_qpsim_native.{csv,pdf}`);
+   by end of 2026-06-10 there are FOURTEEN — fig3+fig5 in `ph0_constant/` and
+   ten `fischer_fig6_*` variants in `ph0_kaplan/` (the
+   `paper_direct`/`paper_fast`/`partial_postfix` names look like
+   comparison-run output of the external spot-audit session). Decide
+   commit-or-clean for the lot, don't leave them floating.
 2. **M25 rate_equation fix-or-baseline-regen** (the 2 known failures; see the
    qpsim project memory `project_qpsim_a1_diffusion.md`). Separate track —
    touch only if asked.
