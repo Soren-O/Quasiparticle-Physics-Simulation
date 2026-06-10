@@ -156,10 +156,17 @@ class T3DiffusionBackend:
         use_thermal_phonons
             ``True`` pins ``n_ph`` at the substrate Bose-Einstein
             distribution and runs Newton-only on ``f`` (no Picard, no
-            coupled system). This is Fischer's ``τ_l=0`` limit —
+            coupled system). This is Fischer's ``τ_l → 0`` limit —
             physically, the thermalization timescale is instantaneous
             so the phonon field is always at the bath. Mutually
             exclusive with ``method="coupled_newton"``.
+
+            Caution: this flag is the ONLY spelling of the bath-pinned
+            limit. Setting ``state.phonon.tau_l`` to ``0.0`` does NOT
+            mean the same thing — the Picard/coupled paths forward that
+            scalar to :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`,
+            where ``0.0`` is the no-substrate-coupling sentinel (the
+            opposite, ``τ_l → ∞``, limit of the escape term).
         external_dissipation_only
             ``True`` disables the e-ph scattering and recombination
             kernels for this solve, so the only source/sink of f(E)
@@ -702,10 +709,16 @@ class T3DiffusionBackend:
 
         gap_dot = (new_gap - state.gap) / dt
         u_old = state.spectral.rho * state.f
+        # No active_mask here: for a falling gap the conservative flux
+        # ∂_E[(Δ/E)Δ̇ N₁f] (eq:full_kinetic_conservative) legitimately
+        # carries density below the OLD gap edge into the newly opened
+        # band (Δ_new, Δ_old) — the pre-step mask would zero that
+        # spectral inflow. Sub-edge residue at the NEW gap is dropped by
+        # the ρ_new-support recovery below, which is the physically
+        # correct support.
         u_new = advect_spectral_flow(
             u_old, state.spectral.E, state.spectral.dE,
             gap=state.gap, gap_dot=gap_dot, dt=dt,
-            active_mask=state.spectral.active_mask,
         )
 
         # Preserve every non-gap configuration from the incoming

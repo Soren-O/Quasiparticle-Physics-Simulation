@@ -36,6 +36,20 @@ def advect_spectral_flow(
     ``u`` unchanged when ``|gap_dot|`` is at roundoff (nothing to
     advect). Zero-flux boundary conditions at both ends of the grid.
 
+    Two finite-domain caveats (audited 2026-06-10 against the paper's
+    eq:full_kinetic_conservative / eq:dos_continuity):
+
+    * The zero-flux ends are exact for the gap edge (the edge moves at
+      exactly ``v(Δ) = Δ̇``, so no flux crosses it in the continuum) but
+      are an approximation at ``E_max``: a falling gap starves the top
+      ~``|v(E_max)|·t/dE`` cells (the analytic solution draws mass in
+      from beyond the grid), and a rising gap piles outflow there. Keep
+      ``E_max`` where occupations are negligible.
+    * A grid built with ``energy_min_factor >= 1`` has no room below the
+      initial gap: a falling gap's spectral inflow band ``(Δ_new, E_min)``
+      is then unrepresentable. Gap-dynamics runs should leave sub-gap
+      grid room.
+
     Parameters
     ----------
     u
