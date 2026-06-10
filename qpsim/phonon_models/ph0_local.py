@@ -9,8 +9,19 @@ where ``(a_ph, b_ph)`` are the affine coefficients of the e-ph
 source-sink on the QP distribution (see
 :func:`qpsim.collisions.phonon.compute_phonon_source_sink`). Solving:
 
-* ``τ_l = 0`` (no substrate coupling): ``n_ph = −a_ph / b_ph``.
+* ``τ_l = 0`` — **sentinel for no substrate coupling**: the escape term
+  is dropped entirely and ``n_ph = −a_ph / b_ph``. Physically this is
+  the ``τ_l → ∞`` limit of the escape term, *not* the instantaneous-
+  escape limit the literal value suggests.
 * ``τ_l > 0``: ``n_ph = (a_ph + n_th / τ_l) / (1/τ_l − b_ph)``.
+
+Naming trap (audited 2026-06-10): the *opposite* limit — phonons pinned
+at the bath, Fischer's instantaneous-thermalization ``τ_l → 0`` — is
+spelled ``phonon_escape_time=None`` in
+:func:`qpsim.services.steady_state.solve_steady_state` and
+``use_thermal_phonons=True`` on the backend; it never reaches this
+module. Passing the float ``0.0`` here therefore means the opposite of
+passing ``None`` upstream.
 
 Moved here from the private ``_phonon_steady_state`` helper that
 previously lived in :mod:`qpsim.services.steady_state` (Gate 2
@@ -95,8 +106,12 @@ def phonon_steady_state(
         Substrate bath temperature (K), used to compute the thermal
         ``n_th(ω)``.
     tau_l
-        Phonon bath-escape time (ns). ``0.0`` means no substrate
-        coupling; ``> 0`` means finite escape time.
+        Phonon bath-escape time (ns). ``0.0`` is the **no-substrate
+        sentinel** (escape term dropped — the ``τ_l → ∞`` physics
+        limit); ``> 0`` means finite escape time. For bath-pinned
+        phonons (the physical ``τ_l → 0`` limit) use the upstream
+        thermal-phonon path instead of this solver (see module
+        docstring).
     K_s0_phonon_side, K_r0_phonon_side
         **Opt-in** phonon-side scattering and recombination/pair-breaking
         kernels ``2K⁻/(π Δ τ_0^PB)`` and ``K⁺/(π Δ τ_0^PB)`` (build via

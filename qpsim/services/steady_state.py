@@ -16,6 +16,11 @@ Two regimes:
   A branch-collapse guard resets the phonon state to the last known
   physical-branch configuration if the Anderson path converges to the
   thermal branch.
+
+Sentinel trap: ``None`` and ``0.0`` are OPPOSITE limits. ``None`` pins
+phonons at the bath (τ_l → 0); the float ``0.0`` enters the Picard path,
+where :func:`qpsim.phonon_models.ph0_local.phonon_steady_state` treats it
+as the no-substrate-coupling sentinel (τ_l → ∞ limit of the escape term).
 """
 
 from __future__ import annotations
