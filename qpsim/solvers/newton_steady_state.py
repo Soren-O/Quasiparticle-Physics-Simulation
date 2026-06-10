@@ -311,13 +311,14 @@ def _jacobian_analytical(
         B = K_s_eff @ (rho * omf * dE)
         J[diag_idx, diag_idx] -= A + B
 
-    # Recombination
+    # Recombination (Kaplan Eq. (8) per-QP normalization, matching
+    # phonon_collision_rates)
     if K_r0 is not None and N_emit is not None and N_abs is not None:
         mixed = omf[:, None] * N_abs + f[:, None] * N_emit
-        J -= 2.0 * K_r0 * mixed * w[None, :]
+        J -= K_r0 * mixed * w[None, :]
         C = (K_r0 * N_abs) @ (rho * omf * dE)
         D = (K_r0 * N_emit) @ (rho * f * dE)
-        J[diag_idx, diag_idx] -= 2.0 * (C + D)
+        J[diag_idx, diag_idx] -= C + D
 
     # Sub-gap photon (K+, partners at i ± m)
     if photon_params is not None:

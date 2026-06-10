@@ -534,8 +534,17 @@ def phonon_collision_rates(
         else:
             N_emit, N_abs = _thermal_phonon_recombination_occupations(E, T_bath)
         partner = rho * one_minus_f
-        loss_rate += 2.0 * ((K_r0 * N_emit) @ (rho * f * dE))
-        gain += 2.0 * one_minus_f * ((K_r0 * N_abs) @ (partner * dE))
+        # Kaplan Eq. (8) normalization: the per-QP recombination loss is
+        # 1/τ_r(E) = Σ_j K_r0[i,j] N_emit ρ_j f_j dE_j — no leading 2.
+        # Each recombination event removes one QP *at this energy*; the
+        # partner is counted in its own bin, so the total density already
+        # loses two per event. (A legacy 2× "pair convention" here doubled
+        # the absolute rate against Kaplan's τ_r and the F&C Eq. 47/E2
+        # envelope; it cancelled out of detailed balance and of
+        # thermal-dominated steady states, which is why figure-level
+        # validations never caught it.)
+        loss_rate += (K_r0 * N_emit) @ (rho * f * dE)
+        gain += one_minus_f * ((K_r0 * N_abs) @ (partner * dE))
 
     return gain, loss_rate
 
@@ -567,13 +576,13 @@ def phonon_collision_jacobian_nph(
 
     Mirrors :func:`phonon_collision_rates`. Scattering (``K_s0``) carries the
     zeroed self-scattering diagonal of ``N_p``; recombination (``K_r0``) the
-    factor-2 pair convention. With
+    Kaplan Eq. (8) per-QP normalization (no pair factor). With
     ``∂N_p[a,b]/∂n_ph,m = [omega_idx_diff[a,b] = m]`` (``a ≠ b``) and
     ``∂N_emit[i,j]/∂n_ph,m = ∂N_abs[i,j]/∂n_ph,m = [omega_idx_sum[i,j] = m]``:
 
     * scattering: ``∂R_i/∂n_ph,m = (1−f_i) Σ_{j: idx_diff=m} K_s0[j,i] ρ_j f_j dE
       − f_i Σ_{j: idx_diff=m} K_s0[i,j] ρ_j (1−f_j) dE``  (``j ≠ i``);
-    * recombination: ``∂R_i/∂n_ph,m = 2 Σ_{j: idx_sum=m} K_r0[i,j] ρ_j dE
+    * recombination: ``∂R_i/∂n_ph,m = Σ_{j: idx_sum=m} K_r0[i,j] ρ_j dE
       [(1−f_i)(1−f_j) − f_i f_j]``.
     """
     NE = int(f.size)
@@ -595,7 +604,7 @@ def phonon_collision_jacobian_nph(
 
     if enable_recombination and K_r0 is not None:
         rec_w = (
-            2.0 * K_r0 * w_j[None, :]
+            K_r0 * w_j[None, :]
             * (one_minus_f[:, None] * one_minus_f[None, :] - f[:, None] * f[None, :])
         )
         np.add.at(J_fn, (row_i, omega_idx_sum), rec_w)

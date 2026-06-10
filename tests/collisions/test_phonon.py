@@ -275,3 +275,101 @@ class TestApplyPhononCollision:
         ctx, f, K_s0, K_r0, T_bath = _thermal_setup()
         f_new = apply_phonon_collision(f, ctx, K_s0, K_r0, T_bath, dt=0.01)
         np.testing.assert_allclose(f_new, f, atol=1e-8)
+
+
+class TestKaplanRecombinationNormalization:
+    """Pin the absolute recombination normalization to Kaplan Eq. (8).
+
+    The per-QP recombination loss is 1/τ_r(E) with NO pair factor: each
+    event removes one QP at this energy and one in the partner's bin, so
+    the density loses two per event without any explicit 2 in the
+    occupation equation (paper eq:J1_occ_bridge: ∂_t f = I_occ with
+    Kaplan-form kernels; F&C 2023 Eqs. 47/E2 carry the same
+    normalization through R̄·n_th = 1/τ_r). Detailed balance and
+    thermal-dominated steady states are blind to a symmetric doubling —
+    these tests are the absolute-rate guard (audit 2026-06-10, which
+    removed a legacy 2x "pair convention").
+    """
+
+    @staticmethod
+    def _grid_setup(T_bath: float):
+        tau_0, T_c = 438.0, 1.18
+        gap = 1.764 * KB_UEV_PER_K * T_c
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.0005,
+            energy_max_factor=12.0, num_energy_bins=2000,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        kT = KB_UEV_PER_K * T_bath
+        f_th = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+        return ctx, f_th, gap, tau_0, T_c, kT
+
+    def test_loss_rate_is_kaplan_eq8_quadrature(self) -> None:
+        # Same-grid raw-formula quadrature of Kaplan Eq. (8), built from
+        # first principles (not the kernel builders): a factor-2
+        # regression in either the rates or the builder prefactors
+        # shows up as a ratio of 2.
+        T_bath = 0.15
+        ctx, f_th, gap, tau_0, T_c, kT = self._grid_setup(T_bath)
+        E, dE = ctx.E, ctx.dE
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
+        _, loss = phonon_collision_rates(
+            f_th, ctx, None, K_r0, T_bath,
+            enable_scattering=False, enable_recombination=True,
+        )
+        E_sum = E[:, None] + E[None, :]
+        N_emit = 1.0 + 1.0 / (np.exp(np.minimum(E_sum / kT, 500.0)) - 1.0)
+        kBTc = KB_UEV_PER_K * T_c
+        K_plus = 1.0 + gap**2 / (E[:, None] * E[None, :])
+        kaplan = (E_sum / kBTc) ** 2 / kBTc / tau_0 * K_plus * N_emit
+        inv_tau_r = kaplan @ (ctx.rho * f_th * dE)
+        np.testing.assert_allclose(loss, inv_tau_r, rtol=1e-12)
+
+    def test_gain_is_pair_breaking_mirror(self) -> None:
+        T_bath = 0.15
+        ctx, f_th, gap, tau_0, T_c, kT = self._grid_setup(T_bath)
+        E, dE = ctx.E, ctx.dE
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
+        gain, _ = phonon_collision_rates(
+            f_th, ctx, None, K_r0, T_bath,
+            enable_scattering=False, enable_recombination=True,
+        )
+        E_sum = E[:, None] + E[None, :]
+        n_BE = 1.0 / (np.exp(np.minimum(E_sum / kT, 500.0)) - 1.0)
+        kBTc = KB_UEV_PER_K * T_c
+        K_plus = 1.0 + gap**2 / (E[:, None] * E[None, :])
+        kaplan = (E_sum / kBTc) ** 2 / kBTc / tau_0 * K_plus * n_BE
+        expected = (1.0 - f_th) * (kaplan @ (ctx.rho * (1.0 - f_th) * dE))
+        np.testing.assert_allclose(gain, expected, rtol=1e-12)
+
+    def test_edge_rate_matches_continuum_kaplan(self) -> None:
+        # Continuum Kaplan Eq. (8) at the gap edge via the ξ-substitution
+        # (dE' ρ(E') = dξ, which removes the DOS singularity exactly),
+        # compared with the grid loss at the lowest bin. A factor-2
+        # regression gives ratio 2 — far outside the quadrature-error
+        # tolerance.
+        from scipy.integrate import quad
+
+        T_bath = 0.15
+        ctx, f_th, gap, tau_0, T_c, kT = self._grid_setup(T_bath)
+        kBTc = KB_UEV_PER_K * T_c
+        E0 = float(ctx.E[0])
+
+        def integrand(xi: float) -> float:
+            Ep = np.sqrt(xi * xi + gap * gap)
+            coh = 1.0 + gap**2 / (E0 * Ep)
+            n_emit = 1.0 + 1.0 / np.expm1(min((E0 + Ep) / kT, 500.0))
+            f_p = 1.0 / (np.exp(min(Ep / kT, 500.0)) + 1.0)
+            return ((E0 + Ep) / kBTc) ** 2 / kBTc / tau_0 * coh * n_emit * f_p
+
+        xi_max = float(np.sqrt(ctx.E[-1] ** 2 - gap**2))
+        inv_tau_r_exact, _ = quad(integrand, 0.0, xi_max, limit=200)
+
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
+        _, loss = phonon_collision_rates(
+            f_th, ctx, None, K_r0, T_bath,
+            enable_scattering=False, enable_recombination=True,
+        )
+        ratio = float(loss[0]) / inv_tau_r_exact
+        assert 0.85 < ratio < 1.15

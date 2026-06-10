@@ -376,8 +376,10 @@ class T3Spatial1DBackend:
             gain = one_minus * (K_s_eff.T @ (n_qp * state.spectral.dE[:, None]))
             loss = K_s_eff @ (rho_dE[:, None] * one_minus)
 
-            loss = loss + 2.0 * (K_r_emit @ (rho_dE[:, None] * f))
-            gain = gain + 2.0 * one_minus * (K_r_abs @ (rho_dE[:, None] * one_minus))
+            # Kaplan Eq. (8) per-QP normalization — see
+            # qpsim.collisions.phonon.phonon_collision_rates.
+            loss = loss + (K_r_emit @ (rho_dE[:, None] * f))
+            gain = gain + one_minus * (K_r_abs @ (rho_dE[:, None] * one_minus))
 
             if external_flux is not None:
                 gain = gain + external_flux.gain
