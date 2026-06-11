@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 import scripts.run_prelim_spatial_finite_phonon_one as finite_phonon
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
 from qpsim.constants import KB_UEV_PER_K

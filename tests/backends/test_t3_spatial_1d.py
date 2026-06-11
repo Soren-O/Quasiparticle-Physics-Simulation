@@ -248,7 +248,7 @@ class TestT3Spatial1DVaryingGap:
         # varies: A1 has no DOS-gradient drift (the spectral factor sits
         # outside the divergence), C dresses the flux inside it.
         material, spectral, x, gap_max, profile = _varying_gap_setup()
-        NE, NX = spectral.E.size, x.size
+        NE = spectral.E.size
         f0 = np.tile(0.2 * np.exp(-((x - 30.0) / 18.0) ** 2), (NE, 1))
 
         def step(model: DiffusionModel) -> np.ndarray:
@@ -436,7 +436,7 @@ class TestGapEdgePacketFixture:
         sub_edge = N1 == 0.0
 
         # mid-band energies (edge inside the grid) must have hit the edge
-        mid_band = (spectral.E > profile.min()) & (spectral.E < profile.max())
+        mid_band = (profile.min() < spectral.E) & (profile.max() > spectral.E)
         assert mid_band.any()
         hit = 0
         for i in np.flatnonzero(mid_band):

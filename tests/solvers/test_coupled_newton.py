@@ -19,7 +19,9 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
-from qpsim.services.steady_state import solve_steady_state  # noqa: F401  load first (circular import)
+from qpsim.services.steady_state import (
+    solve_steady_state,
+)
 from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.newton_steady_state import _gain_loss_sum
 
@@ -258,15 +260,19 @@ class TestAnalyticCrossJacobian:
         h = 1e-7
         J_fn_fd = np.zeros((NE, N_omega))
         for k in range(N_omega):
-            up = n_ph.copy(); up[k] += h
-            dn = n_ph.copy(); dn[k] -= h
+            up = n_ph.copy()
+            up[k] += h
+            dn = n_ph.copy()
+            dn[k] -= h
             R_up, _ = self._residual(f, up, ctx, K_s0, K_r0, maps, T_bath, ps)
             R_dn, _ = self._residual(f, dn, ctx, K_s0, K_r0, maps, T_bath, ps)
             J_fn_fd[:, k] = (R_up - R_dn) / (2.0 * h)
         J_nf_fd = np.zeros((N_omega, NE))
         for j in range(NE):
-            up = f.copy(); up[j] += h
-            dn = f.copy(); dn[j] -= h
+            up = f.copy()
+            up[j] += h
+            dn = f.copy()
+            dn[j] -= h
             _, R_up = self._residual(up, n_ph, ctx, K_s0, K_r0, maps, T_bath, ps)
             _, R_dn = self._residual(dn, n_ph, ctx, K_s0, K_r0, maps, T_bath, ps)
             J_nf_fd[:, j] = (R_up - R_dn) / (2.0 * h)
@@ -286,11 +292,11 @@ class TestAnalyticCrossJacobian:
         f_th = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
         f0 = np.clip(f_th * 1.1, 0.0, 1.0)
         n0 = thermal_phonon_occupation(omega, T_bath)
-        common = dict(
-            omega_bins=omega, omega_idx_diff=idx_d, omega_idx_sum=idx_s,
-            diff_sign=sgn, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, tau_l=0.25,
-            tol=1e-12,
-        )
+        common = {
+            "omega_bins": omega, "omega_idx_diff": idx_d, "omega_idx_sum": idx_s,
+            "diff_sign": sgn, "K_s0": K_s0, "K_r0": K_r0, "T_bath": T_bath,
+            "tau_l": 0.25, "tol": 1e-12,
+        }
         f_fd, n_fd = coupled_newton_solve(ctx, f0, n0, analytic_cross=False, **common)
         f_an, n_an = coupled_newton_solve(ctx, f0, n0, analytic_cross=True, **common)
         np.testing.assert_allclose(f_an, f_fd, rtol=1e-6, atol=1e-9)

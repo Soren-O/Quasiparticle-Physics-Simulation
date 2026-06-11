@@ -29,6 +29,7 @@ from validation.fischer_2024.fig8_paper import (
     run,
 )
 
+
 def test_unit_audit_pinned() -> None:
     """Hz → ns⁻¹ conversion factor must be 1e-9 exactly.
 

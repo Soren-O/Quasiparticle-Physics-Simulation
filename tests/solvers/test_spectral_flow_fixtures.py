@@ -101,7 +101,7 @@ def _interior_mask(
     edge_margin = max(gap_final, GAP0) + 16.0 * dE_u
     top_starve = abs(delta_gap) * GAP0 / (E_MAX_FACTOR * GAP0)
     top_margin = E_MAX_FACTOR * GAP0 - top_starve - 10.0 * dE_u
-    return (E > edge_margin) & (E < top_margin)
+    return (edge_margin < E) & (top_margin > E)
 
 
 class TestFrozenShellExactness:
@@ -117,9 +117,9 @@ class TestFrozenShellExactness:
         f_init = np.where(E > GAP0, self._G(xi0), 0.0)
         f_fin, diag = _run_ramp(NE, gap_final, n_steps, f_init, E, dE)
         xi1 = np.sqrt(np.maximum(E**2 - gap_final**2, 0.0))
-        f_exact = np.where(E > gap_final, self._G(xi1), 0.0)
+        f_exact = np.where(gap_final < E, self._G(xi1), 0.0)
         bulk = _interior_mask(E, dE_u, gap_final, gap_final - GAP0)
-        band = (E > gap_final + 2.0 * dE_u) & (E < GAP0 - 2.0 * dE_u)
+        band = (gap_final + 2.0 * dE_u < E) & (GAP0 - 2.0 * dE_u > E)
         # One edge cell of the final DOS holds ~√(2Δ·dE)·G(0) of mass —
         # the dominant, sampling-parity-sensitive recovery drop. Bound
         # the deficit by that scale rather than a fixed percentage.

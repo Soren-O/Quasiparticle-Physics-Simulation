@@ -28,6 +28,7 @@ from validation.fischer_2024.fig5_paper import (
     run,
 )
 
+
 def test_unit_audit_conversion_pinned() -> None:
     """Hz → ns⁻¹ conversion factor must be 1e-9; per-drive product values
     must round-trip exactly under that conversion.

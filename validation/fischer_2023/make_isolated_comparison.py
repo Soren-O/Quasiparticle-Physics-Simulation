@@ -17,6 +17,7 @@ os.environ.setdefault(
     "MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "qpsim-fischer2023-mpl")
 )
 import matplotlib
+
 matplotlib.use("Agg", force=True)
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt

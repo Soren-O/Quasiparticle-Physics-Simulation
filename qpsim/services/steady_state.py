@@ -39,7 +39,6 @@ from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
-
 # Picard convergence floors the per-bin relative-change denominator at this
 # fraction of the peak n_ph occupation, so near-zero bins — whose iterate-to-
 # iterate change is dominated by the inner Newton's ~tol float noise (~1e-11) —

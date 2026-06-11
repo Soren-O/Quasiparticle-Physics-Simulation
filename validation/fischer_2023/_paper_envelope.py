@@ -120,7 +120,7 @@ def envelope_with_thermal(E: np.ndarray, p: EnvelopeParams, b0: float) -> np.nda
         return f_neq
     f_th = f_thermal_tail(E, p, b0)
     E_star = E_star_estimate(p)
-    return np.maximum(np.where(E > E_star, f_th, f_neq), 0.0)
+    return np.maximum(np.where(E_star < E, f_th, f_neq), 0.0)
 
 
 # --- Generalized Rothwarf-Taylor steady-state b0 ---------------------------

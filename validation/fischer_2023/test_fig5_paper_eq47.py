@@ -105,7 +105,7 @@ def test_plot_axis_conversions_match_paper_convention() -> None:
     x_qpsim = 3.0e-7
     n_qp = _x_qp_qpsim_to_nqp(x_qpsim)
 
-    assert NQP_PER_X_QP_QPSIM == pytest.approx(4.0 * RHOF_AL_uev * DELTA_0)
-    assert NQP_PER_X_QP_PAPER == pytest.approx(2.0 * RHOF_AL_uev * DELTA_0)
+    assert pytest.approx(4.0 * RHOF_AL_uev * DELTA_0) == NQP_PER_X_QP_QPSIM
+    assert pytest.approx(2.0 * RHOF_AL_uev * DELTA_0) == NQP_PER_X_QP_PAPER
     assert n_qp == pytest.approx(4.0 * RHOF_AL_uev * DELTA_0 * x_qpsim)
     assert _nqp_to_x_qp_paper(n_qp) == pytest.approx(2.0 * x_qpsim)

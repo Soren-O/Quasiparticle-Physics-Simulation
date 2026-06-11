@@ -157,14 +157,14 @@ def main() -> None:
     colors = {"A1": "C0", "A1P": "C4", "A2": "C1", "C": "C2", "B": "C3"}
     # A1 and C coincide exactly at uniform gap: draw A1 wide and C dashed so
     # the coincidence is visible rather than an overplot.
-    styles = {"A1": dict(ls="-", lw=2.4), "C": dict(ls="--", lw=1.2)}
+    styles = {"A1": {"ls": "-", "lw": 2.4}, "C": {"ls": "--", "lw": 1.2}}
     for name in result.deff_over_dn:
         ax.plot(
             result.E / result.gap,
             result.analytic_over_dn[name],
             color=colors.get(name),
             label=f"{name} analytic",
-            **styles.get(name, dict(ls="-", lw=1.2)),
+            **styles.get(name, {"ls": "-", "lw": 1.2}),
         )
         ax.plot(
             result.E / result.gap,

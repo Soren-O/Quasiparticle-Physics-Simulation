@@ -232,6 +232,7 @@ class FinitePhononSpatialRunner:
                 N_abs: np.ndarray = N_abs,
                 gain_external: np.ndarray = gain_external,
                 loss_external: np.ndarray = loss_external,
+                ix: int = ix,
             ) -> tuple[np.ndarray, np.ndarray]:
                 gain, loss = phonon_collision_rates(
                     f_col,

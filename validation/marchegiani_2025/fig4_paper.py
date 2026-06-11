@@ -93,13 +93,13 @@ from validation.marchegiani_2025.fig3_chemical_potentials import (
     T_MIN_K,
     _coefficients_at,
 )
+
 # Use the smarter ``_try_solve`` from ``fig3_paper``: it carries
 # ``extra_seeds`` (for the analytic SI low-T seed and the predictor-
 # corrector step) and ``expected_ordering`` (large-asymmetry density
 # ordering filter) on top of the basic prev-T continuation seeding
 # in ``fig3_chemical_potentials._try_solve``.
 from validation.marchegiani_2025.fig3_paper import _try_solve
-
 
 # ── reduced-model labels (used on the plot legend) ───────────────────
 MODEL_FULL = "full"
@@ -630,7 +630,7 @@ def generate_baseline() -> tuple[Path, Path]:
     print("M25 Fig 4 — paper-target reproduction (qpsim-native; see docstring) ...")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz, T ∈ [{T_MIN_K*1e3:.0f}, {T_MAX_K*1e3:.0f}] mK")
-    print(f"  ω_LR cases: 0.5, 5.0 GHz × models: full, global, renorm")
+    print("  ω_LR cases: 0.5, 5.0 GHz × models: full, global, renorm")
     print(
         "  ⚠ panel (a) carries multi-stability scatter from the max-x_L "
         "branch picker;\n"

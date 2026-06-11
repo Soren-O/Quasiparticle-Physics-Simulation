@@ -759,10 +759,11 @@ def analytic_low_T_seed(
         # x_L ≃ √(g^L / r^L)   (Eq. S65 simplified form, valid when
         #     Γ̃^L_01 ≪ √(g^L r^L) — the dominant branch is recombination
         #     against the photon drive).
-        if coefs.r_L > 0.0 and g_L_eff > 0.0:
-            x_L = float(np.sqrt(g_L_eff / coefs.r_L))
-        else:
-            x_L = floor
+        x_L = (
+            float(np.sqrt(g_L_eff / coefs.r_L))
+            if coefs.r_L > 0.0 and g_L_eff > 0.0
+            else floor
+        )
         # x_R> = (Γ̄^L − (1 − ξ) Γ̃^L_01) x_L / Γ̄^R>     (Eq. S64).
         if Gamma_bar_Rgt > 0.0:
             x_Rgt = max(

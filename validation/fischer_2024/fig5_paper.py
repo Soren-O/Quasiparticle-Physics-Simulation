@@ -345,7 +345,7 @@ def run() -> Fig5PaperResult:
     print(
         f"  Drive levels (paper Hz): {list(PAPER_DRIVES_HZ)}\n"
         f"  Drive levels (ns⁻¹)    : "
-        f"{['%.2e' % p for p in PAPER_DRIVES_NS_INV]}"
+        f"{[f'{p:.2e}' for p in PAPER_DRIVES_NS_INV]}"
     )
 
     _assert_unit_audit()
@@ -526,7 +526,6 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
             f"Baseline at {path} missing '# x_qp_by_drive=' metadata."
         )
     data = np.array(rows, dtype=float)
-    n_drives = len(drives_hz)
     f_by_drive: dict[float, np.ndarray] = {}
     f0_by_drive: dict[float, np.ndarray] = {}
     f01_by_drive: dict[float, np.ndarray] = {}
@@ -583,12 +582,14 @@ def write_plot(result: Fig5PaperResult, path: Path | None = None) -> Path:
 
     # Style per Neumann order — matches paper colour mapping:
     # green = f^(0), red = f^(0)+f^(1), blue = f^(0)+f^(1)+f^(2).
-    style_f0 = dict(color="green", lw=1.2, ls="-", alpha=0.9)
-    style_f01 = dict(color="red", lw=1.2, ls="-", alpha=0.9)
-    style_f012 = dict(color="blue", lw=1.2, ls="-", alpha=0.9)
-    style_num = dict(color="black", lw=1.5, ls="-")
+    # Underscore-prefixed: kept as documentation of the paper mapping while
+    # the curves stay unplotted (see comment below).
+    _style_f0 = {"color": "green", "lw": 1.2, "ls": "-", "alpha": 0.9}
+    _style_f01 = {"color": "red", "lw": 1.2, "ls": "-", "alpha": 0.9}
+    _style_f012 = {"color": "blue", "lw": 1.2, "ls": "-", "alpha": 0.9}
+    style_num = {"color": "black", "lw": 1.5, "ls": "-"}
 
-    # The colored Neumann curves (style_f0 / style_f01 / style_f012) are
+    # The colored Neumann curves (_style_f0 / _style_f01 / _style_f012) are
     # NOT plotted: their _neumann_f0 / _f1 / _f2 implementations are
     # placeholders, not the F24 Eq. 25 + Appendix B closed forms (which
     # require φ → f conversion via Eq. 21 with γ'_* from Eq. 22 and the
