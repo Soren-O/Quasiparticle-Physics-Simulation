@@ -135,6 +135,22 @@ secondary task 2, not pre-existing landscape. Merging now would redden
 main on tests it currently passes. Merge once that track lands its
 fix-or-baseline-regen; no other blocker remains.
 
+## fischer_2023 slow-pin certification: predicted-unaffected, not re-run
+
+The full-recompute slow pins (fig3/5/6) were started twice and aborted
+for practical reasons (the second run ~4 h in, mid-fig6's 66
+self-consistent-gap sweep solves); fig7 (~14 h) and figs_9_13 were
+deliberately excluded. The pins are trusted on the direct measurement
+instead: all fischer_2023 observables are sub-gap-photon-driven, where
+the normalization fix shifts x_qp by 1.0000 (recombination's relative
+weight in f(E) there is ~1e-8 vs the 1e-6 pin tolerance). To certify
+end-to-end when a long plugged-in window exists:
+
+    caffeinate -i .venv/bin/python -m pytest validation/fischer_2023/ -m slow -q
+
+If a marginal continuation point flips, the remedy is the documented
+one-line baseline regen for that figure, not a code change.
+
 ## Standing caveats / out of scope
 
 - Spectral-flow top-boundary and gap-anchored-grid caveats (documented
