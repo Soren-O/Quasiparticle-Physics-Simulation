@@ -961,6 +961,13 @@ def _solve_with_lsq(
         )
     except Exception:
         return None
+    if not sol.success:
+        # least_squares reports non-convergence by returning with
+        # status 0 (max_nfev exhausted) rather than raising; the
+        # unconverged iterate is not a fixed point and must not enter
+        # the candidate pool, where its inflated x_L could win the
+        # max-x_L picker over the genuine physical branch.
+        return None
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
     if residual_inf_norm > residual_ceiling_Hz:
         return None
