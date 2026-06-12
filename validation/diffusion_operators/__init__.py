@@ -1,6 +1,6 @@
 """§7.5 diffusion-operator benchmarks (paper "Benchmark problems").
 
-Three transport-only tests that separate the dirty-limit Usadel reduction
+Four transport-only tests that separate the dirty-limit Usadel reduction
 A1 = (p, q) = (1, 0) from the diagnostics A1P = (1, 2) (transverse-dressed
 flux) and A2 = (2, 2), and the scalar-Boltzmann closures C = (0, -1) and
 B = (0, -2):
@@ -15,6 +15,10 @@ B = (0, -2):
 * :mod:`interface_trap` -- a Kupriyanov-Lukichev two-gap interface:
   current continuity + ``f``-discontinuity with the coherence-factor
   weight, and A1-vs-A2 distinct closed equilibria.
+* :mod:`self_consistent_feedback` -- a gap well dug self-consistently by
+  the occupation through the direct gap closure: a probe packet drifts
+  toward the well under C/B (``q < 0``, self-focusing), away under
+  A1P/A2 (``q = 2``), and not at all under A1 (``q = 0``).
 
 Each module exposes a ``run()`` returning structured results (used by the
 co-located fast tests) and a ``main()`` writing CSV + a figure under
