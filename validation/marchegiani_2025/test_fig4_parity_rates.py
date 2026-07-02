@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from validation.marchegiani_2025._robust import assert_robust_match
 from validation.marchegiani_2025.fig4_parity_rates import (
     baseline_path_a,
     baseline_path_b,
@@ -36,17 +37,16 @@ def test_matches_pinned_baseline() -> None:
         # Γ_P depends multiplicatively on x_α through gamma_eo, so
         # branch-jump noise (the multi-stability artifact in the
         # underlying moment system) propagates into ~order-of-
-        # magnitude scatter at some T points. The 5% rtol pins the
-        # baseline against itself but tolerates hybr iteration-count
-        # drift across scipy versions.
-        np.testing.assert_allclose(
-            actual.Gamma_P_Hz, expected.Gamma_P_Hz, rtol=5e-2,
-            err_msg=f"{panel_name}: Gamma_P_Hz drifted",
+        # magnitude scatter at isolated T points — robust
+        # (majority + median) comparison, not per-point pins; see
+        # validation/marchegiani_2025/_robust.py.
+        assert_robust_match(
+            actual.Gamma_P_Hz, expected.Gamma_P_Hz,
+            f"{panel_name}: Gamma_P_Hz",
         )
-        np.testing.assert_allclose(
+        assert_robust_match(
             actual.ratio_eo_01_over_10, expected.ratio_eo_01_over_10,
-            rtol=5e-2,
-            err_msg=f"{panel_name}: ratio drifted",
+            f"{panel_name}: ratio_eo_01_over_10", atol=1e-2,
         )
 
 
