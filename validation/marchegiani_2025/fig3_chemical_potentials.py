@@ -38,6 +38,7 @@ Usage::
 from __future__ import annotations
 
 import csv
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -238,6 +239,9 @@ def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
             f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
             f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
         ])
+        # Fixed-point selection is platform-dependent; the strict pin
+        # test only runs where the baseline was generated.
+        writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow([
             "T_kelvin", "x_L", "x_Rgt", "x_Rlt", "p_1",
             "mu_L_GHz", "mu_Rgt_GHz", "mu_Rlt_GHz",

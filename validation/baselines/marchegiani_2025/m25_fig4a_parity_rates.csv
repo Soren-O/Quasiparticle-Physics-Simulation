@@ -1,5 +1,6 @@
 # Marchegiani & Catelani 2025 Fig 4 — Γ_P and Γ^eo_01/Γ^eo_10 vs T; pinned by qpsim
 # omega_LR_GHz=0.5  Delta_R_GHz=49  omega_10_GHz=5.5  Gamma_ph_00_Hz=300
+# pinned_on: win32
 T_kelvin,Gamma_P_Hz,ratio_eo_01_over_10
 1.00000000000000002e-02,3.08870701021316461e+05,1.77966511309726164e-04
 1.49999999999999994e-02,3.52731861623012170e+05,1.63399442921305046e-04

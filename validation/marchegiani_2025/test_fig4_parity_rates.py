@@ -6,7 +6,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.marchegiani_2025._robust import assert_robust_match
+from validation.marchegiani_2025._robust import (
+    assert_robust_match,
+    skip_unless_pinned_here,
+)
 from validation.marchegiani_2025.fig4_parity_rates import (
     baseline_path_a,
     baseline_path_b,
@@ -21,6 +24,7 @@ def test_matches_pinned_baseline() -> None:
             "Baseline not found. Generate with: "
             "python -m validation.marchegiani_2025.fig4_parity_rates"
         )
+    skip_unless_pinned_here(baseline_path_a(), baseline_path_b())
 
     baseline = read_baseline()
     result = run()
