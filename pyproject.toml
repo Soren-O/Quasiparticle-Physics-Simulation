@@ -50,7 +50,7 @@ markers = [
 line-length = 100
 target-version = "py313"
 src = ["qpsim", "tests", "validation"]
-extend-exclude = ["validation/baselines"]
+extend-exclude = ["validation/baselines", "papers"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
