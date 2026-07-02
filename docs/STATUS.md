@@ -1,6 +1,6 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-06-09 (spatial diffusion-operator family A1 + §7.5 benchmarks; prior: 2026-04-26 seventh session).
+Last updated: 2026-07-02 (a1-diffusion-operators merged to main; CI green; code-health review fixes; prior: 2026-06-09 spatial diffusion-operator family A1 + §7.5 benchmarks).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 
@@ -22,7 +22,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 
 ## Validation figures
 
-All reproductions self-pinned with CSV baselines + PDF plots under `validation/baselines/{ph0_constant, ph0_kaplan, transient, marchegiani_2025}/` and regression tests under `validation/{fischer_2023, fischer_2024, transient, marchegiani_2025}/`.
+All reproductions self-pinned with CSV baselines + PDF plots under `validation/baselines/{ph0_constant, ph0_kaplan, transient, marchegiani_2025}/` and regression tests under `validation/{fischer_2023, fischer_2024, marchegiani_2025}/` (the `transient/` photon-kick output is a demo — baseline committed, no regression test). M25 baselines carry a `# pinned_on:` platform stamp; their strict pin tests run only on the generating platform (fixed-point selection is platform-dependent).
 
 | Figure | Module | Baseline dir | Status |
 |---|---|---|---|
@@ -40,7 +40,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 
 ## Analytic tests
 
-`validation/analytic/` (opt-in, not slow-marked — fast to run):
+`validation/analytic/` (runs in the default suite — fast, no markers):
 - Detailed balance: e-ph, sub-gap photon, pair-breaking photon channels vanish at `(f_FD(T), n_BE(ω, T))`.
 - Mattis-Bardeen thermal limits: σ_1 → 0 at T → 0, σ_2 → π Δ / ω kinetic-inductance limit.
 - Gap-equation round-trip: `solve_gap(f_FD(T_B))` recovers `Δ_eq`.
@@ -100,7 +100,7 @@ distinct closed equilibria).
 
 ## Test suite
 
-**542 unit/regression tests passing** (535 unit/regression + 7 M25 validation). Ruff clean. mypy clean on all new qpsim surfaces.
+**~700 tests collected; fast suite green on Windows and ubuntu CI** (slow Fischer/M25 reproductions opt-in via `-m slow`; two M25 strict pins skip off-platform by design). Ruff clean. mypy clean on all new qpsim surfaces. GitHub Actions CI (3.13 + 3.14) green since fe4ec54.
 
 Recent hardening pass (Claude+GPT cross-review, seventh session):
 - Photon collision kernels (`sub_gap_photon`, `pair_breaking_photon`) and the analytic Newton Jacobian now hard-reject nonuniform energy grids via `qpsim.collisions._uniform_grid.uniform_grid_spacing`; previously they silently used `dE[0]` as a uniform stride.
@@ -116,9 +116,14 @@ Slow tests (opt in with `-m slow`):
 
 ## Build/dev notes
 
-- **Local venv:** `.venv/` at repo root, Python 3.14.3.
-  - `.venv/bin/pip install -e ".[dev]"` installs qpsim editable + ruff/mypy/pytest.
-  - `.venv/bin/pytest -q` runs fast suite. `-m slow` opts into Fischer reproductions.
-- **Legacy repo:** `~/Documents/Quasiparticle Simulation/Active Code/qpsim/` is read-only port source.
-- **Specs:** `~/Documents/Quasiparticle Simulation/Documentation/Current/` — `New Framework Plan.md` is authoritative.
-- **Prelim deck:** `~/Documents/Graduate/Preliminary Exam/build_presentation.py` builds the .pptx; uses system Python (`/opt/homebrew/bin/python3`) for python-pptx availability.
+- **Local venv:** `.venv/` at repo root, Python ≥ 3.13.
+  - macOS/Linux: `.venv/bin/pip install -e ".[dev]"`, `.venv/bin/pytest -q`.
+  - Windows: `.venv/Scripts/python.exe -m pip install -e ".[dev]"`,
+    `.venv/Scripts/python.exe -m pytest -q`. (`PYTHONUTF8=1` is no longer
+    required since the material-YAML loader reads UTF-8 explicitly, but
+    remains harmless belt-and-braces.)
+  - `-m slow` opts into the Fischer/M25 full reproductions.
+- **Mac-only paths** (do not exist on the Windows box):
+  - Legacy repo: `~/Documents/Quasiparticle Simulation/Active Code/qpsim/` (read-only port source).
+  - Specs: `~/Documents/Quasiparticle Simulation/Documentation/Current/` — `New Framework Plan.md` is authoritative.
+  - Prelim deck: `~/Documents/Graduate/Preliminary Exam/build_presentation.py` (uses `/opt/homebrew/bin/python3` for python-pptx).

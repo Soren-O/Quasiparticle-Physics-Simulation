@@ -418,9 +418,11 @@ def solve_rate_equation_steady_state(
         Rate coefficients, see :class:`M25Coefficients`.
     initial_guess
         Optional length-4 array ``(p_1, x_L, x_{R>}, x_{R<})``.
-        Default is ``(Γ̃^{ee}_{01}/(Γ̃^{ee}_{01}+Γ̃^{ee}_{10}), 0, 0, 0)``
-        — the ee-detailed-balance qubit state with empty QP bands —
-        which converges to the physical (nonequilibrium) branch for
+        Default seeds the qubit at ee detailed balance,
+        ``p_1 = Γ̃^{ee}_{01}/(Γ̃^{ee}_{01}+Γ̃^{ee}_{10})``, and each QP
+        density at its generation/recombination balance scale
+        ``√(g_eff/r)`` (0 when there is no generation) — which
+        converges to the physical (nonequilibrium) branch for
         all validated parameter sets. Alternative branches (e.g. the
         thermal-equilibrium fixed point at high T) can be reached by
         passing a guess close to them.
@@ -875,7 +877,7 @@ def _solve_with_lm(
     Note on determinism: lm has been verified bit-identical across
     100 repeated calls on the test platform (scipy ≥ 1.13). The
     accompanying regression test in
-    ``tests/services/test_rate_equation.py::test_lm_solver_is_deterministic``
+    ``tests/services/test_rate_equation.py::TestLmDeterminism``
     will catch any platform/version regression.
     """
     try:
@@ -1035,7 +1037,7 @@ def solve_rate_equation_steady_state_multi_seed(
     * ``"max_x_L"`` (default, original behavior): return the candidate
       with the largest ``x_L``. Validated against early M25 baselines
       but **picks the wrong branch** at low T for the large-asymmetry
-      case in M25 Fig 3a/4a — paper's physical branch has
+      case in M25 Fig 3b/4b — paper's physical branch has
       ``x_R< >> x_L >> x_R>``, while max-x_L selects the inverted
       ordering and inflates parity rates by ~600× (see
       ``qpsim_validation_plan.tex`` page 10). Kept as default only for

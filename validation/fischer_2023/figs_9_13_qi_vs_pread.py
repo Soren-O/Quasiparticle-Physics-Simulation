@@ -8,9 +8,9 @@ counts low — crucial for the high-power end where the map stiffens
 as ``Q_i`` drops and ``Q_tot → Q_i``.
 
 This is a logarithmic-in-P_read characterization sweep at fixed
-``T_B``; it consumes the same :func:`qpsim.services.nbar_loop.solve_nbar_loop`
-service used by the paper-track :mod:`fig7_paper` (which sweeps
-``T_B`` at Tables II/III drive powers).
+``T_B`` built on :func:`qpsim.services.nbar_loop.solve_nbar_loop`.
+(The paper-track :mod:`fig7_paper` does NOT use the n̄ loop — it runs
+fixed Table-III ``T*/Δ`` drive values while sweeping ``T_B``.)
 
 Parameters (Fischer 2023 Table I / default ``qi_vs_pread``):
 

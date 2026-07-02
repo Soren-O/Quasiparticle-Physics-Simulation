@@ -24,7 +24,7 @@ Tolerance choices per `New Framework Plan` §6.4.1:
 |-----------------------------------|-----------|--------------------------------------|
 | Fischer 2023 Fig 3 (paper grid)   | 1e-6      | Picard/coupled-Newton iteration tol  |
 | Fischer 2023 Fig 5 (paper)        | 1e-6      | Iterative modes                      |
-| Fischer 2023 Fig 7 (paper)        | 1e-4      | nbar loop + Mattis–Bardeen quadrature |
+| Fischer 2023 Fig 7 (paper)        | 1e-4      | fixed Table-III n̄ + Mattis–Bardeen quadrature |
 | Fischer 2023 Figs 9–13 (Q_i vs P) | 1e-4      | nbar loop + Mattis–Bardeen quadrature |
 | Fischer 2024 Figs 5–8 pair-breaking photon | 1e-6      | Iterative                            |
 
