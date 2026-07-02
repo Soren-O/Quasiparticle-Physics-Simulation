@@ -26,6 +26,7 @@ import csv
 import inspect
 import os
 import re
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,7 +56,7 @@ from validation.fischer_2023.fig7_solve import (
     solver_fingerprint,
 )
 
-_CACHE_ROOT = Path("/private/tmp/qpsim-cache")
+_CACHE_ROOT = Path(tempfile.gettempdir()) / "qpsim-cache"
 _MPLCONFIGDIR = _CACHE_ROOT / "matplotlib"
 _XDG_CACHE_HOME = _CACHE_ROOT / "xdg"
 _MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
