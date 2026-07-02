@@ -302,10 +302,6 @@ def baseline_path() -> Path:
     )
 
 
-def plot_path() -> Path:
-    return baseline_path().with_suffix(".pdf")
-
-
 def plot_path_a() -> Path:
     return baseline_path().with_name(baseline_path().stem + "_a.pdf")
 

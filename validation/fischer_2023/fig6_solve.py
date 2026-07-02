@@ -130,13 +130,6 @@ N_BAR_VALUES: np.ndarray = np.logspace(4.0, 8.2, 22)
 # dev iteration (~30× speedup at the cost of ~1 sig fig).
 PICARD_TOL: float = 1e-12
 
-# Output-path suffix appended by --fast so paper-faithful baselines aren't
-# overwritten by dev runs. Default empty → paper-facing path.
-_FAST_SUFFIX: str = ""
-
-# Output-path suffix appended by alternate observable modes.
-_MODE_SUFFIX: str = ""
-
 # τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
 PAPER_TAU_0_PB_PS = 255.0
 TAU_0_PB_WARN_FACTOR = 1.05
