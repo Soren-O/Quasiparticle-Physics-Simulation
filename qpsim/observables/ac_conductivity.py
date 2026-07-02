@@ -43,7 +43,8 @@ def compute_ac_conductivity(
     Raises
     ------
     ValueError
-        If ``omega_0 ≤ 0`` or ``ctx.dynes_gamma > 0``.
+        If ``omega_0 ≤ 0``, ``omega_0 ≥ ctx.gap``, or
+        ``ctx.dynes_gamma > 0``.
     """
     if omega_0 <= 0:
         raise ValueError("omega_0 must be positive.")
@@ -53,6 +54,13 @@ def compute_ac_conductivity(
         raise ValueError(
             "Mattis-Bardeen observables assume pure BCS spectral functions. "
             "Dynes-broadened contexts (dynes_gamma > 0) are not supported."
+        )
+    if omega_0 >= ctx.gap:
+        raise ValueError(
+            f"omega_0={omega_0:g} must be below the gap ({ctx.gap:g} μeV): "
+            "this implementation keeps only the sub-gap Mattis-Bardeen "
+            "terms (σ₂'s lower limit is clamped at Δ−ω₀ ≥ 0 and σ₁ omits "
+            "the pair-breaking contribution), which are wrong above it."
         )
 
     gap = ctx.gap

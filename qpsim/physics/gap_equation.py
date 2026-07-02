@@ -14,6 +14,7 @@ Ported from the old ``qpsim/numerics/gap_equation.py`` at Gate 2.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -203,8 +204,17 @@ def solve_gap(
         # no superconducting solution (gap collapses to normal state).
         if r_lo < 0:
             return 0.0
-        # Positive residual without sign change is unexpected; return
-        # Δ_eq as a safe fallback.
+        # Positive residual without sign change means the true root sits
+        # above the widened bracket (population colder than thermal near
+        # T_c). Returning Δ_eq is then an UNDERestimate — keep the legacy
+        # fallback for continuity, but say so instead of staying silent.
+        warnings.warn(
+            "solve_gap: bracket widening found no sign change with a "
+            "positive residual at both ends; the self-consistent gap "
+            "exceeds the search bracket and Δ_eq is returned as a "
+            "fallback (an underestimate).",
+            stacklevel=2,
+        )
         return delta_eq
 
     xtol_brentq = 1e-6 * delta_eq if xtol is None else xtol
