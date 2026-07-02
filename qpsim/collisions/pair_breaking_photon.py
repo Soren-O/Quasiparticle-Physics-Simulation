@@ -68,6 +68,24 @@ def pair_breaking_photon_collision_rates(
 
     omega_PB_snapped = m * dE_scalar
 
+    # The K⁻ reflection partner j_r = round((ω − E_i − E[0])/dE) is exact
+    # only when ω − 2·E[0] is grid-commensurate (the residual is the same
+    # for every i on a uniform grid). A misaligned origin silently places
+    # every partner up to dE/2 off and breaks detailed balance at the
+    # percent level, so warn just like the ω check above.
+    partner_steps = (omega_PB_snapped - 2.0 * E[0]) / dE_scalar
+    partner_err = abs(partner_steps - round(partner_steps))
+    if partner_err > _COMMENSURATE_TOL:
+        warnings.warn(
+            f"PB reflection partners are not grid-aligned: omega_PB_snapped"
+            f" - 2*E[0] = {omega_PB_snapped - 2.0 * E[0]:.6g} μeV is "
+            f"{partner_err:.4f} bins away from the lattice "
+            f"(tol={_COMMENSURATE_TOL}). Generation/recombination terms "
+            f"will violate detailed balance; shift the grid origin so "
+            f"(omega_PB - 2*E_min)/dE is an integer.",
+            stacklevel=2,
+        )
+
     gain = np.zeros(NE)
     loss_rate = np.zeros(NE)
     one_minus_f = np.maximum(1.0 - f, 0.0)

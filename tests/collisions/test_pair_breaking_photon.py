@@ -10,6 +10,14 @@ from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.spectral import SpectralContext
 
+# The synthetic _setup grid is ~0.19 bins off the reflection-partner
+# lattice — these structural tests don't probe detailed balance, so the
+# (correct) partner-alignment warning is acknowledged rather than fixed
+# by re-pinning every expected value on an aligned grid.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:PB reflection partners are not grid-aligned"
+)
+
 
 def _setup(gap: float = 180.0, num: int = 40):
     E, _ = build_energy_grid(

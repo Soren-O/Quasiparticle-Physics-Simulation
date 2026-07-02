@@ -68,7 +68,9 @@ def sub_gap_photon_collision_rates(
     one_minus_f = np.maximum(1.0 - f, 0.0)
 
     for i in range(NE):
-        # Absorb-up partner: i + m (QP absorbs photon).
+        # Partner above at i + m: the gain at i is photon EMISSION by
+        # the QP at i+m (factor n̄+1); the loss line below is
+        # absorption at i up to i+m (factor n̄).
         j_up = i + m
         if j_up < NE:
             U_plus = rho[j_up] * K_plus[i, j_up]
