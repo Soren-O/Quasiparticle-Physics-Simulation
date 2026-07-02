@@ -118,7 +118,7 @@ def load_material(
         raise FileNotFoundError(
             f"Material '{name}' not found at {yaml_path}."
         )
-    with yaml_path.open() as fp:
+    with yaml_path.open(encoding="utf-8") as fp:
         data: dict[str, Any] = yaml.safe_load(fp)
 
     if not isinstance(data, dict):
