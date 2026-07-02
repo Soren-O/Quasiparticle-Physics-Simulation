@@ -163,9 +163,25 @@ class T3Spatial1DBackend:
             list[_EnergyOp | None],
         ] = {}
         self._collision_cache: dict[
-            tuple[int, float, float, float],
+            tuple[object, ...],
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
         ] = {}
+
+    @staticmethod
+    def _spectral_cache_key(
+        spectral: SpectralContext,
+    ) -> tuple[bytes, bytes, float, float]:
+        """Value fingerprint of the spectral content entering cached
+        operators/kernels. Identity (``id``) is not safe — a backend can
+        outlive a state's SpectralContext, and same-shaped grids with
+        different energies, gaps, or Dynes broadening must not share
+        cache entries."""
+        return (
+            spectral.E.tobytes(),
+            spectral.dE.tobytes(),
+            float(spectral.gap),
+            float(spectral.dynes_gamma),
+        )
 
     def apply_transport(self, state: T3Spatial1DState, dt: float) -> T3Spatial1DState:
         """Conservative finite-volume diffusion step (Crank-Nicolson).
@@ -176,7 +192,11 @@ class T3Spatial1DBackend:
         density ``u = N_1**p f`` with harmonic-mean face weights
         ``W = D_0 N_1**q`` and reflective (zero-flux) ends -- so
         ``sum_x N_1**p f`` is conserved per energy to round-off. Recovers
-        ``f = u / N_1**p`` and clips to ``[0, 1]``.
+        ``f = u / N_1**p`` and clips to ``[0, 1]``. Caveat: the clip is a
+        no-op for resolved profiles, but if CN over/undershoots (large
+        dt against a sharp front) it trims the excursion and the trimmed
+        mass is NOT restored — exact conservation holds only while the
+        solution stays inside ``[0, 1]``.
 
         With ``(p, q) = (0, -1)`` (model ``C``) at a uniform gap this is the
         same PDE as the legacy ``D_E = D_0 sqrt(1 - (Delta/E)**2)`` step.
@@ -225,7 +245,15 @@ class T3Spatial1DBackend:
             float(G_N) if (interface_faces and G_N is not None) else 0.0
         )
 
-        key = (_NX, float(dx), float(dt), model, D0, self._gap_cache_key(state))
+        key = (
+            _NX,
+            float(dx),
+            float(dt),
+            model,
+            D0,
+            self._gap_cache_key(state),
+            self._spectral_cache_key(state.spectral),
+        )
         cached = self._transport_cn_cache.get(key)
         if cached is not None:
             return cached
@@ -338,7 +366,7 @@ class T3Spatial1DBackend:
             external_flux.validate_for_shape(state.f.shape)
 
         cache_key = (
-            id(state.spectral),
+            self._spectral_cache_key(state.spectral),
             float(state.material.tau_0),
             float(state.material.T_c),
             float(state.T_bath),

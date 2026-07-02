@@ -449,3 +449,31 @@ class TestGapEdgePacketFixture:
         nz = before > 0
         np.testing.assert_allclose(after[nz], before[nz], rtol=1e-11)
         assert float(np.abs(evolving.f[sub_edge]).max(initial=0.0)) == 0.0
+
+
+class TestTransportCacheKeying:
+    """Regression: the operator/kernel caches must key on the spectral
+    CONTENT, not on grid shape or object identity — a backend reused
+    across states with different energy grids previously crashed
+    (smaller NE) or silently froze the extra rows (larger NE)."""
+
+    def test_backend_reused_across_different_energy_grids(self) -> None:
+        from dataclasses import replace
+
+        backend = T3Spatial1DBackend()
+        for NE in (28, 20, 36):
+            state = _build_state(T_bath=0.1, NE=NE)
+            f = state.f.copy()
+            f[:, state.x.size // 2] = np.clip(
+                f[:, state.x.size // 2] + 0.1, 0.0, 1.0
+            )
+            state = replace(state, f=f)
+            out = backend.apply_transport(state, dt=0.05)
+            moved = np.abs(out.f - state.f).max(axis=1)
+            # Every energy row is above the gap in _build_state, so every
+            # row must diffuse — a stale cached operator for a previous
+            # grid leaves the tail rows exactly untouched.
+            assert moved.min() > 0.0, (
+                f"NE={NE}: some energy rows did not diffuse "
+                f"(stale transport-operator cache reused across grids)"
+            )
