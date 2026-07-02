@@ -1,5 +1,6 @@
 # Marchegiani & Catelani 2025 Fig 4 — qpsim-native characterization at paper topology
 # Delta_R_GHz=49  omega_10_GHz=5.5  Gamma_ph_00_Hz=300
+# pinned_on: win32
 "# omega_LR cases: 0.5, 5.0 GHz; models: full, global (placeholder), renorm (placeholder)"
 omega_LR_GHz,model,T_kelvin,Gamma_P_Hz,ratio_eo_01_over_10
 0.5,full,1.00000000000000002e-02,2.02743815746472774e+03,3.23471660513366122e-02

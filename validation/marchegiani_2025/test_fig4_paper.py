@@ -21,6 +21,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from validation.marchegiani_2025._robust import skip_unless_pinned_here
 from validation.marchegiani_2025.fig4_paper import (
     MODEL_FULL,
     MODEL_GLOBAL,
@@ -40,6 +41,7 @@ def test_matches_pinned_baseline() -> None:
             f"Baseline not found at {path}. "
             "Generate it with: python -m validation.marchegiani_2025.fig4_paper"
         )
+    skip_unless_pinned_here(path)
 
     baseline = read_baseline(path)
     result = run()

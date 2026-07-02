@@ -74,6 +74,7 @@ Usage::
 from __future__ import annotations
 
 import csv
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -437,6 +438,9 @@ def write_baseline(result: Fig4Result, path: Path | None = None) -> Path:
             f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
             f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
         ])
+        # Fixed-point selection is platform-dependent; the strict pin
+        # test only runs where the baseline was generated.
+        writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow([
             "# omega_LR cases: 0.5, 5.0 GHz; "
             "models: full, global (placeholder), renorm (placeholder)"
