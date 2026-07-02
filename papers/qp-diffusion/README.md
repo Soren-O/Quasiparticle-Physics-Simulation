@@ -23,6 +23,10 @@ Files:
   (`routes_roadmap.tex`; rebuild with `make roadmap`).
 - `verify_*.py` — symbolic/numeric computer-algebra checks (sympy; uses
   `../.venv` or run `make setup`). `verify_gA_convention.py` is the immutable
-  regression baseline — never edit.
+  regression baseline — never edit. Note for readers of that script: its
+  "PAPER" column tests the superseded June-2026 audit convention
+  (`gA = -(gR)^dagger`), kept as the historical anchor; the current
+  manuscript uses the corrected convention of its "CORRECTED" column
+  (`gA = -tau3 (gR)^dagger tau3`).
 - `CLAUDE.md` — reviewer guards: settled conventions and physics; read before
   reviewing or editing.
