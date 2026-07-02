@@ -145,6 +145,17 @@ class M25GapAsymmetricJJ(Junction):
     m25_drive
         Stage A :class:`M25PhotonDrive` for the pair-breaking
         photon channel.
+    branch_picker_mode
+        Fixed-point selection mode forwarded to
+        :func:`solve_rate_equation_steady_state_multi_seed`. The
+        default ``"max_x_L"`` matches the historical baselines but is
+        **documented to pick the wrong branch for large gap asymmetry**
+        (M25 Fig 3b/4b regime, ~600× parity-rate inflation) — pass
+        ``"min_residual"`` (with ``expected_ordering`` if applicable)
+        for large-asymmetry junctions; see the solver docstring.
+    expected_ordering
+        Optional moment-ordering hint forwarded to the solver
+        (used by ``"min_residual"``/``"lock_to_preferred"`` modes).
 
     Notes
     -----
@@ -157,6 +168,8 @@ class M25GapAsymmetricJJ(Junction):
     region_b: str
     m25_params: M25PhysicalParameters
     m25_drive: M25PhotonDrive
+    branch_picker_mode: str = "max_x_L"
+    expected_ordering: tuple[str, ...] | None = None
     # M25's external_flux already aggregates the moment-integrated
     # e-ph dissipation (g_α generation by thermal phonons + r_α x_α²
     # recombination), so the Device solver must run the inner
@@ -208,7 +221,11 @@ class M25GapAsymmetricJJ(Junction):
             coefs = self._ensure_coefficients_cached()
             object.__setattr__(
                 self, "_moment_solution",
-                solve_rate_equation_steady_state_multi_seed(coefs),
+                solve_rate_equation_steady_state_multi_seed(
+                    coefs,
+                    branch_picker_mode=self.branch_picker_mode,
+                    expected_ordering=self.expected_ordering,
+                ),
             )
         assert self._moment_solution is not None  # for mypy
         return self._moment_solution
