@@ -184,6 +184,52 @@ class TestInputValidation:
             )
 
 
+class TestProgressHook:
+    """The driver hook is physics-neutral: reporting only, plus a clean
+    cooperative early stop when it returns False."""
+
+    def test_none_hook_bit_for_bit_unchanged(self) -> None:
+        state_a = _build_state(T_bath=0.4, num_energy=20)
+        state_b = _build_state(T_bath=0.4, num_energy=20)
+        for s in (state_a, state_b):
+            s.f = np.clip(s.f * 5.0, 0.0, 1.0)
+        baseline = run_time_dependent(state_a, dt=0.5, total_time=10.0)
+        hooked = run_time_dependent(
+            state_b, dt=0.5, total_time=10.0,
+            progress_hook=lambda _t, _total: True,
+        )
+        np.testing.assert_array_equal(hooked.snapshots[-1].f, baseline.snapshots[-1].f)
+        assert hooked.n_steps == baseline.n_steps
+        assert hooked.total_time == baseline.total_time
+
+    def test_hook_called_once_per_substep_with_times(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=20)
+        calls: list[tuple[float, float]] = []
+
+        def hook(t: float, total: float) -> bool:
+            calls.append((t, total))
+            return True
+
+        result = run_time_dependent(
+            state, dt=1.0, total_time=5.0, progress_hook=hook,
+        )
+        assert len(calls) == result.n_steps == 5
+        assert all(total == pytest.approx(5.0) for _, total in calls)
+        assert calls[-1][0] == pytest.approx(5.0)
+
+    def test_false_return_stops_early_with_final_snapshot(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=20)
+        result = run_time_dependent(
+            state, dt=1.0, total_time=100.0, snapshot_interval=50.0,
+            progress_hook=lambda t, _total: t < 3.0,
+        )
+        assert result.n_steps == 3
+        assert result.total_time == pytest.approx(3.0)
+        assert not result.converged
+        # The state at the stop time is still captured.
+        assert result.snapshots[-1].t == pytest.approx(3.0)
+
+
 class TestDriveKick:
     """Start at thermal equilibrium, turn on a sub-gap drive, watch f
     climb toward the driven steady state."""

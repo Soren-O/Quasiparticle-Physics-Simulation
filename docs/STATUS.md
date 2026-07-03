@@ -1,6 +1,12 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-07-02 (a1-diffusion-operators merged to main; CI green; code-health review fixes; prior: 2026-06-09 spatial diffusion-operator family A1 + §7.5 benchmarks).
+Last updated: 2026-07-03 (web frontend `qpsim.webui` shipped — see
+`docs/Frontend.md`; optional extra `qpsim[ui]`, CI installs it; the
+only engine change is the physics-neutral `progress_hook` on
+`services.transient.run_time_dependent` and
+`T3Spatial1DBackend.run_until_steady_state`. Prior: 2026-07-02
+a1-diffusion-operators merged to main; CI green; code-health review
+fixes).
 
 Central snapshot of what's done, what's in progress, and what's deferred. The New Framework Plan (`~/Documents/Quasiparticle Simulation/Documentation/Current/New Framework Plan.md`) is the authoritative spec; this is the running status against it.
 

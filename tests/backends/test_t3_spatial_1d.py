@@ -499,3 +499,54 @@ class TestTransportCacheKeying:
                 f"NE={NE}: some energy rows did not diffuse "
                 f"(stale transport-operator cache reused across grids)"
             )
+
+
+class TestRunUntilSteadyStateProgressHook:
+    """The driver hook is physics-neutral: reporting only, plus a clean
+    cooperative early stop when it returns False."""
+
+    @staticmethod
+    def _perturbed_state() -> T3Spatial1DState:
+        state = _build_state(NE=12, NX=7)
+        f = state.f.copy()
+        f[:, 0] = np.clip(f[:, 0] + 0.05, 0.0, 1.0)
+        state.f = f
+        return state
+
+    def test_none_hook_bit_for_bit_unchanged(self) -> None:
+        backend = T3Spatial1DBackend()
+        baseline = backend.run_until_steady_state(
+            self._perturbed_state(), dt=1.0, max_time=6.0, stop_tol=0.0,
+        )
+        hooked = backend.run_until_steady_state(
+            self._perturbed_state(), dt=1.0, max_time=6.0, stop_tol=0.0,
+            progress_hook=lambda _t, _total: True,
+        )
+        np.testing.assert_array_equal(hooked.state.f, baseline.state.f)
+        assert hooked.n_steps == baseline.n_steps
+        assert hooked.total_time == baseline.total_time
+
+    def test_hook_called_once_per_step_with_times(self) -> None:
+        calls: list[tuple[float, float]] = []
+
+        def hook(t: float, total: float) -> bool:
+            calls.append((t, total))
+            return True
+
+        result = T3Spatial1DBackend().run_until_steady_state(
+            self._perturbed_state(), dt=1.0, max_time=5.0, stop_tol=0.0,
+            progress_hook=hook,
+        )
+        assert len(calls) == result.n_steps == 5
+        assert all(total == pytest.approx(5.0) for _, total in calls)
+
+    def test_false_return_stops_early(self) -> None:
+        result = T3Spatial1DBackend().run_until_steady_state(
+            self._perturbed_state(), dt=1.0, max_time=100.0, stop_tol=0.0,
+            snapshot_interval=50.0,
+            progress_hook=lambda t, _total: t < 3.0,
+        )
+        assert result.n_steps == 3
+        assert result.total_time == pytest.approx(3.0)
+        assert not result.converged
+        assert result.snapshots[-1].t == pytest.approx(3.0)

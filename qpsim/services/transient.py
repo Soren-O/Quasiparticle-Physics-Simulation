@@ -67,6 +67,7 @@ def run_time_dependent(
     observables: dict[str, Callable[[T3DiffusionState], float]] | None = None,
     stop_tol: float | None = None,
     backend: T3DiffusionBackend | None = None,
+    progress_hook: Callable[[float, float], bool] | None = None,
 ) -> TransientResult:
     r"""Evolve ``f(E)`` under repeated collision substeps.
 
@@ -114,6 +115,16 @@ def run_time_dependent(
     backend
         T3 backend instance. Defaults to a fresh
         :class:`T3DiffusionBackend`.
+    progress_hook
+        Optional physics-neutral driver hook, called after every
+        substep with ``(t, total_time)``. Return ``True`` to continue;
+        returning ``False`` stops the run cleanly at the current time,
+        exactly as if ``total_time`` had been reached there (the final
+        state is still snapshotted; ``converged`` stays ``False``
+        unless ``stop_tol`` was already met). Intended for progress
+        reporting and cooperative cancellation from interactive
+        callers. ``None`` (the default) leaves the time loop
+        bit-for-bit unchanged.
 
     Returns
     -------
@@ -193,6 +204,9 @@ def run_time_dependent(
         if t >= next_snap - 1e-12:
             snapshots.append(_snapshot(t, current))
             next_snap += snapshot_interval
+
+        if progress_hook is not None and not progress_hook(t, total_time):
+            break
 
     if snapshots[-1].t < t:
         # Final state wasn't captured by the snapshot cadence; append it.

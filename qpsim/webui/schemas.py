@@ -1,0 +1,267 @@
+"""Pydantic setup models — the frontend's serializable simulation configs.
+
+One model per run mode, discriminated on ``mode``:
+
+* ``steady_state_0d`` — 0-D T3 kinetic steady state (Newton / Picard /
+  coupled-Newton) with optional photon drives.
+* ``transient_0d`` — ETD2 collisional transient ``f(E, t)``.
+* ``spatial_1d`` — 1D strip driven to steady state (diffusion-operator
+  family, optional two-gap step + Kupriyanov–Lukichev interface).
+* ``m25_junction`` — M25 gap-asymmetric junction moment layer over a
+  temperature sweep.
+
+These models validate *shape and static bounds* only. Cross-field
+physics checks (drive frequencies vs 2Δ, Dynes × spatial transport,
+grid commensurability) live in :mod:`qpsim.webui.builders` so their
+messages can reference derived quantities like the grid spacing.
+
+Units follow the engine convention: energies in μeV, times in ns,
+temperatures in K, lengths in μm — except the M25 layer, whose inputs
+are in the paper's natural GHz (÷h) and Hz units and are converted to
+Kelvin at the builder boundary.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class StrictModel(BaseModel):
+    """Base: reject unknown keys so stale setup files fail loudly."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MaterialParams(StrictModel):
+    """Superconductor parameters (editable copy of a database material)."""
+
+    name: str = "Al"
+    Delta_0: Annotated[float, Field(gt=0.0)] = 180.0  # gap Δ₀ (μeV)
+    T_c: Annotated[float, Field(gt=0.0)] = 1.18  # critical temperature (K)
+    tau_0: Annotated[float, Field(gt=0.0)] = 438.0  # e-ph characteristic time (ns)
+    tau_0_pb_ns: Annotated[float, Field(gt=0.0)] | None = 0.255  # phonon-side τ₀^PB (ns)
+    D_0: Annotated[float, Field(ge=0.0)] = 60.0  # normal-state diffusion (μm²/ns)
+    rho_F: Annotated[float, Field(ge=0.0)] = 0.0  # single-spin DOS (J⁻¹ m⁻³)
+    dynes_gamma: Annotated[float, Field(ge=0.0)] = 0.0  # Dynes broadening Γ (μeV)
+
+
+class EnergyGrid(StrictModel):
+    """Uniform cell-centered energy grid in units of the gap."""
+
+    min_factor: Annotated[float, Field(ge=1.0)] = 1.0
+    max_factor: Annotated[float, Field(gt=1.0)] = 10.0
+    num_bins: Annotated[int, Field(ge=8, le=5000)] = 400
+
+
+class PhononSector(StrictModel):
+    """Ph0 phonon-sector choice.
+
+    * ``thermal_bath`` — n_ph pinned at the Bose–Einstein bath
+      (Fischer τ_l → 0 limit; Newton steady-state path).
+    * ``dynamic_escape`` — dynamic n_ph with finite acoustic escape
+      time ``tau_l_ns`` (Picard/Anderson or coupled-Newton).
+    * ``dynamic_closed`` — dynamic n_ph with no substrate escape
+      (τ_l → ∞; the engine's ``tau_l = 0.0`` sentinel).
+    """
+
+    mode: Literal["thermal_bath", "dynamic_escape", "dynamic_closed"] = "thermal_bath"
+    tau_l_ns: Annotated[float, Field(gt=0.0)] = 0.170
+    use_phonon_side_kernel: bool = False
+
+
+class SubGapDrive(StrictModel):
+    """Single-mode sub-gap photon drive (requires ω₀ < 2Δ)."""
+
+    enabled: bool = False
+    omega_0: Annotated[float, Field(gt=0.0)] = 22.0  # photon energy (μeV)
+    n_bar: Annotated[float, Field(ge=0.0)] = 0.0  # mean photon number
+    c_phot: Annotated[float, Field(ge=0.0)] = 0.06e-9  # coupling (1/ns)
+
+
+class PairBreakingDrive(StrictModel):
+    """Pair-breaking photon drive (requires ω_PB > 2Δ)."""
+
+    enabled: bool = False
+    omega_PB: Annotated[float, Field(gt=0.0)] = 529.2  # photon energy (μeV)
+    n_bar_PB: Annotated[float, Field(ge=0.0)] = 0.0
+    c_phot_PB: Annotated[float, Field(ge=0.0)] = 1e-9  # coupling (1/ns)
+
+
+class SolverOptions(StrictModel):
+    """0-D steady-state solver knobs.
+
+    ``method="auto"`` picks the canonical route for the phonon sector:
+    the Newton thermal path for ``thermal_bath``, Anderson-accelerated
+    Picard for the dynamic sectors.
+    """
+
+    method: Literal["auto", "picard", "coupled_newton"] = "auto"
+    self_consistent_gap: bool = False
+    picard_tol: Annotated[float, Field(gt=0.0)] = 1e-8
+    picard_max_iter: Annotated[int, Field(ge=1, le=100000)] = 500
+    picard_mixing: Annotated[float, Field(gt=0.0, le=1.0)] = 0.2
+    anderson_depth: Annotated[int, Field(ge=0, le=50)] = 3
+    newton_tol: Annotated[float, Field(gt=0.0)] = 1e-12
+    newton_max_iter: Annotated[int, Field(ge=1, le=100000)] = 300
+
+
+class ProbeConfig(StrictModel):
+    """Mattis–Bardeen probe for σ₁/σ₂, Q_i, and frequency shift.
+
+    Requires ω₀ < Δ (sub-gap probe) and a pure-BCS spectral context
+    (the observables raise for Dynes Γ > 0; the frontend skips them
+    with a note instead).
+    """
+
+    enabled: bool = True
+    omega_0: Annotated[float, Field(gt=0.0)] = 22.0  # probe photon energy (μeV)
+    alpha: Annotated[float, Field(gt=0.0, le=1.0)] = 0.08  # kinetic-inductance fraction
+    Q_ext: Annotated[float, Field(gt=0.0)] | None = None  # extrinsic-loss cap
+
+
+class SteadyState0DSetup(StrictModel):
+    """0-D T3 kinetic steady state."""
+
+    mode: Literal["steady_state_0d"] = "steady_state_0d"
+    material: MaterialParams = MaterialParams()
+    T_bath: Annotated[float, Field(gt=0.0)] = 0.1  # bath temperature (K)
+    grid: EnergyGrid = EnergyGrid()
+    phonons: PhononSector = PhononSector()
+    subgap_drive: SubGapDrive = SubGapDrive()
+    pb_drive: PairBreakingDrive = PairBreakingDrive()
+    solver: SolverOptions = SolverOptions()
+    probe: ProbeConfig = ProbeConfig()
+
+
+class Transient0DSetup(StrictModel):
+    """0-D ETD2 collisional transient (frozen n_ph, frozen Δ).
+
+    The phonon sector sets the *initial* (frozen) n_ph: thermal at
+    ``T_bath``. Drives are constant across the transient.
+    """
+
+    mode: Literal["transient_0d"] = "transient_0d"
+    material: MaterialParams = MaterialParams()
+    T_bath: Annotated[float, Field(gt=0.0)] = 0.1
+    grid: EnergyGrid = EnergyGrid()
+    subgap_drive: SubGapDrive = SubGapDrive()
+    pb_drive: PairBreakingDrive = PairBreakingDrive()
+    dt: Annotated[float, Field(gt=0.0)] = 0.1  # ETD2 substep (ns)
+    total_time: Annotated[float, Field(gt=0.0)] = 120.0  # (ns)
+    snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None  # default total/50
+    stop_tol: Annotated[float, Field(ge=0.0)] | None = None  # early stop on max|df|/dt
+    probe: ProbeConfig = ProbeConfig()
+
+
+class GapStepProfile(StrictModel):
+    """Optional two-gap step along the strip.
+
+    ``uniform`` uses the material gap everywhere. ``step`` sets the
+    left fraction of the strip to ``gap_left`` and the rest to
+    ``gap_right``; a finite ``interface_G_N`` turns the step face into
+    a Kupriyanov–Lukichev interface.
+    """
+
+    kind: Literal["uniform", "step"] = "uniform"
+    gap_left: Annotated[float, Field(gt=0.0)] = 180.0  # (μeV)
+    gap_right: Annotated[float, Field(gt=0.0)] = 200.0  # (μeV)
+    step_position_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.5
+    interface_G_N: Annotated[float, Field(gt=0.0)] | None = None
+
+
+class InjectionConfig(StrictModel):
+    """Continuous QP injection for the 1D strip (Gaussian in energy)."""
+
+    enabled: bool = True
+    center_over_delta: Annotated[float, Field(gt=1.0)] = 2.0  # line center (×Δ)
+    sigma_over_delta: Annotated[float, Field(gt=0.0)] = 0.1  # line width (×Δ)
+    rate_per_ns: Annotated[float, Field(gt=0.0)] = 2e-5  # peak gain (1/ns)
+    where: Literal["left_end", "uniform"] = "left_end"
+
+
+class Spatial1DSetup(StrictModel):
+    """1D strip driven to steady state (T3 spatial backend).
+
+    Spatial transport requires a pure-BCS spectral context — the
+    builder rejects ``dynes_gamma > 0`` here (the engine does too).
+    """
+
+    mode: Literal["spatial_1d"] = "spatial_1d"
+    material: MaterialParams = MaterialParams()
+    T_bath: Annotated[float, Field(gt=0.0)] = 0.1
+    grid: EnergyGrid = EnergyGrid(min_factor=1.02, max_factor=4.0, num_bins=64)
+    length_um: Annotated[float, Field(gt=0.0)] = 100.0
+    num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
+    diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
+    gap_profile: GapStepProfile = GapStepProfile()
+    injection: InjectionConfig = InjectionConfig()
+    dt: Annotated[float, Field(gt=0.0)] = 5.0  # split step (ns)
+    max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
+    stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
+    snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
+    probe: ProbeConfig = ProbeConfig()
+
+
+class M25DriveConfig(StrictModel):
+    """M25 photon drive, calibrated to a target Γ^ph_00 (paper Fig. 3)."""
+
+    omega_nu_GHz: Annotated[float, Field(gt=0.0)] = 119.0  # drive frequency ω_ν/2π (GHz)
+    Gamma_ph_00_Hz: Annotated[float, Field(gt=0.0)] = 300.0  # calibration target (Hz)
+    nu_0_per_J_per_m3: Annotated[float, Field(gt=0.0)] = 0.73e47  # DOS at E_F
+    volume_m3: Annotated[float, Field(gt=0.0)] = 506e-6 * 240e-6 * 0.028e-6
+
+
+class M25JunctionSetup(StrictModel):
+    """M25 gap-asymmetric junction moment layer over a T sweep.
+
+    Inputs in the paper's natural units (GHz ÷ h for energies, Hz for
+    rates); the builder converts to the Kelvin/Hz convention of
+    :mod:`qpsim.services.rate_equation_coefficients`. Defaults follow
+    the Fig. 3 reproduction in ``validation/marchegiani_2025``.
+    """
+
+    mode: Literal["m25_junction"] = "m25_junction"
+    Delta_R_over_h_GHz: Annotated[float, Field(gt=0.0)] = 49.0
+    omega_LR_over_h_GHz: Annotated[float, Field(gt=0.0)] = 5.0  # gap asymmetry Δ_L − Δ_R
+    omega_10_over_h_GHz: Annotated[float, Field(gt=0.0)] = 5.5
+    E_J_over_h_GHz: Annotated[float, Field(gt=0.0)] = 14.5
+    E_C_over_h_GHz: Annotated[float, Field(gt=0.0)] = 0.290
+    r_L_Hz: Annotated[float, Field(gt=0.0)] = 6.25e6
+    r_Rlt_Hz: Annotated[float, Field(gt=0.0)] = 6.25e6
+    Gamma_ee_10_Hz: Annotated[float, Field(ge=0.0)] = 100e3
+    drive: M25DriveConfig = M25DriveConfig()
+    T_start_mK: Annotated[float, Field(gt=0.0)] = 10.0
+    T_stop_mK: Annotated[float, Field(gt=0.0)] = 150.0
+    T_points: Annotated[int, Field(ge=1, le=500)] = 29
+    branch_picker_mode: Literal["max_x_L", "min_residual", "lock_to_preferred"] = (
+        "lock_to_preferred"
+    )
+
+
+AnySetup = SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | M25JunctionSetup
+
+
+class SetupEnvelope(StrictModel):
+    """A named, persistable setup."""
+
+    name: str = "Untitled setup"
+    setup: AnySetup = Field(discriminator="mode")
+
+
+MODE_LABELS: dict[str, str] = {
+    "steady_state_0d": "0-D steady state",
+    "transient_0d": "0-D transient",
+    "spatial_1d": "1D strip",
+    "m25_junction": "M25 junction",
+}
+
+MODE_CLASSES: dict[
+    str, type[SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | M25JunctionSetup]
+] = {
+    "steady_state_0d": SteadyState0DSetup,
+    "transient_0d": Transient0DSetup,
+    "spatial_1d": Spatial1DSetup,
+    "m25_junction": M25JunctionSetup,
+}

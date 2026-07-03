@@ -453,8 +453,18 @@ class T3Spatial1DBackend:
         stop_tol: float = 1e-10,
         snapshot_interval: float | None = None,
         observables: dict[str, Callable[[T3Spatial1DState], float]] | None = None,
+        progress_hook: Callable[[float, float], bool] | None = None,
     ) -> SpatialTransientResult:
-        """Run fixed-step dynamics until ``max|df/dt| < stop_tol`` or timeout."""
+        """Run fixed-step dynamics until ``max|df/dt| < stop_tol`` or timeout.
+
+        ``progress_hook``, when given, is called after every step with
+        ``(t, max_time)``; returning ``False`` stops the run cleanly at
+        the current time exactly as if ``max_time`` had been reached
+        there (final state still recorded; ``converged`` unaffected).
+        Physics-neutral — ``None`` leaves the loop bit-for-bit
+        unchanged. Intended for progress reporting and cooperative
+        cancellation from interactive callers.
+        """
         if dt <= 0.0:
             raise ValueError("dt must be positive.")
         if max_time <= 0.0:
@@ -507,6 +517,9 @@ class T3Spatial1DBackend:
             if t >= next_snapshot - 1e-12:
                 record(max_rate)
                 next_snapshot += snapshot_interval
+
+            if progress_hook is not None and not progress_hook(t, max_time):
+                break
 
         if snapshots[-1].t < t:
             record(0.0 if n_steps == 0 else last_max_rate)

@@ -40,10 +40,25 @@ pip install -e ".[dev]"
 
 Python 3.13+.
 
+## Frontend
+
+A local web UI drives the shipped surfaces (0-D steady state and
+transients, the 1D spatial strip, the M25 junction sweep) with a
+materials browser, background runs with progress/cancel, and
+server-rendered plots + CSV export:
+
+```bash
+pip install -e ".[ui]"
+qpsim-ui
+```
+
+See `docs/Frontend.md` for the design and API.
+
 ## Layout
 
 - `qpsim/` — the library (physics, collisions, solvers, services,
-  devices, observables, materials, grids, backends, phonon models)
+  devices, observables, materials, grids, backends, phonon models;
+  `qpsim/webui/` is the optional web frontend)
 - `docs/` — physics and numerics references; phonon-sector decisions
 - `validation/` — analytic checks, tier reductions, paper-reproduction
   audit (Fischer 2023/2024, Marchegiani 2025), pinned CSV/PDF baselines

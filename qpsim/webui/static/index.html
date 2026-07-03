@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qpsim</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;text y='13' font-size='13'&gt;&#x26A1;&lt;/text&gt;&lt;/svg&gt;">
+</head>
+<body>
+  <header>
+    <h1>qpsim <span class="subtitle">nonequilibrium superconductor kinetics</span></h1>
+    <nav>
+      <button data-view="new-run" class="active">New run</button>
+      <button data-view="runs">Runs</button>
+      <button data-view="setups">Setups</button>
+      <button data-view="materials">Materials</button>
+    </nav>
+    <div id="meta" class="meta"></div>
+  </header>
+
+  <main>
+    <section id="view-new-run" class="view">
+      <div class="mode-row" id="mode-row"></div>
+      <div class="name-row">
+        <label>Run name <input id="run-name" type="text" value="Untitled run" size="40"></label>
+      </div>
+      <form id="setup-form" onsubmit="return false"></form>
+      <div class="action-row">
+        <button id="btn-validate">Validate</button>
+        <button id="btn-save-setup">Save setup</button>
+        <button id="btn-run" class="primary">Run</button>
+      </div>
+      <div id="feedback"></div>
+    </section>
+
+    <section id="view-runs" class="view hidden">
+      <div id="runs-list"></div>
+      <div id="run-detail"></div>
+    </section>
+
+    <section id="view-setups" class="view hidden">
+      <div id="setups-list"></div>
+    </section>
+
+    <section id="view-materials" class="view hidden">
+      <div id="materials-list"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

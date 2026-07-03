@@ -32,7 +32,16 @@ dev = [
     "ruff",
     "mypy",
     "matplotlib>=3.9",
+    "httpx",  # fastapi.testclient transport (webui tests)
 ]
+ui = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "matplotlib>=3.9",
+]
+
+[project.scripts]
+qpsim-ui = "qpsim.webui.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["qpsim"]
@@ -82,5 +91,5 @@ files = ["qpsim"]
 disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
-module = ["scipy.*", "yaml", "matplotlib.*"]
+module = ["scipy.*", "yaml", "matplotlib.*", "uvicorn"]
 ignore_missing_imports = true
