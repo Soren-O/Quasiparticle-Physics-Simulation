@@ -18,7 +18,10 @@ import numpy as np
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.physics.spectral import SpectralContext
 
-_COMMENSURATE_TOL = 0.01
+# Public so frontends can pre-check commensurability against the same
+# threshold the kernel warns (and snaps) at.
+COMMENSURATE_TOL = 0.01
+_COMMENSURATE_TOL = COMMENSURATE_TOL
 
 
 def sub_gap_photon_collision_rates(

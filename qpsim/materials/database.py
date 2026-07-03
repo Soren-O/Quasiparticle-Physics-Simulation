@@ -79,6 +79,16 @@ class Material:
     substrate_transmission_eta: float = 0.0
 
     def __post_init__(self) -> None:
+        # YAML 1.1 resolves unsigned-exponent scientific notation
+        # ("1.74e28") as a *string*, not a float — the shipped Al/Nb/TiN
+        # files write v_F and rho_F that way. Coerce every numeric field
+        # so loaded materials are usable in arithmetic regardless of
+        # notation.
+        for field_name in _MATERIAL_FLOAT_FIELDS:
+            value = getattr(self, field_name)
+            if value is not None:
+                setattr(self, field_name, float(value))
+
         if self.tau_s is None:
             self.tau_s = self.tau_0
         if self.tau_r is None:
@@ -94,6 +104,25 @@ class Material:
             inv_sT3 = 1.0 / self.sound_velocity_transverse ** 3
             inv_sD3 = (inv_sL3 + 2.0 * inv_sT3) / 3.0
             self.sound_velocity_debye = inv_sD3 ** (-1.0 / 3.0)
+
+
+_MATERIAL_FLOAT_FIELDS = (
+    "Delta_0",
+    "T_c",
+    "tau_0",
+    "tau_s",
+    "tau_r",
+    "tau_0_phonon",
+    "tau_0_pb_ns",
+    "D_0",
+    "v_F",
+    "rho_F",
+    "sound_velocity_longitudinal",
+    "sound_velocity_transverse",
+    "sound_velocity_debye",
+    "film_thickness",
+    "substrate_transmission_eta",
+)
 
 
 def _default_database_dir() -> Path:

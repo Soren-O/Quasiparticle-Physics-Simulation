@@ -21,9 +21,11 @@ import numpy as np
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
 from qpsim.collisions.phonon import build_phonon_frequency_map
-from qpsim.constants import KB_UEV_PER_K
+from qpsim.collisions.sub_gap_photon import COMMENSURATE_TOL
+from qpsim.constants import H_OVER_KB_K_PER_HZ
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
+from qpsim.observables import fermi_dirac_distribution
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
@@ -33,17 +35,11 @@ from qpsim.webui.schemas import (
     AnySetup,
     M25JunctionSetup,
     MaterialParams,
+    ProbeConfig,
     Spatial1DSetup,
     SteadyState0DSetup,
     Transient0DSetup,
 )
-
-# Kelvin per Hz (h/k_B) — the M25 layer's GHz→Kelvin conversion.
-H_OVER_KB_K_PER_HZ = 4.799243e-11
-
-# Photon partners land on bins i ± round(ω/dE); beyond this fractional
-# mismatch the engine warns and snaps (see qpsim.collisions.sub_gap_photon).
-COMMENSURATE_TOL = 0.01
 
 
 @dataclass
@@ -71,10 +67,28 @@ def material_from_params(mp: MaterialParams) -> Material:
     )
 
 
-def fermi_dirac(E: np.ndarray, T_bath: float) -> np.ndarray:
-    """Thermal seed occupation (clipped exponent, house convention)."""
-    kT = KB_UEV_PER_K * T_bath
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+def mb_probe_invalid_reason(
+    probe: ProbeConfig, dynes_gamma: float, gap: float
+) -> str | None:
+    """Why Mattis–Bardeen probe observables can't run, or ``None`` if valid.
+
+    One author for the guard that the engine enforces in
+    ``observables.ac_conductivity`` — used by setup validation and by
+    both executors that skip the probe with a note.
+    """
+    if not probe.enabled:
+        return "probe disabled"
+    if probe.omega_0 >= gap:
+        return (
+            f"Mattis–Bardeen observables need a sub-gap probe: "
+            f"ω₀ = {probe.omega_0:g} μeV is not below Δ = {gap:g} μeV."
+        )
+    if dynes_gamma > 0.0:
+        return (
+            "Mattis–Bardeen σ₁/σ₂ (and Q_i, δω/ω) require a pure-BCS "
+            "spectral context — skipped because Dynes Γ > 0."
+        )
+    return None
 
 
 def _grid_spacing(setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup) -> float:
@@ -126,17 +140,14 @@ def _validate_drives_and_probe(
             )
         _check_photon_commensurate(report, "Pair-breaking drive", pb.omega_PB, dE)
 
-    if setup.probe.enabled:
-        if setup.probe.omega_0 >= gap:
-            report.errors.append(
-                f"Probe: Mattis–Bardeen observables need a sub-gap probe, "
-                f"ω₀ = {setup.probe.omega_0:g} μeV ≥ Δ = {gap:g} μeV."
-            )
-        if setup.material.dynes_gamma > 0.0:
-            report.warnings.append(
-                "Probe: Mattis–Bardeen σ₁/σ₂ (and Q_i, δω/ω) require a pure-BCS "
-                "spectral context — they will be skipped because Dynes Γ > 0."
-            )
+    probe = getattr(setup, "probe", None)
+    if probe is not None and probe.enabled:
+        reason = mb_probe_invalid_reason(probe, setup.material.dynes_gamma, gap)
+        if reason is not None:
+            if probe.omega_0 >= gap:
+                report.errors.append(f"Probe: {reason}")
+            else:
+                report.warnings.append(f"Probe: {reason}")
 
     if setup.T_bath >= setup.material.T_c:
         report.errors.append(
@@ -269,7 +280,7 @@ def build_state_0d(
         branches=[PhononBranchSpec(name="debye_average")],
     )
     return T3DiffusionState(
-        f=fermi_dirac(spectral.E, setup.T_bath),
+        f=fermi_dirac_distribution(spectral.E, setup.T_bath),
         gap=setup.material.Delta_0,
         spectral=spectral,
         phonon=phonon,
@@ -327,7 +338,7 @@ def build_state_1d(setup: Spatial1DSetup) -> T3Spatial1DState:
     """Thermal-seed 1D strip state with optional two-gap step profile."""
     spectral = build_spectral(setup)
     x = np.linspace(0.0, setup.length_um, setup.num_cells)
-    f_col = fermi_dirac(spectral.E, setup.T_bath)
+    f_col = fermi_dirac_distribution(spectral.E, setup.T_bath)
     f = np.tile(f_col[:, None], (1, setup.num_cells))
 
     gap_profile: np.ndarray | None = None

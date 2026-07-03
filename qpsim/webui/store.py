@@ -35,15 +35,27 @@ def slugify(name: str) -> str:
     return slug or "setup"
 
 
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    # Atomic replace: run manifests are re-written by the worker thread
-    # while request handlers read them; a plain write_text would let a
-    # reader see a half-written file. On Windows the replace itself
-    # fails with a sharing violation while a reader briefly holds the
-    # target open (CPython opens without FILE_SHARE_DELETE), so retry.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+def json_sanitize(value: Any) -> Any:
+    """Recursively replace non-finite floats with ``None``.
+
+    Strict JSON has no Infinity/NaN tokens: an ``inf`` observable (e.g.
+    Q_i when σ₁ ≤ 0) written verbatim would make every later strict
+    serialization of the manifest — FastAPI's JSONResponse included —
+    raise, taking the whole runs listing down with it.
+    """
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: json_sanitize(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [json_sanitize(v) for v in value]
+    return value
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    # On Windows the replace fails with a sharing violation while a
+    # reader briefly holds the target open (CPython opens without
+    # FILE_SHARE_DELETE), so retry before letting it raise.
     for _ in range(40):
         try:
             tmp.replace(path)
@@ -53,8 +65,31 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    # Atomic replace: run manifests are re-written by the worker thread
+    # while request handlers read them; a plain write_text would let a
+    # reader see a half-written file.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(json_sanitize(data), indent=2), encoding="utf-8")
+    _replace_with_retry(tmp, path)
+
+
+def _read_text_with_retry(path: Path) -> str:
+    # Read-side mirror of _replace_with_retry: on Windows a reader can
+    # get ACCESS_DENIED for the instant a writer's replace holds the
+    # target. FileNotFoundError passes straight through — only the
+    # transient sharing violation is retried.
+    for _ in range(40):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError:
+            time.sleep(0.025)
+    return path.read_text(encoding="utf-8")
+
+
 def _read_json(path: Path) -> dict[str, Any]:
-    loaded = json.loads(path.read_text(encoding="utf-8"))
+    loaded = json.loads(_read_text_with_retry(path))
     if not isinstance(loaded, dict):
         raise ValueError(f"{path} does not contain a JSON object.")
     return loaded
@@ -136,16 +171,32 @@ class Workspace:
     def write_arrays(self, run_id: str, arrays: dict[str, np.ndarray]) -> None:
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
+        # Same atomic discipline as the manifests: a killed writer must
+        # not leave a truncated result.npz at the final path. The tmp
+        # name must end in .npz or savez appends another extension.
+        tmp = directory / "result.tmp.npz"
         # numpy's stub types the **kwds of savez_compressed as the
         # allow_pickle flag; the call itself is the documented form.
-        np.savez_compressed(directory / "result.npz", **arrays)  # type: ignore[arg-type]
+        np.savez_compressed(tmp, **arrays)  # type: ignore[arg-type]
+        _replace_with_retry(tmp, directory / "result.npz")
 
     def read_arrays(self, run_id: str) -> dict[str, np.ndarray]:
         with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
             return {name: np.asarray(data[name]) for name in data.files}
 
+    def array_names(self, run_id: str) -> set[str]:
+        """Array names from the NPZ zip directory — no decompression."""
+        with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
+            return set(data.files)
+
     def list_runs(self) -> list[dict[str, Any]]:
-        """Run manifests, newest first (run ids sort chronologically)."""
+        """Run manifests, newest first (run ids sort chronologically).
+
+        A run whose manifest fails to parse stays visible as an
+        ``unreadable`` placeholder — dropping it would strand an
+        undeletable directory (its NPZ included) that the UI can
+        never show or clean up.
+        """
         manifests = []
         if self.runs_dir.is_dir():
             for directory in sorted(self.runs_dir.iterdir(), reverse=True):
@@ -154,8 +205,20 @@ class Workspace:
                     continue
                 try:
                     manifests.append(_read_json(manifest_path))
-                except (OSError, ValueError, json.JSONDecodeError):
-                    continue
+                except (OSError, ValueError):
+                    manifests.append(
+                        {
+                            "id": directory.name,
+                            "name": directory.name,
+                            "mode": "?",
+                            "status": "unreadable",
+                            "created": "",
+                            "summary": {},
+                            "notes": ["manifest.json is unreadable — delete and re-run."],
+                            "error": None,
+                            "elapsed_s": None,
+                        }
+                    )
         return manifests
 
     def delete_run(self, run_id: str) -> None:

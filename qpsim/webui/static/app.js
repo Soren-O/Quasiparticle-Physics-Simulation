@@ -28,6 +28,7 @@ const postJSON = (path, data) => api(path, {
   body: JSON.stringify(data),
 });
 function fmt(v) {
+  if (v == null) return "—";  // sanitized non-finite values arrive as null
   if (typeof v === "number") {
     if (v === 0) return "0";
     const a = Math.abs(v);
@@ -180,7 +181,6 @@ const FORMS = {
         F("snapshot_interval", "Snapshot interval (ns)", "number", { nullable: true }),
       ],
     },
-    PROBE_FIELDS,
   ],
   m25_junction: [
     {
@@ -228,6 +228,8 @@ const state = {
   modeLabels: {},
   pollTimer: null,
   detailRunId: null,
+  lastRunsKey: null,    // change-detection: skip DOM rebuilds on identical polls
+  lastDetailKey: null,
 };
 
 /* ---------- new-run view ---------- */
@@ -318,8 +320,17 @@ function renderField(field) {
       const raw = input.value.trim();
       if (raw === "" && field.nullable) { setByPath(state.setup, field.path, null); return; }
       const num = field.type === "int" ? parseInt(raw, 10) : parseFloat(raw);
-      if (Number.isFinite(num)) setByPath(state.setup, field.path, num);
-      else if (field.path.endsWith(".name")) setByPath(state.setup, field.path, raw);
+      if (Number.isFinite(num)) {
+        setByPath(state.setup, field.path, num);
+      } else if (field.path.endsWith(".name")) {
+        setByPath(state.setup, field.path, raw);
+      } else {
+        // Unparseable (or emptied non-nullable) input: resync the box
+        // to the model so the screen never shows a value that won't
+        // be submitted.
+        const current = getByPath(state.setup, field.path);
+        input.value = current == null ? "" : String(current);
+      }
     });
   }
   input.dataset.path = field.path;
@@ -365,6 +376,14 @@ async function doRun() {
 
 async function refreshRuns() {
   const { body: runs } = await api("/api/runs");
+  const runsKey = JSON.stringify(runs);
+  if (runsKey === state.lastRunsKey) {
+    // Nothing changed — leave the DOM (and its listeners) alone; the
+    // detail pane below has its own change check.
+    if (state.detailRunId) showRunDetail();
+    return;
+  }
+  state.lastRunsKey = runsKey;
   const rows = runs.map((r) => {
     const progress = r.status === "running"
       ? `<div class="progress"><div style="width:${Math.round((r.progress || 0) * 100)}%"></div></div>
@@ -408,7 +427,12 @@ async function showRunDetail() {
   const id = state.detailRunId;
   if (!id) return;
   const { ok, body: r } = await api(`/api/runs/${id}`);
-  if (!ok) { $("#run-detail").innerHTML = ""; return; }
+  if (!ok) { $("#run-detail").innerHTML = ""; state.lastDetailKey = null; return; }
+  const detailKey = JSON.stringify(r);
+  if (detailKey === state.lastDetailKey) return;  // unchanged — keep DOM (and imgs) intact
+  state.lastDetailKey = detailKey;
+  // Preserve the "Setup used" expansion across progress-driven rebuilds.
+  const setupWasOpen = !!document.querySelector("#run-detail details")?.open;
   let html = `<h2>${esc(r.name)} <span class="status ${esc(r.status)}">${esc(r.status)}</span></h2>
     <div class="hint">${esc(state.modeLabels[r.mode] || r.mode)} · ${esc(r.created || "")}
     ${r.elapsed_s != null ? " · " + fmt(r.elapsed_s) + " s" : ""}</div>`;
@@ -428,6 +452,10 @@ async function showRunDetail() {
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
+  if (setupWasOpen) {
+    const details = document.querySelector("#run-detail details");
+    if (details) details.open = true;
+  }
 }
 
 /* ---------- setups view ---------- */

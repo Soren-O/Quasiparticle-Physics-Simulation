@@ -30,3 +30,11 @@ class Substrate:
     name: str
     density: float | None = None
     sound_velocity: float | None = None
+
+    def __post_init__(self) -> None:
+        # YAML 1.1 loads unsigned-exponent notation ("2.3e3") as a
+        # string; coerce so user-supplied substrate YAMLs behave.
+        if self.density is not None:
+            self.density = float(self.density)
+        if self.sound_velocity is not None:
+            self.sound_velocity = float(self.sound_velocity)

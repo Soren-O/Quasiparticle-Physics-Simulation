@@ -27,6 +27,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from qpsim.materials import load_material
+
+# Default material values come straight from the YAML database so the
+# frontend never carries a second, drifting copy of Al's parameters.
+_AL = load_material("Al")
+
 
 class StrictModel(BaseModel):
     """Base: reject unknown keys so stale setup files fail loudly."""
@@ -37,13 +43,13 @@ class StrictModel(BaseModel):
 class MaterialParams(StrictModel):
     """Superconductor parameters (editable copy of a database material)."""
 
-    name: str = "Al"
-    Delta_0: Annotated[float, Field(gt=0.0)] = 180.0  # gap Δ₀ (μeV)
-    T_c: Annotated[float, Field(gt=0.0)] = 1.18  # critical temperature (K)
-    tau_0: Annotated[float, Field(gt=0.0)] = 438.0  # e-ph characteristic time (ns)
-    tau_0_pb_ns: Annotated[float, Field(gt=0.0)] | None = 0.255  # phonon-side τ₀^PB (ns)
-    D_0: Annotated[float, Field(ge=0.0)] = 60.0  # normal-state diffusion (μm²/ns)
-    rho_F: Annotated[float, Field(ge=0.0)] = 0.0  # single-spin DOS (J⁻¹ m⁻³)
+    name: str = _AL.name
+    Delta_0: Annotated[float, Field(gt=0.0)] = _AL.Delta_0  # gap Δ₀ (μeV)
+    T_c: Annotated[float, Field(gt=0.0)] = _AL.T_c  # critical temperature (K)
+    tau_0: Annotated[float, Field(gt=0.0)] = _AL.tau_0  # e-ph characteristic time (ns)
+    tau_0_pb_ns: Annotated[float, Field(gt=0.0)] | None = _AL.tau_0_pb_ns  # τ₀^PB (ns)
+    D_0: Annotated[float, Field(ge=0.0)] = _AL.D_0  # normal-state diffusion (μm²/ns)
+    rho_F: Annotated[float, Field(ge=0.0)] = _AL.rho_F  # single-spin DOS (J⁻¹ m⁻³)
     dynes_gamma: Annotated[float, Field(ge=0.0)] = 0.0  # Dynes broadening Γ (μeV)
 
 
@@ -201,7 +207,10 @@ class Spatial1DSetup(StrictModel):
     max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
-    probe: ProbeConfig = ProbeConfig()
+    # No probe here: strip-resonator response needs a current-weighted
+    # treatment (observables.spatial_ac_response) this mode doesn't
+    # drive yet — carrying a probe config would validate and render a
+    # field with no effect.
 
 
 class M25DriveConfig(StrictModel):

@@ -8,7 +8,11 @@ start automatically as the worker frees up.
 Live state (progress fraction, message) is in-memory only; the
 persistent record is the run's manifest, written when the run is
 submitted and rewritten when it finishes. The server overlays the
-live state onto manifests when listing runs.
+live state onto manifests when listing runs. The overlay is also the
+recovery path for two failure shapes the disk alone can't express: a
+terminal manifest write that lost the race to a reader (retried
+lazily from the stashed copy), and a "running" manifest orphaned by a
+crash or restart (reported as ``interrupted`` so it can be deleted).
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ from qpsim.webui.execute import RunCancelledError, execute_setup
 from qpsim.webui.schemas import SetupEnvelope
 from qpsim.webui.store import Workspace
 
+_ACTIVE = ("queued", "running")
+
 
 @dataclass
 class JobState:
@@ -35,7 +41,8 @@ class JobState:
     message: str = ""
     cancel_event: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float | None = None
-    elapsed_s: float | None = None
+    # Terminal manifest whose disk write failed; overlay retries it.
+    pending_manifest: dict[str, Any] | None = None
 
 
 class JobRunner:
@@ -49,7 +56,8 @@ class JobRunner:
         self._jobs: dict[str, JobState] = {}
         self._lock = threading.Lock()
 
-    def submit(self, envelope: SetupEnvelope) -> str:
+    def submit(self, envelope: SetupEnvelope, *, warnings: list[str] | None = None) -> str:
+        """Queue a run; validation warnings persist as the run's first notes."""
         run_id = self.workspace.new_run_id()
         manifest: dict[str, Any] = {
             "id": run_id,
@@ -59,7 +67,7 @@ class JobRunner:
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "setup": envelope.setup.model_dump(),
             "summary": {},
-            "notes": [],
+            "notes": list(warnings or []),
             "error": None,
             "elapsed_s": None,
         }
@@ -80,7 +88,7 @@ class JobRunner:
             job.message = message
 
         try:
-            self.workspace.write_manifest(job.run_id, manifest)
+            self._write_manifest_or_stash(job, manifest)
             payload = execute_setup(
                 envelope.setup, progress, job.cancel_event.is_set
             )
@@ -98,11 +106,25 @@ class JobRunner:
             job.progress = 1.0
             manifest["status"] = "done"
             manifest["summary"] = payload.summary
-            manifest["notes"] = payload.notes
+            manifest["notes"] = list(manifest.get("notes", [])) + payload.notes
         finally:
-            job.elapsed_s = round(time.monotonic() - (job.started_monotonic or 0.0), 3)
-            manifest["elapsed_s"] = job.elapsed_s
+            manifest["elapsed_s"] = round(
+                time.monotonic() - (job.started_monotonic or 0.0), 3
+            )
+            self._write_manifest_or_stash(job, manifest)
+
+    def _write_manifest_or_stash(self, job: JobState, manifest: dict[str, Any]) -> None:
+        """Persist the manifest; on failure stash it so overlay can retry.
+
+        A raise here must never escape: in the worker's ``finally`` it
+        would vanish into the discarded Future and strand the run's
+        disk record at "running" with no recovery path.
+        """
+        try:
             self.workspace.write_manifest(job.run_id, manifest)
+            job.pending_manifest = None
+        except OSError:
+            job.pending_manifest = dict(manifest)
 
     def live_state(self, run_id: str) -> JobState | None:
         with self._lock:
@@ -111,19 +133,43 @@ class JobRunner:
     def cancel(self, run_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(run_id)
-        if job is None or job.status not in ("queued", "running"):
+        if job is None or job.status not in _ACTIVE:
             return False
         job.cancel_event.set()
         return True
 
     def overlay(self, manifest: dict[str, Any]) -> dict[str, Any]:
-        """Merge live progress into a disk manifest for API responses."""
+        """Merge live state into a disk manifest for API responses.
+
+        Three cases: a live active job contributes progress; a live
+        terminal job whose final write failed gets that write retried
+        (serving the stashed copy meanwhile); a manifest stuck on an
+        active status with no live job — crash or restart — reports as
+        ``interrupted`` so it is inspectable and deletable.
+        """
         job = self.live_state(str(manifest.get("id", "")))
-        if job is not None and job.status in ("queued", "running"):
+        if job is None:
+            if manifest.get("status") in _ACTIVE:
+                manifest = dict(manifest)
+                manifest["status"] = "interrupted"
+                manifest["error"] = (
+                    "The server stopped (or the worker died) while this run "
+                    "was active; its result was not recorded."
+                )
+            return manifest
+        stashed = job.pending_manifest
+        if stashed is not None:
+            self._write_manifest_or_stash(job, stashed)
+            manifest = dict(stashed)
+        if job.status in _ACTIVE:
             manifest = dict(manifest)
             manifest["status"] = job.status
             manifest["progress"] = job.progress
             manifest["progress_message"] = job.message
+        # A live terminal job with a still-active disk manifest means
+        # the final write is in flight (or stashed and just retried);
+        # serve the disk state as-is — never promote the status without
+        # its summary/notes.
         return manifest
 
     def shutdown(self) -> None:

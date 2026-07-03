@@ -6,10 +6,12 @@ and returns a :class:`RunPayload` of NumPy arrays (persisted as NPZ),
 a JSON-serializable summary, and human-readable notes (captured
 engine warnings, skipped observables, non-converged sweep points).
 
-Cancellation raises :class:`RunCancelledError`; the job runner records the
-run as cancelled. Long loops (transient substeps, spatial stepping,
+Cancellation raises :class:`RunCancelledError`; the job runner records
+the run as cancelled. Long loops (transient substeps, spatial stepping,
 M25 temperature sweeps) check the flag via the services'
-``progress_hook`` or between sweep points.
+``progress_hook`` or between sweep points. Secondary diagnostics never
+sink a run: a solve that converged is persisted even when a
+post-solve observable fails (the failure becomes a note).
 """
 
 from __future__ import annotations
@@ -23,12 +25,14 @@ import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionBackend
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
+from qpsim.constants import H_OVER_KB_K_PER_HZ
 from qpsim.observables import (
     compute_ac_conductivity,
     compute_frequency_shift,
     compute_gap_suppression,
     compute_quality_factor,
     effective_phonon_temperature,
+    fermi_dirac_distribution,
     qp_fraction,
     qp_number_density,
 )
@@ -39,13 +43,12 @@ from qpsim.services.rate_equation_coefficients import (
 )
 from qpsim.services.transient import run_time_dependent
 from qpsim.webui.builders import (
-    H_OVER_KB_K_PER_HZ,
     build_injection_flux,
     build_m25_inputs,
     build_state_0d,
     build_state_1d,
     drive_dicts,
-    fermi_dirac,
+    mb_probe_invalid_reason,
     steady_state_solver_kwargs,
 )
 from qpsim.webui.schemas import (
@@ -79,6 +82,28 @@ def _check_cancel(is_cancelled: CancelledFn) -> None:
         raise RunCancelledError
 
 
+def _time_progress_hook(
+    progress: ProgressFn, is_cancelled: CancelledFn
+) -> Callable[[float, float], bool]:
+    """Engine ``progress_hook`` bridging to the job's progress/cancel.
+
+    The message is formatted only when the fraction has advanced
+    visibly (≥0.5%) — the hook runs every substep, and a 100k-step run
+    should not spend its time building strings nobody reads.
+    """
+    last_reported = -1.0
+
+    def hook(t: float, total: float) -> bool:
+        nonlocal last_reported
+        fraction = min(t / total, 1.0)
+        if fraction - last_reported >= 0.005 or fraction >= 1.0:
+            last_reported = fraction
+            progress(fraction, f"t = {t:.4g} / {total:.4g} ns")
+        return not is_cancelled()
+
+    return hook
+
+
 def _mb_observables(
     summary: dict[str, Any],
     notes: list[str],
@@ -90,24 +115,23 @@ def _mb_observables(
     """Mattis–Bardeen probe block (skipped with a note when invalid)."""
     if not probe.enabled:
         return
-    if ctx.dynes_gamma > 0.0:
-        notes.append(
-            "Mattis–Bardeen observables skipped: Dynes Γ > 0 (pure-BCS contexts only)."
-        )
-        return
-    if probe.omega_0 >= ctx.gap:
-        notes.append(
-            f"Mattis–Bardeen observables skipped: probe ω₀ = {probe.omega_0:g} μeV "
-            f"is not below the gap {ctx.gap:g} μeV."
-        )
+    reason = mb_probe_invalid_reason(probe, ctx.dynes_gamma, ctx.gap)
+    if reason is not None:
+        notes.append(reason)
         return
     sigma1, sigma2 = compute_ac_conductivity(f, ctx, probe.omega_0)
     summary["sigma1_over_sigmaN"] = sigma1
     summary["sigma2_over_sigmaN"] = sigma2
-    summary["Q_i"] = compute_quality_factor(f, ctx, probe.omega_0, probe.alpha)
-    if probe.Q_ext is not None:
-        summary["Q_tot"] = compute_quality_factor(
-            f, ctx, probe.omega_0, probe.alpha, Q_ext=probe.Q_ext
+    if sigma1 > 0.0:
+        summary["Q_i"] = compute_quality_factor(f, ctx, probe.omega_0, probe.alpha)
+        if probe.Q_ext is not None:
+            summary["Q_tot"] = compute_quality_factor(
+                f, ctx, probe.omega_0, probe.alpha, Q_ext=probe.Q_ext
+            )
+    else:
+        notes.append(
+            "Q_i skipped: the probe response is non-dissipative (σ₁ ≤ 0), "
+            "so the quality factor is unbounded."
         )
     summary["frac_freq_shift"] = compute_frequency_shift(
         f, f_ref, ctx, probe.omega_0, probe.alpha
@@ -157,21 +181,30 @@ def run_steady_state_0d(
 
     _mb_observables(summary, payload.notes, solved.f, f_ref, ctx, setup.probe)
 
+    # Secondary diagnostics: a converged kinetic solve must never be
+    # discarded because one of these post-solve fits fails.
     if setup.material.dynes_gamma == 0.0:
-        gs = compute_gap_suppression(
-            solved.f, ctx.E, T_c=setup.material.T_c, T_bath=setup.T_bath
-        )
-        summary["delta_eq_ueV"] = gs.delta_eq
-        summary["delta_suppression_ueV"] = gs.delta_suppression
-        summary["rel_gap_suppression"] = gs.rel_suppression
+        try:
+            gs = compute_gap_suppression(
+                solved.f, ctx.E, T_c=setup.material.T_c, T_bath=setup.T_bath
+            )
+        except (ValueError, RuntimeError) as exc:
+            payload.notes.append(f"Gap-suppression diagnostic failed: {exc}")
+        else:
+            summary["delta_eq_ueV"] = gs.delta_eq
+            summary["delta_suppression_ueV"] = gs.delta_suppression
+            summary["rel_gap_suppression"] = gs.rel_suppression
 
     if setup.phonons.mode != "thermal_bath":
-        summary["T_phonon_eff_K"] = effective_phonon_temperature(
-            payload.arrays["n_ph"],
-            payload.arrays["omega_bins"],
-            solved.gap,
-            T_bath=setup.T_bath,
-        )
+        try:
+            summary["T_phonon_eff_K"] = effective_phonon_temperature(
+                payload.arrays["n_ph"],
+                payload.arrays["omega_bins"],
+                solved.gap,
+                T_bath=setup.T_bath,
+            )
+        except (ValueError, RuntimeError) as exc:
+            payload.notes.append(f"Effective-phonon-temperature fit failed: {exc}")
 
     progress(1.0, "done")
     return payload
@@ -186,10 +219,9 @@ def _transient_observables(
     }
     notes: list[str] = []
     if setup.probe.enabled:
-        if setup.material.dynes_gamma > 0.0 or setup.probe.omega_0 >= gap:
-            notes.append(
-                "Q_i(t) time series skipped: probe needs a pure-BCS context and ω₀ < Δ."
-            )
+        reason = mb_probe_invalid_reason(setup.probe, setup.material.dynes_gamma, gap)
+        if reason is not None:
+            notes.append(f"Q_i(t) time series skipped: {reason}")
         else:
             omega, alpha = setup.probe.omega_0, setup.probe.alpha
             obs["Q_i"] = lambda s: compute_quality_factor(s.f, s.spectral, omega, alpha)
@@ -208,10 +240,6 @@ def run_transient_0d(
     obs, notes = _transient_observables(setup)
     payload.notes.extend(notes)
 
-    def hook(t: float, total: float) -> bool:
-        progress(min(t / total, 1.0), f"t = {t:.4g} / {total:.4g} ns")
-        return not is_cancelled()
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("once")
         result = run_time_dependent(
@@ -223,7 +251,7 @@ def run_transient_0d(
             snapshot_interval=setup.snapshot_interval,
             observables=obs,
             stop_tol=setup.stop_tol,
-            progress_hook=hook,
+            progress_hook=_time_progress_hook(progress, is_cancelled),
         )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
     if is_cancelled():
@@ -232,7 +260,7 @@ def run_transient_0d(
     payload.arrays["E_bins"] = state.spectral.E
     payload.arrays["t_ns"] = np.array([s.t for s in result.snapshots])
     payload.arrays["f_snapshots"] = np.stack([s.f for s in result.snapshots])
-    payload.arrays["f_thermal"] = fermi_dirac(state.spectral.E, setup.T_bath)
+    payload.arrays["f_thermal"] = fermi_dirac_distribution(state.spectral.E, setup.T_bath)
     for name in obs:
         payload.arrays[f"obs_{name}"] = np.array(
             [s.observables[name] for s in result.snapshots]
@@ -254,6 +282,29 @@ def _xqp_profile(state: T3Spatial1DState, gap: float) -> np.ndarray:
     )
 
 
+def _profile_observables(gap: float) -> dict[str, Callable[[T3Spatial1DState], float]]:
+    """Mean/max strip observables sharing one profile pass per state.
+
+    Both reductions are evaluated back-to-back on the same state at
+    each snapshot; caching on the state's ``f`` identity halves the
+    O(NE·NX) profile cost without assuming anything about call order.
+    """
+    cached_f: np.ndarray | None = None
+    cached_profile: np.ndarray | None = None
+
+    def profile(s: T3Spatial1DState) -> np.ndarray:
+        nonlocal cached_f, cached_profile
+        if cached_profile is None or cached_f is not s.f:
+            cached_f = s.f
+            cached_profile = _xqp_profile(s, gap)
+        return cached_profile
+
+    return {
+        "x_qp_mean": lambda s: float(np.mean(profile(s))),
+        "x_qp_max": lambda s: float(np.max(profile(s))),
+    }
+
+
 def run_spatial_1d(
     setup: Spatial1DSetup, progress: ProgressFn, is_cancelled: CancelledFn
 ) -> RunPayload:
@@ -264,15 +315,7 @@ def run_spatial_1d(
     state = build_state_1d(setup)
     flux = build_injection_flux(setup, state)
     gap = setup.material.Delta_0
-
-    obs: dict[str, Callable[[T3Spatial1DState], float]] = {
-        "x_qp_mean": lambda s: float(np.mean(_xqp_profile(s, gap))),
-        "x_qp_max": lambda s: float(np.max(_xqp_profile(s, gap))),
-    }
-
-    def hook(t: float, total: float) -> bool:
-        progress(min(t / total, 1.0), f"t = {t:.4g} / {total:.4g} ns")
-        return not is_cancelled()
+    obs = _profile_observables(gap)
 
     backend = T3Spatial1DBackend()
     result = backend.run_until_steady_state(
@@ -283,7 +326,7 @@ def run_spatial_1d(
         stop_tol=setup.stop_tol,
         snapshot_interval=setup.snapshot_interval,
         observables=obs,
-        progress_hook=hook,
+        progress_hook=_time_progress_hook(progress, is_cancelled),
     )
     if is_cancelled():
         raise RunCancelledError
@@ -292,7 +335,7 @@ def run_spatial_1d(
     payload.arrays["E_bins"] = final.spectral.E
     payload.arrays["x_um"] = final.x
     payload.arrays["f_final"] = final.f
-    payload.arrays["f_thermal"] = fermi_dirac(final.spectral.E, setup.T_bath)
+    payload.arrays["f_thermal"] = fermi_dirac_distribution(final.spectral.E, setup.T_bath)
     payload.arrays["xqp_profile"] = _xqp_profile(final, gap)
     if final.gap_profile is not None:
         payload.arrays["gap_profile"] = np.asarray(final.gap_profile)
@@ -313,12 +356,6 @@ def run_spatial_1d(
         payload.notes.append(
             f"Strip did not reach stop_tol = {setup.stop_tol:g} within "
             f"{setup.max_time:g} ns (max|df/dt| is in the convergence plot)."
-        )
-    if setup.probe.enabled:
-        payload.notes.append(
-            "1D probe note: strip-resonator σ/Q_i needs current-weighted response "
-            "(qpsim.observables.spatial_ac_response) with a resonator mode profile — "
-            "not part of this frontend mode yet."
         )
     progress(1.0, "done")
     return payload
@@ -343,32 +380,42 @@ def run_m25_junction(
     Delta_R_K = setup.Delta_R_over_h_GHz * ghz_to_K
 
     last_y: np.ndarray | None = None
+    prev_prev_y: np.ndarray | None = None
     failed: list[float] = []
     for i, T in enumerate(T_kelvin):
         _check_cancel(is_cancelled)
         progress(i / n, f"T = {T * 1000:.1f} mK")
-        params, drive = build_m25_inputs(setup, float(T))
         try:
+            params, drive = build_m25_inputs(setup, float(T))
             scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
                 params, drive, setup.drive.Gamma_ph_00_Hz
             )
             coefs = coefficients_from_physical_parameters_with_photon_drive(
                 params, replace(drive, Gamma_nu_scale_Hz=scale)
             )
-            # Continuation seeding: first point free (max_x_L picker),
-            # subsequent points warm-started from the previous solution.
+            # Continuation seeding as in the Fig. 3 reproduction: warm
+            # start from the previous point, plus a linear (second-order)
+            # predictor once two points exist — it carries the solver
+            # across the multi-stable kinks a bare prev-T seed misses.
             if last_y is None:
                 sol = solve_rate_equation_steady_state_multi_seed(coefs)
             else:
+                extra: list[np.ndarray] = []
+                if prev_prev_y is not None and i >= 2:
+                    y_pred = last_y + (last_y - prev_prev_y)
+                    if np.all(np.isfinite(y_pred)) and np.all(y_pred > 0.0):
+                        extra.append(y_pred)
                 sol = solve_rate_equation_steady_state_multi_seed(
                     coefs,
                     preferred_seed=last_y,
+                    extra_seeds=extra or None,
                     branch_picker_mode=setup.branch_picker_mode,
                 )
         except (RuntimeError, ValueError) as exc:
             failed.append(float(T))
             payload.notes.append(f"T = {T * 1000:.1f} mK failed: {exc}")
             continue
+        prev_prev_y = last_y
         last_y = np.array([sol.p_1, sol.x_L, sol.x_Rgt, sol.x_Rlt])
         x_L[i], x_Rgt[i], x_Rlt[i] = sol.x_L, sol.x_Rgt, sol.x_Rlt
         p_1[i] = sol.p_1

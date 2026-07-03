@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Iterable
+from collections.abc import Callable, Collection, Iterable
+from dataclasses import dataclass
 from typing import Any
 
 import matplotlib
@@ -244,67 +245,79 @@ def _plot_m25_p1(arrays: dict[str, np.ndarray]) -> bytes:
 # -- registry ---------------------------------------------------------
 
 
-def available_plots(mode: str, arrays: dict[str, np.ndarray]) -> list[str]:
-    if mode == "steady_state_0d":
-        return ["occupation", "phonons"]
-    if mode == "transient_0d":
-        names = ["occupation_evolution", "x_qp_vs_t"]
-        if "obs_Q_i" in arrays:
-            names.append("Q_i_vs_t")
-        return names
-    if mode == "spatial_1d":
-        return ["xqp_profile", "occupation_heatmap", "convergence", "observables_vs_t"]
-    if mode == "m25_junction":
-        return ["chemical_potentials", "densities", "qubit_p1"]
-    return []
+def _gap(summary: dict[str, Any]) -> float:
+    return float(summary.get("gap_ueV", 1.0)) or 1.0
+
+
+@dataclass(frozen=True)
+class _PlotSpec:
+    """One named figure: its renderer plus an optional required array."""
+
+    render: Callable[[dict[str, np.ndarray], dict[str, Any]], bytes]
+    requires: str | None = None
+
+
+# Single source of truth per mode: the listing endpoint and the render
+# dispatch both read this table, so a figure can't be listed without
+# being renderable (or vice versa).
+_PLOTS: dict[str, dict[str, _PlotSpec]] = {
+    "steady_state_0d": {
+        "occupation": _PlotSpec(lambda a, s: _plot_occupation(a, _gap(s))),
+        "phonons": _PlotSpec(lambda a, s: _plot_phonons(a, _gap(s))),
+    },
+    "transient_0d": {
+        "occupation_evolution": _PlotSpec(lambda a, s: _plot_occupation_evolution(a, _gap(s))),
+        "x_qp_vs_t": _PlotSpec(
+            lambda a, s: _plot_time_series(
+                a, [("obs_x_qp", "x_qp")], "x_qp", "Quasiparticle fraction", logy=True
+            )
+        ),
+        "Q_i_vs_t": _PlotSpec(
+            lambda a, s: _plot_time_series(
+                a, [("obs_Q_i", "Q_i")], "Q_i", "Internal quality factor", logy=True
+            ),
+            requires="obs_Q_i",
+        ),
+    },
+    "spatial_1d": {
+        "xqp_profile": _PlotSpec(lambda a, s: _plot_xqp_profile(a)),
+        "occupation_heatmap": _PlotSpec(lambda a, s: _plot_occupation_heatmap(a, _gap(s))),
+        "convergence": _PlotSpec(lambda a, s: _plot_convergence(a)),
+        "observables_vs_t": _PlotSpec(
+            lambda a, s: _plot_time_series(
+                a,
+                [("obs_x_qp_mean", "x_qp mean"), ("obs_x_qp_max", "x_qp max")],
+                "x_qp",
+                "Strip observables",
+                logy=True,
+            )
+        ),
+    },
+    "m25_junction": {
+        "chemical_potentials": _PlotSpec(lambda a, s: _plot_m25_mu(a)),
+        "densities": _PlotSpec(lambda a, s: _plot_m25_densities(a)),
+        "qubit_p1": _PlotSpec(lambda a, s: _plot_m25_p1(a)),
+    },
+}
+
+
+def available_plots(mode: str, array_names: Collection[str]) -> list[str]:
+    """Figure names renderable for this mode given the stored arrays."""
+    return [
+        name
+        for name, spec in _PLOTS.get(mode, {}).items()
+        if spec.requires is None or spec.requires in array_names
+    ]
 
 
 def render_plot(
     mode: str, name: str, arrays: dict[str, np.ndarray], summary: dict[str, Any]
 ) -> bytes:
     """Render one named figure to PNG bytes; raises KeyError for unknown names."""
-    gap = float(summary.get("gap_ueV", 1.0)) or 1.0
-
-    if mode == "steady_state_0d":
-        if name == "occupation":
-            return _plot_occupation(arrays, gap)
-        if name == "phonons":
-            return _plot_phonons(arrays, gap)
-    elif mode == "transient_0d":
-        if name == "occupation_evolution":
-            return _plot_occupation_evolution(arrays, gap)
-        if name == "x_qp_vs_t":
-            return _plot_time_series(
-                arrays, [("obs_x_qp", "x_qp")], "x_qp", "Quasiparticle fraction", logy=True
-            )
-        if name == "Q_i_vs_t" and "obs_Q_i" in arrays:
-            return _plot_time_series(
-                arrays, [("obs_Q_i", "Q_i")], "Q_i", "Internal quality factor", logy=True
-            )
-    elif mode == "spatial_1d":
-        if name == "xqp_profile":
-            return _plot_xqp_profile(arrays)
-        if name == "occupation_heatmap":
-            return _plot_occupation_heatmap(arrays, gap)
-        if name == "convergence":
-            return _plot_convergence(arrays)
-        if name == "observables_vs_t":
-            return _plot_time_series(
-                arrays,
-                [("obs_x_qp_mean", "x_qp mean"), ("obs_x_qp_max", "x_qp max")],
-                "x_qp",
-                "Strip observables",
-                logy=True,
-            )
-    elif mode == "m25_junction":
-        if name == "chemical_potentials":
-            return _plot_m25_mu(arrays)
-        if name == "densities":
-            return _plot_m25_densities(arrays)
-        if name == "qubit_p1":
-            return _plot_m25_p1(arrays)
-
-    raise KeyError(f"No plot named {name!r} for mode {mode!r}.")
+    spec = _PLOTS.get(mode, {}).get(name)
+    if spec is None or (spec.requires is not None and spec.requires not in arrays):
+        raise KeyError(f"No plot named {name!r} for mode {mode!r}.")
+    return spec.render(arrays, summary)
 
 
 # -- CSV export -------------------------------------------------------
@@ -319,70 +332,90 @@ def _csv_from_columns(header: Iterable[str], columns: list[np.ndarray]) -> str:
     return out.getvalue()
 
 
-def available_csvs(mode: str, arrays: dict[str, np.ndarray]) -> list[str]:
-    if mode == "steady_state_0d":
-        return ["occupation", "phonons"]
-    if mode == "transient_0d":
-        return ["time_series", "snapshots"]
-    if mode == "spatial_1d":
-        return ["profile", "time_series", "occupation"]
-    if mode == "m25_junction":
-        return ["sweep"]
-    return []
+def _csv_ss_occupation(arrays: dict[str, np.ndarray]) -> str:
+    return _csv_from_columns(
+        ["E_ueV", "f", "f_thermal"],
+        [arrays["E_bins"], arrays["f"], arrays["f_thermal"]],
+    )
+
+
+def _csv_ss_phonons(arrays: dict[str, np.ndarray]) -> str:
+    return _csv_from_columns(["omega_ueV", "n_ph"], [arrays["omega_bins"], arrays["n_ph"]])
+
+
+def _csv_transient_time_series(arrays: dict[str, np.ndarray]) -> str:
+    keys = [k for k in arrays if k.startswith("obs_")]
+    return _csv_from_columns(
+        ["t_ns", *[k.removeprefix("obs_") for k in keys]],
+        [arrays["t_ns"], *[arrays[k] for k in keys]],
+    )
+
+
+def _csv_transient_snapshots(arrays: dict[str, np.ndarray]) -> str:
+    t = arrays["t_ns"]
+    f_snap = arrays["f_snapshots"]
+    return _csv_from_columns(
+        ["E_ueV", *[f"f_t={ti:.6g}ns" for ti in t]],
+        [arrays["E_bins"], *[f_snap[i] for i in range(f_snap.shape[0])]],
+    )
+
+
+def _csv_spatial_profile(arrays: dict[str, np.ndarray]) -> str:
+    header = ["x_um", "x_qp"]
+    cols = [arrays["x_um"], arrays["xqp_profile"]]
+    if "gap_profile" in arrays:
+        header.append("gap_ueV")
+        cols.append(arrays["gap_profile"])
+    return _csv_from_columns(header, cols)
+
+
+def _csv_spatial_time_series(arrays: dict[str, np.ndarray]) -> str:
+    keys = [k for k in arrays if k.startswith("obs_")]
+    return _csv_from_columns(
+        ["t_ns", "max_rate_per_ns", *[k.removeprefix("obs_") for k in keys]],
+        [arrays["snap_t_ns"], arrays["snap_max_rate"], *[arrays[k] for k in keys]],
+    )
+
+
+def _csv_spatial_occupation(arrays: dict[str, np.ndarray]) -> str:
+    x = arrays["x_um"]
+    f = arrays["f_final"]
+    return _csv_from_columns(
+        ["E_ueV", *[f"f_x={xi:.6g}um" for xi in x]],
+        [arrays["E_bins"], *[f[:, j] for j in range(f.shape[1])]],
+    )
+
+
+def _csv_m25_sweep(arrays: dict[str, np.ndarray]) -> str:
+    keys = [
+        "T_mK", "x_L", "x_Rgt", "x_Rlt", "p_1", "residual_Hz",
+        "mu_L_over_Delta_L", "mu_Rgt_over_Delta_L", "mu_Rlt_over_Delta_L",
+    ]
+    return _csv_from_columns(keys, [arrays[k] for k in keys])
+
+
+_CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
+    "steady_state_0d": {"occupation": _csv_ss_occupation, "phonons": _csv_ss_phonons},
+    "transient_0d": {
+        "time_series": _csv_transient_time_series,
+        "snapshots": _csv_transient_snapshots,
+    },
+    "spatial_1d": {
+        "profile": _csv_spatial_profile,
+        "time_series": _csv_spatial_time_series,
+        "occupation": _csv_spatial_occupation,
+    },
+    "m25_junction": {"sweep": _csv_m25_sweep},
+}
+
+
+def available_csvs(mode: str, array_names: Collection[str]) -> list[str]:
+    return list(_CSVS.get(mode, {}))
 
 
 def render_csv(mode: str, name: str, arrays: dict[str, np.ndarray]) -> str:
     """Render one named table to CSV text; raises KeyError for unknown names."""
-    if mode == "steady_state_0d":
-        if name == "occupation":
-            return _csv_from_columns(
-                ["E_ueV", "f", "f_thermal"],
-                [arrays["E_bins"], arrays["f"], arrays["f_thermal"]],
-            )
-        if name == "phonons":
-            return _csv_from_columns(
-                ["omega_ueV", "n_ph"], [arrays["omega_bins"], arrays["n_ph"]]
-            )
-    elif mode == "transient_0d":
-        if name == "time_series":
-            keys = [k for k in arrays if k.startswith("obs_")]
-            return _csv_from_columns(
-                ["t_ns", *[k.removeprefix("obs_") for k in keys]],
-                [arrays["t_ns"], *[arrays[k] for k in keys]],
-            )
-        if name == "snapshots":
-            t = arrays["t_ns"]
-            f_snap = arrays["f_snapshots"]
-            return _csv_from_columns(
-                ["E_ueV", *[f"f_t={ti:.6g}ns" for ti in t]],
-                [arrays["E_bins"], *[f_snap[i] for i in range(f_snap.shape[0])]],
-            )
-    elif mode == "spatial_1d":
-        if name == "profile":
-            header = ["x_um", "x_qp"]
-            cols = [arrays["x_um"], arrays["xqp_profile"]]
-            if "gap_profile" in arrays:
-                header.append("gap_ueV")
-                cols.append(arrays["gap_profile"])
-            return _csv_from_columns(header, cols)
-        if name == "time_series":
-            keys = [k for k in arrays if k.startswith("obs_")]
-            return _csv_from_columns(
-                ["t_ns", "max_rate_per_ns", *[k.removeprefix("obs_") for k in keys]],
-                [arrays["snap_t_ns"], arrays["snap_max_rate"], *[arrays[k] for k in keys]],
-            )
-        if name == "occupation":
-            x = arrays["x_um"]
-            f = arrays["f_final"]
-            return _csv_from_columns(
-                ["E_ueV", *[f"f_x={xi:.6g}um" for xi in x]],
-                [arrays["E_bins"], *[f[:, j] for j in range(f.shape[1])]],
-            )
-    elif mode == "m25_junction" and name == "sweep":
-        keys = [
-            "T_mK", "x_L", "x_Rgt", "x_Rlt", "p_1", "residual_Hz",
-            "mu_L_over_Delta_L", "mu_Rgt_over_Delta_L", "mu_Rlt_over_Delta_L",
-        ]
-        return _csv_from_columns(keys, [arrays[k] for k in keys])
-
-    raise KeyError(f"No CSV named {name!r} for mode {mode!r}.")
+    builder = _CSVS.get(mode, {}).get(name)
+    if builder is None:
+        raise KeyError(f"No CSV named {name!r} for mode {mode!r}.")
+    return builder(arrays)

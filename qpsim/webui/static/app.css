@@ -119,6 +119,8 @@ table.list tr.clickable:hover { background: var(--page); }
 .status.running, .status.queued { background: #e7f0fb; color: #1c5cab; }
 .status.failed { background: #fbeaea; color: var(--critical); }
 .status.cancelled { background: var(--grid); color: var(--ink-2); }
+.status.interrupted { background: #fdf4e0; color: var(--warning-ink); }
+.status.unreadable { background: #fbeaea; color: var(--critical); }
 
 .progress {
   background: var(--grid); border-radius: 6px; height: 8px; width: 130px; overflow: hidden;

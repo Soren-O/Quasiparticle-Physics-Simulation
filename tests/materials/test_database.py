@@ -72,6 +72,32 @@ class TestLoadMaterial:
         assert mat.name == "TiN"
         assert 4.0 < mat.T_c < 5.0
 
+    def test_every_numeric_field_loads_as_float(self) -> None:
+        # YAML 1.1 resolves unsigned-exponent notation ("1.74e28") as a
+        # string — the shipped files write v_F/rho_F that way, and the
+        # dataclass must coerce so arithmetic on loaded materials works.
+        for name in ("Al", "Nb", "TiN"):
+            mat = load_material(name)
+            for field_name, value in vars(mat).items():
+                if field_name in ("name", "substrate"):
+                    continue
+                assert value is None or isinstance(value, float), (
+                    f"{name}.{field_name} loaded as {type(value).__name__}: {value!r}"
+                )
+        al = load_material("Al")
+        assert al.rho_F == pytest.approx(1.74e28)
+        assert al.v_F == pytest.approx(1.36e6)
+
+    def test_unsigned_exponent_substrate_fields_coerced(self, tmp_path: Path) -> None:
+        (tmp_path / "Weird.yaml").write_text(
+            "name: Weird\nDelta_0: 42.0\nT_c: 0.5\ntau_0: 1.0\n"
+            "substrate:\n  name: Sub\n  density: 2.3e3\n  sound_velocity: 8.4e3\n"
+        )
+        mat = load_material("Weird", database_dir=tmp_path)
+        assert mat.substrate is not None
+        assert mat.substrate.density == pytest.approx(2300.0)
+        assert mat.substrate.sound_velocity == pytest.approx(8400.0)
+
     def test_raises_on_missing(self) -> None:
         with pytest.raises(FileNotFoundError, match="Material 'Nope' not found"):
             load_material("Nope")

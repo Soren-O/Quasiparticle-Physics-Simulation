@@ -2,9 +2,14 @@
 
 Last updated: 2026-07-03 (web frontend `qpsim.webui` shipped — see
 `docs/Frontend.md`; optional extra `qpsim[ui]`, CI installs it; the
-only engine change is the physics-neutral `progress_hook` on
+only engine changes are the physics-neutral `progress_hook` on
 `services.transient.run_time_dependent` and
-`T3Spatial1DBackend.run_until_steady_state`. Prior: 2026-07-02
+`T3Spatial1DBackend.run_until_steady_state`, plus — from the same-day
+frontend code review — float coercion in the materials loader
+(YAML 1.1 loads unsigned-exponent notation like `1.74e28` as a
+*string*; Al/Nb/TiN `v_F`/`rho_F` were affected), a public
+`COMMENSURATE_TOL` alias in `collisions.sub_gap_photon`, and a derived
+`H_OVER_KB_K_PER_HZ` in `qpsim.constants`. Prior: 2026-07-02
 a1-diffusion-operators merged to main; CI green; code-health review
 fixes).
 

@@ -12,6 +12,7 @@ The browser UI is a no-build vanilla HTML/JS page served from
 from __future__ import annotations
 
 import dataclasses
+import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,7 +35,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def _material_payload(name: str) -> dict[str, Any]:
     mat = dataclasses.asdict(load_material(name))
-    # Frontend autofill slice, in MaterialParams field names.
+    # Frontend autofill slice, in MaterialParams field names. No
+    # dynes_gamma here: Γ is not a database property, and including it
+    # would silently zero a value the user already entered when they
+    # pick a material.
     mat["params"] = {
         "name": mat["name"],
         "Delta_0": mat["Delta_0"],
@@ -43,7 +47,6 @@ def _material_payload(name: str) -> dict[str, Any]:
         "tau_0_pb_ns": mat["tau_0_pb_ns"],
         "D_0": mat["D_0"],
         "rho_F": mat["rho_F"],
-        "dynes_gamma": 0.0,
     }
     return mat
 
@@ -134,7 +137,9 @@ def create_app(workspace_root: Path | str) -> FastAPI:
                 status_code=400,
                 content={"errors": report.errors, "warnings": report.warnings},
             )
-        run_id = runner.submit(envelope)
+        # Warnings persist as the run's first notes — the browser
+        # switches views on submit, so a transient banner would vanish.
+        run_id = runner.submit(envelope, warnings=report.warnings)
         return JSONResponse({"id": run_id, "warnings": report.warnings})
 
     @app.get("/api/runs")
@@ -147,11 +152,20 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             manifest = workspace.read_manifest(run_id)
         except FileNotFoundError as exc:
             raise HTTPException(404, f"No run {run_id!r}.") from exc
+        except ValueError as exc:  # corrupt manifest (JSONDecodeError included)
+            raise HTTPException(404, f"Run {run_id!r} has an unreadable manifest.") from exc
         manifest = runner.overlay(manifest)
         if manifest["status"] == "done":
-            arrays = workspace.read_arrays(run_id)
-            manifest["plots"] = available_plots(manifest["mode"], arrays)
-            manifest["csvs"] = available_csvs(manifest["mode"], arrays)
+            try:
+                # Zip namelist only — no array decompression on a poll.
+                names = workspace.array_names(run_id)
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                manifest["plots"] = []
+                manifest["csvs"] = []
+                manifest["artifacts_error"] = f"result arrays unavailable: {exc}"
+            else:
+                manifest["plots"] = available_plots(manifest["mode"], names)
+                manifest["csvs"] = available_csvs(manifest["mode"], names)
         return manifest
 
     @app.post("/api/runs/{run_id}/cancel")
@@ -166,26 +180,31 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         workspace.delete_run(run_id)
         return {"deleted": True}
 
-    @app.get("/api/runs/{run_id}/plots/{name}.png")
-    def runs_plot(run_id: str, name: str) -> Response:
+    def _load_run_artifacts(run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             manifest = workspace.read_manifest(run_id)
             arrays = workspace.read_arrays(run_id)
-        except FileNotFoundError as exc:
-            raise HTTPException(404, "Run or its arrays not found.") from exc
+        except (FileNotFoundError, ValueError, zipfile.BadZipFile) as exc:
+            raise HTTPException(404, "Run or its arrays are missing/unreadable.") from exc
+        return manifest, arrays
+
+    # A finished run's arrays never change, so rendered artifacts can
+    # be cached — this also stops the browser re-fetching plot PNGs
+    # when the detail view re-renders.
+    _CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
+
+    @app.get("/api/runs/{run_id}/plots/{name}.png")
+    def runs_plot(run_id: str, name: str) -> Response:
+        manifest, arrays = _load_run_artifacts(run_id)
         try:
             png = render_plot(manifest["mode"], name, arrays, manifest.get("summary", {}))
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        return Response(content=png, media_type="image/png")
+        return Response(content=png, media_type="image/png", headers=_CACHE_HEADERS)
 
     @app.get("/api/runs/{run_id}/csv/{name}.csv")
     def runs_csv(run_id: str, name: str) -> Response:
-        try:
-            manifest = workspace.read_manifest(run_id)
-            arrays = workspace.read_arrays(run_id)
-        except FileNotFoundError as exc:
-            raise HTTPException(404, "Run or its arrays not found.") from exc
+        manifest, arrays = _load_run_artifacts(run_id)
         try:
             text = render_csv(manifest["mode"], name, arrays)
         except KeyError as exc:
@@ -193,7 +212,10 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         return Response(
             content=text,
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{run_id}-{name}.csv"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{run_id}-{name}.csv"',
+                **_CACHE_HEADERS,
+            },
         )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

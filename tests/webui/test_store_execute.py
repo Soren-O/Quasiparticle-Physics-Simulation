@@ -121,7 +121,6 @@ class TestSpatial1DExecutor:
         setup.dt = 1.0
         setup.max_time = 5.0
         setup.stop_tol = 0.0
-        setup.probe.enabled = False
         payload = execute_setup(setup, _noop_progress, _never)
         assert payload.arrays["f_final"].shape == (12, 7)
         assert payload.arrays["xqp_profile"].shape == (7,)
