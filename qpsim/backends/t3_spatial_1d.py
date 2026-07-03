@@ -232,6 +232,21 @@ class T3Spatial1DBackend:
         diffuse).
         """
         NE, _NX = state.f.shape
+        if state.spectral.dynes_gamma > 0.0:
+            raise ValueError(
+                "Spatial transport requires a pure-BCS SpectralContext "
+                "(dynes_gamma == 0). The transport dressings implement the "
+                "clean-BCS traces — D_L as the indicator of N_1 > 0 and the "
+                "Kupriyanov-Lukichev weight N_1 N_1' - N_2 N_2' from the "
+                "real spectral functions — which rely on the above-gap "
+                "identity N_1**2 - N_2**2 = 1. With a finite Dynes Gamma "
+                "that identity fails and the coefficients must be "
+                "re-evaluated from the complex spectral functions (paper, "
+                "Dynes footnote below eq:bcs_dos); silently combining the "
+                "broadened DOS with the clean-BCS dressings is wrong "
+                "(e.g. full-strength sub-gap transport wherever the "
+                "broadened N_1 > 0)."
+            )
         model = state.diffusion_model
         p, q = model.p, model.q
         D0 = float(state.spectral.diffusion_coefficient)

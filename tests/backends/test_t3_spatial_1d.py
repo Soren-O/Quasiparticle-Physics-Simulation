@@ -79,6 +79,28 @@ class TestT3Spatial1DTransport:
             atol=1e-13,
         )
 
+    def test_dynes_context_rejected_by_transport_not_collisions(self) -> None:
+        # The transport dressings are clean-BCS traces (D_L indicator,
+        # KL weight from real N_1/N_2, identity N_1^2 - N_2^2 = 1); a
+        # Dynes-broadened context invalidates them (paper's Dynes
+        # footnote) and must fail loudly. Collisions with a Dynes DOS
+        # remain a legitimate modeling choice.
+        state = _build_state()
+        dynes = SpectralContext(
+            E_bins=state.spectral.E,
+            dE_bins=state.spectral.dE,
+            gap=state.gap,
+            dynes_gamma=0.05,
+            diffusion_coefficient=state.spectral.diffusion_coefficient,
+        )
+        state.spectral = dynes
+
+        backend = T3Spatial1DBackend()
+        with pytest.raises(ValueError, match="pure-BCS"):
+            backend.apply_transport(state, dt=1.0)
+        out = backend.apply_collisions(state, dt=1.0)
+        assert np.all(np.isfinite(out.f))
+
 
 class TestT3Spatial1DCollisions:
     def test_thermal_equilibrium_stays_stationary_without_flux(self) -> None:
