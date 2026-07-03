@@ -256,7 +256,10 @@ In particular, chapters 10 and 15 are quite relevant.
 
 ## Known incomplete (work in progress — not defects)
 
-- Abstract: merged draft written 2026-07-01 — Soren has not yet reviewed the wording.
+- Abstract: merged draft written 2026-07-01; sharpened 2026-07-02 with
+  Soren-approved wording (the legacy placement named as in common use in
+  device modeling, including published gap-engineered-trap analyses —
+  backed by the verified riwar2019 Appendix-A instance).
 - All former paper3 gaps are closed in the merge: `sec:sc_scalar_equations`
   references were remapped to `eq:beta_f_from_modes`, the supplement is now
   local (SM- refs resolve), and Data/code availability carries the paper1 URLs.
@@ -269,6 +272,9 @@ In particular, chapters 10 and 15 are quite relevant.
   via xr-hyper, each needs the other's .aux), plain `make` afterwards;
   `make roadmap` rebuilds the routes figure; `make verify` runs the sympy
   proof-check scripts (needs `../.venv` or `make setup`).
-- Clean state: paper.pdf ≈50pp, supplement.pdf ≈48pp, ZERO undefined
-  references, zero overfull hboxes; ONE structural overfull \vbox (≈43pt, the
-  page carrying the long Dynes footnote) is page-breaking, not a text defect.
+- Clean state (as of the 2026-07-02 abstract sharpening): paper.pdf 50pp,
+  supplement.pdf 48pp, ZERO undefined references, zero overfull hboxes; ONE
+  structural overfull \vbox (≈80pt since the abstract edit reflowed the front
+  matter; previously ≈15pt, originally ≈43pt — always the page carrying the
+  long Dynes footnote) is page-breaking, not a text defect. Relocating that
+  footnote (open item 5 in the desktop OPEN-ITEMS file) would clear it.
