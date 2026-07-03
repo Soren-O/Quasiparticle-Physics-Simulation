@@ -120,6 +120,65 @@ equations must be retained instead.
 % ===================== BODY (from main.tex) =====================
 
 \section{Introduction}
+Spatially resolved modeling of nonequilibrium quasiparticles in
+superconducting devices turns on a question that sounds innocuous:
+which energy-resolved spatial operator \(\LD\) moves the quasiparticle
+occupation \(f(E,\br,t)\) through the device? Recent resonator and
+qubit treatments are usually spatially homogeneous or zero-dimensional
+in their kinetics
+\cite{goldie2013,catelani2019,fischer2023,fischer2024,marchegiani2025},
+but spatial simulations---normal-metal and gap-engineered
+quasiparticle traps are the prototypical examples
+\cite{riwar2016,hosseinkhani2018,riwar2019}---cannot avoid the choice,
+and the published equations differ in form. Normal-metal-trap analyses
+diffuse the energy-integrated density with a constant coefficient
+\cite{riwar2016,hosseinkhani2018}; the gap-engineered-trap analysis of
+Ref.~\onlinecite{riwar2019} starts instead from the energy-resolved
+coefficient \(\DN/\DOS(E)\)---\(\DN\) the normal-state diffusion
+constant, \(\DOS\) the BCS density-of-states factor---placed inside
+the divergence, \(\bnabla_{\br}\cdot[(\DN/\DOS)\bnabla_{\br}f]\), a
+Fick ansatz for the occupation itself.
+
+For a spatially uniform gap the choice is invisible. The coefficient
+\(\DN/\DOS(E)\) is microscopically supported---the
+Bardeen--Rickayzen--Tewordt coherence-factor cancellation produces
+exactly this rate \cite{bardeen1959}---and every placement of the
+spectral weight \(1/\DOS\) yields the same uniform-gap relaxation.
+Once \(\Delta\) varies in space, the placements separate measurably:
+at fixed energy the density of states varies with position, and the
+Fick placement acquires a density-of-states-gradient drift, divergent
+toward the local gap edge, that drives quasiparticles down the gap
+gradient---into an engineered gap well, and into the well that a
+localized population digs for itself through the self-consistent
+gap---whereas the microscopically selected operator carries no such
+drift at any amplitude. Spatial gap variation is not an exotic
+circumstance: it is engineered deliberately in traps and generated
+dynamically by any nonuniform population, so the distinction is
+engaged, at some amplitude, in every self-consistent spatial device
+model.
+
+This paper settles the placement from the microscopic theory, by both
+routes the literature uses to reach an energy-resolved kinetic
+equation: projecting the quasiclassical theory onto a positive-energy
+quasiparticle occupation and adding elastic impurity scattering to the
+resulting Boltzmann-like equation, or angular averaging the matrix
+theory into the Usadel equation and reducing its Keldysh block. Within
+a common, explicitly delimited sector---homogeneous material, local
+BCS spectra, isotropic \(s\)-wave gap, nonmagnetic Born impurities,
+negligible charge imbalance---the two routes select the \emph{same}
+operator: conserved spectral density \(\DOS f\), spatial current
+\(-\DN\bnabla_{\br}f\) undressed above the local gap edge and blocked
+below it, and no density-of-states-gradient drift---the operator
+labeled A1 in the taxonomy of \cref{sec:taxonomy}---with the
+squared-DOS dressing \(\DOS^{2}\) belonging to the transverse
+(charge-imbalance) channel. The candidate placements are organized
+into a two-exponent operator family \(L_{p,q}\), the
+Kupriyanov--Lukichev interface condition is projected onto the same
+scalar current, and the operators are benchmarked numerically on
+prescribed and self-consistently generated gap profiles
+(\cref{sec:program}). The remainder of this introduction assembles the
+quasiclassical machinery from which both routes start.
+
 The Eilenberger equation for superconductors is derived from the
 Gor'kov (Nambu--Keldysh) Green-function equations of motion under the
 quasiclassical approximation
@@ -928,12 +987,6 @@ dressed mobility---placements indistinguishable for a uniform gap but
 inequivalent once \(\Delta\) varies in space. The equation is posed on
 the local spectral domain \(E>\Delta(\br,t)\); the moving gap edge
 enters as a boundary condition, not through the bulk operator.
-
-This work is relevant because recent
-superconducting resonator and qubit treatments are usually spatially
-homogeneous \cite{goldie2013,catelani2019,fischer2023,fischer2024,marchegiani2025} or zero-dimensional in their kinetics. Spatial simulations of
-devices---normal-metal and gap-engineered quasiparticle traps in qubits are
-the prototypical examples \cite{riwar2016,hosseinkhani2018,riwar2019}---however, require choosing \(\LD\).
 
 \section{Diffusion from the scalar quasiparticle Boltzmann route}
 \label{sec:scalar_diffusion}

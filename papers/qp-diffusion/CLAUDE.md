@@ -223,6 +223,22 @@ In particular, chapters 10 and 15 are quite relevant.
   Fermi function only on the electron-like branch; the \(\sigma\) placement differs from Kopnin's
   Eq. (15.4) by exactly this conjugation, by design.
 
+### Settled 2026-07-02 (Soren-directed, evening session)
+
+- **Intro architecture (former open item 1): the introduction now OPENS with the
+  device-modeling ambiguity** — three paragraphs before the Eilenberger machinery:
+  (i) published operator choices differ in form (constant-D integrated-density
+  Fick in riwar2016/hosseinkhani2018; the energy-resolved \(\DN/\DOS\)-inside-the-
+  divergence Fick ansatz in riwar2019, Appendix A — all three VERIFIED against the
+  sources 2026-07-02), (ii) uniform-gap invisibility vs. inhomogeneous-gap drift,
+  (iii) the paper's two-route resolution and program. The former end-of-intro
+  motivation paragraph was folded into the opening (its citations preserved).
+  Do not move the motivation back to the end of the intro or re-flag the opening
+  as unmotivated; the machinery-first alternative was deliberately retired.
+- The abstract names the legacy placement as in common use in device modeling
+  (Soren-approved wording, same session). Wording and evidence base are settled;
+  don't soften or extend without a new argument.
+
 ### Settled items inherited from paper1/paper2 (verified in those review rounds)
 
 - **Advanced-propagator convention** \(\hat g^A=-\tau_3\hat g^{R\dagger}\tau_3\)
