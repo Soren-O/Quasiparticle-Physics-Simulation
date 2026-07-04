@@ -289,10 +289,13 @@ inverting \cref{eq:intro_h_matrix},
 which fixes the sign of \(\fT\) (even in \(E\)). A positive \(\fT\)
 counts an excess of hole-like over electron-like quasiparticles---the
 charge imbalance \cite{tinkham2004}---and enters the electron density
-through \(\delta N=-\nu(0)\!\int\!\langle\DOS\,\fT\rangle\,\dd E\)
-[Kopnin's Eqs.~(10.69)--(10.71)], with \(\nu(0)\) the normal-state
-density of states at the Fermi level, fixing the sign independent of the
-branch labelling. When both branches share a common quasiparticle
+through \(\delta N=-N_0\!\int\!\langle\DOS\,\fT\rangle\,\dd E\)
+[Kopnin's Eqs.~(10.69)--(10.71)], with
+\(N_0=m p_{\mathrm F}/2\pi^2\hbar^3\) the single-spin normal-state
+density of states at the Fermi level---Kopnin's \(\nu(0)\), whose
+definition fixes the same single-spin normalization
+\cite{kopnin2001}---used for this quantity throughout, fixing the sign
+independent of the branch labelling. When both branches share a common quasiparticle
 occupation \(f\), then \(\fT=0\) and \(\fL=1-2f\).
 
 Kopnin has shown \cite[\S10.2]{kopnin2001} that, after parametrizing
@@ -624,7 +627,7 @@ scattering time; in single-mode form it reads [his Eq.~(15.7)]
 \begin{equation}
   I_{\mathrm{imp}}\{f_{\bk}\}
   =
-  -\frac{1}{\nu(0)\tau}
+  -\frac{1}{N_0\tau}
   \int\!\frac{\dd^3k'}{(2\pi)^3}\,
   \bigl(u_{\bk}u_{\bk'}-v_{\bk}v_{\bk'}\bigr)^{2}
   \bigl(f_{\bk}-f_{\bk'}\bigr)\,
@@ -1023,6 +1026,14 @@ selects---is claimed within this sector and no further.
 \section{Diffusion from the scalar quasiparticle Boltzmann route}
 \label{sec:scalar_diffusion}
 
+We derive the target equation \cref{eq:intro_scalar_kinetic} first by
+the route that starts from a positive-energy quasiparticle occupation
+and only then performs the angular reduction. The point of the
+derivation is not merely the uniform-gap rate coefficient---that much
+every placement reproduces---but the operator ordering: which spectral
+factors multiply the conserved density, which multiply the current, and
+which are absorbed into the transport time.
+
 \subsection{BCS kinematics}
 
 For an \(s\)-wave BCS superconductor,
@@ -1042,7 +1053,7 @@ broadening of the singularity, for example by a Dynes parameter, should be
 added as a separate modeling choice rather than folded into the diffusion
 operator by notation \cite{dynes1978}; the algebraic consequences of a
 finite broadening for the trace identities are footnoted where those
-identities are used (\cref{sec:usadel_route}).
+identities are used (\cref{sec:usadel_longitudinal}).
 They are moreover used as \emph{local} spectral functions, evaluated
 at the instantaneous local gap \(\Delta(\br,t)\). This is a modeling
 assumption over and above the quasiclassical approximation: in the
@@ -1406,8 +1417,11 @@ dropped after \cref{eq:intro_boltzmann_clean}---is not quasiclassically small.
 A conserving extension for smoothly varying material
 parameters---phenomenological, since the moment derivation above no
 longer constructs it---is obtained by requiring that the carried
-density be \(N(0)\DOS f\) with \(N(0)\) the local normal-state density
-of states at the Fermi level, that it obey a continuity law, and that
+density be \(N(0)\DOS f\) with \(N(0)\) the \emph{local} normal-state
+density of states at the Fermi level---kept distinct from the constant
+\(N_0\) of the homogeneous formulas because only its spatial variation
+matters here (its spin normalization cancels between the two factors of
+\cref{eq:sc_LD_inhomogeneous})---that it obey a continuity law, and that
 the operator reduce to \cref{eq:sc_LD_dos_form} wherever the material
 is uniform:
 \begin{equation}
@@ -1510,7 +1524,7 @@ same-branch coherence factor is
 independent of the scattering angle. Converting the momentum integral
 of \cref{eq:intro_impurity_collision} to the fixed-energy shell,
 \(\int\!\frac{\dd^3k'}{(2\pi)^3}\,\delta(E_{\bk}-E_{\bk'})(\cdots)
-\to\nu(0)\,\DOS(E)\,\avg{\,\cdots}_{\hat{\bp}'}\) on the surviving
+\to N_0\,\DOS(E)\,\avg{\,\cdots}_{\hat{\bp}'}\) on the surviving
 branch, the final-state density of states supplies one factor
 \(\DOS\) against the two inverse factors of
 \cref{eq:sc_coherence_intrabranch}, so the kernel of
@@ -1697,8 +1711,9 @@ picture rather than from the linearized printed equations.
 
 \subsection{Matrix dirty limit}
 
-The Eilenberger equation is a trajectory-resolved quasiclassical transport
-equation for the matrix Green's function \(\check{g}(E,\hat{\bp},\br,t)\)
+The Eilenberger equation \cref{eq:intro_eilenberger} is a
+trajectory-resolved quasiclassical transport equation for the matrix
+Green's function \(\check{g}(E,\hat{\bp},\br,t)\)
 \cite{eilenberger1968,rammer1986,kopnin2001}. In the dirty limit, impurity
 scattering makes the propagator nearly isotropic. Angular averaging at the
 matrix level gives the Usadel equation \cite{usadel1970} for
@@ -1741,6 +1756,7 @@ supplies the conservative spectral-flow term of
 outside the present reduction.
 
 \subsection{Longitudinal distribution operator}
+\label{sec:usadel_longitudinal}
 
 The scalar operator in this route is not an independent postulate. In the
 Keldysh--Usadel formulation, the Keldysh Green's function is parameterized by
@@ -1886,21 +1902,7 @@ BCS bulk above the gap is direct. With the matrices
   \label{eq:gRtau3gAtau3_BCS_bulk}
 \end{equation}
 Taking the Nambu traces and using the BCS identity
-\(\DOS^2-N_2^2=1\),\footnote{This identity is where lifetime broadening
-matters algebraically: inserting a finite \(\ii\Gamma\) directly into the
-spectral functions changes the clean BCS identity \(\DOS^2-N_2^2=1\) used
-here---the matrix normalization \(g^2-f^2=1\) survives the complex shift
-\(E\to E+\ii\Gamma\); it is the identity among the \emph{real} spectral
-coefficients that fails---and therefore changes these trace
-simplifications rather than merely smoothing the plotted coefficient.
-Where a finite \(\Gamma\) is physically required, the Nambu trace
-identities of SM~\cref{SM-app:derivation} must be re-evaluated ---
-generally numerically, since the real-BCS simplification no longer
-applies --- with the complex spectral functions \(\DOS(E+\ii\Gamma)\),
-\(N_2(E+\ii\Gamma)\); this also regularizes the gap-edge structure of the
-spectral coefficients (e.g.\ the divergence of the transverse dressing
-\(\mathcal D_T=\DOS^2\)) and the matched-gap singularity of the
-Kupriyanov--Lukichev charge-channel interface weight.}
+\(\DOS^2-N_2^2=1\),
 \begin{equation}
   \mathcal{D}_L(E)
   =
@@ -1944,7 +1946,12 @@ trace statement of SM~\cref{SM-sec:transverse_projection}.
 \Cref{tab:channel_dictionary} collects these assignments in one place:
 each spectral coefficient of the two-mode kinetic theory, its trace
 definition, its value on the ideal BCS background and for a general
-spectral angle, and the scalar mode it dresses. The table is the lookup
+spectral angle, and the scalar mode it dresses.\footnote{The ideal-BCS
+column is where lifetime broadening matters algebraically: a finite
+\(\ii\Gamma\) breaks the real-coefficient identity \(\DOS^2-N_2^2=1\)
+and with it these trace simplifications---not merely a smoothing of the
+plotted coefficients. SM~\cref{SM-app:dynes_remark} records what must be
+re-evaluated at \(\Gamma\neq0\) and what the broadening regularizes.} The table is the lookup
 that prevents the natural misreading---the \(\DOS^{2}\) dressing, the
 relaxation \(\mathcal R\), and the SIS density-of-states product all
 belong to the charge sector, not to the energy mode.
@@ -2330,7 +2337,6 @@ space- and time-dependence---verified symbolically, with no new terms in
 either scalar channel.
 
 \subsection{Agreement with the scalar route}
-\label{sec:usadel_longitudinal}
 
 The pieces are now in place. The Keldysh block fixes the longitudinal
 spectral coefficients by Nambu traces [\cref{eq:DL_DT_BCS_bulk}]:
@@ -2429,7 +2435,7 @@ member \((p,q)=(1,r+1)\). The continuity-skeleton row of
 \Cref{fig:routes_roadmap} summarizes how the candidate operators descend
 from the common quasiclassical parent: the two microscopic routes perform
 the Nambu/branch projection and the angular average in opposite order
-(\cref{eq:projection_average_commutator}), and their scalar end points
+(\cref{sec:projection_vs_averaging}), and their scalar end points
 coincide on A1; \cref{tab:operator_taxonomy} collects it together with
 the legacy and diagnostic placements.
 
@@ -2440,7 +2446,7 @@ the legacy and diagnostic placements.
   candidate diffusion operators of \cref{tab:operator_taxonomy}. The two
   branches perform the same pair of operations---Nambu/branch projection
   and angular averaging---in opposite order, and the operations do not
-  commute termwise (\cref{eq:projection_average_commutator}): the
+  commute termwise (\cref{sec:projection_vs_averaging}): the
   relabelling shuffles odd angular harmonics between the longitudinal and
   transverse sectors. Their scalar end points nevertheless coincide: the
   matrix (dirty) route and the branch route with the
@@ -2555,6 +2561,7 @@ interface reductions, and crossover tests that distinguish the candidate
 operators, and then benchmarks the resulting operators numerically.
 
 \subsection{Projection versus angular averaging}
+\label{sec:projection_vs_averaging}
 
 The Usadel route averages over momentum directions before extracting a
 scalar quasiparticle occupation. The scalar Boltzmann route extracts the
@@ -2884,22 +2891,17 @@ operator, \((p,q)=(2,2)\), attaches the transverse flux dressing to the
 occupation mode with a \(\DOS^2 f\) time weight; it is a diagnostic
 test operator, not an independent microscopic consequence of Keldysh--Usadel.
 
-The scalar quasiparticle Boltzmann route gives the rate coefficient
-\(D_{\mathrm B}(E)=\vg^2\tautr(E)/3\), and its moment reduction fixes the
-operator ordering,
-\((\vg/3)\bnabla\cdot(\vg\tautr\bnabla f)
-=(1/\DOS)\bnabla\cdot(\DOS D_{\mathrm B}\bnabla f)\). In
-the branch-resolved, nonmagnetic elastic \(s\)-wave limit, the
-Bardeen--Rickayzen--Tewordt coherence-factor cancellation selects a constant
-transport mean free path, \(\DOS D_{\mathrm B}=\DN\), and the branch route
-lands on the same operator A1 as the dirty-limit projection: the same
-conserved density, the same undressed flux, no DOS-gradient drift. The
-legacy device-physics coefficient
-\(\DN\sqrt{1-(\Delta/E)^2}=\DN/\DOS(E)\) is therefore
-microscopically supported in both routes, but its common placement inside
-the divergence, \(\bnabla\cdot[(\DN/\DOS)\bnabla f]\), is not: it treats
-the occupation as the conserved density and acquires a spurious
-DOS-gradient drift for an inhomogeneous gap. The remaining theoretical
+In the scalar quasiparticle Boltzmann route, the
+Bardeen--Rickayzen--Tewordt coherence-factor cancellation selects a
+constant transport mean free path, \(\DOS D_{\mathrm B}=\DN\), and the
+moment reduction lands on the same operator A1 as the dirty-limit
+projection: the same conserved density, the same undressed flux, no
+DOS-gradient drift. The legacy device-physics coefficient
+\(\DN/\DOS(E)\) is therefore microscopically supported in both routes,
+but its common placement inside the divergence,
+\(\bnabla\cdot[(\DN/\DOS)\bnabla f]\), is not: it treats the occupation
+as the conserved density and acquires a spurious DOS-gradient drift for
+an inhomogeneous gap. The remaining theoretical
 task is to map the regimes and crossovers in which the A1 reduction
 gives way to ballistic kinetics, proximity-modified spectra, or
 interface- and trap-dominated transport.

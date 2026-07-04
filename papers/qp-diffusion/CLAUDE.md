@@ -263,6 +263,44 @@ In particular, chapters 10 and 15 are quite relevant.
   kinetic-core passage was NOT edited; the explicit negative ("a kinetic core, not
   a closed charge-imbalance theory") now lives in the sector paragraph instead.
 
+### Settled 2026-07-04, second session (Soren-directed: remaining open items 6–10 + machine-B 6/11)
+
+- **§II opener thesis** (item 6): the scalar-route section now opens with a short
+  paragraph announcing the operator-ordering point before BCS kinematics. Adapted
+  from the GPT patch; don't fold it back into the subsection.
+- **DOS symbols unified to TWO, not one** (item 7 — resolved after the Kopnin
+  check the item demanded): Kopnin defines \(\nu(0)=mp_F/2\pi^2\hbar^3\)
+  (Ch. 1) — SINGLE-spin, same object as this paper's \(N_0\). All \(\nu(0)\)
+  instances renamed to \(N_0\), now defined at first use (intro δN formula) with
+  the \(mp_F/2\pi^2\hbar^3\) value and a "Kopnin's ν(0)" bridge. \(N(0)\) in the
+  materials-extension paragraph is DELIBERATELY kept: it is the *local*,
+  position-dependent normal-state DOS of a phenomenological multi-material
+  extension, not the constant \(N_0\); its spin normalization cancels between
+  the two factors of eq:sc_LD_inhomogeneous (now said in the text). Don't
+  merge \(N(0)\) into \(N_0\).
+- **Conclusion recap trimmed** (item 9): the branch-route paragraph now states
+  the irreducible chain (BRT cancellation ⇒ \(\DOS D_B=\DN\) ⇒ A1, legacy
+  placement unsupported) without re-displaying the ordering identity or the
+  \(D_B\) definition. Don't re-inflate.
+- **§IV forward reference** (item 10): the taxonomy text and roadmap caption now
+  point to \cref{sec:projection_vs_averaging} (new label) instead of
+  forward-referencing eq:projection_average_commutator.
+- **Machine-B finding 6**: §III's "Matrix dirty limit" now cites
+  \cref{eq:intro_eilenberger} at the Eilenberger reintroduction.
+- **Machine-B finding 11**: \label{sec:usadel_longitudinal} MOVED from
+  "Agreement with the scalar route" to "Longitudinal distribution operator"
+  (where the D_L/D_T traces actually live, matching this file's own usage) and
+  is now referenced by the §II Dynes pointer.
+- **Dynes footnote final form** (refines the item-5 execution): the full
+  algebraic discussion now lives in SM app:dynes_remark (end of the derivation
+  appendix); the main-text footnote at the channel-dictionary sentence is a
+  compact pointer. Rationale: the 17-line footnote overfilled whichever §III
+  page anchored it (23.9–28.7 pt vbox under three different anchors). Don't
+  re-inflate the main-text footnote.
+- **S-symbol overload (item 8): deliberately NOT renamed.** The
+  channel-dictionary parenthetical disambiguates; a true rename touches the
+  boxed, sympy-verified SM supercurrent equation for cosmetic gain. Closed.
+
 ### Settled items inherited from paper1/paper2 (verified in those review rounds)
 
 - **Advanced-propagator convention** \(\hat g^A=-\tau_3\hat g^{R\dagger}\tau_3\)
@@ -312,12 +350,14 @@ In particular, chapters 10 and 15 are quite relevant.
   via xr-hyper, each needs the other's .aux), plain `make` afterwards;
   `make roadmap` rebuilds the routes figure; `make verify` runs the sympy
   proof-check scripts (needs `../.venv` or `make setup`).
-- Clean state (as of the 2026-07-04 open-items session): paper.pdf 52pp,
-  supplement.pdf 48pp, ZERO undefined references, zero overfull hboxes, and —
-  for the first time — ZERO overfull vboxes: relocating the Dynes footnote
-  (open item 5) cleared the last structural vbox and no new one appeared at
-  its landing page. `make verify` 7/7 no-FAIL after the edits. On this
-  Windows box the verify venv is the A: archive clone's
+- Clean state (as of the 2026-07-04 second session, items 6–10 + MB-6/11):
+  paper.pdf 52pp, supplement.pdf 48pp, ZERO undefined references, zero
+  overfull hboxes, ONE structural overfull \vbox (~29pt, p. 29 — the §III
+  trace-derivation/table stretch; returned when the item-6/7 content
+  additions reflowed §III, persists at 24–29pt under any Dynes-footnote
+  anchor, so it is display+table density, not footnote mass — note only per
+  the standing rule). `make verify` 7/7 no-FAIL. On this Windows box the
+  verify venv is the A: archive clone's
   (`A:\Einstein\Documents\qp-diffusion-paper\.venv`) — the qpsim repo venv
   has no sympy and the Makefile's `../.venv/bin/python` default is the Mac
   layout.
