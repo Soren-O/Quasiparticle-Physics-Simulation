@@ -165,9 +165,52 @@ def run() -> PhotonKickResult:
     )
 
 
+@dataclass(frozen=True)
+class PhotonKickBaseline:
+    E: np.ndarray
+    snapshot_times: np.ndarray
+    f_snapshots: np.ndarray     # shape (n_snapshots, NE)
+    f_steady_state: np.ndarray  # shape (NE,)
+    x_qp_steady_state: float
+
+
 def baseline_path() -> Path:
     root = Path(__file__).resolve().parents[2]
     return root / "validation" / "baselines" / "transient" / "photon_kick_response.csv"
+
+
+def read_baseline(path: Path | None = None) -> PhotonKickBaseline:
+    """Parse the CSV written by :func:`write_baseline`."""
+    if path is None:
+        path = baseline_path()
+    x_qp_ss = float("nan")
+    header: list[str] | None = None
+    rows: list[list[float]] = []
+    with path.open(newline="") as fp:
+        for record in csv.reader(fp):
+            if not record:
+                continue
+            if record[0].startswith("#"):
+                if "x_qp_steady_state=" in record[0]:
+                    x_qp_ss = float(record[0].split("=", 1)[1])
+                continue
+            if header is None:
+                header = record
+                continue
+            rows.append([float(value) for value in record])
+    if header is None or not rows:
+        raise ValueError(f"No header/data rows found in {path}")
+    data = np.asarray(rows, dtype=float)
+    times = np.array(
+        [float(name[len("f_t="):-len("ns")]) for name in header[2:]], dtype=float,
+    )
+    return PhotonKickBaseline(
+        E=data[:, 0],
+        snapshot_times=times,
+        f_snapshots=np.ascontiguousarray(data[:, 2:].T),
+        f_steady_state=data[:, 1],
+        x_qp_steady_state=x_qp_ss,
+    )
 
 
 def plot_path() -> Path:

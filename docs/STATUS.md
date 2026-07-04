@@ -33,7 +33,7 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 
 ## Validation figures
 
-All reproductions self-pinned with CSV baselines + PDF plots under `validation/baselines/{ph0_constant, ph0_kaplan, transient, marchegiani_2025}/` and regression tests under `validation/{fischer_2023, fischer_2024, marchegiani_2025}/` (the `transient/` photon-kick output is a demo — baseline committed, no regression test). M25 baselines carry a `# pinned_on:` platform stamp; their strict pin tests run only on the generating platform (fixed-point selection is platform-dependent).
+All reproductions self-pinned with CSV baselines + PDF plots under `validation/baselines/{ph0_constant, ph0_kaplan, transient, marchegiani_2025}/` and regression tests under `validation/{fischer_2023, fischer_2024, marchegiani_2025, transient}/` (the `transient/` photon-kick demo gained its paired regression test 2026-07-03; baseline regenerated same day — the v1 pin predated the ×2 recombination fix and the total-time scheduler fix). M25 baselines carry a `# pinned_on:` platform stamp; their strict pin tests run only on the generating platform (fixed-point selection is platform-dependent).
 
 | Figure | Module | Baseline dir | Status |
 |---|---|---|---|

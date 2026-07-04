@@ -59,8 +59,14 @@ documented tolerance tier.
 
 `photon_kick_response.py` — drives the ETD2 transient stepper from a
 thermal initial state under a step photon kick; pins the resulting
-`f(E, t)` snapshot CSV. **No paired regression test in v1** — flagged
-as outstanding gap.
+`f(E, t)` snapshot CSV. Paired regression test added 2026-07-03
+(`test_photon_kick_response.py`, slow-marked): baseline pin at rtol=1e-6,
+monotone x_qp rise, late-time agreement with the independent Newton
+steady state, and observable-plumbing consistency. Baseline regenerated
+same day — the v1 baseline predated both the ×2 recombination fix
+(x_qp_ss moved by exactly the predicted ×1.41) and the
+`run_time_dependent` total-time fix (snapshot grid was 96.1/102.1/108.1
+ns from float accumulation).
 
 ## Tier 4 — Unit tests (`tests/`)
 

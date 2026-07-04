@@ -61,7 +61,10 @@ def f_low(x: np.ndarray, b0: float) -> np.ndarray:
 
 
 def f_intermediate(x: np.ndarray, b0: float) -> np.ndarray:
-    Ai, _, _, _ = airy(x**2 / 4.0 ** (1.0 / 3.0))
+    # F&C 2023 Eq. (26) [arXiv:2212.08155]: f = 3 b0 Ai(x^2 / 4^{1/3}) — the
+    # cube root applies to the 4 only, NOT to x^2/4. Verified against the
+    # published text 2026-07-03 (review item 4, REVIEW-2026-07-02).
+    Ai, _, _, _ = airy(x**2 / (4.0 ** (1.0 / 3.0)))
     return 3.0 * b0 * Ai
 
 
