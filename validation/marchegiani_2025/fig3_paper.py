@@ -24,41 +24,29 @@ Method
 For each $T$ in the sweep, the photon drive scale is recalibrated so
 that $\widetilde\Gamma^{\rm ph}_{00} = 300$ Hz (M25 caption value),
 the M25 coefficient bundle is built from
-:func:`coefficients_from_physical_parameters_with_photon_drive`, and
-the 4-unknown rate-equation steady state is solved via
-:func:`qpsim.services.rate_equation.solve_rate_equation_steady_state_multi_seed`
-(scipy ``root(method='hybr')`` under a deterministic seed grid). The
-chemical potentials are recovered as $\mu_\alpha = \Delta_\alpha +
-T \log x_\alpha$.
+:func:`coefficients_from_physical_parameters_with_photon_drive`
+(single-quasiparticle Γ̄ normalization of the density equations
+included via ``cooper_pair_number_R``), and the steady state is
+tracked across the sweep by the deterministic branch-continuation
+driver :func:`qpsim.services.rate_equation.solve_rate_equation_branch`
+(photon branch continued up from the SI low-T analytic seed, thermal
+branch continued down from the full-equilibrium seed, composite per
+the driver's documented exchange rule). Chemical potentials are
+recovered with the paper-exact inversions of arXiv Eqs. (10)–(13)
+(published SI Eqs. S2–S5), including the ``√(Δ_α/2πT)`` and
+erf/erfc partition factors.
 
-Branch tracking — gap (load-bearing)
-------------------------------------
-The M25 4-unknown system is multi-stable. The paper-target
-reproduction calls for a continuation/bifurcation tracker so the
-high-$T$ transition is smooth; that is **not** implemented here.
-Instead, the simpler **prev-$T$ continuation seeding** is used:
-each $T$-step warm-starts the multi-seed solver with the previous
-$T$'s converged state as ``preferred_seed``, so the solver tracks
-the same branch across small $T$ changes. The fallback to max-$x_L$
-remains active for cases where the prev-$T$ seed leaves the basin
-of attraction of the photon-driven branch (typically near $\bar T$,
-where the system genuinely bifurcates). This delivers the paper's
-qualitative shape and the ~2% paper-agreement quoted in the existing
-M25 Fig 3 reproduction, but kinks at bifurcations are **not**
-algorithmically suppressed; visible kinks near $\bar T$ are real
-artifacts of the heuristic, not physics. A full continuation tracker
-would land here next.
-
-Naming honesty
---------------
-Because the bifurcation tracker is a stub (prev-$T$ seeding rather
-than a true continuation algorithm) the output artifacts carry the
-``_qpsim_native`` suffix, not ``_paper``: the curves are paper-style
-formatted but the high-$T$ tail is **not** algorithmically smooth.
-The plot title, run banner and CSV header all flag this. Once a
-continuation tracker lands (and the kinks vanish at the level of
-the paper figure), rename artifacts to ``m25_fig3_paper.{csv,pdf}``
-and drop the gap text from the docstring + plot title.
+Branch tracking — status
+------------------------
+The historical "multi-stability" of the 4-unknown system was an
+artifact of running the density equations on the ensemble ``Γ̃``
+rates; with the Γ̄ normalization the Fig 3 parameter set has a unique
+physical root at every temperature, both continuation passes agree
+everywhere ("merged"), and the μ_α(T) curves are smooth through the
+crossover with μ → 0 near T̄ ≈ 146 mK — matching the published
+figure without any per-point branch picking. The bidirectional
+tracker remains the guard against genuine folds at other parameter
+sets.
 
 Usage::
 
@@ -69,49 +57,24 @@ from __future__ import annotations
 
 import csv
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from qpsim.services.rate_equation import (
-    M25SteadyState,
-    analytic_low_T_seed,
-    crossover_temperature_kelvin,
-    solve_rate_equation_steady_state_multi_seed,
-)
-from qpsim.services.rate_equation_coefficients import (
-    M25Coefficients,
-    M25PhotonDrive,
-    M25PhysicalParameters,
-    calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
-    coefficients_from_physical_parameters_with_photon_drive,
+
+from validation.marchegiani_2025.fig3_chemical_potentials import (
+    DELTA_R_OVER_H_GHZ,
+    GAMMA_PH_00_HZ,
+    NUM_T_POINTS,
+    OMEGA_10_OVER_H_GHZ,
+    T_MAX_K,
+    T_MIN_K,
+    _chemical_potentials_GHz,
+    _T_bar_estimate,
+    solve_panel_branch_sweep,
 )
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
-
-# ── M25 Fig 3 caption parameters ─────────────────────────────────────
-DELTA_R_OVER_H_GHZ = 49.0
-OMEGA_10_OVER_H_GHZ = 5.5
-E_J_OVER_H_GHZ = 14.5
-E_C_OVER_H_GHZ = 0.290
-R_RECOMB_HZ = 6.25e6        # r^L = r^{R<}
-GAMMA_EE_10_HZ = 100e3      # Γ̃^ee_10
-GAMMA_PH_00_HZ = 300.0      # Γ̃^ph_00 — fixed across the T sweep
-
-# Photon drive (only Gamma_nu_scale_Hz is recalibrated at each T).
-DRIVE_TEMPLATE = M25PhotonDrive(
-    omega_nu_kelvin=119e9 * _H_OVER_KB,
-    Gamma_nu_scale_Hz=1.0,
-    nu_0_per_J_per_m3=0.73e47,
-    volume_m3=506e-6 * 240e-6 * 0.028e-6,
-)
-
-# T sweep range — bounded above by the M25 T̄ ≈ 150 mK crossover
-# and below by where the multi-seed helper still finds the
-# nonequilibrium branch.
-T_MIN_K = 0.010
-T_MAX_K = 0.150
-NUM_T_POINTS = 29   # 5 mK spacing
 
 # Panel-omega_LR pairs.
 PANEL_A_OMEGA_LR_GHZ = 0.5
@@ -141,169 +104,28 @@ class Fig3Result:
     panel_b: Fig3PanelResult   # ω_LR = 5.0 GHz
 
 
-def _make_params(omega_LR_GHz: float, T_kelvin: float) -> M25PhysicalParameters:
-    Delta_R_GHz = DELTA_R_OVER_H_GHZ
-    Delta_L_GHz = Delta_R_GHz + omega_LR_GHz
-    return M25PhysicalParameters(
-        Delta_L_kelvin=Delta_L_GHz * 1e9 * _H_OVER_KB,
-        Delta_R_kelvin=Delta_R_GHz * 1e9 * _H_OVER_KB,
-        omega_10_kelvin=OMEGA_10_OVER_H_GHZ * 1e9 * _H_OVER_KB,
-        T_kelvin=T_kelvin,
-        E_J_kelvin=E_J_OVER_H_GHZ * 1e9 * _H_OVER_KB,
-        E_C_kelvin=E_C_OVER_H_GHZ * 1e9 * _H_OVER_KB,
-        R_T_Hz=8.0 * E_J_OVER_H_GHZ * 1e9
-        * ((Delta_L_GHz + Delta_R_GHz) / 2.0 / Delta_L_GHz),
-        r_L_Hz=R_RECOMB_HZ,
-        r_Rlt_Hz=R_RECOMB_HZ,
-        Gamma_ee_10_Hz=GAMMA_EE_10_HZ,
-    )
-
-
-def _coefficients_at(omega_LR_GHz: float, T_kelvin: float) -> M25Coefficients:
-    params = _make_params(omega_LR_GHz, T_kelvin)
-    scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
-        params, DRIVE_TEMPLATE, GAMMA_PH_00_HZ,
-    )
-    drive = replace(DRIVE_TEMPLATE, Gamma_nu_scale_Hz=scale)
-    return coefficients_from_physical_parameters_with_photon_drive(params, drive)
-
-
-def _try_solve(
-    coefs: M25Coefficients,
-    *,
-    previous: np.ndarray | None = None,
-    extra_seeds: list[np.ndarray] | None = None,
-    expected_ordering: tuple[str, ...] | None = None,
-) -> M25SteadyState | None:
-    """Solve via the multi-seed helper, optionally warm-started.
-
-    Passing the previous-$T$ converged state as ``preferred_seed`` is
-    the prev-$T$ continuation seeding step that turns the otherwise
-    independent per-$T$ solves into a tracked sweep. We use
-    ``branch_picker_mode="lock_to_preferred"``: if the prev-$T$ seed
-    converges to a positive-density branch the picker keeps it
-    regardless of $x_L$ magnitude (fixing the load-bearing M25 Fig 3a
-    inversion where max-$x_L$ selected an inverted-ordering branch).
-    First-$T$ point with no preferred seed falls back to min-residual,
-    optionally constrained by ``expected_ordering`` so the analytic
-    T → 0 seed (M25 SI Eqs. S69-S71) anchors to the photon-driven
-    physical branch instead of the inverted-ordering high-x_L root.
-    """
-    try:
-        return solve_rate_equation_steady_state_multi_seed(
-            coefs, preferred_seed=previous,
-            extra_seeds=extra_seeds,
-            expected_ordering=expected_ordering,
-            branch_picker_mode="lock_to_preferred",
-        )
-    except RuntimeError:
-        return None
-
-
-def _T_bar_for_panel(omega_LR_GHz: float) -> float:
-    """Estimate T̄ at the panel's mid-sweep coefficients.
-
-    Used only for plot annotation (vertical dashed line + regime
-    shading boundaries). The exact T̄ varies weakly with the
-    coefficient bundle; the M25 Fig 3 caption parameters give ~150 mK.
-    """
-    coefs = _coefficients_at(omega_LR_GHz, 0.080)
-    Delta_R_kelvin = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
-    return crossover_temperature_kelvin(
-        Delta_R_kelvin=Delta_R_kelvin,
-        r_Rlt_rate_Hz=R_RECOMB_HZ,
-        g_photon_R_rate_Hz=max(coefs.g_Rlt, 1e-30),
-    )
-
-
 def _run_panel(omega_LR_GHz: float) -> Fig3PanelResult:
     T_sweep = np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
-    n = T_sweep.size
-    x_L = np.full(n, np.nan)
-    x_Rgt = np.full(n, np.nan)
-    x_Rlt = np.full(n, np.nan)
-    p_1 = np.full(n, np.nan)
+    # Branch-tracked sweep (photon-up + thermal-down composite); the
+    # Fig 3 parameter set has a unique root so the passes merge at
+    # every point — see the driver and module docstrings.
+    sweep = solve_panel_branch_sweep(omega_LR_GHz, T_sweep)
+    x_L = np.array([s.x_L for s in sweep.states])
+    x_Rgt = np.array([s.x_Rgt for s in sweep.states])
+    x_Rlt = np.array([s.x_Rlt for s in sweep.states])
+    p_1 = np.array([s.p_1 for s in sweep.states])
 
-    # Asymmetry-dependent ordering and analytic-seed case selection
-    # (paper Figs. S1, S2):
-    #   ω_LR/2π ≥ 1 GHz → large-asymmetry: x_R< ≫ x_L ≫ x_R> (SI Eqs. S69-S71)
-    #   ω_LR/2π <  1 GHz → small-asymmetry: ~all equal (SI Eqs. S64-S66, no
-    #                                             ordering filter)
-    if omega_LR_GHz >= 1.0:
-        analytic_case = "large_asymmetry"
-        expected_ordering: tuple[str, ...] | None = ("x_Rlt", "x_L", "x_Rgt")
-    else:
-        analytic_case = "small_asymmetry"
-        expected_ordering = None
-
-    last_y: np.ndarray | None = None
-    prev_prev_y: np.ndarray | None = None
-    for i, T_K in enumerate(T_sweep):
-        coefs = _coefficients_at(omega_LR_GHz, float(T_K))
-        # Analytic SI low-T seed only at the first (lowest-T) point —
-        # the closure assumptions of S64-S66 / S69-S71 are valid for
-        # T ≪ ω_LR (≪ T̄), so the seed is most reliable at the start of
-        # the sweep. Subsequent T points warm-start from the previous
-        # converged state, preserving branch identity.
-        extra_seeds: list[np.ndarray] | None = None
-        if i == 0:
-            seed = analytic_low_T_seed(coefs, float(T_K), case=analytic_case)
-            extra_seeds = [seed]
-        elif i >= 2 and prev_prev_y is not None and last_y is not None:
-            # Predictor step: linear extrapolation of the last two
-            # converged states to T[i]. The corrector is the multi-seed
-            # solve itself — passing y_pred as an extra_seeds entry lets
-            # the picker compete y_pred against the prev-T seed and the
-            # default seed grid. ``lock_to_preferred`` still keeps
-            # last_y when last_y converges, so the predictor only
-            # matters when continuation from last_y would lose the
-            # branch (the M25 Fig 3/4 ~70 mK spike case).
-            dT = T_sweep[i] - T_sweep[i - 1]
-            dT_prev = T_sweep[i - 1] - T_sweep[i - 2]
-            if dT_prev > 0.0:
-                y_pred = last_y + (last_y - prev_prev_y) * (dT / dT_prev)
-                # Keep the predictor on the physical side of the
-                # boundary (Newton's basin shrinks rapidly once a
-                # density crosses zero). Floor matches
-                # analytic_low_T_seed's clamp.
-                y_pred = np.array([
-                    float(np.clip(y_pred[0], 1e-12, 1.0 - 1e-12)),
-                    max(float(y_pred[1]), 1e-30),
-                    max(float(y_pred[2]), 1e-30),
-                    max(float(y_pred[3]), 1e-30),
-                ])
-                extra_seeds = [y_pred]
-        sol = _try_solve(
-            coefs, previous=last_y,
-            extra_seeds=extra_seeds,
-            expected_ordering=expected_ordering,
-        )
-        if sol is None:
-            raise RuntimeError(
-                f"M25 Fig 3 panel ω_LR={omega_LR_GHz} GHz: no seed yielded "
-                f"a positive-density solution at T = {T_K:.4f} K."
-            )
-        x_L[i] = sol.x_L
-        x_Rgt[i] = sol.x_Rgt
-        x_Rlt[i] = sol.x_Rlt
-        p_1[i] = sol.p_1
-        prev_prev_y = last_y
-        last_y = np.array([sol.p_1, sol.x_L, sol.x_Rgt, sol.x_Rlt])
-
-    Delta_L_GHz = DELTA_R_OVER_H_GHZ + omega_LR_GHz
-    Delta_L_K = Delta_L_GHz * 1e9 * _H_OVER_KB
-    Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
-    mu_L_GHz = (Delta_L_K + T_sweep * np.log(x_L)) / _H_OVER_KB / 1e9
-    mu_Rgt_GHz = (Delta_R_K + T_sweep * np.log(x_Rgt)) / _H_OVER_KB / 1e9
-    mu_Rlt_GHz = (Delta_R_K + T_sweep * np.log(x_Rlt)) / _H_OVER_KB / 1e9
+    mu_L_GHz, mu_Rgt_GHz, mu_Rlt_GHz = _chemical_potentials_GHz(
+        omega_LR_GHz, T_sweep, x_L, x_Rgt, x_Rlt,
+    )
 
     return Fig3PanelResult(
         omega_LR_GHz=omega_LR_GHz,
-        Delta_L_GHz=Delta_L_GHz,
+        Delta_L_GHz=DELTA_R_OVER_H_GHZ + omega_LR_GHz,
         T_kelvin=T_sweep,
         x_L=x_L, x_Rgt=x_Rgt, x_Rlt=x_Rlt, p_1=p_1,
         mu_L_GHz=mu_L_GHz, mu_Rgt_GHz=mu_Rgt_GHz, mu_Rlt_GHz=mu_Rlt_GHz,
-        T_bar_kelvin=_T_bar_for_panel(omega_LR_GHz),
+        T_bar_kelvin=_T_bar_estimate(omega_LR_GHz),
     )
 
 
@@ -323,18 +145,18 @@ def _baseline_dir() -> Path:
 
 
 def baseline_path_a() -> Path:
-    """Panel-a CSV path (qpsim-native suffix; see module docstring)."""
-    return _baseline_dir() / "m25_fig3a_qpsim_native.csv"
+    """Panel-a CSV path (paper-faithful reproduction)."""
+    return _baseline_dir() / "m25_fig3a_paper.csv"
 
 
 def baseline_path_b() -> Path:
-    """Panel-b CSV path (qpsim-native suffix; see module docstring)."""
-    return _baseline_dir() / "m25_fig3b_qpsim_native.csv"
+    """Panel-b CSV path (paper-faithful reproduction)."""
+    return _baseline_dir() / "m25_fig3b_paper.csv"
 
 
 def plot_path() -> Path:
-    """Combined two-panel PDF (qpsim-native suffix; see module docstring)."""
-    return _baseline_dir() / "m25_fig3_qpsim_native.pdf"
+    """Combined two-panel PDF (paper-faithful reproduction)."""
+    return _baseline_dir() / "m25_fig3_paper.pdf"
 
 
 def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
@@ -345,8 +167,9 @@ def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
         # trailing-whitespace warnings.
         writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 3 — qpsim-native μ_α(T) "
-            "with prev-T continuation seeding"
+            "# Marchegiani & Catelani 2025 Fig 3 — paper-target μ_α(T); "
+            "branch-continuation driver on the Γ̄-normalized moment system; "
+            "paper-exact μ inversion (SI Eqs. S2–S5)"
         ])
         writer.writerow([
             f"# omega_LR_GHz={panel.omega_LR_GHz:g}  "
@@ -399,7 +222,7 @@ def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig3PanelResult:
             rows.append([float(x) for x in line])
     if T_bar_kelvin is None:
         # Fallback for older CSVs without T̄ in the header.
-        T_bar_kelvin = _T_bar_for_panel(omega_LR_GHz)
+        T_bar_kelvin = _T_bar_estimate(omega_LR_GHz)
     data = np.array(rows, dtype=float)
     return Fig3PanelResult(
         omega_LR_GHz=omega_LR_GHz,
@@ -641,14 +464,10 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     ax_b.set_xlabel(r"$T$ [K]", fontsize=12)
 
     fig.suptitle(
-        "Marchegiani 2025 Fig 3 — μ_α(T) with prev-T continuation seeding\n"
+        "Marchegiani 2025 Fig 3 — μ_α(T), branch-continuation tracked\n"
         rf"$\Delta_R/h = {DELTA_R_OVER_H_GHZ:g}$ GHz, "
         rf"$\omega_{{10}}/(2\pi) = {OMEGA_10_OVER_H_GHZ:g}$ GHz, "
-        rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}} = {GAMMA_PH_00_HZ:g}$ Hz"
-        "\n"
-        "qpsim-native: bifurcation tracking is prev-T continuation only "
-        "(not full continuation); kinks near $\\bar T$ are heuristic, not "
-        "physics.",
+        rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}} = {GAMMA_PH_00_HZ:g}$ Hz",
         fontsize=10,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.93))
@@ -658,7 +477,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path, Path]:
-    print("M25 Fig 3 paper-target reproduction (qpsim-native artifact)")
+    print("M25 Fig 3 paper-target reproduction")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, "
           f"ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz (recalibrated at each T)")
@@ -667,8 +486,8 @@ def generate_baseline() -> tuple[Path, Path, Path]:
         f"{T_MIN_K * 1e3:.0f} → {T_MAX_K * 1e3:.0f} mK"
     )
     print(
-        "  Branch tracking: prev-T continuation seeding only (full "
-        "continuation/bifurcation tracker not yet implemented)."
+        "  Branch tracking: bidirectional continuation driver "
+        "(solve_rate_equation_branch); unique root — passes merge."
     )
     print(f"  Panel a (ω_LR = {PANEL_A_OMEGA_LR_GHZ} GHz) ...")
     panel_a = _run_panel(PANEL_A_OMEGA_LR_GHZ)

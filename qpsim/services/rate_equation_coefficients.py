@@ -751,6 +751,15 @@ def coefficients_from_physical_parameters_with_photon_drive(
       The resulting length-2 arrays populate ``g_ph_α_per_state`` so
       that the residual evaluates the population dependence self-
       consistently (``g(p) = p_0 · g[0] + p_1 · g[1]``).
+    * ``cooper_pair_number_R = 2 ν_0 Δ_R V`` — the density equations
+      (M25 Eqs. 4–6) run on the single-quasiparticle rates
+      ``Γ̄^α_{ij} = Γ̃^α_{ij}/N_CP(R)`` (M25 main text below Eq. 6);
+      the solver residual performs that division using this field.
+      The drive inputs carry ``ν_0`` and ``V``, so this builder is
+      the place where the normalization becomes known. (The plain
+      :func:`coefficients_from_physical_parameters` builder has no
+      ``ν_0 V`` inputs and leaves the field at its legacy default
+      ``1.0`` — do not use it for absolute-density M25 predictions.)
 
     Any photon-driven primitive fields on ``params``
     (``Gamma_ph_ij_Hz``, ``g_ph_α_Hz``) are **ignored** when this
@@ -879,6 +888,7 @@ def coefficients_from_physical_parameters_with_photon_drive(
         g_ph_L_per_state=g_ph_L_per_state,
         g_ph_Rgt_per_state=g_ph_Rgt_per_state,
         g_ph_Rlt_per_state=g_ph_Rlt_per_state,
+        cooper_pair_number_R=N_CP_R,
     )
 
 

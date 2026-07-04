@@ -8,27 +8,30 @@ Sweeps the bath temperature for the two M25 Fig 3 panels:
   (Δ_L/h = 54.0 GHz, Δ_R/h = 49.0 GHz)
 
 At each temperature recalibrate the photon drive to maintain
-``Γ̃^ph_00 = 300 Hz`` (the M25 Fig 3 caption value), solve the
-4-unknown moment system via the deterministic multi-seed helper
-:func:`qpsim.services.rate_equation.solve_rate_equation_steady_state_multi_seed`
-(``scipy.optimize.root(method='hybr')`` under the hood), and
-extract the chemical potentials
+``Γ̃^ph_00 = 300 Hz`` (the M25 Fig 3 caption value), track the
+4-unknown moment-system steady state with the deterministic
+branch-continuation driver
+:func:`qpsim.services.rate_equation.solve_rate_equation_branch`
+(photon branch continued upward from the SI low-T analytic seed,
+thermal branch continued downward from the full-equilibrium seed,
+composite per the driver's documented exchange rule), and extract
+the chemical potentials with the paper-exact density inversions
+(arXiv 2408.17218 Eqs. 10–13 / published SI Eqs. S2–S5):
 
-    μ_α = Δ_α + T · log(x_α)
+    μ_L    = Δ_L + T · log( x_L    √(Δ_L/2πT) )
+    μ_{R>} = Δ_R + T · log( x_{R>} √(Δ_R/2πT) / erfc√(ω_LR/T) )
+    μ_{R<} = Δ_R + T · log( x_{R<} √(Δ_R/2πT) / erf √(ω_LR/T) )
 
-(M25 main text, "Chemical potentials vs temperature" subsection).
-
-Branch selection: the M25 4-unknown system is multi-stable. The
-sweep delegates to
-:func:`qpsim.services.rate_equation.solve_rate_equation_steady_state_multi_seed`,
-which tries the default ``√(g_eff/r)`` seed plus a hand-tuned x
-grid (and the previous T's solution as a continuation seed) and
-returns the converged positive-density candidate with the largest
-``x_L`` (the photon-driven nonequilibrium branch). The previous-T
-solution is preferred over max-x_L when both lie within 5× of
-each other, providing branch continuity across small T changes;
-larger jumps are real bifurcations of the underlying M25 system
-and show up as visible kinks in the plot.
+Branch selection: with the single-quasiparticle normalization of the
+density equations (``M25Coefficients.cooper_pair_number_R``; M25 text
+below Eq. 6) the system has a **unique physical root** at every
+temperature of the Fig 3 sweep — the photon-up and thermal-down
+passes converge to the same fixed point everywhere ("merged" labels)
+and the historical multi-stability scatter is gone. The bidirectional
+driver is kept because it is the honest guard: if a fold or genuine
+branch pair ever appears (other parameter sets), the composite curve
+switches branches at the documented exchange rule instead of silently
+jumping.
 
 Usage::
 
@@ -44,8 +47,10 @@ from pathlib import Path
 
 import numpy as np
 from qpsim.services.rate_equation import (
-    M25SteadyState,
-    solve_rate_equation_steady_state_multi_seed,
+    M25BranchSweep,
+    crossover_temperature_kelvin,
+    solve_rate_equation_branch,
+    thermal_equilibrium_seed,
 )
 from qpsim.services.rate_equation_coefficients import (
     M25Coefficients,
@@ -54,6 +59,7 @@ from qpsim.services.rate_equation_coefficients import (
     calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
     coefficients_from_physical_parameters_with_photon_drive,
 )
+from scipy.special import erf, erfc
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
 
@@ -74,13 +80,9 @@ DRIVE_TEMPLATE = M25PhotonDrive(
     volume_m3=506e-6 * 240e-6 * 0.028e-6,
 )
 
-# T sweep range — bounded above by the M25 T̄ ≈ 150 mK crossover
-# (beyond that the system is at thermal equilibrium and μ_α ≈ 0 with
-# numerical noise from competing near-equilibrium fixed points) and
-# below by where the hybr multi-seed helper still finds the
-# nonequilibrium branch from any seed (the very-low-T regime
-# exp(-Δ/T) → 0 stresses scipy's polynomial Newton even with
-# continuation).
+# T sweep range — matches the M25 Fig 3 plotted range up to the
+# T̄ ≈ 146 mK crossover (beyond that the system is at full thermal
+# equilibrium, μ_α ≈ 0).
 T_MIN_K = 0.010
 T_MAX_K = 0.150
 NUM_T_POINTS = 29   # 5 mK spacing
@@ -125,67 +127,125 @@ def _make_params(omega_LR_GHz: float, T_kelvin: float) -> M25PhysicalParameters:
     )
 
 
-def _coefficients_at(omega_LR_GHz: float, T_kelvin: float) -> M25Coefficients:
+def _coefficients_at(
+    omega_LR_GHz: float,
+    T_kelvin: float,
+    *,
+    gamma_ph_00_Hz: float = GAMMA_PH_00_HZ,
+) -> M25Coefficients:
+    """Coefficient bundle at (ω_LR, T) with per-T drive recalibration.
+
+    ``gamma_ph_00_Hz`` defaults to the Fig 3 caption value; the Fig 4
+    renormalized (dot-dashed) curves override it per the Fig. 4
+    caption (600 Hz).
+    """
     params = _make_params(omega_LR_GHz, T_kelvin)
     scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
-        params, DRIVE_TEMPLATE, GAMMA_PH_00_HZ,
+        params, DRIVE_TEMPLATE, gamma_ph_00_Hz,
     )
     drive = replace(DRIVE_TEMPLATE, Gamma_nu_scale_Hz=scale)
     return coefficients_from_physical_parameters_with_photon_drive(params, drive)
 
 
-def _try_solve(
-    coefs: M25Coefficients,
-    *,
-    previous: np.ndarray | None = None,
-) -> M25SteadyState | None:
-    """Pick the M25 photon-driven branch via the shared multi-seed helper.
+def _T_bar_estimate(omega_LR_GHz: float) -> float:
+    """M25 Eq. 8 Lambert-W crossover ``T̄`` from the photon generation.
 
-    When ``previous`` is supplied (the previous T point's solution
-    array ``[p_1, x_L, x_{R>}, x_{R<}]``), it's used as the
-    ``preferred_seed`` so the sweep tracks the same branch across
-    small T changes — the helper falls back to max-x_L only when
-    the previous branch has bifurcated away (drops by 5× or more).
+    ``g^ph_R`` is the photon-assisted generation rate in the low-gap
+    electrode, evaluated at ground-state qubit weighting (``p_0 ≈ 1``
+    below the crossover) with the drive calibration at a mid-sweep
+    temperature — the Fig 3 recalibration keeps ``Γ̃^ph_00`` fixed, so
+    the T dependence of ``g^ph_R`` is weak. For the Fig 3 caption
+    parameters this lands at T̄ ≈ 146 mK (both panels).
     """
-    try:
-        return solve_rate_equation_steady_state_multi_seed(
-            coefs, preferred_seed=previous,
-        )
-    except RuntimeError:
-        return None
+    coefs = _coefficients_at(omega_LR_GHz, 0.080)
+    g_ph_R = float(coefs.g_ph_Rlt_per_state[0] + coefs.g_ph_Rgt_per_state[0])
+    return crossover_temperature_kelvin(
+        Delta_R_kelvin=DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB,
+        r_Rlt_rate_Hz=R_RECOMB_HZ,
+        g_photon_R_rate_Hz=max(g_ph_R, 1e-300),
+    )
+
+
+def solve_panel_branch_sweep(
+    omega_LR_GHz: float, T_sweep: np.ndarray,
+) -> M25BranchSweep:
+    """Branch-tracked steady-state sweep for one Fig 3/4 panel.
+
+    Wires the panel's coefficient builder into
+    :func:`qpsim.services.rate_equation.solve_rate_equation_branch`:
+    photon branch seeded by the SI low-T analytics (case selected by
+    the panel's gap asymmetry, SI Note VI A/B), thermal branch seeded
+    by the full-equilibrium densities at the top of the sweep, and
+    the M25 Eq. 8 ``T̄`` estimate supplied as the exchange hint (only
+    consulted if the branches ever disagree — they do not for the
+    Fig 3 caption parameters, where the root is unique).
+    """
+    Delta_L_K = (DELTA_R_OVER_H_GHZ + omega_LR_GHz) * 1e9 * _H_OVER_KB
+    Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
+    case = "large_asymmetry" if omega_LR_GHz >= 1.0 else "small_asymmetry"
+    return solve_rate_equation_branch(
+        lambda T: _coefficients_at(omega_LR_GHz, T),
+        T_sweep,
+        photon_seed_case=case,
+        thermal_seed=thermal_equilibrium_seed(
+            Delta_L_kelvin=Delta_L_K,
+            Delta_R_kelvin=Delta_R_K,
+            omega_10_kelvin=OMEGA_10_OVER_H_GHZ * 1e9 * _H_OVER_KB,
+            T_kelvin=float(T_sweep[-1]),
+        ),
+        T_exchange_hint_kelvin=_T_bar_estimate(omega_LR_GHz),
+    )
+
+
+def _chemical_potentials_GHz(
+    omega_LR_GHz: float,
+    T_sweep: np.ndarray,
+    x_L: np.ndarray,
+    x_Rgt: np.ndarray,
+    x_Rlt: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""Paper-exact density → chemical-potential inversions, in GHz.
+
+    Inverts the M25 density formulas (arXiv 2408.17218 Eqs. 10, 12,
+    13 — published SI Eqs. S2, S4, S5):
+
+        μ_L    = Δ_L + T ln( x_L    √(Δ_L/2πT) )
+        μ_{R>} = Δ_R + T ln( x_{R>} √(Δ_R/2πT) / erfc√(ω_LR/T) )
+        μ_{R<} = Δ_R + T ln( x_{R<} √(Δ_R/2πT) / erf √(ω_LR/T) )
+
+    The erf/erfc partition factors matter: without them μ_{R>} is
+    understated by ``−T ln erfc√(ω_LR/T)`` (≈ 5 GHz at panel b's
+    10 mK), which flips the μ_{R>} vs μ_{R<} ordering relative to
+    the published figure. At full equilibrium all three → 0.
+    """
+    Delta_L_K = (DELTA_R_OVER_H_GHZ + omega_LR_GHz) * 1e9 * _H_OVER_KB
+    Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
+    omega_LR_K = omega_LR_GHz * 1e9 * _H_OVER_KB
+    sqrt_ratio = np.sqrt(omega_LR_K / T_sweep)
+    mu_L = Delta_L_K + T_sweep * np.log(
+        x_L * np.sqrt(Delta_L_K / (2.0 * np.pi * T_sweep))
+    )
+    mu_Rgt = Delta_R_K + T_sweep * np.log(
+        x_Rgt * np.sqrt(Delta_R_K / (2.0 * np.pi * T_sweep)) / erfc(sqrt_ratio)
+    )
+    mu_Rlt = Delta_R_K + T_sweep * np.log(
+        x_Rlt * np.sqrt(Delta_R_K / (2.0 * np.pi * T_sweep)) / erf(sqrt_ratio)
+    )
+    to_GHz = 1.0 / _H_OVER_KB / 1e9
+    return mu_L * to_GHz, mu_Rgt * to_GHz, mu_Rlt * to_GHz
 
 
 def _run_panel(omega_LR_GHz: float) -> Fig3PanelResult:
     T_sweep = np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
-    n = T_sweep.size
-    x_L = np.full(n, np.nan)
-    x_Rgt = np.full(n, np.nan)
-    x_Rlt = np.full(n, np.nan)
-    p_1 = np.full(n, np.nan)
+    sweep = solve_panel_branch_sweep(omega_LR_GHz, T_sweep)
+    x_L = np.array([s.x_L for s in sweep.states])
+    x_Rgt = np.array([s.x_Rgt for s in sweep.states])
+    x_Rlt = np.array([s.x_Rlt for s in sweep.states])
+    p_1 = np.array([s.p_1 for s in sweep.states])
 
-    last_y: np.ndarray | None = None
-    for i, T_K in enumerate(T_sweep):
-        coefs = _coefficients_at(omega_LR_GHz, float(T_K))
-        sol = _try_solve(coefs, previous=last_y)
-        if sol is None:
-            raise RuntimeError(
-                f"M25 Fig 3 panel ω_LR={omega_LR_GHz} GHz: no seed yielded "
-                f"a positive-density solution at T = {T_K:.4f} K."
-            )
-        x_L[i] = sol.x_L
-        x_Rgt[i] = sol.x_Rgt
-        x_Rlt[i] = sol.x_Rlt
-        p_1[i] = sol.p_1
-        last_y = np.array([sol.p_1, sol.x_L, sol.x_Rgt, sol.x_Rlt])
-
-    # Chemical potentials. μ_α = Δ_α + T · log(x_α). Convert to GHz/(2π) by
-    # dividing by h_over_kB = 1/(h/k_B). At full equilibrium x_α →
-    # x_α^thermal so μ_α → 0; at low T with photon drive μ_α > 0.
-    Delta_L_K = (DELTA_R_OVER_H_GHZ + omega_LR_GHz) * 1e9 * _H_OVER_KB
-    Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
-    mu_L_GHz = (Delta_L_K + T_sweep * np.log(x_L)) / _H_OVER_KB / 1e9
-    mu_Rgt_GHz = (Delta_R_K + T_sweep * np.log(x_Rgt)) / _H_OVER_KB / 1e9
-    mu_Rlt_GHz = (Delta_R_K + T_sweep * np.log(x_Rlt)) / _H_OVER_KB / 1e9
+    mu_L_GHz, mu_Rgt_GHz, mu_Rlt_GHz = _chemical_potentials_GHz(
+        omega_LR_GHz, T_sweep, x_L, x_Rgt, x_Rlt,
+    )
 
     return Fig3PanelResult(
         omega_LR_GHz=omega_LR_GHz,
@@ -230,8 +290,9 @@ def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
         # trailing-whitespace warnings.
         writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 3 — μ_α(T) full rate-eq; "
-            "pinned by qpsim"
+            "# Marchegiani & Catelani 2025 Fig 3 — μ_α(T) full rate-eq "
+            "(branch-continuation driver; Γ̄-normalized density eqs; "
+            "paper-exact μ inversion); pinned by qpsim"
         ])
         writer.writerow([
             f"# omega_LR_GHz={panel.omega_LR_GHz:g}  "

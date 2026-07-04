@@ -1,12 +1,13 @@
 """Regression test: M25 Fig 3 paper-target run matches the pinned baseline.
 
-Slow-marked — the two-panel sweep at 29 temperatures with multi-seed
-hybr solves takes a few minutes. Opt in with ``pytest -m slow``.
+Fast since the branch-continuation driver landed: the two-panel sweep
+at 29 temperatures is a few seconds of warm-started Newton solves on
+the well-conditioned (Γ̄-normalized) moment system, so this runs in
+the default gate.
 
-Tolerance is qualitative-trend (rtol=2e-2) because the existing M25
-Fig 3 reproduction sits at ~2% paper agreement and the prev-T
-continuation seeding does not algorithmically smooth high-T
-bifurcation kinks (see :mod:`fig3_paper` module docstring).
+Tolerance is tight (rtol=1e-6): the driver is deterministic and the
+tracked root is unique with residuals ~1e-12 Hz; the strict pin is a
+same-platform regression gate (see ``skip_unless_pinned_here``).
 
 First-time generation::
 
@@ -27,8 +28,6 @@ from validation.marchegiani_2025.fig3_paper import (
     read_baseline,
     run,
 )
-
-pytestmark = pytest.mark.slow
 
 
 def test_matches_pinned_baseline() -> None:
@@ -52,39 +51,38 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Densities — qualitative-trend rtol matching the ~2% paper
-        # agreement of the underlying multi-seed solve. Tighter than
-        # paper but looser than per-x machine pin so we don't trip on
-        # scipy hybr iteration noise.
+        # Densities — tight pins: the branch driver is deterministic
+        # and the tracked root is unique (residuals ~1e-12 Hz), so any
+        # drift beyond 1e-6 is a real regression (or a scipy-version
+        # behavior change worth noticing).
         np.testing.assert_allclose(
-            actual.x_L, expected.x_L, rtol=2e-2,
+            actual.x_L, expected.x_L, rtol=1e-6,
             err_msg=f"{panel_name}: x_L drifted",
         )
         np.testing.assert_allclose(
-            actual.x_Rgt, expected.x_Rgt, rtol=2e-2,
+            actual.x_Rgt, expected.x_Rgt, rtol=1e-6,
             err_msg=f"{panel_name}: x_Rgt drifted",
         )
         np.testing.assert_allclose(
-            actual.x_Rlt, expected.x_Rlt, rtol=2e-2,
+            actual.x_Rlt, expected.x_Rlt, rtol=1e-6,
             err_msg=f"{panel_name}: x_Rlt drifted",
         )
         np.testing.assert_allclose(
-            actual.p_1, expected.p_1, rtol=2e-2,
+            actual.p_1, expected.p_1, rtol=1e-6,
             err_msg=f"{panel_name}: p_1 drifted",
         )
-        # Chemical potentials are derived μ_α = Δ_α + T·log(x_α);
-        # absolute tolerance is set by Δ_α (~50 GHz) and the rtol on
-        # x_α propagates through T·log(x_α).
+        # Chemical potentials are derived from x_α via the SI Eqs.
+        # S2–S5 inversions; the log compresses the density rtol.
         np.testing.assert_allclose(
-            actual.mu_L_GHz, expected.mu_L_GHz, atol=0.5, rtol=2e-2,
+            actual.mu_L_GHz, expected.mu_L_GHz, atol=1e-3, rtol=1e-6,
             err_msg=f"{panel_name}: mu_L_GHz drifted",
         )
         np.testing.assert_allclose(
-            actual.mu_Rgt_GHz, expected.mu_Rgt_GHz, atol=0.5, rtol=2e-2,
+            actual.mu_Rgt_GHz, expected.mu_Rgt_GHz, atol=1e-3, rtol=1e-6,
             err_msg=f"{panel_name}: mu_Rgt_GHz drifted",
         )
         np.testing.assert_allclose(
-            actual.mu_Rlt_GHz, expected.mu_Rlt_GHz, atol=0.5, rtol=2e-2,
+            actual.mu_Rlt_GHz, expected.mu_Rlt_GHz, atol=1e-3, rtol=1e-6,
             err_msg=f"{panel_name}: mu_Rlt_GHz drifted",
         )
 

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from qpsim.observables.density import qp_fraction
+
 from validation.transient.photon_kick_response import (
     DELTA_0,
     baseline_path,

@@ -54,6 +54,27 @@ def test_matches_pinned_baseline() -> None:
         )
 
 
+def test_gamma_P_curves_smooth_no_multistability_scatter() -> None:
+    """The historical panel-(a) multi-stability scatter is gone: with
+    the branch-continuation driver on the Γ̄-normalized system the
+    Γ_P(T) curves are smooth. Enforce via a log-slope bound between
+    adjacent 5 mK points (branch jumps produced order-of-magnitude
+    spikes, dlog10 ≈ 1; genuine physics — including the paper's
+    low-T nonmonotonic dip on panel a and the steep thermal upturn
+    at the top of the sweep — stays below dlog10 ≈ 0.14)."""
+    if not (baseline_path_a().exists() and baseline_path_b().exists()):
+        pytest.skip("Baseline missing.")
+
+    baseline = read_baseline()
+    for panel in (baseline.panel_a, baseline.panel_b):
+        dlog = np.abs(np.diff(np.log10(panel.Gamma_P_Hz)))
+        assert float(dlog.max()) < 0.2, (
+            f"ω_LR={panel.omega_LR_GHz}: Γ_P jumps by "
+            f"10^{dlog.max():.2f} between adjacent T points — "
+            "multi-stability scatter regression"
+        )
+
+
 def test_panel_b_ratio_increases_with_T() -> None:
     """M25 paper: the excitation/relaxation ratio Γ̃^eo_01/Γ̃^eo_10
     rises with T toward the photon-limited fixed value (≈ 0.13 from

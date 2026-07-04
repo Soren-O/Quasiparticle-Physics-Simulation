@@ -1,16 +1,24 @@
 """Branch-jump-tolerant baseline comparison for the M25 pin tests.
 
-The M25 moment system is multi-stable and the multi-seed picker's
-fixed-point selection is platform-sensitive (BLAS rounding steers
-hybr/lm convergence): isolated temperature points can land on a
-different branch of the flat valley on another machine, with
-order-of-magnitude deviations that carry no physics content. A
-per-point ``assert_allclose`` therefore cannot be cross-platform
-stable at any useful tolerance. Instead require (a) the majority of
-sweep points to match the pin within ``(rtol, atol)`` and (b) a small
-median relative deviation — a systematic shift (coefficient or solver
-bug) moves every point and fails both criteria, while a few branch
-jumps fail neither.
+Historical rationale: with the density equations run on the ensemble
+``Γ̃`` rates (the pre-``cooper_pair_number_R`` normalization) the M25
+moment system was pathologically ill-conditioned — a float64-flat
+valley of pseudo-roots whose selection was platform-sensitive (BLAS
+rounding steered hybr/lm convergence), so isolated temperature points
+could land orders of magnitude apart across machines and a per-point
+``assert_allclose`` could not be cross-platform stable. The tolerant
+criterion here — (a) a majority of sweep points within ``(rtol,
+atol)`` and (b) a small median relative deviation — passes a few
+branch jumps while still failing on any systematic shift.
+
+Current status: the branch-continuation driver
+(``qpsim.services.rate_equation.solve_rate_equation_branch``) plus the
+single-quasiparticle Γ̄ normalization removed the noise this module
+guards against — the tracked root is unique and solves land at
+residuals ~1e-12 Hz, so run-to-run and (expected) cross-platform
+scatter is at rounding level. The tolerant comparison is retained as
+cheap insurance against scipy-version drift; the ``pinned_on``
+platform stamp still gates the strict pins to the generating machine.
 """
 
 from __future__ import annotations

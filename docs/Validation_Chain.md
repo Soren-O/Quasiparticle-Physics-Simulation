@@ -49,11 +49,20 @@ documented tolerance tier.
 
 ### Marchegiani 2025 (`validation/marchegiani_2025/`)
 
+All sweeps run through the branch-continuation driver
+(`qpsim.services.rate_equation.solve_rate_equation_branch`) on the
+Γ̄-normalized density equations (2026-07-04); the historical
+multi-stability noise was a conditioning artifact of the missing
+`Γ̄ = Γ̃/N_CP(R)` normalization and is gone. All fast — the whole
+directory runs in the default gate (~15 s).
+
 | Figure | Module | Status |
 |---|---|---|
 | Eq. 8 Lambert-W T̄ | `fig3_crossover_temperature.py` | closed-form, machine precision |
-| Fig 3, μ_α vs T (small + large gap asymmetry) | `fig3_chemical_potentials.py` | both panels match qualitatively; quantitative within ~5% of paper at the cited reference T |
-| Fig 4, Γ_P, Γ̃^eo_01/Γ̃^eo_10 vs T | `fig4_parity_rates.py` | qualitative trends pinned at rtol=5e-2; panel a has multi-stability noise from competing M25 fixed points (max-x_L branch picker). Paper-grade smoothness needs a proper bifurcation tracker — outstanding gap. |
+| Fig 3, μ_α vs T (small + large gap asymmetry) | `fig3_chemical_potentials.py` | matches the published curves (paper-exact μ inversions, SI Eqs. S2–S5): panel a merged μ_α linear from 0.94 to 0 at T̄ ≈ 146 mK; panel b ordering μ_L ≳ μ_R> > μ_R< with the R-band merge at ~50 mK; smooth through the crossover |
+| Fig 3, paper-styled panels + insets | `fig3_paper.py` | paper-faithful artifacts `m25_fig3{a,b}_paper.csv` / `m25_fig3_paper.pdf`; strict same-platform pin at rtol=1e-6 |
+| Fig 4, Γ_P, Γ̃^eo_01/Γ̃^eo_10 vs T | `fig4_parity_rates.py` | smooth curves incl. the paper's low-T nonmonotonic dip (panel a); smoothness enforced (max adjacent |Δlog10 Γ_P| < 0.2); strict same-platform pin via robust comparison |
+| Fig 4, paper-styled two-stack with comparison models | `fig4_paper.py` | paper-faithful `m25_fig4_paper.{csv,pdf}`: full model + global-quasiequilibrium reduction (density ratios per SI Note 1 last paragraph; total-density closure summing Eqs. 4–6; generation per Eq. 7) + renormalized global-QE (Fig. 4 caption parameters Γ^ph_00 = 600 Hz, ω_LR/2π = 6 GHz; large-asymmetry family only) + exp(−ω_10/T) dotted reference; strict pin rtol=1e-6 |
 
 ### Transient (`validation/transient/`)
 

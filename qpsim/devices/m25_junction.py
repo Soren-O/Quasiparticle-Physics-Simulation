@@ -148,11 +148,14 @@ class M25GapAsymmetricJJ(Junction):
     branch_picker_mode
         Fixed-point selection mode forwarded to
         :func:`solve_rate_equation_steady_state_multi_seed`. The
-        default ``"max_x_L"`` matches the historical baselines but is
-        **documented to pick the wrong branch for large gap asymmetry**
-        (M25 Fig 3b/4b regime, ~600× parity-rate inflation) — pass
-        ``"min_residual"`` (with ``expected_ordering`` if applicable)
-        for large-asymmetry junctions; see the solver docstring.
+        default ``"min_residual"`` selects the true fixed point —
+        with the single-quasiparticle normalization of the density
+        equations (``M25Coefficients.cooper_pair_number_R``, set by
+        the Note-V builder used here) the M25 system has a unique
+        physical root and this mode finds it. The legacy
+        ``"max_x_L"`` mode reproduces pre-normalization-fix baselines
+        only (it can pick sub-1-Hz pseudo-roots on the recombination
+        slope); see the solver docstring.
     expected_ordering
         Optional moment-ordering hint forwarded to the solver
         (used by ``"min_residual"``/``"lock_to_preferred"`` modes).
@@ -168,7 +171,7 @@ class M25GapAsymmetricJJ(Junction):
     region_b: str
     m25_params: M25PhysicalParameters
     m25_drive: M25PhotonDrive
-    branch_picker_mode: str = "max_x_L"
+    branch_picker_mode: str = "min_residual"
     expected_ordering: tuple[str, ...] | None = None
     # M25's external_flux already aggregates the moment-integrated
     # e-ph dissipation (g_α generation by thermal phonons + r_α x_α²
@@ -342,10 +345,14 @@ class M25GapAsymmetricJJ(Junction):
         x_Rlt = moment.x_Rlt
 
         # ── Per-region moment rates (M25 Eqs. 4-6 in Stage A form) ─
+        # The density equations run on the single-quasiparticle rates
+        # Γ̄ = Γ̃ / N_CP(R) (M25 text below Eq. 6) — same convention
+        # as qpsim.services.rate_equation._rate_equation_residual.
+        # The qubit channels below keep the ensemble Γ̃ rates.
         delta = coefs.delta
-        gammas_L = coefs.gammas_L
-        gammas_Rgt = coefs.gammas_Rgt
-        gammas_Rlt = coefs.gammas_Rlt
+        gammas_L = coefs.gammas_L / coefs.cooper_pair_number_R
+        gammas_Rgt = coefs.gammas_Rgt / coefs.cooper_pair_number_R
+        gammas_Rlt = coefs.gammas_Rlt / coefs.cooper_pair_number_R
 
         # Bookkeeping objects (Stage A residual)
         T_L = (gammas_L[0, 0] + gammas_L[0, 1]) * p_0 + (gammas_L[1, 1] + gammas_L[1, 0]) * p_1

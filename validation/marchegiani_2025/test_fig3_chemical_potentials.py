@@ -39,9 +39,11 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Raw moments sit on the multi-stable flat valley — robust
-        # (majority + median) comparison, not per-point pins; see
-        # validation/marchegiani_2025/_robust.py.
+        # Robust (majority + median) comparison retained for cross-
+        # scipy-version headroom; with the branch-continuation driver
+        # and the Γ̄-normalized (well-conditioned) density equations
+        # the historical branch-selection noise this guarded against
+        # is gone — see validation/marchegiani_2025/_robust.py.
         assert_robust_match(actual.x_L, expected.x_L, f"{panel_name}: x_L")
         assert_robust_match(
             actual.x_Rgt, expected.x_Rgt, f"{panel_name}: x_Rgt"
@@ -69,11 +71,10 @@ def test_matches_pinned_baseline() -> None:
 
 
 def test_panel_a_low_T_chemical_potential_matches_paper() -> None:
-    """At T = 20 mK with ω_LR = 0.5 GHz the M25 paper Fig 3a places
-    μ_L just below Δ_L (~44 GHz). The driver's max-x_L branch picker
-    can land on a slightly different x fixed point than the M25
-    junction's default-seed picker (multi-stability in the moment
-    system), but both yield μ_L within ~5% of the paper value."""
+    """At T = 20 mK with ω_LR = 0.5 GHz the paper Fig 3a (arXiv
+    2408.17218) shows the merged μ_α/Δ_L curve at ≈ 0.87 — i.e.
+    μ_L ≈ 43 GHz. The unique root of the Γ̄-normalized system gives
+    0.872·Δ_L; pin a ±1 GHz band around it."""
     if not baseline_path_a().exists():
         pytest.skip("Baseline missing; see test_matches_pinned_baseline.")
 
@@ -81,12 +82,9 @@ def test_panel_a_low_T_chemical_potential_matches_paper() -> None:
     panel_a = baseline.panel_a
     idx = int(np.argmin(np.abs(panel_a.T_kelvin - 0.020)))
     np.testing.assert_allclose(panel_a.T_kelvin[idx], 0.020, atol=1e-9)
-    # Paper Fig 3a places μ_L just below Δ_L = 49.5 GHz at T=20 mK.
-    # 40-48 GHz is comfortably inside the paper's reading range and
-    # rules out the equilibrium branch (μ ≈ 0) or any far-off branch.
-    assert 40.0 < panel_a.mu_L_GHz[idx] < 48.0, (
+    assert 42.2 < panel_a.mu_L_GHz[idx] < 44.2, (
         f"μ_L at T=20mK = {panel_a.mu_L_GHz[idx]:.2f} GHz, "
-        "expected 40-48 GHz (paper Fig 3a)"
+        "expected ≈ 43.2 GHz (0.87·Δ_L, paper Fig 3a)"
     )
 
 

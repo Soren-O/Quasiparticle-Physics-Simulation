@@ -457,49 +457,62 @@ class TestResidualPopulationDependence:
 
 
 class TestSolverToleranceGuard:
-    """At M25 Fig 3 inputs the moment system is multi-stable. The
-    default seed lands on an unphysical (negative-density) branch
-    with the current ``root(method='hybr')`` solver; the multi-seed
-    helper recovers a physical fixed point. These tests pin both the
-    rejection and the recovery paths.
+    """M25 Fig 3 inputs through the strict solver.
+
+    With the single-quasiparticle normalization of the density
+    equations (``cooper_pair_number_R`` set by the Note-V builder;
+    M25 text below Eq. 6) the Fig 3a system is well conditioned and
+    has a unique physical root: the default seed converges cleanly,
+    and the multi-seed helper agrees with the direct solve. The
+    legacy Γ̄ = Γ̃ normalization (``cooper_pair_number_R = 1``) is
+    pinned as a regression: it still fails the strict residual gate.
     """
 
-    def test_fig3_default_seed_raises(self) -> None:
-        # Fig 3a Note V coefficients with the default initial guess
-        # converge to a negative-density branch — unphysical, the
-        # solver must raise rather than return it.
+    def _fig3a_coefs(self) -> M25Coefficients:
         params = _fig3a_params()
         drive_template = _fig3a_drive()
         scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
             params, drive_template, 300.0
         )
-        coefs = coefficients_from_physical_parameters_with_photon_drive(
+        return coefficients_from_physical_parameters_with_photon_drive(
             params, replace(drive_template, Gamma_nu_scale_Hz=scale)
         )
-        from qpsim.services.rate_equation import solve_rate_equation_steady_state
-        with pytest.raises(RuntimeError, match="negative quasiparticle"):
-            solve_rate_equation_steady_state(coefs)
 
-    def test_fig3_multi_seed_helper_recovers_physical(self) -> None:
-        # The multi-seed helper tries a grid of initial guesses and
-        # returns the max-x_L positive-density solution. At Fig 3a
-        # this is the M25 paper's photon-driven nonequilibrium
-        # branch (x_L ~ 5e-6).
-        params = _fig3a_params()
-        drive_template = _fig3a_drive()
-        scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
-            params, drive_template, 300.0
-        )
-        coefs = coefficients_from_physical_parameters_with_photon_drive(
-            params, replace(drive_template, Gamma_nu_scale_Hz=scale)
-        )
-        from qpsim.services.rate_equation import (
-            solve_rate_equation_steady_state_multi_seed,
-        )
-        ss = solve_rate_equation_steady_state_multi_seed(coefs)
-        assert ss.x_L > 1e-6
+    def test_fig3_default_seed_converges_to_unique_root(self) -> None:
+        coefs = self._fig3a_coefs()
+        from qpsim.services.rate_equation import solve_rate_equation_steady_state
+        ss = solve_rate_equation_steady_state(coefs)
+        # Unique physical root at 30 mK: x_L ≈ 5.3e-8 (paper Sec.
+        # II.4: x_L ≈ x_R> + x_R< ≈ √(g^ph_R / r^L) for small ω_LR).
+        assert ss.x_L == pytest.approx(5.28e-8, rel=5e-2)
         assert ss.x_Rgt > 0.0 and ss.x_Rlt > 0.0
         assert 0.0 < ss.p_1 < 1e-2
+
+    def test_fig3_legacy_normalization_raises(self) -> None:
+        # Regression for the pre-fix behavior: with Γ̄ = Γ̃ (~1e10 Hz)
+        # in the density equations the residual sits at the float64
+        # cancellation floor / lands on unphysical branches, and the
+        # strict solver must raise rather than return a pseudo-root.
+        coefs = self._fig3a_coefs()
+        legacy = replace(coefs, cooper_pair_number_R=1.0)
+        from qpsim.services.rate_equation import solve_rate_equation_steady_state
+        with pytest.raises(RuntimeError):
+            solve_rate_equation_steady_state(legacy)
+
+    def test_fig3_multi_seed_helper_agrees_with_direct_solve(self) -> None:
+        # min_residual multi-seed picking must land on the same
+        # unique root as the direct default-seed solve.
+        coefs = self._fig3a_coefs()
+        from qpsim.services.rate_equation import (
+            solve_rate_equation_steady_state,
+            solve_rate_equation_steady_state_multi_seed,
+        )
+        direct = solve_rate_equation_steady_state(coefs)
+        multi = solve_rate_equation_steady_state_multi_seed(coefs)
+        assert multi.x_L == pytest.approx(direct.x_L, rel=1e-6)
+        assert multi.x_Rgt == pytest.approx(direct.x_Rgt, rel=1e-6)
+        assert multi.x_Rlt == pytest.approx(direct.x_Rlt, rel=1e-6)
+        assert multi.p_1 == pytest.approx(direct.p_1, rel=1e-6)
 
 
 class TestBackwardCompatibility:

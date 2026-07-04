@@ -203,7 +203,7 @@ solver not yet wired into the spatial path (verify current status at drafting ti
 | 3 | F23 Figs. 5+6 panel: x_qp sweeps + gap observable | `fig5_paper.py`, `fig6_gap_suppression.py` | PAPER-PARITY GAPS — Eq. 47 overlay placeholder; fig6 ordinate + Eq. 53 overlay |
 | 4 | MKID chain: Q_i(T_B) and Q_i(P_read) | `fig7_with_drive.py`, `figs_9_13_qi_vs_pread.py` | model-only framing OK for this paper |
 | 5 | F24 PB-photon f(E) + Neumann overlays; x_qp(T_B) | `validation/fischer_2024/*.py` | ONGOING — overlays + Hz/ns⁻¹ unit audit |
-| 6 | M25 junction: T̄(g^ph) Lambert-W + μ_α(T) + Γ_P(T) | `validation/marchegiani_2025/*.py` | fig3/fig4 need branch tracking for paper-grade smoothness |
+| 6 | M25 junction: T̄(g^ph) Lambert-W + μ_α(T) + Γ_P(T) | `validation/marchegiani_2025/*.py` | done 2026-07-04 — Γ̄ normalization fix + `solve_rate_equation_branch`; curves match published figures (linear μ to T̄ ≈ 146 mK, Γ_P low-T dip) |
 | 7 | One operator benchmark (self-consistent feedback well) | `validation/diffusion_operators/self_consistent_feedback.py` | done (Paper 1 Fig. 5); re-render, don't reuse the exact Paper 1 figure |
 | 8 | Al-strip device study: δf_r / Q_i vs (τ_l, D₀) | `scripts/run_prelim_*.py` | rerun on current main; prelim numbers exist |
 | 9 | Transient photon kick f(E,t), x_qp(t) → steady state | `validation/transient/photon_kick_response.py` | needs paired regression test first |
@@ -223,8 +223,13 @@ Blocking for their figures (from `qpsim_validation_plan` status tags + 2026-07-0
    figure's dashed overlay.
 4. F24 Figs. 5/8: Neumann-series + analytic-density overlays; pin the Hz ↔ ns⁻¹ unit audit
    into the paired regression tests.
-5. M25 Figs. 3/4: replace max-x_L branch picker with continuation/bifurcation tracking
-   (also the round-3 "honest caveats" item); add comparison-model curves for Fig. 4(b).
+5. ~~M25 Figs. 3/4~~ done 2026-07-04, and bigger than planned: the "multi-stability" was a
+   Γ̄ = Γ̃/N_CP(R) normalization bug in the density equations (M25 text below Eq. 6); with
+   the fix the root is unique. `solve_rate_equation_branch` (continuation driver) shipped,
+   real global-QE + renormalized comparison models implemented, all baselines regenerated,
+   corrected anchors documented in STATUS.md. Paper §5 must cite the corrected agreement
+   (μ linear to T̄ ≈ 146 mK; Γ_P ≈ 1.7 kHz @ 10 mK vs paper ~1.9), not the old pseudo-root
+   numbers.
 6. Transient demo: add the paired regression test (flagged in `Validation_Chain.md`).
 7. Rerun the prelim sweep campaigns (§6 figures) on current main — prelim numbers predate
    the ×2 recombination fix and the 2026-07 fixes, so all demo numbers must be regenerated.

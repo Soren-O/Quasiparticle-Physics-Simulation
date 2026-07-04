@@ -1,5 +1,5 @@
-# Marchegiani & Catelani 2025 Fig 3 — μ_α(T) full rate-eq (branch-continuation driver; Γ̄-normalized density eqs; paper-exact μ inversion); pinned by qpsim
-# omega_LR_GHz=0.5  Delta_R_GHz=49  omega_10_GHz=5.5  Gamma_ph_00_Hz=300
+# Marchegiani & Catelani 2025 Fig 3 — paper-target μ_α(T); branch-continuation driver on the Γ̄-normalized moment system; paper-exact μ inversion (SI Eqs. S2–S5)
+# omega_LR_GHz=0.5  Delta_L_GHz=49.5  Delta_R_GHz=49  omega_10_GHz=5.5  Gamma_ph_00_Hz=300  T_bar_kelvin=1.458210e-01
 # pinned_on: win32
 T_kelvin,x_L,x_Rgt,x_Rlt,p_1,mu_L_GHz,mu_Rgt_GHz,mu_Rlt_GHz
 1.00000000000000002e-02,6.48483094296488287e-08,2.18020407593140780e-08,3.65827805409973032e-08,8.31051189754395433e-04,4.64297370240883396e+01,4.64430892527440591e+01,4.58154140082341996e+01

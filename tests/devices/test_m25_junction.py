@@ -707,38 +707,32 @@ class TestM25NoDoubleCounting:
         p_per_level = p.sum(axis=1) if p.ndim == 2 else p
         p_1 = float(p_per_level[1])
 
-        # 20% relative tolerance. Reference values from the multi-seed
-        # branch picker (Phase 5c, eighth-session lm-augmented picker).
-        # The M25 4-variable system has many fixed points with similar
-        # μ_L; the picker selects the max-x_L candidate from both hybr
-        # (stalled-at-cancellation-floor) and lm (true low-residual
-        # fixed point) solvers, which lands at higher x_L than paper's
-        # specific branch (paper x_L = 5.17e-6) — but the plotted
-        # quantity μ_L/Δ_L = 0.9067 matches paper's ≈0.91 at this T
-        # to within 0.4%. The 3× gap on the moment quantities reflects
-        # M25's multi-stability, not a coefficient or solver bug. The
-        # exact landing point within the flat valley is additionally
-        # platform-sensitive (e.g. x_Rlt lands 6% away on Windows with
-        # the same numpy/scipy versions), so the moment pins are wide
-        # order-of-branch checks; μ_L/Δ_L below is the tight physics
-        # gate.
-        np.testing.assert_allclose(x_L,   1.545e-05, rtol=2e-1)
-        np.testing.assert_allclose(x_Rgt, 6.258e-06, rtol=2e-1)
-        np.testing.assert_allclose(x_Rlt, 5.849e-07, rtol=2e-1)
-        np.testing.assert_allclose(p_1,   1.436e-04, rtol=2e-1)
+        # Reference values: the unique physical root of the correctly
+        # normalized M25 system (Γ̄ = Γ̃ / N_CP(R) in the density
+        # equations, M25 text below Eq. 6) at Fig 3a, T = 20 mK.
+        # These match the paper's own small-asymmetry description
+        # (Sec. II.4: x_L ≈ x_R> + x_R< ≈ √(g^ph_R / r^L) ≈ 6e-8).
+        # The historical pins (x_L = 1.5e-5 etc.) were sub-1-Hz
+        # pseudo-roots on the recombination slope, admitted by the
+        # legacy Γ̄ = Γ̃ normalization plus the max-x_L picker; they
+        # are gone with the normalization fix. 10% tolerance covers
+        # the moment-extraction discretization of the region grid.
+        np.testing.assert_allclose(x_L,   5.583e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rgt, 2.018e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rlt, 4.696e-08, rtol=1e-1)
+        np.testing.assert_allclose(p_1,   8.330e-04, rtol=1e-1)
 
-        # Plotted observable check: μ_L/Δ_L at T = 20 mK should match
-        # M25 Fig 3a panel a to within 1% regardless of which moment-
-        # branch the picker selects (the system is approximately
-        # degenerate on μ_L across its fixed-point family).
+        # Plotted observable check: μ_L/Δ_L at T = 20 mK. The paper
+        # figure (arXiv 2408.17218 Fig 3a) shows the merged μ_α
+        # curves passing ≈ 0.87 at 20 mK on their way from ≈ 0.94
+        # (10 mK) to 0 at T̄ ≈ 0.146 K. With the leading-order
+        # inversion μ_L = Δ_L + T·log(x_L) (paper footnote 5) the
+        # root gives 0.864; the full Eq. (11) inversion gives 0.872.
         T_kelvin = 0.020
-        # μ_L = Δ_L + T·log(x_L) in energy units (μeV here).
         from qpsim.constants import KB_UEV_PER_K
         mu_L_uev = Delta_L_uev + KB_UEV_PER_K * T_kelvin * np.log(x_L)
         mu_L_over_Delta_L = mu_L_uev / Delta_L_uev
-        # Paper Fig 3a at T = 20 mK shows μ_L/Δ_L ≈ 0.91 (eyeballed
-        # from the published plot; caption parameters reproduce here).
-        np.testing.assert_allclose(mu_L_over_Delta_L, 0.91, atol=0.02)
+        np.testing.assert_allclose(mu_L_over_Delta_L, 0.864, atol=0.015)
 
     def test_two_dissipation_owners_per_region_rejected(self) -> None:
         # The Device solver enforces "at most one Junction per region

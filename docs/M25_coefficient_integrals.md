@@ -96,6 +96,30 @@ Core prefactor: `g_T Δ̄ / e²` (units of rate). In practice we combine with
 the DoS structure. The 12 entries split by the initial sub-band α ∈
 {L, R>, R<} and the (ij) logical transition:
 
+**Two normalizations (load-bearing).** The tilde rates below are the
+*ensemble* rates that enter the qubit master equation (M25 Eq. 3) via
+`Γ^{eo}_{ij} = Γ^{ph}_{ij} + Σ_α Γ̃^α_{ij} x_α`. The *density*
+equations (M25 Eqs. 4–6) instead use the single-quasiparticle rates
+
+```
+Γ̄^α_{ij} = Γ̃^α_{ij} / N_CP(R),    N_CP(R) = 2 ν₀ Δ_R V
+```
+
+(M25 main text below Eq. 6: "These rates correspond to the tilde
+rates … divided by the Cooper pair number in the low-gap electrode").
+At the Fig 3 parameter set `N_CP(R) ≈ 1.61 × 10¹⁰`. In code the
+division happens inside `_rate_equation_residual` using
+`M25Coefficients.cooper_pair_number_R`, which
+`coefficients_from_physical_parameters_with_photon_drive` sets from
+the drive's `ν₀` and `V` (the plain builder lacks those inputs and
+leaves the legacy default 1.0 — do not use it for absolute-density
+predictions). Running the density equations on Γ̃ instead of Γ̄ was
+the root cause of the historical "flat-valley multi-stability": it
+mixed ~10¹⁰ Hz tunneling currents with ~10⁻⁸ Hz generation in one
+residual, degrading the Jacobian conditioning by ~10 orders and
+draining `x_{R<}` ~8 orders below the paper's own small-asymmetry
+approximation (S66).
+
 ### 4.1 Logical-state-conserving (ii ∈ {00, 11}) — Eq. (S30)–(S31)
 
 ```

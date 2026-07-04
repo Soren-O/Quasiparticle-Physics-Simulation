@@ -10,9 +10,12 @@ Sweeps T ∈ [10, 150] mK and at each point reports:
 * ``ratio_eo_01_over_10`` — excitation/relaxation ratio of the
   parity-flipping channels, ``Γ̃^eo_01 / Γ̃^eo_10``
 
-Reuses the moment-solver / multi-seed branch picker from
-:mod:`fig3_chemical_potentials` so both figures pin the same
-photon-driven nonequilibrium branch.
+Reuses the branch-continuation sweep from
+:mod:`fig3_chemical_potentials`
+(:func:`~validation.marchegiani_2025.fig3_chemical_potentials.solve_panel_branch_sweep`)
+so both figures track the same steady-state root. With the
+Γ̄-normalized density equations the root is unique, so the historical
+panel-(a) multi-stability scatter is gone.
 
 Usage::
 
@@ -37,7 +40,7 @@ from validation.marchegiani_2025.fig3_chemical_potentials import (
     T_MAX_K,
     T_MIN_K,
     _coefficients_at,
-    _try_solve,
+    solve_panel_branch_sweep,
 )
 
 
@@ -70,22 +73,15 @@ def _run_panel(omega_LR_GHz: float) -> Fig4PanelResult:
     n = T_sweep.size
     Gamma_P = np.full(n, np.nan)
     ratio = np.full(n, np.nan)
-    last_y: np.ndarray | None = None
-    for i, T_K in enumerate(T_sweep):
+    sweep = solve_panel_branch_sweep(omega_LR_GHz, T_sweep)
+    for i, (T_K, sol) in enumerate(zip(T_sweep, sweep.states, strict=True)):
         coefs = _coefficients_at(omega_LR_GHz, float(T_K))
-        sol = _try_solve(coefs, previous=last_y)
-        if sol is None:
-            raise RuntimeError(
-                f"M25 Fig 4 panel ω_LR={omega_LR_GHz} GHz: no seed yielded "
-                f"a positive-density solution at T = {T_K:.4f} K."
-            )
         gamma_eo = _gamma_eo(coefs, sol)
         Gamma_P[i] = (
             sol.p_0 * (gamma_eo[0, 1] + gamma_eo[0, 0])
             + sol.p_1 * (gamma_eo[1, 0] + gamma_eo[1, 1])
         )
         ratio[i] = gamma_eo[0, 1] / gamma_eo[1, 0] if gamma_eo[1, 0] > 0 else np.nan
-        last_y = np.array([sol.p_1, sol.x_L, sol.x_Rgt, sol.x_Rlt])
 
     return Fig4PanelResult(
         omega_LR_GHz=omega_LR_GHz,

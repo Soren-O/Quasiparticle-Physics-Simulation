@@ -362,13 +362,18 @@ class TestSolverLimitingCases:
                 coefs, initial_guess=np.array([0.0, 0.0, 0.0]),
             )
 
-    def test_accept_lm_convergence_bypasses_residual_check(self) -> None:
-        # Real M25 Fig 3a coefficients: huge tunneling rates (~1e10 Hz)
-        # cancel against each other and the hybr ``hybrd`` algorithm
-        # detects ill-conditioning ("iteration not making good
-        # progress") even when the residual is already at the float64
-        # floor. Default path raises; accept_lm_convergence=True must
-        # accept the answer regardless.
+    def test_fig3a_coefficients_solve_cleanly_with_bar_normalization(self) -> None:
+        # Real M25 Fig 3a coefficients. With the single-quasiparticle
+        # normalization of the density equations (Γ̄ = Γ̃ / N_CP(R),
+        # M25 text below Eq. 6; ``cooper_pair_number_R`` set by the
+        # Note-V builder), the system is well conditioned and the
+        # default seed converges to the unique physical root with a
+        # residual many orders below the source scale. With the
+        # legacy normalization (cooper_pair_number_R = 1, i.e. Γ̄ =
+        # Γ̃ ~ 1e10 Hz in the density equations) the same inputs sit
+        # at the float64 cancellation floor and the strict solver
+        # must raise — the historical ``accept_lm_convergence``
+        # regime, kept here as a legacy regression.
         from dataclasses import replace
 
         from qpsim.services.rate_equation_coefficients import (
@@ -401,20 +406,29 @@ class TestSolverLimitingCases:
         coefs = coefficients_from_physical_parameters_with_photon_drive(
             params, drive,
         )
-        # Default seed at Fig 3a doesn't reach the physics-precision
-        # residual target — the M25 polynomial residual sits at the
-        # float64 cancellation floor of ~1e-6 Hz from ~1e10 Hz
-        # tunneling currents balancing. The solver must raise.
-        with pytest.raises(RuntimeError, match="cancellation floor"):
-            solve_rate_equation_steady_state(coefs)
-        # The physical (paper-matching) branch is found by the multi-
-        # seed helper, which tries a grid of guesses and picks max-x_L.
+        # N_CP(R) = 2 ν_0 Δ_R V ≈ 1.61e10 at the Fig 3 parameter set.
+        assert coefs.cooper_pair_number_R == pytest.approx(1.61e10, rel=1e-2)
+
+        # Default seed converges cleanly to the unique physical root
+        # (x_L ≈ 5.6e-8 at 20 mK; paper Fig 3a: x_L ≈ x_R> + x_R< ≈
+        # √(g^ph_R / r^L), see M25 Sec. II.4).
+        state = solve_rate_equation_steady_state(coefs)
+        assert state.x_L == pytest.approx(5.58e-8, rel=5e-2)
+        assert state.x_Rgt == pytest.approx(2.02e-8, rel=5e-2)
+        assert state.x_Rlt == pytest.approx(4.70e-8, rel=5e-2)
+        assert 5e-4 < state.p_1 < 1.5e-3
+        # The multi-seed helper (min_residual default) agrees.
         from qpsim.services.rate_equation import (
             solve_rate_equation_steady_state_multi_seed,
         )
-        state = solve_rate_equation_steady_state_multi_seed(coefs)
-        assert state.x_L > 1e-6 and state.x_Rgt > 1e-6
-        assert 1e-4 < state.p_1 < 1e-3
+        multi = solve_rate_equation_steady_state_multi_seed(coefs)
+        assert multi.x_L == pytest.approx(state.x_L, rel=1e-6)
+
+        # Legacy normalization regression: force Γ̄ = Γ̃ and verify
+        # the historical cancellation-floor pathology (strict raise).
+        legacy = replace(coefs, cooper_pair_number_R=1.0)
+        with pytest.raises(RuntimeError):
+            solve_rate_equation_steady_state(legacy)
 
     def test_accept_lm_convergence_does_not_bypass_maxfev_failures(self) -> None:
         # The accept_lm_convergence escape hatch is meant for the
