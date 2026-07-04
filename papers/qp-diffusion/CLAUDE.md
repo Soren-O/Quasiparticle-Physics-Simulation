@@ -239,6 +239,30 @@ In particular, chapters 10 and 15 are quite relevant.
   (Soren-approved wording, same session). Wording and evidence base are settled;
   don't soften or extend without a new argument.
 
+### Settled 2026-07-04 (Soren-directed: open items 2, 3, 5; item 4 dispositioned)
+
+- **"Sector of this paper" paragraph** now closes the introduction (just before
+  \section{Diffusion from the scalar...}): one compact collection of the sector
+  assumptions (homogeneous s-wave BCS, real gap / no superflow / no drive,
+  adiabatic local-BCS spectra with the \(\hbar|\xi\dot\Delta|/E^3\ll1\) condition,
+  Born impurities, charge-balanced \(\fT\to0\), PPG force dropped, \(E>\Delta\)
+  domain), ending "claimed within this sector and no further." Don't scatter these
+  again or flag the paragraph as redundant with the inline sector list in intro ¶3
+  — the paragraph is the consolidation the intro review asked for (open item 2).
+- **Early notation flag** (open item 3): the f/\(\fL\)/\(\fT\) reservation
+  sentence at the top of the Quasiparticle Kinetic Equations subsection now also
+  warns that Kopnin's transverse amplitude is \(\fT=\lambda_{\bk}\phi_T\), not the
+  bare branch difference \(\phi_T\), with cross-refs. Deliberately forward-looking
+  (\(\phi_T\), \(\lambda_{\bk}\) defined later) — don't "fix" the forward refs.
+- **Dynes footnote relocated** (open item 5): the long broadening footnote moved
+  from BCS kinematics (§II opening) to the Usadel-route trace computation, attached
+  to "the BCS identity \(\DOS^2-N_2^2=1\)" before eq:DL_DT_BCS_bulk, where the
+  identity is actually used; a one-line pointer remains at the original site. This
+  cleared the last structural overfull vbox. Don't move it back.
+- **Electrostatic-closure explicitness** (open item 4, dispositioned): the settled
+  kinetic-core passage was NOT edited; the explicit negative ("a kinetic core, not
+  a closed charge-imbalance theory") now lives in the sector paragraph instead.
+
 ### Settled items inherited from paper1/paper2 (verified in those review rounds)
 
 - **Advanced-propagator convention** \(\hat g^A=-\tau_3\hat g^{R\dagger}\tau_3\)
@@ -288,9 +312,12 @@ In particular, chapters 10 and 15 are quite relevant.
   via xr-hyper, each needs the other's .aux), plain `make` afterwards;
   `make roadmap` rebuilds the routes figure; `make verify` runs the sympy
   proof-check scripts (needs `../.venv` or `make setup`).
-- Clean state (as of the 2026-07-02 abstract sharpening): paper.pdf 50pp,
-  supplement.pdf 48pp, ZERO undefined references, zero overfull hboxes; ONE
-  structural overfull \vbox (≈80pt since the abstract edit reflowed the front
-  matter; previously ≈15pt, originally ≈43pt — always the page carrying the
-  long Dynes footnote) is page-breaking, not a text defect. Relocating that
-  footnote (open item 5 in the desktop OPEN-ITEMS file) would clear it.
+- Clean state (as of the 2026-07-04 open-items session): paper.pdf 52pp,
+  supplement.pdf 48pp, ZERO undefined references, zero overfull hboxes, and —
+  for the first time — ZERO overfull vboxes: relocating the Dynes footnote
+  (open item 5) cleared the last structural vbox and no new one appeared at
+  its landing page. `make verify` 7/7 no-FAIL after the edits. On this
+  Windows box the verify venv is the A: archive clone's
+  (`A:\Einstein\Documents\qp-diffusion-paper\.venv`) — the qpsim repo venv
+  has no sympy and the Makefile's `../.venv/bin/python` default is the Mac
+  layout.

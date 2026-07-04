@@ -255,7 +255,14 @@ gap-determined spectrum.
 \subsection{Quasiparticle Kinetic Equations}
 Throughout, we reserve \(f\)-type symbols for quasiparticle
 distribution functions (with \(f\) an occupation probability but
-\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations. 
+\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations.
+One further distinction is worth posting in advance, because readers
+coming from branch-resolved treatments often elide it: Kopnin's
+transverse amplitude is the spectrally \emph{weighted} branch-odd
+combination \(\fT=\lambda_{\bk}\phi_T\), with \(\lambda_{\bk}\) the
+spectral weight of \cref{eq:beta_sigma_lambda}, not the bare branch
+difference \(\phi_T\); the two are kept carefully distinct from
+\cref{eq:intro_branch_traj} onward.
 
 The quasiparticle content is carried by two scalar modes, the
 longitudinal (energy) mode \(\fL\) and the transverse (charge-imbalance)
@@ -988,6 +995,31 @@ inequivalent once \(\Delta\) varies in space. The equation is posed on
 the local spectral domain \(E>\Delta(\br,t)\); the moving gap edge
 enters as a boundary condition, not through the bulk operator.
 
+\emph{Sector of this paper.}---For ease of reference, we collect here
+the assumptions under which the operator selection is claimed, each
+introduced above or delimited again where it is used. The material is a
+single homogeneous \(s\)-wave BCS superconductor with an isotropic,
+inversion-symmetric band (material interfaces enter through boundary
+conditions, not the bulk operator); the gap is real and positive, with
+no condensate momentum, no supercurrent, and no electromagnetic drive
+except where one is deliberately reintroduced. The spectral functions
+are the local adiabatic BCS forms evaluated at the instantaneous local
+gap---valid when \(\Delta\) varies slowly on the coherence length and
+quasi-statically in time (\(\hbar|\xi_{\bk}\dot\Delta|/E^{3}\ll1\))---with
+no proximity structures, no subgap states, and gradient corrections to
+the spectra neglected. Elastic scattering is by nonmagnetic impurities
+in the Born limit. The kinetics are restricted to the charge-balanced
+sector \(\fT\to0\): the four-equation set
+\cref{eq:intro_fL,eq:intro_fT,eq:intro_phonon,eq:intro_gap} is a kinetic
+core, not a closed charge-imbalance theory, and calculations retaining a
+nonzero \(\fT\) require the electrostatic closure discussed above. The
+pair-potential-gradient (refraction) force is dropped at standard
+Eilenberger order, and the scalar equation
+\cref{eq:intro_scalar_kinetic} is posed on the continuum domain
+\(E>\Delta(\br,t)\) with the moving gap edge as a boundary condition.
+The equivalence of the two routes---and the operator A1 it
+selects---is claimed within this sector and no further.
+
 \section{Diffusion from the scalar quasiparticle Boltzmann route}
 \label{sec:scalar_diffusion}
 
@@ -1008,21 +1040,9 @@ and the positive-energy density-of-states factor is
 This paper uses the ideal BCS form unless stated otherwise; lifetime
 broadening of the singularity, for example by a Dynes parameter, should be
 added as a separate modeling choice rather than folded into the diffusion
-operator by notation \cite{dynes1978}.\footnote{This matters algebraically: inserting a
-finite \(\ii\Gamma\) directly into the spectral functions changes the clean BCS
-identity \(\DOS^2-N_2^2=1\) used below---the matrix normalization
-\(g^2-f^2=1\) survives the complex shift \(E\to E+\ii\Gamma\); it is the
-identity among the \emph{real} spectral coefficients that fails---and
-therefore changes the trace
-simplifications rather than merely smoothing the plotted coefficient. Where a
-finite \(\Gamma\) is physically required, the Nambu trace identities of
-SM~\cref{SM-app:derivation} must be re-evaluated --- generally numerically,
-since the real-BCS simplification no longer applies --- with the complex spectral
-functions \(\DOS(E+\ii\Gamma)\), \(N_2(E+\ii\Gamma)\); this also
-regularizes the gap-edge structure of the spectral coefficients (e.g.\ the
-divergence of the transverse dressing \(\mathcal D_T=\DOS^2\)) and the
-matched-gap singularity of the Kupriyanov--Lukichev charge-channel
-interface weight.}
+operator by notation \cite{dynes1978}; the algebraic consequences of a
+finite broadening for the trace identities are footnoted where those
+identities are used (\cref{sec:usadel_route}).
 They are moreover used as \emph{local} spectral functions, evaluated
 at the instantaneous local gap \(\Delta(\br,t)\). This is a modeling
 assumption over and above the quasiclassical approximation: in the
@@ -1865,7 +1885,22 @@ BCS bulk above the gap is direct. With the matrices
   + 2\,\DOS\,N_2\,\tau_1 .
   \label{eq:gRtau3gAtau3_BCS_bulk}
 \end{equation}
-Taking the Nambu traces and using the BCS identity \(\DOS^2-N_2^2=1\),
+Taking the Nambu traces and using the BCS identity
+\(\DOS^2-N_2^2=1\),\footnote{This identity is where lifetime broadening
+matters algebraically: inserting a finite \(\ii\Gamma\) directly into the
+spectral functions changes the clean BCS identity \(\DOS^2-N_2^2=1\) used
+here---the matrix normalization \(g^2-f^2=1\) survives the complex shift
+\(E\to E+\ii\Gamma\); it is the identity among the \emph{real} spectral
+coefficients that fails---and therefore changes these trace
+simplifications rather than merely smoothing the plotted coefficient.
+Where a finite \(\Gamma\) is physically required, the Nambu trace
+identities of SM~\cref{SM-app:derivation} must be re-evaluated ---
+generally numerically, since the real-BCS simplification no longer
+applies --- with the complex spectral functions \(\DOS(E+\ii\Gamma)\),
+\(N_2(E+\ii\Gamma)\); this also regularizes the gap-edge structure of the
+spectral coefficients (e.g.\ the divergence of the transverse dressing
+\(\mathcal D_T=\DOS^2\)) and the matched-gap singularity of the
+Kupriyanov--Lukichev charge-channel interface weight.}
 \begin{equation}
   \mathcal{D}_L(E)
   =
