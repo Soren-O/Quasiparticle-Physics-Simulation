@@ -115,9 +115,11 @@ def run_material(material_name: str) -> list[dict[str, float | str | bool]]:
                 newton_tol=1e-12,
                 newton_max_iter=500,
             )
-        except Exception:
+        except RuntimeError:
             # Cold restart from the thermal floor if the warm start
-            # stranded Newton outside its basin.
+            # stranded Newton outside its basin. (RuntimeError only —
+            # Newton non-convergence / singular Jacobian / line-search
+            # failure; genuine API or data bugs must propagate.)
             state = _build_state(material_name, T_bath, f_init=None)
             solved = backend.steady_state(
                 state,

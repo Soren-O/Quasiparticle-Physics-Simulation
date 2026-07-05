@@ -208,7 +208,7 @@ const FORMS = {
     },
     {
       title: "Temperature sweep",
-      hint: "Points solve with continuation seeding from low T upward; the fixed-point manifold is multi-stable.",
+      hint: "Points solve with continuation seeding from low T upward; for M25-like parameters the root is unique, so non-converged points usually want a denser T grid rather than a different branch picker.",
       fields: [
         F("T_start_mK", "T start (mK)"),
         F("T_stop_mK", "T stop (mK)"),

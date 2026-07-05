@@ -41,6 +41,7 @@ Usage::
 from __future__ import annotations
 
 import csv
+import functools
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -48,6 +49,7 @@ from pathlib import Path
 import numpy as np
 from qpsim.services.rate_equation import (
     M25BranchSweep,
+    chemical_potentials_kelvin,
     crossover_temperature_kelvin,
     solve_rate_equation_branch,
     thermal_equilibrium_seed,
@@ -59,7 +61,6 @@ from qpsim.services.rate_equation_coefficients import (
     calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
     coefficients_from_physical_parameters_with_photon_drive,
 )
-from scipy.special import erf, erfc
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
 
@@ -167,7 +168,10 @@ def _T_bar_estimate(omega_LR_GHz: float) -> float:
 
 
 def solve_panel_branch_sweep(
-    omega_LR_GHz: float, T_sweep: np.ndarray,
+    omega_LR_GHz: float,
+    T_sweep: np.ndarray,
+    *,
+    gamma_ph_00_Hz: float = GAMMA_PH_00_HZ,
 ) -> M25BranchSweep:
     """Branch-tracked steady-state sweep for one Fig 3/4 panel.
 
@@ -179,19 +183,49 @@ def solve_panel_branch_sweep(
     the M25 Eq. 8 ``T̄`` estimate supplied as the exchange hint (only
     consulted if the branches ever disagree — they do not for the
     Fig 3 caption parameters, where the root is unique).
+
+    ``gamma_ph_00_Hz`` is forwarded into the per-T drive
+    recalibration (:func:`_coefficients_at`); it defaults to the
+    Fig 3 caption value, and e.g. the Fig 4 caption's renormalized
+    600 Hz drive can be swept without bypassing this entry point.
+
+    Results are memoized per ``(ω_LR, grid, Γ̃^ph_00)`` for the
+    lifetime of the process: the four validation modules (fig3/fig4 ×
+    paper/observables) sweep the same two panels, so one pytest run
+    computes each sweep once. Safe because the driver is
+    deterministic (bit-identical rerun is pinned in
+    ``tests/services/test_rate_equation_branch.py``) and the returned
+    sweep is treated as immutable by all consumers.
     """
+    return _solve_panel_branch_sweep_cached(
+        float(omega_LR_GHz),
+        tuple(float(T) for T in np.asarray(T_sweep, dtype=float)),
+        float(gamma_ph_00_Hz),
+    )
+
+
+@functools.cache
+def _solve_panel_branch_sweep_cached(
+    omega_LR_GHz: float,
+    T_sweep: tuple[float, ...],
+    gamma_ph_00_Hz: float,
+) -> M25BranchSweep:
+    """Tuple-keyed worker behind :func:`solve_panel_branch_sweep`."""
+    T_grid = np.array(T_sweep, dtype=float)
     Delta_L_K = (DELTA_R_OVER_H_GHZ + omega_LR_GHz) * 1e9 * _H_OVER_KB
     Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
     case = "large_asymmetry" if omega_LR_GHz >= 1.0 else "small_asymmetry"
     return solve_rate_equation_branch(
-        lambda T: _coefficients_at(omega_LR_GHz, T),
-        T_sweep,
+        lambda T: _coefficients_at(
+            omega_LR_GHz, T, gamma_ph_00_Hz=gamma_ph_00_Hz,
+        ),
+        T_grid,
         photon_seed_case=case,
         thermal_seed=thermal_equilibrium_seed(
             Delta_L_kelvin=Delta_L_K,
             Delta_R_kelvin=Delta_R_K,
             omega_10_kelvin=OMEGA_10_OVER_H_GHZ * 1e9 * _H_OVER_KB,
-            T_kelvin=float(T_sweep[-1]),
+            T_kelvin=float(T_grid[-1]),
         ),
         T_exchange_hint_kelvin=_T_bar_estimate(omega_LR_GHz),
     )
@@ -206,30 +240,22 @@ def _chemical_potentials_GHz(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Paper-exact density → chemical-potential inversions, in GHz.
 
-    Inverts the M25 density formulas (arXiv 2408.17218 Eqs. 10, 12,
-    13 — published SI Eqs. S2, S4, S5):
-
-        μ_L    = Δ_L + T ln( x_L    √(Δ_L/2πT) )
-        μ_{R>} = Δ_R + T ln( x_{R>} √(Δ_R/2πT) / erfc√(ω_LR/T) )
-        μ_{R<} = Δ_R + T ln( x_{R<} √(Δ_R/2πT) / erf √(ω_LR/T) )
-
-    The erf/erfc partition factors matter: without them μ_{R>} is
-    understated by ``−T ln erfc√(ω_LR/T)`` (≈ 5 GHz at panel b's
-    10 mK), which flips the μ_{R>} vs μ_{R<} ordering relative to
-    the published figure. At full equilibrium all three → 0.
+    Thin GHz-unit alias for
+    :func:`qpsim.services.rate_equation.chemical_potentials_kelvin`
+    (arXiv 2408.17218 Eqs. 10, 12, 13 — published SI Eqs. S2, S4,
+    S5), which owns the physics: the ``√(Δ/2πT)`` prefactor and the
+    erf/erfc partition factors whose omission flips the μ_{R>} vs
+    μ_{R<} ordering relative to the published figure.
     """
     Delta_L_K = (DELTA_R_OVER_H_GHZ + omega_LR_GHz) * 1e9 * _H_OVER_KB
     Delta_R_K = DELTA_R_OVER_H_GHZ * 1e9 * _H_OVER_KB
-    omega_LR_K = omega_LR_GHz * 1e9 * _H_OVER_KB
-    sqrt_ratio = np.sqrt(omega_LR_K / T_sweep)
-    mu_L = Delta_L_K + T_sweep * np.log(
-        x_L * np.sqrt(Delta_L_K / (2.0 * np.pi * T_sweep))
-    )
-    mu_Rgt = Delta_R_K + T_sweep * np.log(
-        x_Rgt * np.sqrt(Delta_R_K / (2.0 * np.pi * T_sweep)) / erfc(sqrt_ratio)
-    )
-    mu_Rlt = Delta_R_K + T_sweep * np.log(
-        x_Rlt * np.sqrt(Delta_R_K / (2.0 * np.pi * T_sweep)) / erf(sqrt_ratio)
+    mu_L, mu_Rgt, mu_Rlt = chemical_potentials_kelvin(
+        Delta_L_kelvin=Delta_L_K,
+        Delta_R_kelvin=Delta_R_K,
+        T_kelvin=T_sweep,
+        x_L=x_L,
+        x_Rgt=x_Rgt,
+        x_Rlt=x_Rlt,
     )
     to_GHz = 1.0 / _H_OVER_KB / 1e9
     return mu_L * to_GHz, mu_Rgt * to_GHz, mu_Rlt * to_GHz
@@ -300,8 +326,9 @@ def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
             f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
             f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
         ])
-        # Fixed-point selection is platform-dependent; the strict pin
-        # test only runs where the baseline was generated.
+        # The platform stamp selects the pin-test tolerance: strict
+        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
+        # (see validation/marchegiani_2025/_robust.py).
         writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow([
             "T_kelvin", "x_L", "x_Rgt", "x_Rlt", "p_1",

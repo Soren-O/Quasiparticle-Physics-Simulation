@@ -61,7 +61,10 @@ NUM_BINS = 810                # omega_PB/dE = 252 commensurate
 
 # Readout (prelim resonator values).
 F_READOUT_GHZ = 5.5
-OMEGA_READOUT_UEV = 4.135667696e-3 * F_READOUT_GHZ  # h*f in ueV
+# h = 2*pi*hbar = 4.135667696 ueV*ns exactly, so h*f[GHz] is in ueV:
+# 5.5 GHz -> 22.75 ueV. (A previous revision had 4.1357e-3 here — an
+# effective 5.5 MHz readout; caught by the 2026-07-04 deep review.)
+OMEGA_READOUT_UEV = 4.135667696 * F_READOUT_GHZ
 ALPHA_KI = 0.08
 
 # Pulse schedule.
@@ -166,7 +169,7 @@ def main() -> None:
         rows.append({"t_ns": float(snap.t), "drive_on": 1.0,
                      **{k: float(v) for k, v in snap.observables.items()}})
     for snap in off.snapshots:
-        if snap.t == 0.0:
+        if abs(snap.t) < 0.5 * DT_OFF:
             continue  # duplicate of the pulse-end point
         rows.append({"t_ns": T_PULSE_NS + float(snap.t), "drive_on": 0.0,
                      **{k: float(v) for k, v in snap.observables.items()}})

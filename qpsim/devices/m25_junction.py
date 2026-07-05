@@ -346,13 +346,13 @@ class M25GapAsymmetricJJ(Junction):
 
         # ── Per-region moment rates (M25 Eqs. 4-6 in Stage A form) ─
         # The density equations run on the single-quasiparticle rates
-        # Γ̄ = Γ̃ / N_CP(R) (M25 text below Eq. 6) — same convention
-        # as qpsim.services.rate_equation._rate_equation_residual.
-        # The qubit channels below keep the ensemble Γ̃ rates.
+        # Γ̄ = Γ̃ / N_CP(R) (M25 text below Eq. 6) via the
+        # M25Coefficients.density_gammas() chokepoint — same
+        # convention as qpsim.services.rate_equation.
+        # _rate_equation_residual. The qubit channels below keep the
+        # ensemble Γ̃ rates.
         delta = coefs.delta
-        gammas_L = coefs.gammas_L / coefs.cooper_pair_number_R
-        gammas_Rgt = coefs.gammas_Rgt / coefs.cooper_pair_number_R
-        gammas_Rlt = coefs.gammas_Rlt / coefs.cooper_pair_number_R
+        gammas_L, gammas_Rgt, gammas_Rlt = coefs.density_gammas()
 
         # Bookkeeping objects (Stage A residual)
         T_L = (gammas_L[0, 0] + gammas_L[0, 1]) * p_0 + (gammas_L[1, 1] + gammas_L[1, 0]) * p_1

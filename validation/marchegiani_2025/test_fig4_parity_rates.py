@@ -6,10 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.marchegiani_2025._robust import (
-    assert_robust_match,
-    skip_unless_pinned_here,
-)
+from validation.marchegiani_2025._robust import assert_pinned_match
 from validation.marchegiani_2025.fig4_parity_rates import (
     baseline_path_a,
     baseline_path_b,
@@ -24,33 +21,32 @@ def test_matches_pinned_baseline() -> None:
             "Baseline not found. Generate with: "
             "python -m validation.marchegiani_2025.fig4_parity_rates"
         )
-    skip_unless_pinned_here(baseline_path_a(), baseline_path_b())
 
     baseline = read_baseline()
     result = run()
 
-    for panel_name, expected, actual in (
-        ("panel_a", baseline.panel_a, result.panel_a),
-        ("panel_b", baseline.panel_b, result.panel_b),
+    for panel_name, path, expected, actual in (
+        ("panel_a", baseline_path_a(), baseline.panel_a, result.panel_a),
+        ("panel_b", baseline_path_b(), baseline.panel_b, result.panel_b),
     ):
         np.testing.assert_allclose(
             actual.T_kelvin, expected.T_kelvin,
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Γ_P depends multiplicatively on x_α through gamma_eo, so
-        # branch-jump noise (the multi-stability artifact in the
-        # underlying moment system) propagates into ~order-of-
-        # magnitude scatter at isolated T points — robust
-        # (majority + median) comparison, not per-point pins; see
+        # Platform-stamped per-point pins (strict rtol=1e-6 on the
+        # generating platform, rtol=1e-3 elsewhere): the branch-
+        # continuation driver on the Γ̄-normalized moment system
+        # tracks a unique root, so the branch-jump scatter the old
+        # majority/median comparison tolerated is gone — see
         # validation/marchegiani_2025/_robust.py.
-        assert_robust_match(
+        assert_pinned_match(
             actual.Gamma_P_Hz, expected.Gamma_P_Hz,
-            f"{panel_name}: Gamma_P_Hz",
+            f"{panel_name}: Gamma_P_Hz", baseline_path=path,
         )
-        assert_robust_match(
+        assert_pinned_match(
             actual.ratio_eo_01_over_10, expected.ratio_eo_01_over_10,
-            f"{panel_name}: ratio_eo_01_over_10", atol=1e-2,
+            f"{panel_name}: ratio_eo_01_over_10", baseline_path=path,
         )
 
 

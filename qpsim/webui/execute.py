@@ -36,7 +36,10 @@ from qpsim.observables import (
     qp_fraction,
     qp_number_density,
 )
-from qpsim.services.rate_equation import solve_rate_equation_steady_state_multi_seed
+from qpsim.services.rate_equation import (
+    chemical_potentials_kelvin,
+    solve_rate_equation_steady_state_multi_seed,
+)
 from qpsim.services.rate_equation_coefficients import (
     calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
     coefficients_from_physical_parameters_with_photon_drive,
@@ -396,7 +399,9 @@ def run_m25_junction(
             # Continuation seeding as in the Fig. 3 reproduction: warm
             # start from the previous point, plus a linear (second-order)
             # predictor once two points exist — it carries the solver
-            # across the multi-stable kinks a bare prev-T seed misses.
+            # across sharp T dependence a bare prev-T seed misses
+            # (historically, the multi-stable kinks of the
+            # unnormalized system).
             if last_y is None:
                 sol = solve_rate_equation_steady_state_multi_seed(coefs)
             else:
@@ -421,10 +426,19 @@ def run_m25_junction(
         p_1[i] = sol.p_1
         residual[i] = sol.residual_inf_norm
 
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mu_L = Delta_L_K + T_kelvin * np.log(x_L)
-        mu_Rgt = Delta_R_K + T_kelvin * np.log(x_Rgt)
-        mu_Rlt = Delta_R_K + T_kelvin * np.log(x_Rlt)
+    # Paper-exact μ inversion (M25 SI Eqs. S2/S4/S5) — the naive
+    # μ = Δ + T·ln(x) drops the √(Δ/2πT) prefactor and the erf/erfc
+    # sub-band partition, which inverts the μ_R> vs μ_R< ordering.
+    # Inputs are already in Kelvin here; NaN (failed sweep points)
+    # passes through as NaN.
+    mu_L, mu_Rgt, mu_Rlt = chemical_potentials_kelvin(
+        Delta_L_kelvin=Delta_L_K,
+        Delta_R_kelvin=Delta_R_K,
+        T_kelvin=T_kelvin,
+        x_L=x_L,
+        x_Rgt=x_Rgt,
+        x_Rlt=x_Rlt,
+    )
 
     payload.arrays["T_mK"] = T_kelvin * 1000.0
     payload.arrays["x_L"] = x_L
@@ -447,8 +461,11 @@ def run_m25_junction(
         payload.summary["p_1_lowT"] = float(p_1[j])
     if failed:
         payload.notes.append(
-            f"{len(failed)}/{n} sweep points did not converge; the M25 fixed-point "
-            f"manifold is multi-stable — try a different branch picker or a denser sweep."
+            f"{len(failed)}/{n} sweep points did not converge. For M25-like parameters "
+            f"the steady state has a single physical root, so a failure indicates "
+            f"numerical non-convergence rather than branch ambiguity — try a denser "
+            f"temperature grid (better warm starts) or a different seed; far from the "
+            f"paper's parameter regime multiple roots remain possible."
         )
     progress(1.0, "done")
     return payload

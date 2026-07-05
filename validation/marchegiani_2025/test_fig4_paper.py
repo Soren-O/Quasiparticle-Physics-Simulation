@@ -5,9 +5,10 @@ sweeps are warm-started Newton solves on the well-conditioned
 (Γ̄-normalized) moment system and the reduced-model curves are
 closed-form fixed-point iterations, so this runs in the default gate.
 
-Tolerance: tight (rtol=1e-6) — all curves are deterministic; the
-strict pin is a same-platform regression gate (see
-``skip_unless_pinned_here``).
+Tolerance is platform-stamped (see ``_robust.assert_pinned_match``):
+strict rtol=1e-6 on the generating platform — all curves are
+deterministic; rtol=1e-3 elsewhere (rounding-level cross-platform
+scatter only, post Γ̄-normalization).
 
 First-time generation::
 
@@ -19,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.marchegiani_2025._robust import skip_unless_pinned_here
+from validation.marchegiani_2025._robust import assert_pinned_match
 from validation.marchegiani_2025.fig4_paper import (
     MODEL_FULL,
     MODEL_GLOBAL,
@@ -37,7 +38,6 @@ def test_matches_pinned_baseline() -> None:
             f"Baseline not found at {path}. "
             "Generate it with: python -m validation.marchegiani_2025.fig4_paper"
         )
-    skip_unless_pinned_here(path)
 
     baseline = read_baseline(path)
     result = run()
@@ -60,14 +60,15 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"(ω_LR={omega} GHz, model={model}): T_kelvin drifted",
         )
-        np.testing.assert_allclose(
-            actual.Gamma_P_Hz, expected.Gamma_P_Hz, rtol=1e-6,
-            err_msg=f"(ω_LR={omega} GHz, model={model}): Gamma_P_Hz drifted",
+        assert_pinned_match(
+            actual.Gamma_P_Hz, expected.Gamma_P_Hz,
+            f"(ω_LR={omega} GHz, model={model}): Gamma_P_Hz",
+            baseline_path=path,
         )
-        np.testing.assert_allclose(
+        assert_pinned_match(
             actual.ratio_eo_01_over_10, expected.ratio_eo_01_over_10,
-            rtol=1e-6,
-            err_msg=f"(ω_LR={omega} GHz, model={model}): ratio drifted",
+            f"(ω_LR={omega} GHz, model={model}): ratio",
+            baseline_path=path,
         )
 
 

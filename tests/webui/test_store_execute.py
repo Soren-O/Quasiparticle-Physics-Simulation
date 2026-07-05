@@ -144,3 +144,31 @@ class TestM25Executor:
         assert np.all(payload.arrays["x_L"][finite] > 0.0)
         mu = payload.arrays["mu_L_over_Delta_L"][finite]
         assert np.all((mu > 0.0) & (mu <= 1.05))
+
+    def test_chemical_potentials_paper_exact_inversion(self) -> None:
+        # Default M25 config (ω_LR = 5 GHz — the paper's Fig 3b-like
+        # large-asymmetry case) at 20/25/30 mK. Guards the services-
+        # layer μ inversion (M25 SI Eqs. S2/S4/S5): the naive
+        # μ = Δ + T·ln(x) inversion that used to live here dropped
+        # the √(Δ/2πT) prefactor and the erf/erfc sub-band partition
+        # and got the μ_R> vs μ_R< ordering backwards.
+        setup = M25JunctionSetup()
+        setup.T_start_mK = 20.0
+        setup.T_stop_mK = 30.0
+        setup.T_points = 3
+        payload = execute_setup(setup, _noop_progress, _never)
+        T_mK = payload.arrays["T_mK"]
+        mu_L = payload.arrays["mu_L_over_Delta_L"]
+        mu_Rgt = payload.arrays["mu_Rgt_over_Delta_L"]
+        mu_Rlt = payload.arrays["mu_Rlt_over_Delta_L"]
+        i20 = int(np.argmin(np.abs(T_mK - 20.0)))
+        assert np.isfinite(mu_L[i20]), "20 mK point did not converge"
+        # (a) Sub-band ordering: the erf/erfc partition puts μ_R>
+        # above μ_R< (the naive inversion flipped this).
+        finite = np.isfinite(mu_Rgt) & np.isfinite(mu_Rlt)
+        assert finite[i20]
+        assert np.all(mu_Rgt[finite] > mu_Rlt[finite])
+        # (b) Published Fig 3 anchor: μ_L/Δ_L ≈ 0.87 at 20 mK (both
+        # panels of the paper's Fig 3 sit at this value; the pinned
+        # validation baselines give 0.872 (a) / 0.869 (b)).
+        assert mu_L[i20] == pytest.approx(0.872, abs=0.02)

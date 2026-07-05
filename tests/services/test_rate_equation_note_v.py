@@ -493,10 +493,15 @@ class TestSolverToleranceGuard:
         # in the density equations the residual sits at the float64
         # cancellation floor / lands on unphysical branches, and the
         # strict solver must raise rather than return a pseudo-root.
+        # At 30 mK hybr stalls with "not making good progress" and the
+        # strict residual gate fires — pin the "high residual" message
+        # so a silent acceptance regression is caught (the bypass path
+        # is covered in test_rate_equation.py's
+        # TestAcceptLmConvergenceEscapeHatch).
         coefs = self._fig3a_coefs()
         legacy = replace(coefs, cooper_pair_number_R=1.0)
         from qpsim.services.rate_equation import solve_rate_equation_steady_state
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="high residual"):
             solve_rate_equation_steady_state(legacy)
 
     def test_fig3_multi_seed_helper_agrees_with_direct_solve(self) -> None:

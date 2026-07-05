@@ -255,10 +255,12 @@ In particular, chapters 10 and 15 are quite relevant.
   bare branch difference \(\phi_T\), with cross-refs. Deliberately forward-looking
   (\(\phi_T\), \(\lambda_{\bk}\) defined later) — don't "fix" the forward refs.
 - **Dynes footnote relocated** (open item 5): the long broadening footnote moved
-  from BCS kinematics (§II opening) to the Usadel-route trace computation, attached
-  to "the BCS identity \(\DOS^2-N_2^2=1\)" before eq:DL_DT_BCS_bulk, where the
-  identity is actually used; a one-line pointer remains at the original site. This
-  cleared the last structural overfull vbox. Don't move it back.
+  out of BCS kinematics (§II opening) into the Usadel-route trace discussion; a
+  one-line pointer remains at the original site. SUPERSEDED SAME DAY by the
+  "Dynes footnote final form" bullet below (second 2026-07-04 block): the
+  footnote's current anchor is the channel-dictionary sentence, with the full
+  algebra in SM app:dynes_remark — that bullet, not this one, describes the
+  shipped state.
 - **Electrostatic-closure explicitness** (open item 4, dispositioned): the settled
   kinetic-core passage was NOT edited; the explicit negative ("a kinetic core, not
   a closed charge-imbalance theory") now lives in the sector paragraph instead.

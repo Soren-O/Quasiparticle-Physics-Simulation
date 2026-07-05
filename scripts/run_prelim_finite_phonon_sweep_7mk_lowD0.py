@@ -12,7 +12,7 @@ reaches ~17 us at D0 = 0.6 um^2/ns, so the 12 us cap would truncate the
 slowest runs. Same grid, dt, and stop tolerance as the main sweep.
 """
 
-# ruff: noqa: E402, I001
+# ruff: noqa: E402
 
 from __future__ import annotations
 
@@ -25,21 +25,34 @@ sys.path.insert(0, str(ROOT))
 import scripts.run_prelim_finite_phonon_sweep_7mk as base
 from scripts.run_prelim_spatial_overnight import SweepConfig
 
-base.CONFIG = SweepConfig(
-    name="finite_phonon_sweep_7mk_lowD0",
-    NX=21,
-    NE=28,
-    dt_ns=1.0,
-    max_time_ns=48_000.0,
-    stop_tol=2e-9,
-    snapshot_interval_ns=1_000.0,
-    D0_values=(0.6, 1.0, 3.0),
-    source_rates_per_ns=(1e-4, 5e-4, 1e-3),
-    source_centers_delta=(2.0,),
-    source_sigmas_delta=(0.08,),
-)
-base.OUT_DIR = ROOT / "outputs" / "prelim_finite_phonon_sweep_7mk_lowD0"
+
+def main() -> None:
+    """Run the base sweep with the low-D0 configuration.
+
+    The ``base`` module rebinding happens here — NOT at import scope —
+    so importing this module (tests, tooling) cannot silently
+    reconfigure the base sweep for every later user of the process.
+    ``base.__doc__`` is also pointed at this module's docstring so
+    ``base.main()`` records the correct provenance in
+    ``metadata.json``'s ``description`` field.
+    """
+    base.CONFIG = SweepConfig(
+        name="finite_phonon_sweep_7mk_lowD0",
+        NX=21,
+        NE=28,
+        dt_ns=1.0,
+        max_time_ns=48_000.0,
+        stop_tol=2e-9,
+        snapshot_interval_ns=1_000.0,
+        D0_values=(0.6, 1.0, 3.0),
+        source_rates_per_ns=(1e-4, 5e-4, 1e-3),
+        source_centers_delta=(2.0,),
+        source_sigmas_delta=(0.08,),
+    )
+    base.OUT_DIR = ROOT / "outputs" / "prelim_finite_phonon_sweep_7mk_lowD0"
+    base.__doc__ = __doc__
+    base.main()
 
 
 if __name__ == "__main__":
-    base.main()
+    main()

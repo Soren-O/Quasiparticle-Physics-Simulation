@@ -35,46 +35,40 @@ from qpsim.services.rate_equation import (
     thermal_equilibrium_seed,
 )
 from qpsim.services.rate_equation_coefficients import (
-    M25PhotonDrive,
-    M25PhysicalParameters,
     calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
     coefficients_from_physical_parameters_with_photon_drive,
 )
 from scipy.special import erf
+
+from tests.services.test_rate_equation_note_v import _fig3a_drive, _fig3a_params
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
 _DELTA_R_GHZ = 49.0
 _OMEGA_10_GHZ = 5.5
 _GAMMA_PH_00_HZ = 300.0
 
-_DRIVE_TEMPLATE = M25PhotonDrive(
-    omega_nu_kelvin=119e9 * _H_OVER_KB,
-    Gamma_nu_scale_Hz=1.0,
-    nu_0_per_J_per_m3=0.73e47,
-    volume_m3=506e-6 * 240e-6 * 0.028e-6,
-)
-
 
 def _coefficients_at(omega_LR_GHz: float, T_kelvin: float) -> M25Coefficients:
-    """M25 Fig 3 caption coefficients with per-T drive recalibration."""
+    """M25 Fig 3 caption coefficients with per-T drive recalibration.
+
+    The Fig 3a caption bundle is owned by
+    :mod:`tests.services.test_rate_equation_note_v`
+    (``_fig3a_params`` / ``_fig3a_drive``); only the panel-dependent
+    pieces — ``Δ_L``, the ``R_T`` gap-average factor, and the sweep
+    temperature — are overridden here.
+    """
     Delta_L_GHz = _DELTA_R_GHZ + omega_LR_GHz
-    params = M25PhysicalParameters(
+    params = _fig3a_params(
         Delta_L_kelvin=Delta_L_GHz * 1e9 * _H_OVER_KB,
-        Delta_R_kelvin=_DELTA_R_GHZ * 1e9 * _H_OVER_KB,
-        omega_10_kelvin=_OMEGA_10_GHZ * 1e9 * _H_OVER_KB,
         T_kelvin=T_kelvin,
-        E_J_kelvin=14.5e9 * _H_OVER_KB,
-        E_C_kelvin=290e6 * _H_OVER_KB,
         R_T_Hz=8.0 * 14.5e9 * ((Delta_L_GHz + _DELTA_R_GHZ) / 2.0 / Delta_L_GHz),
-        r_L_Hz=6.25e6,
-        r_Rlt_Hz=6.25e6,
-        Gamma_ee_10_Hz=100e3,
     )
+    drive_template = _fig3a_drive()
     scale = calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00(
-        params, _DRIVE_TEMPLATE, _GAMMA_PH_00_HZ,
+        params, drive_template, _GAMMA_PH_00_HZ,
     )
     return coefficients_from_physical_parameters_with_photon_drive(
-        params, replace(_DRIVE_TEMPLATE, Gamma_nu_scale_Hz=scale),
+        params, replace(drive_template, Gamma_nu_scale_Hz=scale),
     )
 
 
@@ -264,3 +258,83 @@ class TestInputValidation:
                 lambda T: _coefficients_at(0.5, T),
                 np.array([]),
             )
+
+
+def _toy_coefs() -> M25Coefficients:
+    """T-independent toy bundle with a unique, cheap fixed point.
+
+    ``x_α = 1`` in every band (g = r = 1, no tunneling), qubit at ee
+    detailed balance — both continuation passes converge everywhere,
+    so the merge/exchange logic can be driven synthetically by
+    monkeypatching ``_states_agree``.
+    """
+    return M25Coefficients(
+        gammas_L=np.zeros((2, 2)),
+        gammas_Rgt=np.zeros((2, 2)),
+        gammas_Rlt=np.zeros((2, 2)),
+        gamma_ee=np.array([[0.0, 1e-6], [1e-5, 0.0]]),
+        gamma_ph=np.zeros((2, 2)),
+        r_L=1.0, r_Rgt=1.0, r_Rlt=1.0, r_cross=0.0,
+        g_L=1.0, g_Rgt=1.0, g_Rlt=1.0,
+        tau_R_inv=0.0, tau_E_inv=0.0,
+        xi=0.0, delta=0.5,
+    )
+
+
+class TestExchangeSelectionContiguity:
+    """Hint-less exchange selection: contiguous-suffix validation.
+
+    Without ``T_exchange_hint_kelvin`` the driver infers the exchange
+    point as the lowest merged grid temperature — only meaningful when
+    the merged points form a contiguous suffix of the grid. The merge
+    pattern is forced by monkeypatching ``_states_agree`` (the only
+    consumer inside ``solve_rate_equation_branch``), which is called
+    once per grid point in grid order.
+    """
+
+    def _run_with_pattern(
+        self, monkeypatch: pytest.MonkeyPatch, pattern: list[bool],
+    ) -> M25BranchSweep:
+        from qpsim.services import rate_equation as rate_mod
+
+        agreement = iter(pattern)
+        monkeypatch.setattr(
+            rate_mod, "_states_agree",
+            lambda a, b, rtol: next(agreement),
+        )
+        coefs = _toy_coefs()
+        T_grid = np.array([0.010, 0.020, 0.030])
+        return rate_mod.solve_rate_equation_branch(lambda T: coefs, T_grid)
+
+    def test_non_contiguous_merge_pattern_raises(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        with pytest.raises(RuntimeError, match="contiguous suffix"):
+            self._run_with_pattern(monkeypatch, [True, False, True])
+
+    def test_contiguous_suffix_selects_first_merged_temperature(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        sweep = self._run_with_pattern(monkeypatch, [False, True, True])
+        assert sweep.T_exchange_kelvin == pytest.approx(0.020)
+        assert sweep.branch_labels == ("photon", "merged", "merged")
+
+
+class TestSweepCoefficientsExposure:
+    def test_sweep_exposes_grid_ordered_coefficients_from_cache(self) -> None:
+        # The driver exposes the per-T coefficient bundles it solved
+        # against, in grid order, from its internal cache — the
+        # builder runs exactly once per grid temperature even though
+        # both passes and the exposure all consume it.
+        coefs = _toy_coefs()
+        built: list[float] = []
+
+        def coefficients_at(T: float) -> M25Coefficients:
+            built.append(T)
+            return coefs
+
+        T_grid = np.array([0.010, 0.020])
+        sweep = solve_rate_equation_branch(coefficients_at, T_grid)
+        assert len(sweep.coefficients) == T_grid.size
+        assert all(c is coefs for c in sweep.coefficients)
+        assert built == [0.010, 0.020]

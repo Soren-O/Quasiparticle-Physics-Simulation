@@ -179,8 +179,9 @@ def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
             f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}  "
             f"T_bar_kelvin={panel.T_bar_kelvin:.6e}"
         ])
-        # Fixed-point selection is platform-dependent; the strict pin
-        # test only runs where the baseline was generated.
+        # The platform stamp selects the pin-test tolerance: strict
+        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
+        # (see validation/marchegiani_2025/_robust.py).
         writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow([
             "T_kelvin", "x_L", "x_Rgt", "x_Rlt", "p_1",

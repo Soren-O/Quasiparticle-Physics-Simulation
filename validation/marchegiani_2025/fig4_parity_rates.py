@@ -39,7 +39,6 @@ from validation.marchegiani_2025.fig3_chemical_potentials import (
     OMEGA_10_OVER_H_GHZ,
     T_MAX_K,
     T_MIN_K,
-    _coefficients_at,
     solve_panel_branch_sweep,
 )
 
@@ -74,8 +73,11 @@ def _run_panel(omega_LR_GHz: float) -> Fig4PanelResult:
     Gamma_P = np.full(n, np.nan)
     ratio = np.full(n, np.nan)
     sweep = solve_panel_branch_sweep(omega_LR_GHz, T_sweep)
-    for i, (T_K, sol) in enumerate(zip(T_sweep, sweep.states, strict=True)):
-        coefs = _coefficients_at(omega_LR_GHz, float(T_K))
+    # Consume the driver's own per-T coefficient bundles (see the
+    # matching note in fig4_paper._full_curve).
+    for i, (coefs, sol) in enumerate(
+        zip(sweep.coefficients, sweep.states, strict=True)
+    ):
         gamma_eo = _gamma_eo(coefs, sol)
         Gamma_P[i] = (
             sol.p_0 * (gamma_eo[0, 1] + gamma_eo[0, 0])
@@ -130,8 +132,9 @@ def _write_panel_csv(panel: Fig4PanelResult, path: Path) -> Path:
             f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
             f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
         ])
-        # Fixed-point selection is platform-dependent; the strict pin
-        # test only runs where the baseline was generated.
+        # The platform stamp selects the pin-test tolerance: strict
+        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
+        # (see validation/marchegiani_2025/_robust.py).
         writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow(["T_kelvin", "Gamma_P_Hz", "ratio_eo_01_over_10"])
         for i in range(panel.T_kelvin.size):

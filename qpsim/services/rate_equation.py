@@ -209,6 +209,15 @@ class M25Coefficients:
         conditioning noise (residual mixing ~10¹⁰ Hz tunneling
         currents against ~10⁻⁸ Hz generation).
 
+    Notes
+    -----
+    Every density-equation consumer must take the tunneling arrays
+    through :meth:`density_gammas` (the Γ̄ triple), never the raw
+    ``gammas_*`` attributes — those are the ensemble ``Γ̃`` rates and
+    feed only the qubit channels (master equation Eq. 3 and the
+    ``Γ̃^{eo}`` assembly). Open-coding the ``/ cooper_pair_number_R``
+    division at call sites is how normalization bugs sneak in.
+
     Raises
     ------
     ValueError
@@ -299,6 +308,23 @@ class M25Coefficients:
             if val < 0.0:
                 raise ValueError(f"{name} must be nonnegative; got {val}")
 
+    def density_gammas(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        r"""Return the single-quasiparticle rates ``(Γ̄^L, Γ̄^{R>}, Γ̄^{R<})``.
+
+        Each entry is the corresponding ensemble array divided by
+        ``cooper_pair_number_R``:
+        ``Γ̄^α_{ij} = Γ̃^α_{ij} / N_CP(R)`` (M25 text below Eq. 6).
+        This is the single normalization chokepoint for the density
+        equations (M25 Eqs. 4–6) — the residual, the SI analytic
+        seeds, and the device-layer flux spreading all consume this
+        triple, while the qubit channels keep the raw ``Γ̃`` arrays.
+        """
+        return (
+            self.gammas_L / self.cooper_pair_number_R,
+            self.gammas_Rgt / self.cooper_pair_number_R,
+            self.gammas_Rlt / self.cooper_pair_number_R,
+        )
+
 
 @dataclass(frozen=True)
 class M25SteadyState:
@@ -381,9 +407,7 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     # NOT the ensemble Γ̃ rates that enter the qubit master equation
     # above. cooper_pair_number_R defaults to 1.0 (legacy Γ̄ = Γ̃)
     # for opaque-coefficient callers; physical builders set it.
-    n_cp_R = coefs.cooper_pair_number_R
-    bars_L = coefs.gammas_L / n_cp_R
-    bars_Rgt = coefs.gammas_Rgt / n_cp_R
+    bars_L, bars_Rgt, bars_Rlt = coefs.density_gammas()
 
     # Bookkeeping objects (thesis Appendix Eqs. T^α, S^{L→R>}):
     #   𝒯^α(p) = (Γ̄^α_{00} + Γ̄^α_{01}) p_0 + (Γ̄^α_{11} + Γ̄^α_{10}) p_1
@@ -397,7 +421,7 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     S_L_to_Rgt = bars_L[0, 0] * p_0 + (bars_L[1, 1] + bars_L[1, 0]) * p_1
 
     delta = coefs.delta
-    gamma_Rlt_10 = coefs.gammas_Rlt[1, 0] / n_cp_R
+    gamma_Rlt_10 = bars_Rlt[1, 0]
     gamma_L_01 = bars_L[0, 1]
 
     x_L_dot = (
@@ -786,8 +810,7 @@ def analytic_low_T_seed(
     # The SI density formulas are written in the single-quasiparticle
     # (bar) normalization Γ̄ = Γ̃ / N_CP(R) — same convention as the
     # density equations in _rate_equation_residual.
-    gL = coefs.gammas_L / coefs.cooper_pair_number_R
-    gRgt = coefs.gammas_Rgt / coefs.cooper_pair_number_R
+    gL, gRgt, gRlt = coefs.density_gammas()
     Gamma_bar_L = (
         p_0 * (gL[0, 0] + gL[0, 1]) + p_1 * (gL[1, 1] + gL[1, 0])
     )
@@ -817,7 +840,7 @@ def analytic_low_T_seed(
     delta = float(coefs.delta)
     xi = float(coefs.xi)
     Gamma_L_01 = float(gL[0, 1])
-    Gamma_Rlt_10 = float(coefs.gammas_Rlt[1, 0] / coefs.cooper_pair_number_R)
+    Gamma_Rlt_10 = float(gRlt[1, 0])
 
     floor = 1e-30
     if case == "small_asymmetry":
@@ -951,6 +974,98 @@ def thermal_equilibrium_seed(
 
 
 # ─────────────────────────────────────────────────────────────────────
+#  Chemical-potential inversion (SI Eqs. S2, S4, S5).
+# ─────────────────────────────────────────────────────────────────────
+
+
+def chemical_potentials_kelvin(
+    *,
+    Delta_L_kelvin: float,
+    Delta_R_kelvin: float,
+    T_kelvin: np.ndarray | float,
+    x_L: np.ndarray | float,
+    x_Rgt: np.ndarray | float,
+    x_Rlt: np.ndarray | float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""Return ``(μ_L, μ_{R>}, μ_{R<})`` in Kelvin from the QP densities.
+
+    Paper-exact inversion of the M25 density formulas (arXiv
+    2408.17218 Eqs. 10, 12, 13 — published SI Eqs. S2, S4, S5), the
+    exact inverse of :func:`thermal_equilibrium_seed`'s forward
+    evaluation:
+
+    .. math::
+
+        \mu_L    &= \Delta_L + T \ln\!\big( x_L
+                    \sqrt{\Delta_L / 2\pi T} \big),\\
+        \mu_{R>} &= \Delta_R + T \ln\!\big( x_{R>}
+                    \sqrt{\Delta_R / 2\pi T} \,/\,
+                    \mathrm{erfc}\sqrt{\omega_{LR}/T} \big),\\
+        \mu_{R<} &= \Delta_R + T \ln\!\big( x_{R<}
+                    \sqrt{\Delta_R / 2\pi T} \,/\,
+                    \mathrm{erf}\sqrt{\omega_{LR}/T} \big),
+
+    with ``ω_LR = Δ_L − Δ_R``. The ``√(Δ/2πT)`` prefactor and the
+    erf/erfc partition factors matter: the naive inversion
+    ``μ = Δ + T ln x`` understates ``μ_{R>}`` by
+    ``−T ln erfc√(ω_LR/T)`` (≈ 5 GHz at the M25 Fig 3b panel's
+    10 mK), which flips the ``μ_{R>}`` vs ``μ_{R<}`` ordering
+    relative to the published figure. At full thermal equilibrium
+    all three chemical potentials → 0.
+
+    Parameters
+    ----------
+    Delta_L_kelvin, Delta_R_kelvin
+        Electrode gaps in Kelvin (``Δ_α / k_B``), ``Δ_L > Δ_R > 0``.
+    T_kelvin
+        Bath temperature(s) in Kelvin, scalar or array, strictly
+        positive.
+    x_L, x_Rgt, x_Rlt
+        Dimensionless quasiparticle densities (normalized to the
+        local-gap Cooper-pair number), broadcastable against
+        ``T_kelvin``. Non-positive or NaN densities yield NaN/−inf
+        entries (no warning is emitted) — callers with failed sweep
+        points can pass them through unfiltered.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        ``(μ_L, μ_{R>}, μ_{R<})`` in Kelvin, matching the broadcast
+        shape of the inputs.
+
+    Raises
+    ------
+    ValueError
+        Unless ``Δ_L > Δ_R > 0`` and all temperatures are positive.
+    """
+    if not (Delta_L_kelvin > Delta_R_kelvin > 0.0):
+        raise ValueError(
+            f"Require Delta_L_kelvin > Delta_R_kelvin > 0; got "
+            f"{Delta_L_kelvin}, {Delta_R_kelvin}."
+        )
+    T = np.asarray(T_kelvin, dtype=float)
+    if not np.all(T > 0.0):
+        raise ValueError(f"T_kelvin must be positive; got {T_kelvin}")
+    xL = np.asarray(x_L, dtype=float)
+    xRgt = np.asarray(x_Rgt, dtype=float)
+    xRlt = np.asarray(x_Rlt, dtype=float)
+
+    omega_LR_kelvin = Delta_L_kelvin - Delta_R_kelvin
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sqrt_ratio = np.sqrt(omega_LR_kelvin / T)
+        mu_L = Delta_L_kelvin + T * np.log(
+            xL * np.sqrt(Delta_L_kelvin / (2.0 * np.pi * T))
+        )
+        mu_Rgt = Delta_R_kelvin + T * np.log(
+            xRgt * np.sqrt(Delta_R_kelvin / (2.0 * np.pi * T)) / erfc(sqrt_ratio)
+        )
+        mu_Rlt = Delta_R_kelvin + T * np.log(
+            xRlt * np.sqrt(Delta_R_kelvin / (2.0 * np.pi * T)) / erf(sqrt_ratio)
+        )
+    return np.asarray(mu_L), np.asarray(mu_Rgt), np.asarray(mu_Rlt)
+
+
+# ─────────────────────────────────────────────────────────────────────
 #  Branch-continuation driver (M25 Figs. 3-4 temperature sweeps).
 # ─────────────────────────────────────────────────────────────────────
 
@@ -981,6 +1096,13 @@ class M25BranchSweep:
     photon_states, thermal_states
         Raw per-pass results (``None`` where a pass terminated at a
         fold or never reached the point).
+    coefficients
+        The exact per-grid-point :class:`M25Coefficients` bundles the
+        driver solved against, in grid order (from its internal
+        per-T cache). Callers computing post-hoc observables (e.g.
+        ``Γ̃^{eo}`` assembly for the M25 Fig 4 parity rates) must use
+        these rather than re-calling their coefficient builder per T
+        — structurally the same objects the states were converged on.
     """
 
     T_kelvin: np.ndarray
@@ -989,12 +1111,14 @@ class M25BranchSweep:
     T_exchange_kelvin: float | None
     photon_states: tuple[M25SteadyState | None, ...]
     thermal_states: tuple[M25SteadyState | None, ...]
+    coefficients: tuple[M25Coefficients, ...]
 
 
 def _branch_corrector(
     coefs: M25Coefficients,
     seed: np.ndarray | None,
     residual_tol_relative: float,
+    max_function_evaluations: int = 500,
 ) -> M25SteadyState | None:
     """Newton corrector step: strict solve from ``seed``, or ``None``.
 
@@ -1008,6 +1132,7 @@ def _branch_corrector(
             coefs,
             initial_guess=seed,
             residual_tol_relative=residual_tol_relative,
+            max_function_evaluations=max_function_evaluations,
         )
     except RuntimeError:
         return None
@@ -1080,6 +1205,7 @@ def _relocate_root_1d(
     window_decades: float,
     n_samples: int,
     residual_tol_relative: float,
+    max_function_evaluations: int = 500,
 ) -> M25SteadyState | None:
     r"""Reduced 1-D bracketing fallback (fold-capable root relocation).
 
@@ -1164,7 +1290,9 @@ def _relocate_root_1d(
     y_root = np.array([z_root[0], x_root, z_root[1], z_root[2]], dtype=float)
     # Polish on the full 4-unknown system (also applies the strict
     # residual acceptance and physical-branch checks).
-    polished = _branch_corrector(coefs, y_root, residual_tol_relative)
+    polished = _branch_corrector(
+        coefs, y_root, residual_tol_relative, max_function_evaluations,
+    )
     if polished is not None:
         return polished
     # Accept the reduced root as-is when the full Newton polish is
@@ -1197,6 +1325,7 @@ def _continuation_pass(
     residual_tol_relative: float,
     scan_window_decades: float,
     full_scan_bounds: tuple[float, float],
+    max_function_evaluations: int = 500,
 ) -> list[M25SteadyState | None]:
     """One directional continuation pass over ``T_grid[indices]``.
 
@@ -1214,7 +1343,10 @@ def _continuation_pass(
     base_step = float(np.max(np.abs(np.diff(T_grid)))) if len(T_grid) > 1 else 1.0
 
     def _solve_at(T: float, seed: np.ndarray | None) -> M25SteadyState | None:
-        return _branch_corrector(coefficients_at(float(T)), seed, residual_tol_relative)
+        return _branch_corrector(
+            coefficients_at(float(T)), seed, residual_tol_relative,
+            max_function_evaluations,
+        )
 
     def _advance(
         prev: M25SteadyState, T_from: float, T_to: float, depth: int,
@@ -1250,6 +1382,7 @@ def _continuation_pass(
                 window_decades=window,
                 n_samples=max(9, int(window * 6) | 1),
                 residual_tol_relative=residual_tol_relative,
+                max_function_evaluations=max_function_evaluations,
             )
             if relocated is not None and _log10_jump(relocated, prev) <= jump_tol_decades:
                 return relocated
@@ -1281,6 +1414,7 @@ def _continuation_pass(
                 window_decades=window,
                 n_samples=max(9, int(window * 6) | 1),
                 residual_tol_relative=residual_tol_relative,
+                max_function_evaluations=max_function_evaluations,
             )
             if current is not None:
                 break
@@ -1311,6 +1445,7 @@ def solve_rate_equation_branch(
     residual_tol_relative: float = 1e-3,
     scan_window_decades: float = 4.0,
     full_scan_bounds: tuple[float, float] = (1e-16, 1e-1),
+    max_function_evaluations: int = 500,
 ) -> M25BranchSweep:
     r"""Track the M25 steady state across a temperature sweep.
 
@@ -1328,6 +1463,16 @@ def solve_rate_equation_branch(
       default ``√(g_eff/r)`` seed is used — above ``T̄`` thermal
       generation dominates ``g_eff``, so this lands on the thermal
       branch.
+
+    For unique-root systems (the M25 Fig 3/4 parameter family with
+    the Γ̄-normalized density equations) the second (thermal) pass is
+    not redundant even though the photon pass already covers the
+    grid: it is the driver's built-in determinism/agreement
+    cross-check — an independently seeded, opposite-direction
+    continuation that must land on the same fixed point at every grid
+    point ("merged" labels everywhere). Any disagreement flags either
+    a genuine fold/branch pair (other parameter sets) or a solver
+    regression, so the pass is deliberately kept.
 
     Each pass uses natural-parameter continuation (previous solution
     as Newton warm start) with adaptive step bisection on failure,
@@ -1356,9 +1501,12 @@ def solve_rate_equation_branch(
        The exchange temperature is the grid point nearest
        ``T_exchange_hint_kelvin`` when given (pass the M25 Eq. 8
        Lambert-W ``T̄`` from :func:`crossover_temperature_kelvin`);
-       without a hint it is the lowest merged grid temperature. If the
-       branches never merge and no hint is given, a ``RuntimeError``
-       asks for the hint rather than guessing.
+       without a hint it is the lowest merged grid temperature —
+       valid only when the merged points form a contiguous suffix of
+       the grid (agreement, once reached, persists upward). If the
+       branches never merge, or the merged pattern is non-contiguous,
+       and no hint is given, a ``RuntimeError`` (with the merged
+       pattern) asks for the hint rather than guessing.
     3. Where the preferred pass has no state (fold), the other pass's
        state is used; if neither pass reached a grid point, the sweep
        fails loudly.
@@ -1404,6 +1552,10 @@ def solve_rate_equation_branch(
     scan_window_decades, full_scan_bounds
         Geometry of the reduced 1-D fallback's local window and
         full-range rescan.
+    max_function_evaluations
+        Newton budget per corrector solve, forwarded to
+        :func:`solve_rate_equation_steady_state` (default 500, the
+        solver's own default).
 
     Returns
     -------
@@ -1449,6 +1601,7 @@ def solve_rate_equation_branch(
         residual_tol_relative=residual_tol_relative,
         scan_window_decades=scan_window_decades,
         full_scan_bounds=full_scan_bounds,
+        max_function_evaluations=max_function_evaluations,
     )
     thermal_states = _continuation_pass(
         _coefs, T_grid, list(range(n - 1, -1, -1)), thermal_seed,
@@ -1457,6 +1610,7 @@ def solve_rate_equation_branch(
         residual_tol_relative=residual_tol_relative,
         scan_window_decades=scan_window_decades,
         full_scan_bounds=full_scan_bounds,
+        max_function_evaluations=max_function_evaluations,
     )
 
     merged = [
@@ -1470,15 +1624,34 @@ def solve_rate_equation_branch(
     elif T_exchange_hint_kelvin is not None:
         T_exchange = float(T_grid[int(np.argmin(np.abs(T_grid - T_exchange_hint_kelvin)))])
     else:
-        merged_Ts = [float(T_grid[i]) for i in range(n) if merged[i]]
-        if not merged_Ts:
+        merged_indices = [i for i in range(n) if merged[i]]
+        if not merged_indices:
             raise RuntimeError(
                 "M25 branch sweep: the photon and thermal branches never "
                 "merge on this grid and no T_exchange_hint_kelvin was "
                 "given. Pass the M25 Eq. 8 Lambert-W T̄ estimate "
                 "(crossover_temperature_kelvin) as the hint."
             )
-        T_exchange = min(merged_Ts)
+        first_merged = merged_indices[0]
+        if merged_indices != list(range(first_merged, n)):
+            # "Lowest merged temperature" is only a meaningful
+            # exchange point when agreement, once reached, persists
+            # to the top of the grid (photon branch below, merged
+            # above). Interleaved merged/unmerged points mean the
+            # passes disagree in a pattern this inference cannot
+            # arbitrate — fail with the pattern instead of guessing.
+            pattern = "".join("M" if m else "." for m in merged)
+            raise RuntimeError(
+                "M25 branch sweep: without a T_exchange_hint_kelvin "
+                "the exchange temperature is inferred as the lowest "
+                "merged grid point, which requires the merged points "
+                "to form a contiguous suffix of the T grid. Merged "
+                f"pattern (M = merged, . = split): '{pattern}' over "
+                f"T = {float(T_grid[0]):.6g}..{float(T_grid[-1]):.6g} K "
+                f"({n} points). Pass the M25 Eq. 8 Lambert-W T̄ "
+                "estimate (crossover_temperature_kelvin) as the hint."
+            )
+        T_exchange = float(T_grid[first_merged])
 
     states: list[M25SteadyState] = []
     labels: list[str] = []
@@ -1510,6 +1683,11 @@ def solve_rate_equation_branch(
         T_exchange_kelvin=T_exchange,
         photon_states=tuple(photon_states),
         thermal_states=tuple(thermal_states),
+        # Grid-ordered coefficient bundles from the shared per-T
+        # cache — the exact objects the passes solved against (every
+        # grid temperature was visited by at least one pass, so these
+        # are cache hits, not rebuilds).
+        coefficients=tuple(_coefs(float(T)) for T in T_grid),
     )
 
 

@@ -190,8 +190,13 @@ def _full_curve(omega_LR_GHz: float) -> Fig4PanelResult:
     Gamma_P = np.full(n, np.nan)
     ratio = np.full(n, np.nan)
     sweep = solve_panel_branch_sweep(omega_LR_GHz, T_sweep)
-    for i, (T_K, sol) in enumerate(zip(T_sweep, sweep.states, strict=True)):
-        coefs = _coefficients_at(omega_LR_GHz, float(T_K))
+    # Consume the driver's own per-T coefficient bundles — the exact
+    # objects the states were converged on — rather than re-calling
+    # the builder per T (structurally identical, but this makes the
+    # observable ↔ steady-state pairing impossible to desynchronize).
+    for i, (coefs, sol) in enumerate(
+        zip(sweep.coefficients, sweep.states, strict=True)
+    ):
         gamma_eo = _gamma_eo(coefs, sol)
         Gamma_P[i] = _gamma_P(sol, gamma_eo)
         ratio[i] = _ratio_eo(gamma_eo)
@@ -265,6 +270,8 @@ def _global_quasiequilibrium_state(
 
     p_1 = 0.0
     s = 0.0
+    converged = False
+    p_1_step = float("inf")
     for _ in range(200):
         p_0 = 1.0 - p_1
         # Total generation (M25 Eq. 7; per-state photon pieces at p).
@@ -292,10 +299,20 @@ def _global_quasiequilibrium_state(
         up = float(gamma_eo[0, 1] + coefs.gamma_ee[0, 1])
         down = float(gamma_eo[1, 0] + coefs.gamma_ee[1, 0])
         p_1_new = up / (up + down) if up + down > 0.0 else 0.0
-        if abs(p_1_new - p_1) <= 1e-15 * max(p_1_new, 1e-30):
+        p_1_step = abs(p_1_new - p_1)
+        if p_1_step <= 1e-15 * max(p_1_new, 1e-30):
             p_1 = p_1_new
+            converged = True
             break
         p_1 = p_1_new
+
+    if not converged:
+        raise RuntimeError(
+            "Global-quasiequilibrium fixed-point iteration on p_1 did not "
+            f"converge in 200 iterations (last |Δp_1| = {p_1_step:.3e}). "
+            "The p_1 ↔ density coupling is not weak for these parameters; "
+            "the reduction's closed-form assumptions need re-examination."
+        )
 
     return M25SteadyState(
         p_0=1.0 - p_1,
@@ -303,7 +320,10 @@ def _global_quasiequilibrium_state(
         x_L=c_L * s,
         x_Rgt=rho * s,
         x_Rlt=s,
-        residual_inf_norm=0.0,
+        # This state solves the REDUCED global-QE closure, not the full
+        # 4-unknown residual, so a full-model residual norm is not
+        # applicable — NaN, not a fake 0.0 (deep-review finding 3).
+        residual_inf_norm=float("nan"),
         n_function_evaluations=0,
     )
 

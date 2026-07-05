@@ -5,9 +5,11 @@ at 29 temperatures is a few seconds of warm-started Newton solves on
 the well-conditioned (Γ̄-normalized) moment system, so this runs in
 the default gate.
 
-Tolerance is tight (rtol=1e-6): the driver is deterministic and the
-tracked root is unique with residuals ~1e-12 Hz; the strict pin is a
-same-platform regression gate (see ``skip_unless_pinned_here``).
+Tolerance is platform-stamped (see ``_robust.assert_pinned_match``):
+strict rtol=1e-6 on the generating platform (the driver is
+deterministic and the tracked root is unique with residuals
+~1e-12 Hz); rtol=1e-3 elsewhere (rounding-level cross-platform
+scatter only, post Γ̄-normalization).
 
 First-time generation::
 
@@ -19,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.marchegiani_2025._robust import skip_unless_pinned_here
+from validation.marchegiani_2025._robust import assert_pinned_match
 from validation.marchegiani_2025.fig3_paper import (
     PANEL_A_OMEGA_LR_GHZ,
     PANEL_B_OMEGA_LR_GHZ,
@@ -36,14 +38,13 @@ def test_matches_pinned_baseline() -> None:
             "Baseline not found. Generate with: "
             "python -m validation.marchegiani_2025.fig3_paper"
         )
-    skip_unless_pinned_here(baseline_path_a(), baseline_path_b())
 
     baseline = read_baseline()
     result = run()
 
-    for panel_name, expected, actual in (
-        ("panel_a", baseline.panel_a, result.panel_a),
-        ("panel_b", baseline.panel_b, result.panel_b),
+    for panel_name, path, expected, actual in (
+        ("panel_a", baseline_path_a(), baseline.panel_a, result.panel_a),
+        ("panel_b", baseline_path_b(), baseline.panel_b, result.panel_b),
     ):
         # Temperatures are deterministic (np.linspace).
         np.testing.assert_allclose(
@@ -51,39 +52,41 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Densities — tight pins: the branch driver is deterministic
-        # and the tracked root is unique (residuals ~1e-12 Hz), so any
-        # drift beyond 1e-6 is a real regression (or a scipy-version
-        # behavior change worth noticing).
-        np.testing.assert_allclose(
-            actual.x_L, expected.x_L, rtol=1e-6,
-            err_msg=f"{panel_name}: x_L drifted",
+        # Densities — platform-stamped pins (strict on the generating
+        # platform, loose-but-running elsewhere).
+        assert_pinned_match(
+            actual.x_L, expected.x_L, f"{panel_name}: x_L",
+            baseline_path=path,
         )
-        np.testing.assert_allclose(
-            actual.x_Rgt, expected.x_Rgt, rtol=1e-6,
-            err_msg=f"{panel_name}: x_Rgt drifted",
+        assert_pinned_match(
+            actual.x_Rgt, expected.x_Rgt, f"{panel_name}: x_Rgt",
+            baseline_path=path,
         )
-        np.testing.assert_allclose(
-            actual.x_Rlt, expected.x_Rlt, rtol=1e-6,
-            err_msg=f"{panel_name}: x_Rlt drifted",
+        assert_pinned_match(
+            actual.x_Rlt, expected.x_Rlt, f"{panel_name}: x_Rlt",
+            baseline_path=path,
         )
-        np.testing.assert_allclose(
-            actual.p_1, expected.p_1, rtol=1e-6,
-            err_msg=f"{panel_name}: p_1 drifted",
+        assert_pinned_match(
+            actual.p_1, expected.p_1, f"{panel_name}: p_1",
+            baseline_path=path,
         )
         # Chemical potentials are derived from x_α via the SI Eqs.
-        # S2–S5 inversions; the log compresses the density rtol.
-        np.testing.assert_allclose(
-            actual.mu_L_GHz, expected.mu_L_GHz, atol=1e-3, rtol=1e-6,
-            err_msg=f"{panel_name}: mu_L_GHz drifted",
+        # S2–S5 inversions; the log compresses the density rtol, and
+        # the atol floor covers the numerical noise near the μ → 0
+        # equilibrium attractor at the top of the sweep.
+        assert_pinned_match(
+            actual.mu_L_GHz, expected.mu_L_GHz, f"{panel_name}: mu_L_GHz",
+            baseline_path=path, atol=1e-3,
         )
-        np.testing.assert_allclose(
-            actual.mu_Rgt_GHz, expected.mu_Rgt_GHz, atol=1e-3, rtol=1e-6,
-            err_msg=f"{panel_name}: mu_Rgt_GHz drifted",
+        assert_pinned_match(
+            actual.mu_Rgt_GHz, expected.mu_Rgt_GHz,
+            f"{panel_name}: mu_Rgt_GHz",
+            baseline_path=path, atol=1e-3,
         )
-        np.testing.assert_allclose(
-            actual.mu_Rlt_GHz, expected.mu_Rlt_GHz, atol=1e-3, rtol=1e-6,
-            err_msg=f"{panel_name}: mu_Rlt_GHz drifted",
+        assert_pinned_match(
+            actual.mu_Rlt_GHz, expected.mu_Rlt_GHz,
+            f"{panel_name}: mu_Rlt_GHz",
+            baseline_path=path, atol=1e-3,
         )
 
 

@@ -6,10 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.marchegiani_2025._robust import (
-    assert_robust_match,
-    skip_unless_pinned_here,
-)
+from validation.marchegiani_2025._robust import assert_pinned_match
 from validation.marchegiani_2025.fig3_chemical_potentials import (
     baseline_path_a,
     baseline_path_b,
@@ -24,14 +21,13 @@ def test_matches_pinned_baseline() -> None:
             "Baseline not found. Generate with: "
             "python -m validation.marchegiani_2025.fig3_chemical_potentials"
         )
-    skip_unless_pinned_here(baseline_path_a(), baseline_path_b())
 
     baseline = read_baseline()
     result = run()
 
-    for panel_name, expected, actual in (
-        ("panel_a", baseline.panel_a, result.panel_a),
-        ("panel_b", baseline.panel_b, result.panel_b),
+    for panel_name, path, expected, actual in (
+        ("panel_a", baseline_path_a(), baseline.panel_a, result.panel_a),
+        ("panel_b", baseline_path_b(), baseline.panel_b, result.panel_b),
     ):
         # Temperatures are deterministic (np.linspace).
         np.testing.assert_allclose(
@@ -39,34 +35,43 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Robust (majority + median) comparison retained for cross-
-        # scipy-version headroom; with the branch-continuation driver
-        # and the Γ̄-normalized (well-conditioned) density equations
-        # the historical branch-selection noise this guarded against
-        # is gone — see validation/marchegiani_2025/_robust.py.
-        assert_robust_match(actual.x_L, expected.x_L, f"{panel_name}: x_L")
-        assert_robust_match(
-            actual.x_Rgt, expected.x_Rgt, f"{panel_name}: x_Rgt"
+        # Platform-stamped pins (strict rtol=1e-6 on the generating
+        # platform, rtol=1e-3 elsewhere): the branch-continuation
+        # driver on the Γ̄-normalized density equations tracks a
+        # unique root, so the historical branch-selection noise the
+        # old majority/median comparison tolerated is gone — see
+        # validation/marchegiani_2025/_robust.py.
+        assert_pinned_match(
+            actual.x_L, expected.x_L, f"{panel_name}: x_L",
+            baseline_path=path,
         )
-        assert_robust_match(
-            actual.x_Rlt, expected.x_Rlt, f"{panel_name}: x_Rlt"
+        assert_pinned_match(
+            actual.x_Rgt, expected.x_Rgt, f"{panel_name}: x_Rgt",
+            baseline_path=path,
         )
-        assert_robust_match(actual.p_1, expected.p_1, f"{panel_name}: p_1")
-        # Chemical potentials μ_α = Δ_α + T·log(x_α) are the plotted
-        # observables and much stiffer than the moments; the atol
-        # floor covers the residual numerical noise near the μ → 0
-        # equilibrium attractor at high T.
-        assert_robust_match(
+        assert_pinned_match(
+            actual.x_Rlt, expected.x_Rlt, f"{panel_name}: x_Rlt",
+            baseline_path=path,
+        )
+        assert_pinned_match(
+            actual.p_1, expected.p_1, f"{panel_name}: p_1",
+            baseline_path=path,
+        )
+        # Chemical potentials μ_α are derived from x_α via the SI
+        # Eqs. S2–S5 inversions; the log compresses the density rtol,
+        # and the atol floor covers the numerical noise near the
+        # μ → 0 equilibrium attractor at high T.
+        assert_pinned_match(
             actual.mu_L_GHz, expected.mu_L_GHz,
-            f"{panel_name}: mu_L_GHz", atol=2.0,
+            f"{panel_name}: mu_L_GHz", baseline_path=path, atol=1e-3,
         )
-        assert_robust_match(
+        assert_pinned_match(
             actual.mu_Rgt_GHz, expected.mu_Rgt_GHz,
-            f"{panel_name}: mu_Rgt_GHz", atol=2.0,
+            f"{panel_name}: mu_Rgt_GHz", baseline_path=path, atol=1e-3,
         )
-        assert_robust_match(
+        assert_pinned_match(
             actual.mu_Rlt_GHz, expected.mu_Rlt_GHz,
-            f"{panel_name}: mu_Rlt_GHz", atol=2.0,
+            f"{panel_name}: mu_Rlt_GHz", baseline_path=path, atol=1e-3,
         )
 
 

@@ -1,24 +1,30 @@
-"""Branch-jump-tolerant baseline comparison for the M25 pin tests.
+"""Platform-aware pinned-baseline comparison for the M25 pin tests.
 
-Historical rationale: with the density equations run on the ensemble
-``Γ̃`` rates (the pre-``cooper_pair_number_R`` normalization) the M25
-moment system was pathologically ill-conditioned — a float64-flat
-valley of pseudo-roots whose selection was platform-sensitive (BLAS
-rounding steered hybr/lm convergence), so isolated temperature points
-could land orders of magnitude apart across machines and a per-point
-``assert_allclose`` could not be cross-platform stable. The tolerant
-criterion here — (a) a majority of sweep points within ``(rtol,
-atol)`` and (b) a small median relative deviation — passes a few
-branch jumps while still failing on any systematic shift.
+Policy: every baseline CSV records the ``sys.platform`` it was
+generated on (``# pinned_on:`` header). On that platform the pin
+comparison is strict (``rtol = 1e-6``): the branch-continuation driver
+is deterministic and the tracked root is unique with residuals
+~1e-12 Hz, so any drift beyond 1e-6 is a real regression (or a
+scipy-version behavior change worth noticing). On every other
+platform the same comparison **runs** — at ``rtol = 1e-3`` with the
+absolute tolerance floored at 1e-30 — instead of being skipped: only
+rounding-level cross-platform scatter (BLAS/libm differences steering
+the last Newton steps) is expected post-fix, and 1e-3 still catches
+minority-point corruption by orders of magnitude.
 
-Current status: the branch-continuation driver
-(``qpsim.services.rate_equation.solve_rate_equation_branch``) plus the
-single-quasiparticle Γ̄ normalization removed the noise this module
-guards against — the tracked root is unique and solves land at
-residuals ~1e-12 Hz, so run-to-run and (expected) cross-platform
-scatter is at rounding level. The tolerant comparison is retained as
-cheap insurance against scipy-version drift; the ``pinned_on``
-platform stamp still gates the strict pins to the generating machine.
+Historical note: this module used to (a) *skip* the strict pins
+entirely off the generating platform and (b) offer a "robust"
+majority-fraction + median comparison (≥70 % of points within 5 %,
+median within 1 %). Both were calibrated for the
+pre-``cooper_pair_number_R`` regime, in which the density equations
+ran on the ensemble ``Γ̃`` rates and the moment system was a
+float64-flat valley of pseudo-roots whose selection was
+platform-sensitive — ubuntu CI landed ~70 % away from the Windows
+pins at 25/29 sweep points, a different branch family rather than
+noise. The single-quasiparticle Γ̄ normalization (M25 text below
+Eq. 6; commit 3199378) removed the multi-stability and with it the
+rationale for skipping cross-platform or tolerating branch jumps, so
+both mechanisms are gone.
 """
 
 from __future__ import annotations
@@ -27,9 +33,16 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 PIN_PLATFORM_PREFIX = "# pinned_on: "
+
+#: Same-platform regression tolerance (deterministic driver).
+STRICT_RTOL = 1e-6
+#: Cross-platform tolerance (rounding-level scatter only, post-fix).
+CROSS_PLATFORM_RTOL = 1e-3
+#: Cross-platform absolute floor so exact zeros cannot produce
+#: spurious relative failures; far below every pinned physical scale.
+CROSS_PLATFORM_ATOL_FLOOR = 1e-30
 
 
 def baseline_pin_platform(path: Path) -> str | None:
@@ -43,52 +56,38 @@ def baseline_pin_platform(path: Path) -> str | None:
     return None
 
 
-def skip_unless_pinned_here(*paths: Path) -> None:
-    """Skip the calling test unless every baseline was pinned on this
-    platform.
-
-    The multi-seed picker's fixed-point selection differs *systematically*
-    between platforms (observed: ubuntu CI lands ~70% away from the
-    Windows pins at 25/29 sweep points — a different branch family, not
-    noise), so the strict pin comparison is a same-platform regression
-    gate only. The qualitative paper-anchored tests run everywhere.
-    """
-    for path in paths:
-        pinned_on = baseline_pin_platform(path)
-        if pinned_on is None:
-            pytest.skip(
-                f"{path.name}: baseline carries no platform stamp — "
-                "regenerate it on this machine to enable the strict pin"
-            )
-        if pinned_on != sys.platform:
-            pytest.skip(
-                f"{path.name}: baseline pinned on {pinned_on!r}, running "
-                f"on {sys.platform!r} — fixed-point selection is "
-                "platform-dependent; strict pin is same-platform only"
-            )
-
-
-def assert_robust_match(
+def assert_pinned_match(
     actual: np.ndarray,
     expected: np.ndarray,
     name: str,
     *,
-    rtol: float = 5e-2,
+    baseline_path: Path,
     atol: float = 0.0,
-    min_fraction: float = 0.7,
-    median_rtol: float = 1e-2,
 ) -> None:
-    actual = np.asarray(actual, dtype=float)
-    expected = np.asarray(expected, dtype=float)
-    assert np.all(np.isfinite(actual)), f"{name}: non-finite values"
-    dev = np.abs(actual - expected)
-    ok = dev <= atol + rtol * np.abs(expected)
-    fraction = float(ok.mean())
-    denom = np.maximum(np.abs(expected), atol if atol > 0.0 else 1e-300)
-    median_rel = float(np.median(dev / denom))
-    assert fraction >= min_fraction and median_rel <= median_rtol, (
-        f"{name}: {int((~ok).sum())}/{ok.size} points outside "
-        f"rtol={rtol}/atol={atol} (allowed fraction {1 - min_fraction:.2f}), "
-        f"median relative deviation {median_rel:.3g} "
-        f"(allowed {median_rtol}) — systematic drift, not branch noise"
+    """Compare a regenerated curve against its pinned baseline.
+
+    The tolerance is chosen by the baseline's platform stamp: strict
+    ``rtol = 1e-6`` on the generating platform; ``rtol = 1e-3``
+    everywhere else (including a missing stamp), with ``atol`` floored
+    at 1e-30 so pinned exact zeros compare cleanly. ``atol`` lets
+    callers widen the absolute floor for observables with a genuine
+    numerical noise floor (e.g. ``μ_α`` near the μ → 0 equilibrium
+    attractor at the top of the temperature sweep).
+    """
+    pinned_on = baseline_pin_platform(baseline_path)
+    if pinned_on == sys.platform:
+        rtol = STRICT_RTOL
+    else:
+        rtol = CROSS_PLATFORM_RTOL
+        atol = max(atol, CROSS_PLATFORM_ATOL_FLOOR)
+    np.testing.assert_allclose(
+        np.asarray(actual, dtype=float),
+        np.asarray(expected, dtype=float),
+        rtol=rtol,
+        atol=atol,
+        err_msg=(
+            f"{name}: drifted from pinned baseline {baseline_path.name} "
+            f"(pinned_on={pinned_on!r}, running on {sys.platform!r}, "
+            f"rtol={rtol:g}, atol={atol:g})"
+        ),
     )
