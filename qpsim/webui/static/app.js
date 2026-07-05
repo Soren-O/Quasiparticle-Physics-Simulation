@@ -213,7 +213,7 @@ const FORMS = {
         F("T_start_mK", "T start (mK)"),
         F("T_stop_mK", "T stop (mK)"),
         F("T_points", "Points", "int"),
-        F("branch_picker_mode", "Branch picker", "select", { options: ["lock_to_preferred", "max_x_L", "min_residual"] }),
+        F("branch_picker_mode", "Branch picker", "select", { options: ["lock_to_preferred", "min_residual"] }),
       ],
     },
   ],

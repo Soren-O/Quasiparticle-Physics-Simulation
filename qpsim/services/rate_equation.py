@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -1915,13 +1916,14 @@ def solve_rate_equation_steady_state_multi_seed(
       ~1e-8 Hz physical source scale) and is no longer a defensible
       default.
 
-    * ``"max_x_L"`` (legacy): return the candidate with the largest
-      ``x_L``. Validated against early (pre-normalization-fix) M25
-      baselines but selects slope pseudo-roots admitted by the 1 Hz
-      lm/lsq candidate ceiling; also documented to pick the wrong
-      branch for large gap asymmetry (M25 Fig 3b/4b, ~600×
-      parity-rate inflation). Kept for reproducing historical
-      baselines only.
+    * ``"max_x_L"`` (DEPRECATED — emits ``DeprecationWarning``): return
+      the candidate with the largest ``x_L``. Validated against early
+      (pre-normalization-fix) M25 baselines but selects slope
+      pseudo-roots admitted by the 1 Hz lm/lsq candidate ceiling; also
+      documented to pick the wrong branch for large gap asymmetry
+      (M25 Fig 3b/4b, ~600× parity-rate inflation). Kept only so
+      historical baselines remain reproducible; scheduled for removal
+      (2026-07-04 deep review, finding 10).
 
     * ``"lock_to_preferred"``: if ``preferred_seed`` converges to a
       positive-density branch, **always** return it (no max-x_L /
@@ -2049,10 +2051,25 @@ def solve_rate_equation_steady_state_multi_seed(
     if branch_picker_mode != "max_x_L":
         raise ValueError(
             f"Unknown branch_picker_mode={branch_picker_mode!r}. "
-            "Use 'max_x_L', 'min_residual', or 'lock_to_preferred'."
+            "Use 'min_residual' or 'lock_to_preferred' "
+            "('max_x_L' is deprecated)."
         )
 
-    # Default: max-x_L with optional preferred-seed override.
+    # DEPRECATED (2026-07-04 deep review, finding 10): even on the
+    # Γ̄-normalized single-root system, lm/lsq candidate pools admit
+    # sub-1-Hz slope pseudo-roots and max-x_L selects them over the true
+    # root (observed: x_L = 3.16e-6 at residual 6.5e-5 Hz picked over
+    # x_L = 5.28e-8 at 2.5e-22 Hz). Kept only so historical baselines
+    # remain reproducible; scheduled for removal.
+    warnings.warn(
+        "branch_picker_mode='max_x_L' is deprecated: it can select "
+        "large-x_L pseudo-roots over the true fixed point (see "
+        "docs/REVIEW-2026-07-04-deep-review.md, finding 10). Use "
+        "'min_residual' (default) or 'lock_to_preferred'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Legacy behavior: max-x_L with optional preferred-seed override.
     max_sol = max(candidates_for_picker, key=lambda c: c[1].x_L)[1]
     if preferred_seed is not None:
         for seed, sol in candidates_for_picker:

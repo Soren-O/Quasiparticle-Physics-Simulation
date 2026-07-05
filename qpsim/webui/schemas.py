@@ -244,6 +244,11 @@ class M25JunctionSetup(StrictModel):
     T_start_mK: Annotated[float, Field(gt=0.0)] = 10.0
     T_stop_mK: Annotated[float, Field(gt=0.0)] = 150.0
     T_points: Annotated[int, Field(ge=1, le=500)] = 29
+    # "max_x_L" is DEPRECATED (selects pseudo-roots; see
+    # docs/REVIEW-2026-07-04-deep-review.md finding 10). It stays in the
+    # Literal so previously saved setups still validate, but it is no
+    # longer offered in the UI dropdown and the engine emits a
+    # DeprecationWarning when it runs.
     branch_picker_mode: Literal["max_x_L", "min_residual", "lock_to_preferred"] = (
         "lock_to_preferred"
     )

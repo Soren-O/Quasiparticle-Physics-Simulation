@@ -60,8 +60,10 @@ same day unless marked OPEN.
     characterization tests. ⚠ OPEN DECISION: the tests PROVE max_x_L is
     still dangerous post-fix (lm/lsq candidate pools admit sub-1-Hz slope
     pseudo-roots; max_x_L picks x_L=3.16e-6 / residual 6.5e-5 Hz over the
-    true root 5.28e-8 / 2.5e-22 Hz). It remains a webui-selectable mode —
-    consider deprecating it (Soren's call).
+    true root 5.28e-8 / 2.5e-22 Hz). DECIDED (Soren, same day): DEPRECATED —
+    the engine emits DeprecationWarning, the webui dropdown no longer offers
+    it (schema keeps it so saved setups validate), docstrings marked,
+    scheduled for removal.
 11. **Duplicated pinned baselines with no cross-check** (fig3a/fig3b
     paper ↔ chemical_potentials; fig4_paper full-model ↔ fig4a/b parity) —
     new test_baseline_cross_consistency.py pins exact equality.
@@ -92,9 +94,9 @@ same day unless marked OPEN.
 - Fig-3a parameter bundle dedup: branch tests now import from
   test_rate_equation_note_v (FIXED); the validation module keeps its own copy
   by design (figure scripts are self-contained).
-- Editorial (Soren): whether the intro's early λ_k notation flag should add
-  "for the even harmonics" to fully mirror the parity-dictionary guard —
-  verifier judged it genuinely arguable.
+- Editorial (Soren): DECIDED same day — the intro's early λ_k notation flag
+  now carries the even-harmonic qualifier inline, mirroring the
+  parity-dictionary guard.
 - Off-platform μ comparisons near μ→0: rtol=1e-3 density scatter maps to
   ~3e-3 GHz in μ at 150 mK, marginally above the 1e-3 GHz atol some callers
   pass — only relevant if a genuinely different BLAS ever pushes points to

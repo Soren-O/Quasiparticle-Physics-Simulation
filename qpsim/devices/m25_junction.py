@@ -153,9 +153,10 @@ class M25GapAsymmetricJJ(Junction):
         equations (``M25Coefficients.cooper_pair_number_R``, set by
         the Note-V builder used here) the M25 system has a unique
         physical root and this mode finds it. The legacy
-        ``"max_x_L"`` mode reproduces pre-normalization-fix baselines
-        only (it can pick sub-1-Hz pseudo-roots on the recombination
-        slope); see the solver docstring.
+        ``"max_x_L"`` mode is DEPRECATED (emits ``DeprecationWarning``):
+        it reproduces pre-normalization-fix baselines only and can pick
+        sub-1-Hz pseudo-roots on the recombination slope; see the
+        solver docstring and REVIEW-2026-07-04, finding 10.
     expected_ordering
         Optional moment-ordering hint forwarded to the solver
         (used by ``"min_residual"``/``"lock_to_preferred"`` modes).

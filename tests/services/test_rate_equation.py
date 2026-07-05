@@ -584,9 +584,10 @@ class TestBranchPickerModesOnFig3a:
         # max_x_L is "kept for reproducing historical baselines only".
         coefs = _fig3a_coefficients()
         direct = solve_rate_equation_steady_state(coefs)
-        picked = solve_rate_equation_steady_state_multi_seed(
-            coefs, branch_picker_mode="max_x_L",
-        )
+        with pytest.warns(DeprecationWarning, match="max_x_L.*deprecated"):
+            picked = solve_rate_equation_steady_state_multi_seed(
+                coefs, branch_picker_mode="max_x_L",
+            )
         values = np.array([picked.p_1, picked.x_L, picked.x_Rgt, picked.x_Rlt])
         assert np.all(np.isfinite(values))
         assert picked.x_L >= direct.x_L  # max over a pool containing the root
