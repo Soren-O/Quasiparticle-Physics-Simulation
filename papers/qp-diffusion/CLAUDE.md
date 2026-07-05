@@ -254,6 +254,11 @@ In particular, chapters 10 and 15 are quite relevant.
   warns that Kopnin's transverse amplitude is \(\fT=\lambda_{\bk}\phi_T\), not the
   bare branch difference \(\phi_T\), with cross-refs. Deliberately forward-looking
   (\(\phi_T\), \(\lambda_{\bk}\) defined later) — don't "fix" the forward refs.
+  2026-07-04 deep-review follow-up (Soren-approved): the flag now carries the
+  even-harmonic qualifier inline ("an identity for the even angular harmonics
+  only; the odd harmonics swap sectors, eq:intro_parity_dictionary"), so the
+  early preview can no longer be read as extending \(\fT=\lambda\phi_T\) to odd
+  harmonics — consistent with the parity-dictionary guard above.
 - **Dynes footnote relocated** (open item 5): the long broadening footnote moved
   out of BCS kinematics (§II opening) into the Usadel-route trace discussion; a
   one-line pointer remains at the original site. SUPERSEDED SAME DAY by the
