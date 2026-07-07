@@ -18,9 +18,14 @@ sources — editing them does NOT change this manuscript.
 
 ## References
 
-You can find kopnin chapters in Documents/kopnin-numbered-equations/
-
-In particular, chapters 10 and 15 are quite relevant.
+Kopnin materials live at `B:\AEinstein\Einstein\Documents\Soren\kopnin-numbered-equations\`
+(on this Windows box): the full book PDF ("Kopnin, Theory of Nonequilibrium
+Superconductivity (2001).pdf"), numbered-equation transcriptions of
+Chapters 10 and 15 ("Local Chapter Copies\Kopnin Chapter 10.tex" / "... 15.tex"),
+and the transcription-audit tooling. A second copy of the Ch. 10/15
+transcriptions is at `G:\My Drive\qp-diffusion-handoff\kopnin\`.
+Chapters 10 and 15 are the most relevant; Ch. 1 (the \(\nu(0)\)
+single-spin DOS definition) is in the book PDF.
 ---
 
 ## Notation conventions (deliberate — not typos)
@@ -301,9 +306,13 @@ In particular, chapters 10 and 15 are quite relevant.
 - **Dynes footnote final form** (refines the item-5 execution): the full
   algebraic discussion now lives in SM app:dynes_remark (end of the derivation
   appendix); the main-text footnote at the channel-dictionary sentence is a
-  compact pointer. Rationale: the 17-line footnote overfilled whichever §III
-  page anchored it (23.9–28.7 pt vbox under three different anchors). Don't
-  re-inflate the main-text footnote.
+  compact pointer. Rationale (corrected 2026-07-07): footnote length/style —
+  a 17-line main-text footnote is disproportionate and the algebra belongs
+  with the SM derivation. (The earlier wording of this bullet attributed the
+  move to the §III vbox; the Build note is right that the ~29 pt vbox is
+  display+table density and persists under ANY footnote anchor, so the
+  demotion bought no vbox relief. Decision unchanged.) Don't re-inflate the
+  main-text footnote.
 - **S-symbol overload (item 8): deliberately NOT renamed.** The
   channel-dictionary parenthetical disambiguates; a true rename touches the
   boxed, sympy-verified SM supercurrent equation for cosmetic gain. Closed.
@@ -339,12 +348,87 @@ In particular, chapters 10 and 15 are quite relevant.
 
 ---
 
+## 2026-07-07 — per-subsection review round (44 referees + CLAUDE.md skeptic), ALL FIXES APPLIED
+
+- **What ran**: one dedicated Fable/xhigh referee per subsection of both
+  documents (44 units) instructed to trust this file, plus one adversarial
+  skeptic auditing this file itself. Full report (verdicts, findings,
+  derivations, dispositions):
+  `B:\AEinstein\Einstein\Documents\Soren\qp-diffusion-SUBSECTION-REVIEW-2026-07-07.md`.
+- **Outcome**: 0 critical / 9 major (8 distinct) / 74 minor / 77 nit; no
+  finding changed a physics result; everything actionable applied
+  2026-07-07 on `fix/gpt-review-2026-07-05` (this round also executed all
+  gpt_review.txt PAPER items).
+- **Major fixes** (details in the report): nonadiabatic source
+  characterization scoped to gap-slaved distributions + O(ℏ²)
+  sector/robustness sentence corrected (SM app:nonadiabatic; main-text echo
+  at sec:tdep_spectral_flow) — both now MACHINE-VERIFIED by the new
+  block (d) of verify_nonadiabatic.py; stale "negative result" opener of
+  SM sec:coordinate_lift rewritten to the settled positive framing; N₂
+  sign in the SM Conventions display fixed (Re, parallel to N₁); KL Robin
+  matching now carries σ_i=2e²N₀D_N (SM + main text, with the
+  diffusion-units g_N=G_N/2e²N₀ bridge); outline preview of the matrix
+  Keldysh–Usadel equation carries its factor of i; Data-availability claim
+  made true by pushing verify_tdep_inhomogeneous.py to the public repo;
+  benchmark figure PDFs committed with Makefile provenance rules.
+- **New settled decisions from this round** (don't re-litigate):
+  \(\mathcal D_L,\mathcal D_T\) calligraphic everywhere incl.
+  app:supercurrent/app:proximity; product-symbol bridges (∘ = main text ⊗;
+  ⋆ = its (E,t) restriction) stated at SM Conventions, eq:moyal_def, and
+  app:branch setup; taxonomy conserved-density weight is \(\mathcal W\)
+  (kernel rate w unchanged); §V.B retitled "Conserved currents and
+  boundary conditions"; branch-Boltzmann route uses τ (SM convention, =
+  main-text τ_N) and bold **a** for the P1 harmonic and u²(E)−v²(E)
+  on-shell coherence factors; intro opening reworded so abstract and intro
+  no longer share their first ten words (abstract untouched apart from
+  symbol glosses + one comma-for-dash swap).
+- **verify_nonadiabatic.py strengthened**: structural no-coupling checks
+  are now `.has()`-based (see derivative-carried dependence, which
+  `.diff()` missed) and a "(d) 2026-07-07 corrected-claims" block pins the
+  generic τ₁ O(ℏ²) source, its static-gap survival, its gap-slaved
+  vanishing, and the τ₂/τ₃-sector dg solve. Full suite re-run 2026-07-07
+  with the A: venv: 7/7 clean, ALL PASS.
+- **gpt_review.txt disposition**: paper items all fixed (P1 figure
+  packaging; P2 τΔ/ℏ; P3 benchmark-1 wording, Dynes pointer word,
+  log warnings addressed by rebuild). ENGINE items deliberately deferred
+  to a qpsim code session: solve_gap near-T_c bracketing, t3_spatial_1d
+  geometry/conductance validation, webui path containment, CI ruff red,
+  CI slow-coverage gap, picard mixing=0 false convergence, sympy in dev
+  deps + Makefile PY default (the last one IS fixed here).
+- **Skeptic audit disposition**: C1 (record gpt_review) = this block;
+  C2 Dynes rationale corrected above; C3 Kopnin pointer made precise —
+  NOTE the skeptic's "directory missing" claim was itself wrong (the
+  directory exists in the Soren folder, including the full book PDF);
+  C4 riwar2019 evidence recorded under Known-incomplete; C5 abstract
+  guard scope clarified.
+- **REMAINING after this round**: (1) Soren's own abstract review pass —
+  still the only gate before submission; (2) optional: read the PRB PDF
+  to convert the riwar2019 arXiv Eq. (46) pinpoint to its published
+  (A-)number; (3) the deferred qpsim engine items above.
+
+---
+
 ## Known incomplete (work in progress — not defects)
 
 - Abstract: merged draft written 2026-07-01; sharpened 2026-07-02 with
   Soren-approved wording (the legacy placement named as in common use in
   device modeling, including published gap-engineered-trap analyses —
-  backed by the verified riwar2019 Appendix-A instance).
+  backed by the verified riwar2019 Appendix-A instance). SCOPE of that
+  guard (clarified 2026-07-07): it covers the legacy-placement sentence
+  only; the abstract as a whole has NOT had Soren's formal review pass,
+  which is the last gate before submission. The 2026-07-07 round added
+  symbol glosses and a punctuation fix without touching the guarded
+  sentence's claim — include them in that pass.
+- riwar2019 Appendix-A evidence (recorded 2026-07-07, re-verified against
+  arXiv:1907.04781 via ar5iv): their Eq. (46) [arXiv numbering; PRB
+  appendix (A-)number still to be read off the journal PDF] is
+  \(\dot f_{\rm qp}(\epsilon,y)=\partial_y[D_{\rm qp}(\epsilon,y)\,
+  \partial_y f_{\rm qp}]\) with
+  \(D_{\rm qp}=D_0/\nu_{\rm BCS}(\epsilon)\),
+  \(\nu_{\rm BCS}=\epsilon/\sqrt{\epsilon^2-\Delta^2(y)}\), attributed by
+  them to Belzig et al. 1999 — exactly placement C at a varying gap.
+  Referee-risk pre-emption: those authors are plausible referees; if
+  desired, add the (A-)equation pinpoint at the citation once checked.
 - All former paper3 gaps are closed in the merge: `sec:sc_scalar_equations`
   references were remapped to `eq:beta_f_from_modes`, the supplement is now
   local (SM- refs resolve), and Data/code availability carries the paper1 URLs.
@@ -357,14 +441,21 @@ In particular, chapters 10 and 15 are quite relevant.
   via xr-hyper, each needs the other's .aux), plain `make` afterwards;
   `make roadmap` rebuilds the routes figure; `make verify` runs the sympy
   proof-check scripts (needs `../.venv` or `make setup`).
-- Clean state (as of the 2026-07-04 second session, items 6–10 + MB-6/11):
-  paper.pdf 52pp, supplement.pdf 48pp, ZERO undefined references, zero
-  overfull hboxes, ONE structural overfull \vbox (~29pt, p. 29 — the §III
-  trace-derivation/table stretch; returned when the item-6/7 content
-  additions reflowed §III, persists at 24–29pt under any Dynes-footnote
-  anchor, so it is display+table density, not footnote mass — note only per
-  the standing rule). `make verify` 7/7 no-FAIL. On this Windows box the
-  verify venv is the A: archive clone's
-  (`A:\Einstein\Documents\qp-diffusion-paper\.venv`) — the qpsim repo venv
-  has no sympy and the Makefile's `../.venv/bin/python` default is the Mac
-  layout.
+- Clean state (as of the 2026-07-07 review-fix rebuild): paper.pdf 54pp,
+  supplement.pdf 49pp, ZERO undefined references, ZERO overfull hboxes,
+  and ZERO overfull vboxes — the long-standing ~29 pt §III vbox vanished
+  when the review round compressed the duplicated "Time-dependent spectral
+  flow" paragraph in §III.C (pagination luck regained; if future edits
+  reflow §III it may return — note-only per the standing rule). The only
+  remaining pdfTeX warnings are the pre-existing cosmetic destination
+  class (9+3 `section*`/float anchors); the formerly dead SM-/M-
+  cross-document link anchors are FIXED by the xr-hyper URL arguments
+  (`\externaldocument[SM-]{supplement}[supplement.pdf]` and symmetric),
+  which this 2017 xr-hyper accepts. `make verify` 7/7 no-FAIL (now
+  including the block-(d) corrected-claims checks). On this Windows box
+  the verify venv is the A: archive clone's
+  (`A:\Einstein\Documents\qp-diffusion-paper\.venv`); the Makefile's `PY`
+  default now matches `make setup` (paper-local `.venv`). Rebuild recipe
+  on this box: `sanitize_aux.py` (tracked) on the other document's .aux
+  before each latexmk pass, alternating supplement/paper twice — see
+  rebuild-2026-07-07.log for a clean transcript.
