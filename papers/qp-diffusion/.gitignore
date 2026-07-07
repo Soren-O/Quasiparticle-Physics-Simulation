@@ -24,8 +24,12 @@
 *.xdv
 out/
 
-# latexmk rebuilds paper.pdf from source; supplement.pdf stays tracked
+# Built documents are not tracked (the root .gitignore *.pdf rule covers
+# them); the figure PDFs are re-included below as committed submission assets.
 paper.pdf
+supplement.pdf
+
+!figures/*.pdf
 
 .DS_Store
 *.tmp
