@@ -113,14 +113,24 @@ def build(Delta, fL, fT):
     out['t2 O(h1) = i(D/E) x t3 channel'] = (
         sp.Matrix([[sp.simplify(chan(t2, 1) - I_ * (Delta / E) * chan(t3, 1))]]), sp.zeros(1, 1))
     from sympy.core.function import AppliedUndef
+    # 2026-07-07 (review round): the structural no-coupling checks were
+    # .diff()-based, which is blind to dependence entering through
+    # Derivative(f, t) / Derivative(f, E) terms.  Replaced by .has(),
+    # which sees the function inside any derivative.  (Both referees'
+    # re-derivations confirm the strengthened statements still hold.)
     if isinstance(fL, AppliedUndef):     # structural checks only make sense symbolically
-        out['t3 channel has NO fL at O(h1),O(h2)'] = (
-            sp.Matrix([[sp.simplify(chan(t3, 1).diff(fL) + chan(t3, 2).diff(fL))]]), sp.zeros(1, 1))
-        out['coh t1 O(h2) sourced by fL only (no fT)'] = (
-            sp.Matrix([[sp.simplify(chan(t1, 2).diff(fT))]]), sp.zeros(1, 1))
+        out['t3 channel has NO fL at O(h1),O(h2) [incl. derivatives]'] = (
+            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(t3, 1)).has(fL)
+                                          or sp.simplify(chan(t3, 2)).has(fL))
+                        else sp.Integer(0)]]), sp.zeros(1, 1))
+        out['coh t1 O(h2) sourced by fL only (no fT, incl. derivatives)'] = (
+            sp.Matrix([[sp.Integer(1) if sp.simplify(chan(t1, 2)).has(fT)
+                        else sp.Integer(0)]]), sp.zeros(1, 1))
     if isinstance(fT, AppliedUndef):
-        out['plain channel has NO fT at O(h1),O(h2)'] = (
-            sp.Matrix([[sp.simplify(chan(I2, 1).diff(fT) + chan(I2, 2).diff(fT))]]), sp.zeros(1, 1))
+        out['plain channel has NO fT at O(h1),O(h2) [incl. derivatives]'] = (
+            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(I2, 1)).has(fT)
+                                          or sp.simplify(chan(I2, 2)).has(fT))
+                        else sp.Integer(0)]]), sp.zeros(1, 1))
     return out
 
 
@@ -141,6 +151,84 @@ def check(out, label, subs=None):
     return ok
 
 
+def mclaims_2026_07_07():
+    """Checks pinned to the corrected manuscript claims (review round 2026-07-07):
+
+    M1 (SM app:nonadiabatic, Summary + coherence paragraph): the generic
+        O(h^2) t1 source carries Dd*d2fL/dEdt and Delta*d2fL/dt2 pieces and
+        SURVIVES a static gap with time-dependent fL; it is proportional to
+        (Ddd, Dd^2) only for gap-slaved distributions fL = G(xi(E,t)).
+    M2 (SM app:nonadiabatic, Spectrum paragraph): solving the O(h^2)
+        spectral equation with star-normalization, the induced correction
+        dg to gR0 has NO t1 component (it lies in the t2/t3 sector) and its
+        t3 coefficient is nonzero, carrying BOTH Ddd and Dd^2 pieces.
+    """
+    print("---- (d) 2026-07-07 corrected-claims block ----")
+    ok = True
+    Delta = sp.Function('Delta', positive=True)(t)
+    fL = sp.Function('f_L')(E, t)
+    W = sp.sqrt(E**2 - Delta**2)
+    Dd = sp.diff(Delta, t)
+    Ddd = sp.diff(Delta, t, 2)
+    L0 = E * t3 + I_ * Delta * t2
+    gR0 = (E / W) * t3 + I_ * (Delta / W) * t2
+    gA0 = -gR0
+    h = fL * I2                                  # energy mode only
+    gK = star2(gR0, h) - star2(h, gA0)
+    K = I_ * scomm2(L0, gK)
+    t1_h2 = sp.simplify(sp.expand(sp.trace(t1 * K)).coeff(hbar, 2))
+
+    # M1a: pin the full generic t1 O(h^2) coefficient
+    pin = I_ * (-2 * Dd * (E**4 - Delta**4) * sp.diff(fL, E, t)
+                - 2 * E * Delta * W**2 * (sp.diff(fL, t, 2) + Dd**2 * sp.diff(fL, E, 2))
+                - 2 * Delta**2 * W**2 * Ddd * sp.diff(fL, E)
+                + 3 * E * Delta**2 * Ddd * fL) / W**5
+    good = sp.simplify(t1_h2 - pin) == 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] M1a: generic t1 O(h2) source matches the pinned expression")
+
+    # M1b: static gap, time-dependent fL -> source SURVIVES (= -2i E D d2fL/dt2 / W^3)
+    Dc = sp.Symbol('Delta_c', positive=True)
+    static = t1_h2.subs({Ddd: 0, Dd: 0}).subs(Delta, Dc)
+    Wc_ = sp.sqrt(E**2 - Dc**2)
+    good = sp.simplify(static - (-2 * I_ * E * Dc * sp.diff(fL, t, 2) / Wc_**3)) == 0 \
+        and sp.simplify(static) != 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] M1b: static-gap t1 O(h2) source = -2i E D d2fL/dt2 / W^3 (nonzero)")
+
+    # M1c: gap-slaved distribution fL = G(xi), xi = sqrt(E^2-Delta(t)^2)
+    #      -> every term carries Ddd or Dd^2 (vanishes as Dd,Ddd -> 0)
+    G = sp.Function('G')
+    fLs = G(sp.sqrt(E**2 - Delta**2))
+    hs = fLs * I2
+    gKs = star2(gR0, hs) - star2(hs, -gR0)
+    t1s = sp.expand(sp.trace(t1 * (I_ * scomm2(L0, gKs)))).coeff(hbar, 2)
+    slaved_limit = sp.simplify(t1s.subs({Ddd: 0}).subs({Dd: 0}))
+    good = slaved_limit == 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] M1c: gap-slaved t1 O(h2) source vanishes as Dd,Ddd -> 0")
+
+    # M2: solve for the O(h^2) correction dg = a0 I + a1 t1 + a2 t2 + a3 t3
+    #     conditions: (i)  [L0, dg] + (O(h^2) of [L0,gR0]_star) = 0
+    #                 (ii) gR0 dg + dg gR0 + (O(h^2) of gR0*gR0 - 1) = 0
+    a0, a1, a2, a3 = sp.symbols('a0 a1 a2 a3')
+    dg = a0 * I2 + a1 * t1 + a2 * t2 + a3 * t3
+    spec_res = sp.Matrix(scomm2(L0, gR0)).applyfunc(lambda e: sp.expand(e).coeff(hbar, 2))
+    norm_res = sp.Matrix(star2(gR0, gR0) - I2).applyfunc(lambda e: sp.expand(e).coeff(hbar, 2))
+    eqs = list((L0 * dg - dg * L0 + spec_res)) + list((gR0 * dg + dg * gR0 + norm_res))
+    sol = sp.solve([sp.Eq(sp.simplify(e), 0) for e in eqs], [a0, a1, a2, a3], dict=True)
+    good = bool(sol)
+    if good:
+        s = sol[0]
+        a1v = sp.simplify(s.get(a1, sp.Integer(0)))
+        a3v = sp.simplify(sp.together(s.get(a3, sp.Integer(0))))
+        a3n = sp.expand(sp.numer(a3v))
+        good = (a1v == 0) and (a3v != 0) and a3n.has(Ddd) and a3n.has(Dd**2)
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] M2: O(h2) dg has a1=0 (no t1) and a3 != 0 carrying both Ddd and Dd^2")
+    return ok
+
+
 if __name__ == "__main__":
     a = check(build(sp.Function('Delta', positive=True)(t),
                     sp.Function('f_L')(E, t), sp.Function('f_T')(E, t)),
@@ -158,4 +246,6 @@ if __name__ == "__main__":
     R2c = sp.simplify(sp.Matrix(scomm2(L0c, gR0c)).applyfunc(lambda e: hbar_coeff(e, 2)).norm())
     print(f"  [{'PASS' if R2c == 0 else 'FAIL'}] R2 = 0 for constant gap (no Ddot): |R2|={R2c}")
     print()
-    print("ALL PASS" if (a and b and R2c == 0) else "SOME FAILED -- inspect above")
+    d = mclaims_2026_07_07()
+    print()
+    print("ALL PASS" if (a and b and R2c == 0 and d) else "SOME FAILED -- inspect above")
