@@ -35,7 +35,8 @@ roadmap: figures/routes_roadmap.pdf
 
 # Benchmark figures (committed): regenerated from the qpsim validation
 # modules at the repo root; needs the repo venv (Windows: Scripts/python.exe).
-QPY ?= ../../.venv/bin/python
+# QPY is resolved AFTER the `cd ../..`, i.e. relative to the repo root.
+QPY ?= .venv/bin/python
 benchfigs:
 	cd ../.. && $(QPY) -m validation.diffusion_operators.uniform_gap_packet
 	cd ../.. && $(QPY) -m validation.diffusion_operators.gap_gradient_drift

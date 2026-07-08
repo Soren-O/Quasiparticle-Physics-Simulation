@@ -1889,7 +1889,7 @@ requirements (SM~\cref{SM-app:branch}). Above the gap, where \(g^R\) and
 states and \(\Real f^R\equiv N_2(E)=\Delta/\sqrt{E^2-\Delta^2}\) is the
 companion anomalous spectral weight, with \(\DOS^2-N_2^2=1\).
 (``In the \(\ii0^{+}\) limit'' throughout means the retarded prescription
-\(E\to E+\ii0^{+}\) of \cref{eq:bcs_gf_components}.)
+\(E\to E+\ii0^{+}\) of \cref{eq:bcs_gf_scalars}.)
 
 Belzig et~al.~\cite{belzig1999} (their Eqs.~38 and~37, respectively)
 showed that after the
@@ -2335,7 +2335,7 @@ projectors
     \openone
     \pm
     \frac{\xi\tau_3+\Delta(t)\tau_1}{E_\xi(t)}
-  \right].
+  \right]
   \label{eq:branch_projector_main}
 \end{equation}
 (written in the Hermitian gap gauge, gap along \(\tau_1\);
@@ -2610,13 +2610,13 @@ do not commute:
   \left[
     \mathcal{P}_{\qp},
     \avg{\cdot}_{\hat{\bp}}
-  \right]\check{g}
-  \neq 0.
+  \right]\checkg
+  \neq 0,
   \label{eq:projection_average_commutator}
 \end{equation}
 where \(\mathcal{P}_{\qp}\) denotes the positive-branch projection (with
 the branch-to-trajectory relabelling) that extracts the scalar occupation
-\(f(E,\hat\bp)\) from \(\check g\), and \(\avg{\cdot}_{\hat\bp}\) is the
+\(f(E,\hat\bp)\) from \(\checkg\), and \(\avg{\cdot}_{\hat\bp}\) is the
 Fermi-surface angular average.
 The non-commutation is real but is exhausted by a relabelling: the
 branch-to-trajectory map acts on odd angular harmonics
@@ -2655,7 +2655,7 @@ trapping regions.
 
 The scalar boundary condition should be obtained by projecting the
 Kupriyanov--Lukichev matrix-current relation onto the same longitudinal
-occupation used in the bulk equation. In a scalar model this projection must
+amplitude used in the bulk equation. In a scalar model this projection must
 identify three objects: the interface weight \(\mathcal{W}\), the mobility
 \(\mathcal{D}\), and the jump condition for either \(f\), \(\DOS f\), or any
 nonstandard weighted scalar retained as a benchmark. Without this matching step,
@@ -2867,8 +2867,8 @@ face (\cref{fig:bench_interface}).
   \caption{Interface benchmark: a two-gap strip (\(1.6\,\Delta_0\) for
   \(x<50~\mu\mathrm{m}\), \(\Delta_0\) beyond) joined by a
   Kupriyanov--Lukichev face carrying the coherence-factor weight of
-  \cref{eq:scalar_BC_energy} (dimensionless \(G_N=0.1\) in diffusion
-  units), shown at a fixed energy
+  \cref{eq:scalar_BC_energy} (interface conductance in diffusion units,
+  \(g_N=G_N/2e^2N_0=0.1~\mu\mathrm{m}/\mathrm{ns}\)), shown at a fixed energy
   above both gap edges. (a)~Driven steady state with a fixed-\(f\)
   source at the left edge and an absorbing (\(f=0\)) right edge: each
   operator shown carries equal currents on the

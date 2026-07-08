@@ -119,18 +119,25 @@ def build(Delta, fL, fT):
     # which sees the function inside any derivative.  (Both referees'
     # re-derivations confirm the strengthened statements still hold.)
     if isinstance(fL, AppliedUndef):     # structural checks only make sense symbolically
+        # .has(f.func) rather than .has(f): robust to Subs/chain-rule forms
+        # where the function appears with a different argument structure.
         out['t3 channel has NO fL at O(h1),O(h2) [incl. derivatives]'] = (
-            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(t3, 1)).has(fL)
-                                          or sp.simplify(chan(t3, 2)).has(fL))
+            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(t3, 1)).has(fL.func)
+                                          or sp.simplify(chan(t3, 2)).has(fL.func))
                         else sp.Integer(0)]]), sp.zeros(1, 1))
         out['coh t1 O(h2) sourced by fL only (no fT, incl. derivatives)'] = (
-            sp.Matrix([[sp.Integer(1) if sp.simplify(chan(t1, 2)).has(fT)
+            sp.Matrix([[sp.Integer(1) if sp.simplify(chan(t1, 2)).has(fT.func)
                         else sp.Integer(0)]]), sp.zeros(1, 1))
     if isinstance(fT, AppliedUndef):
         out['plain channel has NO fT at O(h1),O(h2) [incl. derivatives]'] = (
-            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(I2, 1)).has(fT)
-                                          or sp.simplify(chan(I2, 2)).has(fT))
+            sp.Matrix([[sp.Integer(1) if (sp.simplify(chan(I2, 1)).has(fT.func)
+                                          or sp.simplify(chan(I2, 2)).has(fT.func))
                         else sp.Integer(0)]]), sp.zeros(1, 1))
+    if isinstance(fL, AppliedUndef) and isinstance(fT, AppliedUndef):
+        # pins the tex claim that the energy projection receives NO O(h^2)
+        # correction (generic fL AND fT retained)
+        out['plain channel O(h2) = 0 (generic fL, fT)'] = (
+            sp.Matrix([[sp.simplify(chan(I2, 2))]]), sp.zeros(1, 1))
     return out
 
 
@@ -208,6 +215,17 @@ def mclaims_2026_07_07():
     ok &= good
     print(f"  [{'PASS' if good else 'FAIL'}] M1c: gap-slaved t1 O(h2) source vanishes as Dd,Ddd -> 0")
 
+    # M1d: strictly 'proportional to Ddd and Dd^2' — no LINEAR-Dd term either
+    # (a term ~ Dd^1 with no Ddd would vanish in the M1c limit yet falsify
+    # the tex wording).  Map the gap derivatives onto plain symbols and
+    # check the Ddd-free part has no linear piece in Dd.
+    u, v = sp.symbols('u v')
+    t1p = sp.expand(t1s).subs({Ddd: v}).subs({Dd: u})
+    lin = sp.simplify(sp.diff(t1p.subs(v, 0), u).subs(u, 0))
+    good = lin == 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] M1d: gap-slaved source has no linear-Dd term (strictly Ddd and Dd^2)")
+
     # M2: solve for the O(h^2) correction dg = a0 I + a1 t1 + a2 t2 + a3 t3
     #     conditions: (i)  [L0, dg] + (O(h^2) of [L0,gR0]_star) = 0
     #                 (ii) gR0 dg + dg gR0 + (O(h^2) of gR0*gR0 - 1) = 0
@@ -220,12 +238,18 @@ def mclaims_2026_07_07():
     good = bool(sol)
     if good:
         s = sol[0]
-        a1v = sp.simplify(s.get(a1, sp.Integer(0)))
-        a3v = sp.simplify(sp.together(s.get(a3, sp.Integer(0))))
+        # all four unknowns must be SOLVED (a free variable omitted by
+        # dict=True must not silently read as 0 — anti-conservative)
+        good = set(s.keys()) == {a0, a1, a2, a3}
+    if good:
+        a0v = sp.simplify(s[a0])
+        a1v = sp.simplify(s[a1])
+        a3v = sp.simplify(sp.together(s[a3]))
         a3n = sp.expand(sp.numer(a3v))
-        good = (a1v == 0) and (a3v != 0) and a3n.has(Ddd) and a3n.has(Dd**2)
+        good = (a0v == 0) and (a1v == 0) and (a3v != 0) \
+            and a3n.has(Ddd) and a3n.has(Dd**2)
     ok &= good
-    print(f"  [{'PASS' if good else 'FAIL'}] M2: O(h2) dg has a1=0 (no t1) and a3 != 0 carrying both Ddd and Dd^2")
+    print(f"  [{'PASS' if good else 'FAIL'}] M2: O(h2) dg fully solved with a0=a1=0 (pure t2/t3 sector) and a3 != 0 carrying both Ddd and Dd^2")
     return ok
 
 

@@ -447,11 +447,16 @@ single-spin DOS definition) is in the book PDF.
   when the review round compressed the duplicated "Time-dependent spectral
   flow" paragraph in §III.C (pagination luck regained; if future edits
   reflow §III it may return — note-only per the standing rule). The only
-  remaining pdfTeX warnings are the pre-existing cosmetic destination
-  class (9+3 `section*`/float anchors); the formerly dead SM-/M-
-  cross-document link anchors are FIXED by the xr-hyper URL arguments
-  (`\externaldocument[SM-]{supplement}[supplement.pdf]` and symmetric),
-  which this 2017 xr-hyper accepts. `make verify` 7/7 no-FAIL (now
+  remaining pdfTeX dest warnings ARE the cross-document SM-/M- anchors
+  (CORRECTED 2026-07-07, second pass — the first record here wrongly
+  called them cosmetic/fixed): this box's xr-hyper is v6.00beta4 (2000)
+  and IGNORES the `\externaldocument[..]{..}[url]` URL argument, so on
+  THIS machine the cross-document links are dead, and where anchor names
+  collide across the two PDFs (`figure.N`, `table.N`) a few links land
+  silently on the wrong local object. Reference NUMBERS are all correct.
+  The URL arguments are KEPT because modern toolchains honor them (being
+  confirmed by the 2026-07-07 arXiv/TeX-Live dry run). Do not claim
+  working local cross-document links in any record. `make verify` 7/7 no-FAIL (now
   including the block-(d) corrected-claims checks). On this Windows box
   the verify venv is the A: archive clone's
   (`A:\Einstein\Documents\qp-diffusion-paper\.venv`); the Makefile's `PY`

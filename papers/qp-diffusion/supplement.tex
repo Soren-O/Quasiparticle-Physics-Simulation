@@ -166,7 +166,8 @@ the Keldysh quasiclassical normalization
   \hatg^{R}\circ\hatg^{K}+\hatg^{K}\circ\hatg^{A}=0,
   \label{eq:norm_RAK}
 \end{equation}
-where ``\(\circ\)'' (written \(\otimes\) in the main text) is the
+where ``\(\circ\)'' (the main text's \(\otimes\), up to the kernel-sign
+convention noted below \cref{eq:keldysh_eilenberger}) is the
 Wigner-representation Moyal product; in the time--energy pair it reads
 \(A\circ B=A\,\ee^{(\ii\hbar/2)(\overleftarrow{\partial}_{\!E}\overrightarrow{\partial}_{\!t}-\overleftarrow{\partial}_{\!t}\overrightarrow{\partial}_{\!E})}B\)
 (expanded in \cref{eq:moyal_def}), with spatial gradients kept explicit in
@@ -210,7 +211,7 @@ component decomposes in our basis as
 \(\hatg^{R}=g^{R}\tau_3+\ii f^{R}\tau_2\) with
 \(g^{R}=E/\sqrt{(E+\ii 0^+)^2-\Delta^2}\) and
 \(f^{R}=\Delta/\sqrt{(E+\ii 0^+)^2-\Delta^2}\); above the gap and in the
-\(\eta\to 0^+\) limit, \(\Real g^{R}=\DOS\), \(\Real f^{R}=N_2\), and
+\(\ii 0^+\) limit, \(\Real g^{R}=\DOS\), \(\Real f^{R}=N_2\), and
 \(g^{A}=(g^{R})^*\), \(f^{A}=(f^{R})^*\).
 
 \paragraph{Diffusion constant.} \(\DN=\vF^2\tau/d\) is the normal-state
@@ -2653,10 +2654,10 @@ requires:
   \(-\sigma_i\,\mathcal D_L\,\hat n\!\cdot\!\bnabla\fL\big|_i=j_L\)
   (\(\mathcal D_L=1\) above both gaps), a Robin condition: the normal
   derivative of \(\fL\) is tied to the weighted amplitude jump.
-  Equivalently, dividing by \(\sigma_i\), the diffusive flux
+  Equivalently, dividing by \(2e^2N_0^{(i)}\), the diffusive flux
   \(-\DN\,\hat n\!\cdot\!\bnabla\fL\big|_i\) matches \(j_L\) with the
-  conductance expressed in diffusion units, \(g_N=G_N/(2e^2N_0)\) (the
-  dimensionless form used in the benchmark problems). \(\fL\) is
+  conductance expressed in diffusion units, \(g_N=G_N/(2e^2N_0)\) (a
+  velocity; the form used in the benchmark problems). \(\fL\) is
   discontinuous at finite \(G_N\); the transparent limit \(G_N\to\infty\) forces
   \(\fL^{(1)}=\fL^{(2)}\).
 \end{itemize}
