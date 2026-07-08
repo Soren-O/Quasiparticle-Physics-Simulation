@@ -17,7 +17,11 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{xr-hyper}
-\externaldocument[M-]{paper}[paper.pdf]
+% See the matching note in paper.tex: snapshot labels take precedence when
+% generated (make arxiv-labels); live xr import otherwise.
+\IfFileExists{xr-labels-from-paper.tex}
+  {\makeatletter\input{xr-labels-from-paper.tex}\makeatother}
+  {\externaldocument[M-]{paper}[paper.pdf]}
 \usepackage[colorlinks=true,allcolors=blue!45!black]{hyperref}
 
 \newcommand{\dd}{\mathrm{d}}

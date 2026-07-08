@@ -17,7 +17,13 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{xr-hyper}
-\externaldocument[SM-]{supplement}[supplement.pdf]
+% arXiv/APS delete .aux files at build time, so live xr import fails there.
+% Pre-submission, `make arxiv-labels` snapshots the labels into
+% xr-labels-from-supplement.tex (gen_xr_labels.py); when that file exists it
+% is used instead. Local builds keep the live import. Do NOT commit snapshots.
+\IfFileExists{xr-labels-from-supplement.tex}
+  {\makeatletter\input{xr-labels-from-supplement.tex}\makeatother}
+  {\externaldocument[SM-]{supplement}[supplement.pdf]}
 \usepackage[colorlinks=true,allcolors=blue!45!black]{hyperref}
 
 \newcommand{\dd}{\mathrm{d}}
@@ -1993,7 +1999,8 @@ belong to the charge sector, not to the energy mode.
 \begingroup
 \squeezetable
 \begin{table*}[!tbp]
-\caption{\label{tab:channel_dictionary}Channel dictionary for the
+\caption[Channel dictionary for the dirty-limit two-mode kinetic
+theory]{\label{tab:channel_dictionary}Channel dictionary for the
 dirty-limit two-mode kinetic theory in the conventions of this paper:
 \(\hatg^A=-\tau_3\hatg^{R\dagger}\tau_3\), gap gauge
 \(\hatD=-\ii\Delta\tau_2\), trace definitions as in Belzig
