@@ -380,8 +380,12 @@ single-spin DOS definition) is in the book PDF.
   boundary conditions"; branch-Boltzmann route uses τ (SM convention, =
   main-text τ_N) and bold **a** for the P1 harmonic and u²(E)−v²(E)
   on-shell coherence factors; intro opening reworded so abstract and intro
-  no longer share their first ten words (abstract untouched apart from
-  symbol glosses + one comma-for-dash swap).
+  no longer share their first ten words. COMPLETE record of abstract
+  edits this round (the abstract is the guarded pre-submission gate, so
+  this list is exhaustive): symbol glosses (\(N_1,\tau_N,\DN,\DE\), "for
+  the quasiparticle occupation \(f\)"), one dash-for-comma swap in the
+  guarded sentence's tail, and the \(\bnabla_{\br}\to\bnabla\) notation
+  unification at the spectral-current line. Nothing else.
 - **verify_nonadiabatic.py strengthened**: structural no-coupling checks
   are now `.has()`-based (see derivative-carried dependence, which
   `.diff()` missed) and a "(d) 2026-07-07 corrected-claims" block pins the
@@ -394,7 +398,12 @@ single-spin DOS definition) is in the book PDF.
   to a qpsim code session: solve_gap near-T_c bracketing, t3_spatial_1d
   geometry/conductance validation, webui path containment, CI ruff red,
   CI slow-coverage gap, picard mixing=0 false convergence, sympy in dev
-  deps + Makefile PY default (the last one IS fixed here).
+  deps + Makefile PY default (the last one IS fixed here). On gpt P3 "log
+  warnings": stuck-float and stale warnings cleared by the rebuild; the
+  SM-/M- dest-warning class persists on this box (xr-hyper v6.00beta4
+  limitation, see the corrected Build note) until the channel-dictionary
+  short-caption fix + snapshots (20569b4) are exercised on a modern
+  toolchain.
 - **Skeptic audit disposition**: C1 (record gpt_review) = this block;
   C2 Dynes rationale corrected above; C3 Kopnin pointer made precise —
   NOTE the skeptic's "directory missing" claim was itself wrong (the
