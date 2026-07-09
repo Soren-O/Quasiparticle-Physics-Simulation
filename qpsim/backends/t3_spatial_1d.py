@@ -549,8 +549,16 @@ class T3Spatial1DBackend:
             raise ValueError(
                 f"state.f has {f.shape[1]} spatial cells, but x has {x.size}."
             )
-        if x.size > 1 and not np.allclose(np.diff(x), np.diff(x)[0]):
-            raise ValueError("state.x must be uniformly spaced.")
+        if x.size > 1:
+            diffs = np.diff(x)
+            # Uniform *and* strictly increasing: an equal-diffs test alone
+            # admits a zero mesh ([0,0,0] -> dx=0 -> divide-by-zero) and a
+            # descending mesh ([3,2,1] -> dx<0), both of which corrupt every
+            # flux/Laplacian downstream that divides by dx.
+            if diffs[0] <= 0.0 or not np.allclose(diffs, diffs[0]):
+                raise ValueError(
+                    "state.x must be uniformly spaced and strictly increasing."
+                )
         if np.any(~np.isfinite(f)):
             raise ValueError("state.f contains non-finite values.")
         if np.any((f < 0.0) | (f > 1.0)):
@@ -564,6 +572,14 @@ class T3Spatial1DBackend:
                 )
             if np.any(~np.isfinite(gap_profile)) or np.any(gap_profile < 0.0):
                 raise ValueError("gap_profile must be finite and non-negative.")
+        if state.interface_conductance is not None and not (
+            np.isfinite(state.interface_conductance)
+            and state.interface_conductance > 0.0
+        ):
+            raise ValueError(
+                "interface_conductance must be finite and positive; "
+                f"got {state.interface_conductance}."
+            )
 
 
 def _harmonic_face_weights(W_cell: np.ndarray) -> np.ndarray:

@@ -16,7 +16,7 @@ Usage::
     python scripts/demo_materials_pb_response.py
 """
 
-# ruff: noqa: E402, I001
+# ruff: noqa: E402
 
 from __future__ import annotations
 

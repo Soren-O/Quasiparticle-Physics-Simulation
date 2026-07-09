@@ -118,13 +118,16 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     def setups_get(slug: str) -> dict[str, Any]:
         try:
             envelope = workspace.load_setup(slug)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:  # ValueError: unsafe slug
             raise HTTPException(404, f"No setup {slug!r}.") from exc
         return {"name": envelope.name, "setup": envelope.setup.model_dump()}
 
     @app.delete("/api/setups/{slug}")
     def setups_delete(slug: str) -> dict[str, bool]:
-        workspace.delete_setup(slug)
+        try:
+            workspace.delete_setup(slug)
+        except ValueError as exc:  # unsafe slug
+            raise HTTPException(404, f"No setup {slug!r}.") from exc
         return {"deleted": True}
 
     # -- runs ---------------------------------------------------------
@@ -177,7 +180,10 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         live = runner.live_state(run_id)
         if live is not None and live.status in ("queued", "running"):
             raise HTTPException(409, "Run is active — cancel it first.")
-        workspace.delete_run(run_id)
+        try:
+            workspace.delete_run(run_id)
+        except ValueError as exc:  # unsafe run_id
+            raise HTTPException(404, f"No run {run_id!r}.") from exc
         return {"deleted": True}
 
     def _load_run_artifacts(run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:

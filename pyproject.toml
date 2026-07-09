@@ -29,10 +29,14 @@ dependencies = [
 dev = [
     "pytest>=9.0",
     "pytest-cov",
-    "ruff",
+    # Pinned exactly: ruff gains lint rules between releases, so an
+    # unpinned floor would turn CI red on unchanged code the day a new
+    # version ships. Bump deliberately alongside a `ruff check .` pass.
+    "ruff==0.15.17",
     "mypy",
     "matplotlib>=3.9",
     "httpx",  # fastapi.testclient transport (webui tests)
+    "sympy",  # papers/qp-diffusion verify_*.py symbolic proof-checks
 ]
 ui = [
     "fastapi>=0.115",

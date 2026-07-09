@@ -49,3 +49,6 @@ qpsim-workspace/
 !docs/**/*.pdf
 !validation/baselines/**/*.png
 !validation/baselines/**/*.pdf
+# Paper figures are source artifacts: a fresh clone must build paper.pdf
+# without regenerating them (see the paper Makefile's `figures` target).
+!papers/qp-diffusion/figures/*.pdf
