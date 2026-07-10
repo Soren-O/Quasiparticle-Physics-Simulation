@@ -39,44 +39,44 @@ from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
-# Picard convergence floors the per-bin relative-change denominator at this
-# fraction of the peak n_ph occupation, so near-zero bins — whose iterate-to-
-# iterate change is dominated by the inner Newton's ~tol float noise (~1e-11) —
-# cannot pin the convergence metric. See :func:`_picard_max_rel_change`.
-_PICARD_DENOM_FLOOR_FRAC = 1e-3
 
+def _picard_convergence_ratio(
+    n_ph: np.ndarray,
+    n_ph_new: np.ndarray,
+    *,
+    rtol: float,
+    atol: float,
+) -> float:
+    """Largest normalized Picard change for an ``atol + rtol`` criterion.
 
-def _picard_max_rel_change(n_ph: np.ndarray, n_ph_new: np.ndarray) -> float:
-    """Largest per-bin relative change of n_ph — the finite-τ_l Picard metric.
+    A phonon bin is converged when
 
-    The denominator is the per-bin ``max(|n_ph|, |n_ph_new|)`` floored at
-    ``_PICARD_DENOM_FLOOR_FRAC`` of the *peak* occupation (not at ``picard_tol``).
-    Rationale: the inner Newton converges ``f`` only to ``~newton_tol``, so each
-    ``n_ph`` carries a small absolute float-noise floor (~1e-11 for Fischer
-    Fig. 7). A near-zero sub-gap bin (``n_ph ~ 1e-8..1e-6``) then shows a
-    ``|Δn| ~ 1e-11`` jitter that, divided by its own tiny occupation, looks like
-    a ~1e-5 relative change and never falls below ``picard_tol`` — stalling an
-    otherwise-converged solve until ``max_picard_iter`` (hit by Fig. 7 at
-    P_read=-64 dBm, T_B=0.10 K). Flooring at ``frac * peak`` lets negligible bins
-    drop out while bins with meaningful occupation (``scale >> frac * peak``)
-    keep their true relative tolerance, so the physical observable stays tightly
-    converged.
+    ``|n_new - n| <= atol + rtol * max(|n|, |n_new|)``.
 
-    Equivalent to an atol+rtol test ``|Δn_i| <= picard_tol * (scale_i + atol)``
-    with ``atol = frac * peak``; note this absolute floor scales *with*
-    picard_tol, so a caller driving ``picard_tol`` far below the inner-Newton
-    noise floor is not protected by this metric (use the coupled-Newton path,
-    which has its own residual-norm criterion, for tight tolerances).
+    ``atol`` is an explicit tolerance on dimensionless phonon occupation:
+    changes at that absolute noise floor cannot pin the outer Picard loop,
+    while every larger change is still measured against the bin's *own*
+    occupation. It is deliberately independent of the inner Newton collision-
+    residual tolerance. A global floor based on the peak phonon occupation can
+    hide tiny above-gap pair-breaking bins that are dynamically decisive even
+    though a large low-energy bin exists elsewhere (Fischer Fig. 5).
 
-    Returns 0.0 when every occupation is zero (trivially converged).
+    The returned ratio is converged at ``<= 1``. Identical all-zero iterates
+    return zero.
     """
-    fp_change = np.abs(n_ph_new - n_ph)
+    if rtol <= 0.0:
+        raise ValueError(f"rtol must be positive; got {rtol}.")
+    if atol < 0.0:
+        raise ValueError(f"atol must be non-negative; got {atol}.")
+
+    change = np.abs(n_ph_new - n_ph)
     scale = np.maximum(np.abs(n_ph), np.abs(n_ph_new))
-    peak = float(np.max(scale))
-    if peak <= 0.0:
-        return 0.0
-    denom = scale + _PICARD_DENOM_FLOOR_FRAC * peak
-    return float(np.max(fp_change / denom))
+    allowed = atol + rtol * scale
+    ratio = np.zeros_like(change, dtype=float)
+    np.divide(change, allowed, out=ratio, where=allowed > 0.0)
+    if np.any((allowed == 0.0) & (change > 0.0)):
+        return float("inf")
+    return float(np.max(ratio))
 
 
 def solve_steady_state(
@@ -96,6 +96,7 @@ def solve_steady_state(
     phonon_escape_time: float | None = None,
     max_picard_iter: int = 200,
     picard_tol: float = 1e-10,
+    picard_atol: float = 1e-11,
     picard_mixing: float = 0.3,
     anderson_depth: int = 0,
     phonon_out: dict[str, np.ndarray] | None = None,
@@ -144,8 +145,10 @@ def solve_steady_state(
         ``0.0`` → Picard solve with no bath coupling (``n_ph`` balances
         purely against the e-ph source).
         ``> 0`` → finite escape time τ_l in ns.
-    max_picard_iter, picard_tol, picard_mixing, anderson_depth
-        Picard-loop controls.
+    max_picard_iter, picard_tol, picard_atol, picard_mixing, anderson_depth
+        Picard-loop controls. ``picard_tol`` is the per-bin relative tolerance;
+        ``picard_atol`` is an absolute tolerance on the dimensionless phonon
+        occupation and is independent of the inner Newton residual tolerance.
     phonon_out
         Optional dict that receives ``"n_ph"`` and ``"omega_bins"`` on
         successful convergence (finite-τ_l path).
@@ -226,7 +229,7 @@ def solve_steady_state(
     x_qp_ref = float(np.sum(rho * f * dE_ctx)) if use_anderson else 0.0
     n_ph_physical: np.ndarray | None = None
 
-    max_rel_change = float("inf")
+    convergence_ratio = float("inf")
     for _ in range(max_picard_iter):
         # Step 1: N_p, N_emit, N_abs from current n_ph.
         N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
@@ -260,12 +263,14 @@ def solve_steady_state(
             if on_physical:
                 n_ph_physical = n_ph.copy()
 
-        # Convergence on n_ph. The metric floors the per-bin relative-change
-        # denominator at a fraction of the peak occupation so near-zero,
-        # noise-dominated bins cannot pin it; see _picard_max_rel_change.
-        max_rel_change = _picard_max_rel_change(n_ph, n_ph_new)
+        # Convergence on n_ph. The explicit occupation-space absolute
+        # allowance is independent of the inner Newton residual tolerance;
+        # relative convergence remains local to each bin.
+        convergence_ratio = _picard_convergence_ratio(
+            n_ph, n_ph_new, rtol=picard_tol, atol=picard_atol,
+        )
 
-        if max_rel_change < picard_tol:
+        if convergence_ratio <= 1.0:
             if use_anderson and x_qp_ref > 0 and not on_physical:
                 # Collapsed to thermal; reset and retry without Anderson.
                 n_ph = (
@@ -301,7 +306,8 @@ def solve_steady_state(
 
     raise RuntimeError(
         f"Picard iteration did not converge in {max_picard_iter} iterations. "
-        f"Final max |G(n_ph) − n_ph| / n_ph = {max_rel_change:.2e}"
+        "Final max |G(n_ph) − n_ph| / "
+        f"(Picard atol + rtol × scale) = {convergence_ratio:.2e}"
     )
 
 

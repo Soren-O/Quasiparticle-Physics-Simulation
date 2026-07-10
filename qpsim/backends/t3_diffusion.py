@@ -105,6 +105,7 @@ class T3DiffusionBackend:
         newton_tol: float = 1e-14,
         newton_max_iter: int = 200,
         picard_tol: float = 1e-10,
+        picard_atol: float = 1e-11,
         picard_max_iter: int = 200,
         picard_mixing: float = 0.3,
         anderson_depth: int = 0,
@@ -202,8 +203,9 @@ class T3DiffusionBackend:
             Optional photon channel dicts.
         newton_tol, newton_max_iter
             Inner Newton controls (used by Picard and thermal-phonon paths).
-        picard_tol, picard_max_iter, picard_mixing, anderson_depth
-            Picard path controls.
+        picard_tol, picard_atol, picard_max_iter, picard_mixing, anderson_depth
+            Picard path controls. ``picard_atol`` is an absolute tolerance on
+            dimensionless phonon occupation, independent of ``newton_tol``.
         coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
             Coupled-Newton path controls.
         gap_tol, gap_max_iter, gap_under_relaxation
@@ -302,6 +304,7 @@ class T3DiffusionBackend:
                 newton_tol=newton_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
+                picard_atol=picard_atol,
                 picard_max_iter=picard_max_iter,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
@@ -340,6 +343,7 @@ class T3DiffusionBackend:
                 newton_tol=newton_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
+                picard_atol=picard_atol,
                 picard_max_iter=picard_max_iter,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
@@ -413,6 +417,7 @@ class T3DiffusionBackend:
             newton_tol=newton_tol,
             newton_max_iter=newton_max_iter,
             picard_tol=picard_tol,
+            picard_atol=picard_atol,
             picard_max_iter=picard_max_iter,
             picard_mixing=picard_mixing,
             anderson_depth=anderson_depth,
@@ -437,6 +442,7 @@ class T3DiffusionBackend:
         newton_tol: float,
         newton_max_iter: int,
         picard_tol: float,
+        picard_atol: float,
         picard_max_iter: int,
         picard_mixing: float,
         anderson_depth: int,
@@ -526,6 +532,7 @@ class T3DiffusionBackend:
                 phonon_escape_time=tau_l_scalar,
                 max_picard_iter=picard_max_iter,
                 picard_tol=picard_tol,
+                picard_atol=picard_atol,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
                 phonon_out=phonon_out,

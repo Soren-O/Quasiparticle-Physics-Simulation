@@ -57,6 +57,7 @@ addopts = ["-ra", "--strict-markers", "-m", "not slow"]
 pythonpath = ["."]
 markers = [
     "slow: long-running validation tests (opt in with `pytest -m slow`)",
+    "manual_slow: full-paper sweeps kept runnable but excluded from pull-request CI",
 ]
 
 [tool.ruff]

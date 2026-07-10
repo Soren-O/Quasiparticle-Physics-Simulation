@@ -90,7 +90,15 @@ def test_config_matches_baseline_metadata() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
+    """Run the full 1620-bin paper sweep (manual/scheduled validation only).
+
+    The source itself documents a roughly 14-hour runtime, which is not a
+    bounded pull-request check. Keep this test executable with
+    ``pytest -m 'slow and manual_slow'`` while the author-style fixed-gap,
+    direct-Delta[f] path is evaluated as the replacement CI target.
+    """
     path = baseline_path()
     if not path.exists():
         pytest.skip(
