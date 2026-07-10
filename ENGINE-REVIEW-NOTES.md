@@ -5,37 +5,42 @@ Branch `fix/gpt-review-engine` (base: `main`). This is the **code half** of a
 change sets are independent. Everything here is verified: `ruff check .`,
 `mypy qpsim`, and the touched-code tests pass (see "Reproduce green" below).
 
-## ⚠️ Read before merging — the new slow-CI step exposes pre-existing issues
+## Slow-validation integration gate
 
-This branch adds a `pytest -m slow` CI step, which exercises the paper/slow
-validation surface for the first time. That surface has **two pre-existing
-problems that live in `main`, not introduced here**:
+This branch adds a slow-validation CI step and now also contains the fixes needed
+to make that step safe for pull requests:
 
-1. **Stale Fischer baselines — fig5 & fig7 fail** (fig3 and figs_9_13 pass). This
-   is NOT a code regression and NOT platform noise (byte-identical results across
-   machines). The numerical curves legitimately moved because of physics/solver
-   corrections committed *after* the baselines were pinned (May 2026): confirmed
-   contributor `1c5af1a` (removed a spurious 2× in `phonon_collision_rates`
-   recombination/pair-breaking — reverting it recovers 6 of 14 deviating fig5
-   points); leading suspect for the dominant deviation `f041a85` (steady-state
-   Picard near-zero-bin fix). **The current curves are correct.**
-   → **Fix = regenerate the fig5/fig7 pinned baseline CSVs. Do NOT change code to
-   match the old baselines** (that re-introduces the bugs the corrections removed).
-   Physics/decision call — needs a human.
+1. **Fig. 5 exposed a real Picard false-convergence regression.** Commit `f041a85`
+   floored every Picard denominator at `1e-3 * max(n_ph)`. Large low-energy phonon
+   occupations could therefore hide tiny but dynamically decisive above-gap bins,
+   and the solver incorrectly stopped on the thermal branch at high drive. The
+   convergence test now uses the standard per-bin condition
+   `abs(delta) <= atol + rtol * max(abs(old), abs(new))`. The occupation-space
+   `picard_atol` is explicit and independent of the inner Newton collision-
+   residual tolerance. A two-endpoint, full-grid Fig. 5 regression test protects
+   the high-drive branch. Reverting `1c5af1a` alone does **not** restore it;
+   reverting `f041a85` does.
 
-2. **fig6 regression test hangs.** It did not complete on the origin machine
-   (~7×-slow Windows / Python 3.14) across multiple multi-hour attempts; behavior
-   on other platforms is unknown. A prior `fig6-reproduction-fixes` branch was
-   already merged into `main`, yet the hang persists — so this is **unresolved**,
-   needing a fresh convergence/iteration guard or a platform investigation, not
-   coordination on that (already-merged) branch. Don't run `pytest -m slow` blind
-   on an unknown platform.
+2. **Fig. 5 and Fig. 7 baselines have been regenerated** from the corrected
+   solver. Their sweep axes and metadata are unchanged. Rendered plots were also
+   compared with the published Fischer–Catelani figures: the curve families,
+   knees, ordering, and scales agree qualitatively.
 
-**Recommended order:** regenerate the fig5/fig7 baselines and resolve or quarantine
-(e.g. mark fig6 `xfail`/`skip` with a tracking note) the fig6 hang **first**, then
-merge this branch — otherwise CI goes red or hangs on the new slow step.
+3. **The full Fig. 6 sweep is now `manual_slow`.** Pull-request CI runs
+   `pytest -m "slow and not manual_slow"`, so the roughly 14-hour full-resolution
+   regression cannot stall the gate. The automated slow step has a 180-minute
+   timeout. Fig. 6 remains runnable explicitly with
+   `pytest -m "slow and manual_slow" validation/fischer_2023/test_fig6_paper.py`.
 
-## The change set (13 files, all verified)
+The authors' source in `PhysApplPaper_Figure_6/examples/Figure_6.py` uses a fixed
+kinetic gap, ten coupled Newton iterations, and evaluates the driven gap directly
+from the converged quasiparticle distribution. qpsim's `--direct-gap` path encodes
+those semantics and is fast on a reduced grid, but it does not yet reproduce the
+published high-drive turnover reliably. Replacing the current self-consistent-gap
+baseline therefore remains follow-up physics/numerics work, separate from merging
+the engine fixes.
+
+## Original engine change set (13 files, all verified)
 
 - **[P1] `solve_gap`** (`qpsim/physics/gap_equation.py`): widen the bracket search
   to the Debye cutoff instead of giving up after 5 steps; a colder-than-thermal
@@ -51,6 +56,15 @@ merge this branch — otherwise CI goes red or hangs on the new slow step.
 - **[P2]** `sympy` added to the `[dev]` extra; the `pytest -m slow` CI step.
 - **[P3] `picard`**: reject `mixing ∉ (0, 1]` (`mixing=0` falsely "converged").
 
+## Integration-gate additions
+
+- Replace the global peak-scaled Picard floor with a per-bin absolute-plus-relative
+  convergence test, expose the occupation-space `picard_atol` separately from
+  `newton_tol`, and add focused unit and full-grid Fig. 5 regression coverage.
+- Regenerate the corrected Fig. 5 and Fig. 7 CSV/PDF baselines.
+- Add the `manual_slow` marker, exclude the full Fig. 6 sweep from PR CI, and cap
+  that automated step at 180 minutes while preserving an explicit manual command.
+
 ## Reproduce green
 
 ```
@@ -59,6 +73,15 @@ ruff check .                       # All checks passed
 mypy qpsim                         # Success
 pytest tests/solvers/test_picard.py tests/backends/test_t3_spatial_1d.py \
        tests/webui/test_server.py qpsim/physics/gap_equation.py -q   # 50 passed
+pytest -q                                                         # 802 passed
+pytest -m "slow and not manual_slow"                               # 14 passed; fig6 excluded
 ```
+
+The slow surface was executed in visible shards on macOS/Python 3.14: the Fig. 5
+high-drive regression took 80.23s, its full uncached baseline check took 37m25s,
+both Fig. 7 guards took 3m25s, and Fig. 3 took 35m52s (mostly its bounded
+ratio-10 coupled-Newton endpoint). The remaining nine tests took 4m03s. These
+timings are useful when setting the CI job timeout; they do not include the
+manual Fig. 6 sweep.
 
 _(This is branch-scoped integration context — safe to delete at merge.)_
