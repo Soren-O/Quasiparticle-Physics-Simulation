@@ -2035,7 +2035,8 @@ energy-mode flux, \(\mathbf j_L=-\DN\,\mathcal D_L\bnabla\fL\) \\
 \(\mathcal D_T\) & \(\tfrac14\Tr[\openone-\hatg^R\tau_3\hatg^A\tau_3]\) &
 \(\DOS^2\) / \(\Delta^2/(\Delta^2-E^2)\) &
 \(\cosh^2(\Real\theta)\); \(\mathcal D_L\mathcal D_T=\DOS^2\) &
-charge current, \(\mathbf j_T=-\DN\,\mathcal D_T\bnabla\fT\) \\
+diffusion-normalized transverse spectral flux,
+\(\mathbf j_T=-\DN\,\mathcal D_T\bnabla\fT\) \\
 \(\mathcal R\) & \(\tfrac{\ii}{4}\Tr[\hatD\,(\hatg^R+\hatg^A)]\) &
 \(0\) / \(\Delta^2/\sqrt{\Delta^2-E^2}\) &
 \(-\Delta\,\Imag\sinh\theta\) &
@@ -2052,12 +2053,14 @@ energy-mode spectral density (time weight \(p=1\)) \\
 \(\tfrac14\Tr[\hatg_0^K]\) & Keldysh trace identity &
 \(\DOS\,\fT\) & \(\DOS\,\fT\) &
 charge-mode spectral density \\
-\(\mathcal W_L\) & KL matrix current, energy channel
+\(\mathcal W_L\) & common-phase KL matrix current, energy channel
 (\cref{eq:scalar_BC_energy}) & \(\DOS\DOS'-N_2N_2'\) & --- &
-energy interface weight (Maki--Griffin; \(=1\) at matched gaps) \\
-\(\mathcal W_T\) & KL matrix current, charge channel &
+energy interface weight for \(E>\max(\Delta_1,\Delta_2)\)
+(Maki--Griffin; \(=1\) at matched gaps) \\
+\(\mathcal W_T\) & common-phase KL matrix current, charge channel &
 \(\DOS\DOS'\) & --- &
-charge interface weight (carries the SIS edge singularity) \\
+charge interface weight for \(E>\max(\Delta_1,\Delta_2)\)
+(carries the SIS edge singularity) \\
 \end{tabular}
 \end{ruledtabular}
 \end{table*}
@@ -2676,44 +2679,75 @@ conserved scalar current:
   \bnabla_{\br}f,
   \label{eq:generic_energy_current}
 \end{equation}
-including the weight \(\mathcal{W}\), mobility \(\mathcal{D}\), and matching
+This is a bulk diffusion-normalized spectral flux; when
+\(\mathcal W\) is dimensionless it has velocity units, not the units of an
+electrical- or heat-current density. It includes the weight
+\(\mathcal{W}\), mobility \(\mathcal{D}\), and matching
 conditions across spatially varying \(\Delta(\br)\), material interfaces, or
 trapping regions.
 
 The scalar boundary condition should be obtained by projecting the
 Kupriyanov--Lukichev matrix-current relation onto the same longitudinal
 amplitude used in the bulk equation. In a scalar model this projection must
-identify three objects: the interface weight \(\mathcal{W}\), the mobility
-\(\mathcal{D}\), and the jump condition for either \(f\), \(\DOS f\), or any
+identify three objects: the interface weight \(\mathcal{W}\), the interface
+conductance density, and the jump condition for either \(f\), \(\DOS f\), or any
 nonstandard weighted scalar retained as a benchmark. Without this matching step,
 two bulk operators that look reasonable can still impose incompatible interface
 currents.
 
 \paragraph{Result of the projection.} Carrying this out for a low-transparency
-(Kupriyanov--Lukichev) tunnel interface between BCS electrodes \(1,2\) --- taking
+(Kupriyanov--Lukichev) tunnel interface between rigid BCS electrodes \(1,2\),
+at a common condensate phase and \(E>\max(\Delta_1,\Delta_2)\) --- taking
 the plain-trace longitudinal component of the matrix interface current
-\((2R_bA)^{-1}[\check{g}_1,\check{g}_2]^{K}\), with trace normalization
+\((2\mathcal R_b)^{-1}[\check{g}_1,\check{g}_2]^{K}\), with trace normalization
 and orientation fixed by continuity with the bulk matrix current --- gives
 \begin{equation}
-  j_L=G_N\!\left[\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\right]\!
+  \mathcal J_L=G_N\!\left[\DOS^{(1)}\DOS^{(2)}
+  -N_2^{(1)}N_2^{(2)}\right]\!
   \bigl(\fL^{(1)}-\fL^{(2)}\bigr),
-  \qquad G_N=(R_bA)^{-1},
+  \qquad
+  G_N=\mathcal R_b^{-1},\quad \mathcal R_b\equiv R_bA,
   \label{eq:scalar_BC_energy}
 \end{equation}
 the coherence-factor (Maki--Griffin heat-current) weight~\cite{maki1965};
-superscripts label the two electrodes (not the Kopnin mode indices of
-Sec.~I). The three objects of
-\cref{eq:generic_energy_current} are therefore the interface weight
+here \(R_b\) is the measured normal resistance of a patch of area \(A\), so
+\(G_N\) is the spin-degenerate conductance per area. Superscripts label the
+two electrodes (not the Kopnin mode indices of Sec.~I). The interface
+objects are therefore the spectral weight
 \(\mathcal{W}=\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\), the
-mobility \(\mathcal{D}=G_N\), and the jump variable: the quantity continuous
-across the interface is the \emph{current}, not \(f\) or \(\DOS f\); the bare
-occupation \(f\) jumps, and matching the interface current to the
-conductivity-weighted bulk flux \(-\sigma_N\,\mathcal{D}_L\bnabla\fL\) on
-each side (\(\sigma_N=2e^2N_0\DN\) the normal-state conductivity;
-equivalently to \(-\DN\,\mathcal{D}_L\bnabla\fL\) with the conductance
-expressed in diffusion units, \(G_N/2e^2N_0\)) yields a Robin
-condition. (The statements hold equally for \(f\) via \(\fL=1-2f\); the
-weights are unchanged.)
+conductance density \(G_N\), and the jump variable \(\fL\).
+
+The symbol \(\mathcal J_L\) is deliberately distinct from the bulk
+diffusion-normalized flux. With a common directed normal \(\hat n\),
+\begin{align}
+  \mathcal J_L
+  &=
+  -\sigma_i\,\mathcal D_L^{(i)}
+  \hat n\!\cdot\!\bnabla\fL^{(i)}
+  =
+  2e^2N_0^{(i)}j_L^{(i)},\\
+  j_L^{(i)}
+  &\equiv
+  -\DN^{(i)}\mathcal D_L^{(i)}
+  \hat n\!\cdot\!\bnabla\fL^{(i)}
+  =
+  g_N^{(i)}\mathcal W_L
+  \bigl(\fL^{(1)}-\fL^{(2)}\bigr),
+  \qquad
+  g_N^{(i)}\equiv\frac{G_N}{2e^2N_0^{(i)}} ,
+  \label{eq:KL_normalization_bridge}
+\end{align}
+where \(\sigma_i=2e^2N_0^{(i)}\DN^{(i)}\).
+Only the conductivity-weighted \(\mathcal J_L\) is continuous for
+dissimilar materials; the velocity-unit fluxes obey
+\(j_L^{(1)}/j_L^{(2)}=N_0^{(2)}/N_0^{(1)}\).
+A nonzero current generically produces a finite amplitude jump. Rewriting
+the Robin condition in terms of \(f\), with \(\fL=1-2f\), leaves its
+coefficient and spectral weight unchanged. The formal
+\(G_N\to\infty\) Robin limit enforces equal amplitudes, but lies outside the
+low-transparency K-L derivation; its conclusion agrees with the
+transparent-interface continuity condition.
+
 The charge (transverse) channel decouples, carrying the density-of-states
 product \(\DOS^{(1)}\DOS^{(2)}\) familiar from SIS quasiparticle tunneling;
 both weights reduce to the superconductor density of states at a
@@ -2722,7 +2756,14 @@ by channel: at matched gaps the energy weight is regular
 (\(\DOS^2-N_2^2=1\)), while the charge weight \(\DOS^{(1)}\DOS^{(2)}\)
 carries the matched-gap edge singularity familiar from the SIS
 current--voltage characteristic. The detailed projection is given in
-SM~\cref{SM-sec:boundary_conditions}.
+SM~\cref{SM-sec:boundary_conditions}, including the conversion from these
+spectral mode currents to observable charge and heat currents.
+For \(\fT=0\), a phase bias replaces the longitudinal weight by
+\(\DOS^{(1)}\DOS^{(2)}
+-N_2^{(1)}N_2^{(2)}\cos(\chi_1-\chi_2)\). The full finite-phase,
+complex-spectrum two-mode boundary law also contains
+\(\sin(\chi_1-\chi_2)\) mixing terms and lies outside the common-phase
+sector used here.
 
 \subsection{Self-consistent gap feedback}
 \label{sec:self_consistent_feedback}
@@ -2891,11 +2932,13 @@ face (\cref{fig:bench_interface}).
 \begin{figure}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/interface_trap}
-  \caption{Interface benchmark: a two-gap strip (\(1.6\,\Delta_0\) for
+  \caption{Interface benchmark: a same-material two-gap Al strip
+  (\(1.6\,\Delta_0\) for
   \(x<50~\mu\mathrm{m}\), \(\Delta_0\) beyond) joined by a
   Kupriyanov--Lukichev face carrying the coherence-factor weight of
   \cref{eq:scalar_BC_energy} (interface conductance in diffusion units,
-  \(g_N=G_N/2e^2N_0=0.1~\mu\mathrm{m}/\mathrm{ns}\)), shown at a fixed energy
+  \(g_N=G_N/2e^2N_0=0.1~\mu\mathrm{m}/\mathrm{ns}\); no side label is needed
+  because \(N_0\) is the same on both sides), shown at a fixed energy
   above both gap edges. (a)~Driven steady state with a fixed-\(f\)
   source at the left edge and an absorbing (\(f=0\)) right edge: each
   operator shown carries equal currents on the

@@ -40,7 +40,8 @@ verify_traces.py (gA is the only switch):
                                                  corrected: Tr/4 = dx fL,
                                                             t3-Tr/4 = N1^2 dx fT;
                                                  all grad-Delta terms cancel in both]
-  T9  Kupriyanov-Lukichev commutator [g1,g2]^K  [paper:    energy weight N1N1',
+  T9  K-L commutator, ideal BCS above both gaps, common phase
+                                                [paper:    energy weight N1N1',
                                                             charge weight N1N1'-N2N2';
                                                  corrected: energy weight N1N1'-N2N2',
                                                             charge weight N1N1']
@@ -187,7 +188,9 @@ report('T8b (1/4)Tr[t3 JK]: paper = dx fT, corrected = N1^2 dx fT', [
     ('corrected', sp.Matrix([sp.Rational(1, 4) * (t3 * spat['corrected'][0]).trace()]),
      sp.Matrix([spat['corrected'][1]**2 * sp.diff(fTx, x)]))])
 
-# T9 Kupriyanov-Lukichev interface commutator, independent gaps
+# T9 K-L interface trace, common phase and ideal BCS above both gaps.
+# This historical convention comparison does not test current units or the
+# generic complex-spectrum boundary law; verify_traces.py covers those.
 D1, D2 = sp.symbols('Delta_1 Delta_2', positive=True)
 fL1, fL2, fT1, fT2 = sp.symbols('fL1 fL2 fT1 fT2', real=True)
 kl = {}

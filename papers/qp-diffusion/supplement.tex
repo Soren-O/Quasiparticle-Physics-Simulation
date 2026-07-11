@@ -969,8 +969,8 @@ is killed by the trace; this is where the matrix-level cross-term becomes
 inconsequential, even though it was present in the matrix coefficient
 itself.
 
-These coefficients are the projected scalar spectral currents for the
-longitudinal and transverse modes,
+These coefficients define diffusion-normalized spectral mode fluxes for the
+longitudinal and transverse sectors,
 \begin{equation}
   \mathbf j_L
   =
@@ -1972,7 +1972,7 @@ The spatial flux follows from \cref{eq:matrix_current_BCS}:
   4\,\DOS^2\,\widetilde\bnabla\fT ,
   \label{eq:traceT_diffusion}
 \end{equation}
-so the physical charge current is dressed,
+so the diffusion-normalized transverse matrix-current projection is dressed,
 \(\mathbf j_T=-\DN\DOS^2\widetilde\bnabla\fT\), as already found in
 \cref{eq:jT_BCS}. The \(E\tau_3\) Moyal correction contributes the time
 term
@@ -2102,9 +2102,11 @@ For static \(\Delta\) it collapses to
 with the same time weight \(p=1\) and the same undressed uniform-bulk
 flux as the longitudinal pair \cref{eq:static_kinetic_fL}: in uniform
 bulk both modes diffuse at the rate \(\DN/\DOS(E)\). The \(\DOS^2\)
-transverse dressing of \cref{eq:traceT_diffusion} is the dressing of the
-physical charge current \(\mathbf j_T\), not of the kinetic-equation flux
-in this normalization. Accordingly \(\partial_t(\DOS\fT)\) and
+transverse dressing of \cref{eq:traceT_diffusion} belongs to the
+trace-projected transverse mode flux \(\mathbf j_T\), not to the
+kinetic-equation flux in this normalization. It acquires the conductivity
+factor and energy integration needed for an observable charge current only
+in \cref{sec:boundary_conditions}. Accordingly \(\partial_t(\DOS\fT)\) and
 \(\widetilde\bnabla\!\cdot\!\mathbf j_T\) do not balance by themselves:
 the difference is coherent charge exchange with the condensate---the
 quasiparticle charge alone is not locally conserved, and the balance is
@@ -2660,18 +2662,26 @@ Kupriyanov--Lukichev (K-L) matrix-current relation~\cite{kupriyanov1988} onto th
 same longitudinal amplitude used in the bulk.
 
 \paragraph{Matrix relation.} For two diffusive electrodes \(1,2\) joined by a
-low-transparency barrier of specific resistance \(R_bA\),
+low-transparency barrier, let \(R_b\) be the measured normal resistance of
+a patch of area \(A\), and define its specific resistance and conductance
+density by
+\(\mathcal R_b\equiv R_bA\) and \(G_N\equiv\mathcal R_b^{-1}\). Then
 \begin{equation}
   \sigma_i\,\check g_i\,\hat n\!\cdot\!\widetilde\bnabla\check g_i
-  =\frac{1}{2R_bA}\,[\check g_1,\check g_2],
+  =\frac{G_N}{2}\,[\check g_1,\check g_2],
   \label{eq:KL_BC}
 \end{equation}
 with \(\sigma_i=2e^2N_0^{(i)}\DN^{(i)}\) the normal-state conductivity of
 electrode \(i\) (\(N_0\) the single-spin Fermi-level density of states) and
-\(\hat n\) the interface normal directed from electrode 1 into electrode 2,
+\(\hat n\) the common directed normal from electrode 1 into electrode 2
+(the outward-normal form has opposite signs on the two sides),
 so the matrix current through the barrier is the commutator
-\(\check I=(2R_bA)^{-1}[\check g_1,\check g_2]\), continuous across the interface.
-Take BCS spectral functions on each side,
+\(\check I=(G_N/2)[\check g_1,\check g_2]\), continuous across the interface.
+The measured \(G_N\) includes both spin channels.
+
+We now restrict the scalar evaluation to rigid ideal BCS spectra, a common
+condensate phase, and \(E>\max(\Delta_1,\Delta_2)\). In this sector take
+the spectral functions
 \(\hatg_i^{R}=\DOS^{(i)}\tau_3+\ii N_2^{(i)}\tau_2\),
 \(\hatg_i^{A}=-\DOS^{(i)}\tau_3-\ii N_2^{(i)}\tau_2\), with
 \(\DOS^{(i)}=E/\Omega_i\), \(N_2^{(i)}=\Delta_i/\Omega_i\),
@@ -2700,39 +2710,105 @@ No \(\fT\) enters the energy channel and no \(\fL\) the charge channel: as in th
 bulk for a real gap, the interface does not mix longitudinal and transverse
 modes. (Both identities are confirmed by symbolic computer algebra.)
 
-\paragraph{The three scalar objects.} Writing \(G_N=(R_bA)^{-1}\), the energy
-(longitudinal) interface current is
+\paragraph{Interface and diffusion normalizations.}
+The conductivity-weighted spectral mode currents directed from electrode
+1 to electrode 2 are
 \begin{equation}
   \boxed{\;
-  j_L=G_N\,\big[\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\big]\,
-  \big(\fL^{(1)}-\fL^{(2)}\big)\;}
+    \mathcal J_L
+    =
+    G_N\,\big[\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\big]\,
+    \big(\fL^{(1)}-\fL^{(2)}\big)
+  \;}
   \label{eq:scalar_BC_boxed}
 \end{equation}
-the coherence-factor weight familiar from the Maki--Griffin
-(zero-phase-difference) heat current across a tunnel
-junction~\cite{maki1965}. This fixes
-the three objects a scalar boundary condition
-requires:
-\begin{itemize}
-  \item \emph{interface weight}
-  \(\mathcal W=\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\) (energy) or
-  \(\DOS^{(1)}\DOS^{(2)}\) (charge);
-  \item \emph{mobility} \(\mathcal D=G_N=(R_bA)^{-1}\);
-  \item \emph{jump variable}: the bare longitudinal amplitude \(\fL\); the
-  quantity continuous across the interface is the matrix current --- hence
-  \(j_L\) --- \emph{not} \(\fL\) or \(\DOS\fL\). Taking the same plain trace
-  of the left-hand side of \cref{eq:KL_BC} as in the bulk matches
-  \cref{eq:scalar_BC_boxed} to the bulk flux on each side,
-  \(-\sigma_i\,\mathcal D_L\,\hat n\!\cdot\!\bnabla\fL\big|_i=j_L\)
-  (\(\mathcal D_L=1\) above both gaps), a Robin condition: the normal
-  derivative of \(\fL\) is tied to the weighted amplitude jump.
-  Equivalently, dividing by \(2e^2N_0^{(i)}\), the diffusive flux
-  \(-\DN\,\hat n\!\cdot\!\bnabla\fL\big|_i\) matches \(j_L\) with the
-  conductance expressed in diffusion units, \(g_N=G_N/(2e^2N_0)\) (a
-  velocity; the form used in the benchmark problems). \(\fL\) is
-  discontinuous at finite \(G_N\); the transparent limit \(G_N\to\infty\) forces
-  \(\fL^{(1)}=\fL^{(2)}\).
-\end{itemize}
+\begin{equation}
+  \mathcal J_T
+  =
+  G_N\,\DOS^{(1)}\DOS^{(2)}
+  \big(\fT^{(1)}-\fT^{(2)}\big).
+  \label{eq:scalar_BC_T_current}
+\end{equation}
+The first weight is the Maki--Griffin common-phase heat-current factor
+\cite{maki1965}. The interface law contains a dimensionless spectral
+weight, the conductance density \(G_N\) (units \(\mathrm{S\,m^{-2}}\)),
+and the amplitude jump. It must not be identified term by term with the
+bulk mobility in \cref{eq:LD_p1q0}.
+
+For either \(a=L,T\), reserve \(j_a^{(i)}\) for the velocity-unit,
+diffusion-normalized flux on side \(i\):
+\begin{align}
+  \mathcal J_a
+  &=
+  -\sigma_i\,\mathcal D_a^{(i)}
+  \hat n\!\cdot\!\bnabla f_a^{(i)}
+  =
+  2e^2N_0^{(i)}j_a^{(i)},\\
+  j_a^{(i)}
+  &\equiv
+  -\DN^{(i)}\mathcal D_a^{(i)}
+  \hat n\!\cdot\!\bnabla f_a^{(i)}
+  =
+  g_N^{(i)}\mathcal W_a
+  \big(f_a^{(1)}-f_a^{(2)}\big),
+  \qquad
+  g_N^{(i)}\equiv\frac{G_N}{2e^2N_0^{(i)}} .
+  \label{eq:KL_side_normalizations}
+\end{align}
+Here \(f_L\equiv\fL\), \(f_T\equiv\fT\), and
+\(\mathcal W_{L,T}\) are the two weights in
+\cref{eq:scalar_BC_boxed,eq:scalar_BC_T_current}.
+Only \(\mathcal J_a\) is continuous across dissimilar materials. For a
+common planar area,
+\[
+  \frac{j_a^{(1)}}{j_a^{(2)}}
+  =
+  \frac{N_0^{(2)}}{N_0^{(1)}} ,
+\]
+so a side-independent \(g_N\) is valid only when the normal-state densities
+of states agree. If cross-sectional areas differ in a one-dimensional
+reduction, the conserved object is the total \(A_i\mathcal J_a^{(i)}\).
+A nonzero current generically produces a finite amplitude jump. Rewriting
+the longitudinal Robin law in terms of \(f=(1-\fL)/2\) multiplies its bulk
+and interface sides by the same factor and leaves the coefficient and
+spectral weight unchanged. The formal \(G_N\to\infty\) Robin limit enforces
+equal amplitudes, but is outside the controlled low-transparency K-L
+derivation; the resulting continuity condition agrees with the
+transparent-interface limit.
+
+\paragraph{Observable currents and normal-state check.}
+With \(e>0\) and the orientation above, the observable charge- and
+heat-current densities are
+\begin{align}
+  J_{\mathrm{ch}}
+  &=
+  \frac{1}{2e}\int_{-\infty}^{\infty}
+  \mathcal J_T(E)\,\dd E,\\
+  J_Q^{1\to2}
+  &=
+  -\frac{1}{2e^2}\int_{-\infty}^{\infty}
+  E\,\mathcal J_L(E)\,\dd E
+  =
+  -\frac{1}{e^2}\int_0^\infty E\,\mathcal J_L(E)\,\dd E .
+  \label{eq:KL_observable_currents}
+\end{align}
+The second equality for \(J_Q\) uses the particle--hole parity
+\(\mathcal J_L(-E)=-\mathcal J_L(E)\) of the present sector.  The
+heat-current minus sign follows from \(\fL=1-2f\); reversing
+\(\hat n\) reverses all three directed currents together. Total electrical
+and heat currents are \(I=A J_{\mathrm{ch}}\) and
+\(\dot Q=A J_Q\). In the normal limit these formulas recover
+\[
+  \frac{I}{A}=G_N(V_1-V_2),
+  \qquad
+  \frac{K_N}{A}
+  =
+  \frac{\pi^2 k_{\mathrm B}^2T}{3e^2}\,G_N ,
+\]
+which fixes the factors of two and the single-spin convention for \(N_0\).
+No explicit \(\hbar\) belongs in these stationary formulas: \(E\) is an
+energy, \(N_0\) is per energy-volume, and \(\hbar\) is already implicit in
+\(N_0\) and the microscopic barrier resistance.
 
 \paragraph{Coherence factors and limits.} The energy weight
 \(\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}
@@ -2752,7 +2828,35 @@ states, \(\mathcal W_L=\mathcal W_T=\DOS^{(1)}\); and for
 (\(E^2>\Delta_1\Delta_2\)), so the current flows
 down the amplitude difference.
 
-\paragraph{Gap-edge caveat.} Per energy, both weights inherit an integrable
+\paragraph{Scope beyond rigid above-gap BCS.}
+For a common phase but generic complex spectra, writing \(g_i^R\) and
+\(f_i^R\) for the scalar normal and anomalous components gives the diagonal
+weights
+\[
+  \mathcal W_L
+  =
+  \Real g_1^R\,\Real g_2^R
+  -
+  \Real f_1^R\,\Real f_2^R,
+  \qquad
+  \mathcal W_T
+  =
+  \Real g_1^R\,\Real g_2^R
+  +
+  \Imag f_1^R\,\Imag f_2^R .
+\]
+Thus the DOS product printed in
+\cref{eq:scalar_BC_T,eq:scalar_BC_T_current} is specifically the ideal
+above-gap limit. For \(\fT=0\), a phase difference
+\(\delta\chi=\chi_1-\chi_2\) changes the longitudinal weight to
+\(\DOS^{(1)}\DOS^{(2)}
+-N_2^{(1)}N_2^{(2)}\cos\delta\chi\).
+For generic complex spectra the full finite-phase two-mode law also contains
+\(\sin\delta\chi\) longitudinal--transverse mixing terms. That phase-biased
+extension is not used in the common-phase interface law or benchmark here.
+
+\paragraph{Gap-edge caveat.} In the rigid common-phase BCS sector, both
+weights inherit an integrable
 \((E-\Delta_{\max})^{-1/2}\) BCS edge singularity at the larger gap edge
 for \emph{unequal} gaps. At \emph{matched} gaps the two channels separate
 sharply: the energy weight is regular, \(\mathcal W_L=1\), while the

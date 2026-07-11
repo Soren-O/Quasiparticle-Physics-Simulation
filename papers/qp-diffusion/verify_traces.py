@@ -193,11 +193,13 @@ def build_interface(D1, D2, fL1, fL2, fT1, fT2):
     """Kupriyanov-Lukichev interface BC, tunnel limit: the scalar interface
     current is the longitudinal projection of the Keldysh component of the
     matrix-current commutator [g_1,g_2].  Two sides with INDEPENDENT gaps
-    Delta_1,Delta_2 and distributions h_i = fL_i 1 + fT_i t3.  Result (sympy-
-    and hand-verified, corrected gA): the energy current carries the coherence
+    Delta_1,Delta_2, a common phase, E above both gaps, and distributions
+    h_i = fL_i 1 + fT_i t3.  Result (sympy- and hand-verified, corrected
+    gA): the energy trace carries the coherence
     factor N1_1 N1_2 - N2_1 N2_2 (= 1 at matched gaps -- regular; Maki-Griffin
-    heat-current factor), the charge current the DOS product N1_1 N1_2 (which
-    carries the SIS matched-gap edge singularity), NO L-T mixing."""
+    heat-current factor), the transverse trace the DOS product N1_1 N1_2
+    (which carries the SIS matched-gap edge singularity), NO L-T mixing.
+    Conductivity and observable-current normalizations are checked separately."""
     def side(D, fL, fT):
         W = sp.sqrt(E**2 - D**2)
         N1, N2 = E / W, D / W
@@ -223,6 +225,90 @@ def build_interface(D1, D2, fL1, fL2, fT1, fT2):
             (M([sp.Rational(1, 4) * (t3 * CK).trace()
                 - (-2 * N1_1 * N1_2 * (fT1 - fT2))]), sp.zeros(1, 1)),
     }
+
+
+def build_interface_phase(D1, D2, fL1, fL2, fT1, fT2, phase):
+    """Rigid ideal-BCS interface above both gaps at phase difference phase."""
+    def side(D, fL, fT, chi):
+        W = sp.sqrt(E**2 - D**2)
+        N1, N2 = E / W, D / W
+        anomalous = sp.cos(chi) * t2 + sp.sin(chi) * t1
+        gR = N1 * t3 + I_ * N2 * anomalous
+        gA = -gR
+        h = fL * I2 + fT * t3
+        return gR, gA, gR * h - h * gA, N1, N2
+
+    # chi_1=0, chi_2=-phase, so chi_1-chi_2=phase.
+    gR1, gA1, gK1, N1_1, N2_1 = side(D1, fL1, fT1, 0)
+    gR2, gA2, gK2, N1_2, N2_2 = side(D2, fL2, fT2, -phase)
+    CK = gR1 * gK2 + gK1 * gA2 - gR2 * gK1 - gK2 * gA1
+    WL = N1_1 * N1_2 - N2_1 * N2_2 * sp.cos(phase)
+    M = sp.Matrix
+    return {
+        'I11 phase-biased ideal BCS: longitudinal weight has cos(delta chi)':
+            (M([sp.trace(CK) / 4 + 2 * WL * (fL1 - fL2)]), sp.zeros(1, 1)),
+        'I12 phase-biased ideal BCS: transverse weight is DOS product':
+            (M([sp.trace(t3 * CK) / 4
+                + 2 * N1_1 * N1_2 * (fT1 - fT2)]), sp.zeros(1, 1)),
+    }
+
+
+def build_interface_complex(a1, b1, c1, d1, a2, b2, c2, d2,
+                            fL1, fL2, fT1, fT2):
+    """Common-phase interface with generic complex normal/anomalous spectra.
+
+    g_i^R=(a_i+i b_i)t3+i(c_i+i d_i)t2 and causal
+    g_i^A=-t3 (g_i^R)^dagger t3.  No ideal-BCS restriction is used.
+    """
+    def side(a, b, c, d, fL, fT):
+        gR = (a + I_ * b) * t3 + I_ * (c + I_ * d) * t2
+        gA = -t3 * gR.conjugate().T * t3
+        h = fL * I2 + fT * t3
+        return gR, gA, gR * h - h * gA
+
+    gR1, gA1, gK1 = side(a1, b1, c1, d1, fL1, fT1)
+    gR2, gA2, gK2 = side(a2, b2, c2, d2, fL2, fT2)
+    CK = gR1 * gK2 + gK1 * gA2 - gR2 * gK1 - gK2 * gA1
+    WL = a1 * a2 - c1 * c2
+    WT = a1 * a2 + d1 * d2
+    M = sp.Matrix
+    return {
+        'I13 complex common-phase longitudinal weight = Re(g1)Re(g2)-Re(f1)Re(f2)':
+            (M([sp.trace(CK) / 4 + 2 * WL * (fL1 - fL2)]), sp.zeros(1, 1)),
+        'I14 complex common-phase transverse weight = Re(g1)Re(g2)+Im(f1)Im(f2)':
+            (M([sp.trace(t3 * CK) / 4 + 2 * WT * (fT1 - fT2)]), sp.zeros(1, 1)),
+    }
+
+
+def check_interface_normalization():
+    """Side-dependent diffusion normalization and normal-state prefactors."""
+    print("---- (d) K-L current normalization and normal-state limits ----")
+    e, N01, N02, G, weight, jump = sp.symbols(
+        'e N01 N02 G weight jump', positive=True)
+    dV, kB, temp = sp.symbols('dV kB T', real=True)
+    g1 = G / (2 * e**2 * N01)
+    g2 = G / (2 * e**2 * N02)
+    calJ = G * weight * jump
+    j1, j2 = g1 * weight * jump, g2 * weight * jump
+    checks = {
+        'calJ = 2 e^2 N01 j1': sp.simplify(calJ - 2 * e**2 * N01 * j1),
+        'calJ = 2 e^2 N02 j2': sp.simplify(calJ - 2 * e**2 * N02 * j2),
+        'j1/j2 = N02/N01': sp.simplify(j1 / j2 - N02 / N01),
+        'unequal-DOS guard: N01=2,N02=3 gives j1/j2=3/2':
+            sp.simplify((j1 / j2).subs({N01: 2, N02: 3}) - sp.Rational(3, 2)),
+        'normal voltage calibration G/(2e) x 2e dV = G dV':
+            sp.simplify(G * (2 * e * dV) / (2 * e) - G * dV),
+        'Wiedemann-Franz prefactor magnitude':
+            sp.simplify(
+                G * (2 * sp.pi**2 * kB**2 * temp / 3) / (2 * e**2)
+                - sp.pi**2 * kB**2 * temp * G / (3 * e**2)),
+    }
+    ok = True
+    for name, expr in checks.items():
+        good = expr == 0
+        ok &= good
+        print(f"  [{'PASS' if good else 'FAIL'}] {name}")
+    return ok
 
 
 if __name__ == "__main__":
@@ -254,5 +340,28 @@ if __name__ == "__main__":
                                        sp.Rational(1, 3), sp.Rational(1, 9)),
                        {E: 2})
     print()
-    print("ALL PASS" if (a and b and a2 and b2 and c and a3 and b3)
+    phase = sp.symbols('delta_chi', real=True)
+    a4 = check_symbolic(build_interface_phase(
+        *sp.symbols('Delta_1 Delta_2', positive=True),
+        *sp.symbols('fL1 fL2 fT1 fT2', real=True), phase))
+    print()
+    b4 = check_numeric(build_interface_phase(
+        sp.Integer(1), sp.Rational(13, 10),
+        sp.Rational(2, 5), sp.Rational(1, 7),
+        sp.Rational(1, 3), sp.Rational(1, 9), phase),
+        {E: 2, phase: sp.Rational(2, 5)})
+    print()
+    complex_args = sp.symbols(
+        'a1 b1 c1 d1 a2 b2 c2 d2 fL1 fL2 fT1 fT2', real=True)
+    a5 = check_symbolic(build_interface_complex(*complex_args))
+    print()
+    b5 = check_numeric(
+        build_interface_complex(
+            *map(sp.Rational, (4, 7, 2, 5, 3, 8, 1, 6, 2, 9, 1, 10))),
+        {})
+    print()
+    d = check_interface_normalization()
+    print()
+    print("ALL PASS" if (a and b and a2 and b2 and c and a3 and b3
+                         and a4 and b4 and a5 and b5 and d)
           else "SOME FAILED -- inspect above")
