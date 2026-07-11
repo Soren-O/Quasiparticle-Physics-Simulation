@@ -47,6 +47,22 @@ argument. Finding *new* problems is welcome; re-deriving these is not.
 > prevent submission. Do not apply C1/C2 or alter the physics until a human
 > physicist has adjudicated the surviving derivation-level findings.
 
+> **IMPLEMENTATION STATUS - 2026-07-11 (current; supersedes the repair status
+> above, but not its audit history).** The user authorized the non-human
+> manuscript repairs. The audited scope/reference fixes are in `01ecd61`; the
+> convention, projection, spatial-curvature, and supercurrent-edge repairs are
+> in `46c71f2`; the KL current normalization and phase scope are repaired in
+> `76d822e`; and the complete star-normalized nonadiabatic spectral/Keldysh
+> expansion is in `3423000`. Two independent post-patch reviews found no
+> remaining coefficient or sign defect. The final gate is 7/7 symbolic scripts
+> PASS (266.8 s); `paper.pdf`/`supplement.pdf` build cleanly at 55/52 pages with
+> zero undefined references/citations and zero overfull boxes, and the changed
+> pages passed visual inspection. **The paper is still NOT submission-ready:**
+> B1 keeps the queued C1/C2 package on technical hold, and M5's demonstrated
+> passive-tracer inward drift still needs human-approved replacement of the
+> stronger self-focusing language in the protected abstract/caption/body echo.
+> The author's abstract pass and every D1-D7 decision remain human-only.
+
 Scope: THIS is the single merged manuscript (assembled 2026-07-01). Base =
 paper3 wording/template (intro + scalar route + agreement); imported from
 paper1: the Usadel-route derivation (longitudinal operator, D_L/D_T traces,
@@ -368,16 +384,21 @@ single-spin DOS definition) is in the book PDF.
   \(N_1^2\) dressing belongs to the TRANSVERSE channel. Sympy-verified (I7/I8 etc.).
 - **A1 is selected by BOTH routes**; taxonomy rows B \((0,-2)\)/C \((0,-1)\) are
   legacy placements (Fick ansätze for \(f\)), kept as labeled diagnostics only.
-  The benchmarks quantify the legacy-placement artifact (spurious drift,
-  self-focusing); the microscopic operator predicts NO self-focusing.
+  The current benchmark establishes legacy-placement passive-tracer drift into
+  a population-generated gap well and zero static DOS-gradient tracer drift for
+  A1. It does not establish reciprocal net self-focusing of one coupled
+  population; that stronger wording is the unresolved human-only M5 item.
 - **Kupriyanov–Lukichev scalar BC** (eq:scalar_BC_energy): energy weight
   \(N_1N_1'-N_2N_2'\) (regular at matched gaps), charge weight \(N_1N_1'\)
-  (carries the SIS edge singularity); the CURRENT is continuous, \(f\) jumps
-  (Robin condition). Don't swap the weights.
+  (carries the SIS edge singularity); the physical spectral-current density
+  \(\mathcal J\) is continuous while the diffusion-normalized side fluxes
+  differ with \(N_{0i}\), and \(f\) jumps (Robin condition). Don't swap the
+  weights or equate the side fluxes for dissimilar materials.
 - **Time-dependent spectral flow** is produced directly by the fixed-\(E\)
   projection (eq:fixedE_conservative_flow); the moving-\(\xi\)/branch-projector
-  constructions are re-expressions, not missing physics. Settled June 2026 —
-  don't re-open the "reformulation" question.
+  scalar construction is an exact coordinate relabelling away from the gap
+  edge. It is not an intrinsic moving-frame matrix derivation and is nonuniform
+  at \(\xi=0\).
 - **Gap-feedback closure** (eq:gap_feedback_closure) is the exponentiated
   T-free form; \(n_{qp}=4N_0\int N_1 f\,dE\) with single-spin \(N_0\)
   (factor 4 = spin × two \(\xi\) branches). Deliberate.
@@ -450,13 +471,29 @@ single-spin DOS definition) is in the book PDF.
   directory exists in the Soren folder, including the full book PDF);
   C4 riwar2019 evidence recorded under Known-incomplete; C5 abstract
   guard scope clarified.
-- **REMAINING after this round** (SUPERSEDED 2026-07-10 — the abstract pass is
-  NO LONGER "the only gate"; see the status correction at the top of this file):
-  (1) B1 must be adjudicated before any C1 insertion; B2, B3, B4c, M1, M3,
-  M5, and the B5 normalization repair must be resolved before submission;
-  (2) Soren's own abstract review pass; (3) optional: read the PRB PDF
+- **REMAINING after this round** (SUPERSEDED 2026-07-11; B2, B3, B4c, B5,
+  M1, and M3 are repaired in the commits recorded at the top of this file):
+  (1) B1 must be adjudicated before any C1/C2 insertion; (2) M5's protected
+  abstract/caption/body self-focusing wording requires the human decision;
+  (3) Soren's own abstract review pass; (4) optional: read the PRB PDF
   to convert the riwar2019 arXiv Eq. (46) pinpoint to its published
-  (A-)number; (4) the deferred qpsim engine items above.
+  (A-)number; (5) the deferred qpsim engine items above.
+
+---
+
+## 2026-07-11 - adversarial repair round
+
+- **Applied:** B2, B3, B4a-e, B5, M1-M4, and M7-M9, plus the newly found
+  local-BCS spatial-curvature completion. The exact commit map is recorded in
+  `ADVERSARIAL-REVIEW-2026-07-10.md` under *Implementation resolution*.
+- **Verification:** all seven `verify_*.py` scripts pass in the pinned A: SymPy
+  environment. The strengthened nonadiabatic verifier checks both spectral
+  equations, R/A/K star normalization, the missing Keldysh anticommutator,
+  the completed generic coherence trace, exact shell-slaved and equilibrium
+  cancellations, and zero scalar/transverse second-order projections.
+- **Still held for the human:** B1/C1/C2; M5 wording where it reaches the
+  abstract and caption; D1-D7; the abstract review pass; PyPI publication; and
+  contacting Riwar/Catelani. None was attempted.
 
 ---
 

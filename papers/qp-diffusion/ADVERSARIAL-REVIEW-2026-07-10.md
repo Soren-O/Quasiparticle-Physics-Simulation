@@ -2,9 +2,10 @@
 
 ## Status
 
-This is a read-only review record. No finding in this document has been
-applied to paper.tex, supplement.tex, refs.bib, a verification script, a
-figure, or qpsim.
+This is a historical read-only review record. The status immediately below is
+the state at review time: no finding had then been applied to paper.tex,
+supplement.tex, refs.bib, a verification script, a figure, or qpsim. See
+*Implementation resolution - 2026-07-11* for the subsequent fixes.
 
 - Repository: Soren-O/Quasiparticle-Physics-Simulation
 - Branch reviewed: fix/gpt-review-2026-07-05
@@ -37,6 +38,43 @@ The required baseline was reproduced before review:
 The baseline being green does not dispose of the findings below. Several
 findings identify missing assertions or a same-order contribution that the
 current scripts do not test.
+
+## Implementation resolution - 2026-07-11
+
+This remains the historical review of commit `8598056`; the findings below
+have not been rewritten after the fact. The user subsequently authorized the
+non-human manuscript fixes. Their current dispositions are:
+
+| Finding | Implementation status |
+|---|---|
+| B1 | **HOLD - HUMAN:** C1/C2 remains blocked; no quantitative trap correction was inserted |
+| B2 | **FIXED** in `3423000`: normalized R/A spectral correction, completed Keldysh ansatz and trace, exact shell-slaved cancellation, strengthened verifier |
+| B3 | **FIXED** in `46c71f2`: fixed-energy outer scaling separated from the nonuniform edge distribution and its O(Q) integrated onset |
+| B4a, B4b, B4d, B4e | **FIXED/SCOPED** in `01ecd61`: even-harmonic guard, linearized/nonlinear distinction, positive-shell scope, and moving-coordinate limitations |
+| B4c | **FIXED** in `46c71f2`: false commutator replaced by the correct antipodal-average identity and regression |
+| B5 | **FIXED** in `76d822e`: physical current density separated from side-dependent diffusion fluxes; spin, phase, units, and observable-current bridges pinned |
+| M1, M2 | **FIXED** in `46c71f2`: convention/Moyal bridge and missing factor of i |
+| M3, M4, M7, M8, M9 | **FIXED/SCOPED** in `01ecd61` |
+| M5 | **HOLD - HUMAN:** the computation proves passive-tracer inward drift, not reciprocal net self-focusing; protected abstract/caption/body wording still awaits approval |
+| M6 | **REFUTED; NO CHANGE**: all seven public scripts were already present |
+
+The repair pass also added the normalized local-BCS spatial-curvature
+completion identified by an independent subsection review. Two independent
+post-patch B2 reviews found no coefficient, sign, normalization, or scope
+defect; their two minor regression/regularity comments were applied before the
+final run.
+
+Final validation after `3423000`:
+
+- all seven `verify_*.py` scripts: 7/7 PASS in 266.8 s with the pinned SymPy
+  environment;
+- `paper.pdf`: 55 pages; `supplement.pdf`: 52 pages;
+- zero undefined references/citations and zero overfull boxes;
+- visual inspection of the changed main-text and supplement pages: clean.
+
+The paper is not submission-ready while B1, M5, the guarded abstract pass, and
+the D1-D7 decisions remain human-only. No C1/C2 insertion, guarded abstract or
+caption decision, PyPI upload, or author contact was attempted.
 
 ## Second-round counter-audit
 
