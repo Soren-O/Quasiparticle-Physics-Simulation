@@ -1614,15 +1614,14 @@ interpretation, not an independent completion. The weak-form version in
 \cref{sec:moving_bin_projection} builds the statement into the scalar
 projection itself, and the branch-projector form in
 \cref{sec:branch_projector_lift} expresses it in an instantaneous BdG
-basis. This is a question of representation, not of missing physics: a
-moving-\(\xi\) or gauge-invariant-energy Wigner representation would make the
-spectral flow manifest before the constant-trace reduction, but it yields no
-term the fixed-\(E\) reduction lacks. (Symbolic verification
-[\cref{sec:resolution}] confirms the companion statement for
-the spatially varying gap---the fixed-\(E\) longitudinal matrix current is
-the undressed \(\bnabla\fL\)
-with no spurious \(\bnabla\Delta\,\partial_E\) drift and no
-longitudinal--transverse mixing.) The calculation in
+basis. This supplies an exact scalar coordinate relabelling, not an intrinsic
+moving-frame matrix dirty-limit derivation. Away from \(\xi=0\), the
+relabelling fixes the moving-\(\xi\) scalar equation, including its spatial
+connection terms; the moving-\(\xi\) chart is nonuniform at the gap edge.
+Separately, the fixed-\(E\) calculation of \cref{sec:resolution} confirms that
+the longitudinal matrix current is the undressed \(\bnabla\fL\), with no
+spurious fixed-\(E\) \(\bnabla\Delta\,\partial_E\) drift and no
+longitudinal--transverse mixing. The calculation in
 \cref{sec:tdep_candidate_tests} gives the same content from the
 same fixed-\(E\) equation, as expected.
 
@@ -1807,16 +1806,15 @@ It is therefore different from the clean branch-Boltzmann route in
 \cref{sec:branch_alternative}, where the spatial mobility is also projected
 before impurity isotropization.
 
-This settles the formal status of the construction. A representation-intrinsic
-derivation in a moving-\(\xi\), gauge-invariant-energy, or branch-covariant
-Wigner frame would reproduce \cref{eq:branch_projector_A1} with the spectral
-flow manifest before the scalar limit---but it is an exact re-expression of the
-fixed-\(E\) result, not a route to new terms. The fixed-\(E\) constant-trace
-reduction already yields the complete content (the branch-diagonal
-charge-balanced sector reduces to \cref{eq:branch_projector_A1}; the off-diagonal
-coherences are suppressed by the adiabatic parameter of
-\cref{eq:branch_coherence_estimate}); the moving-frame version differs from it
-only by the exact bin relabeling. What lies beyond the present assumptions is
+This fixes the formal status of the construction: it is a hybrid in which the
+branch projector supplies the moving spectral time coordinate and the
+fixed-\(E\) matrix reduction supplies the spatial current. Exact scalar
+relabelling reproduces \cref{eq:branch_projector_A1} away from the gap edge,
+but an intrinsic moving-\(\xi\), gauge-invariant-energy, or branch-covariant
+matrix dirty-limit derivation has not been performed. The fixed-\(E\)
+constant-trace reduction yields the stated scalar content, while the
+off-diagonal coherences are suppressed by the adiabatic parameter of
+\cref{eq:branch_coherence_estimate}. What lies beyond the present assumptions is
 no longer fully open: the supercurrent-induced longitudinal--transverse mixing,
 the non-BCS proximity dressings, and the leading nonadiabatic corrections are
 established in \cref{app:supercurrent,app:proximity,app:nonadiabatic};
@@ -2251,11 +2249,11 @@ The coordinate lift \cref{eq:coordinate_lifted_A1_advective}, the
 moving-bin weak projection of
 \cref{sec:moving_bin_projection}, and the branch-projector construction of
 \cref{sec:branch_projector_lift} reproduce the same equation kinematically.
-Whether a representation-level matrix-Usadel reformulation---with the moving
-spectral control volume present before the fixed-\(E\) scalar projection is
-taken---supplies anything the fixed-\(E\) route does not is settled in
-\cref{sec:resolution}: it is a representation choice (rigor/manifestness), not a
-source of new terms.
+An intrinsic representation-level matrix-Usadel reformulation---with the
+moving spectral control volume present before the scalar projection---has not
+been carried out. \Cref{sec:resolution} instead verifies the fixed-\(E\)
+spatial current directly; exact scalar relabelling then determines the
+moving-\(\xi\) scalar form away from the singular gap-edge coordinate.
 
 \paragraph{Operator identification.} \cref{eq:final_scalar} has
 the form
@@ -2782,7 +2780,8 @@ spectrum leave the clean BCS form: near a normal-metal contact, inside a proximi
 minigap, or under depairing, the spectral angle
 \(\theta(E,\br)=\theta'+\ii\theta''\) becomes complex and varies in space while
 carrying no current. This is the follow-up calculation flagged below
-\cref{eq:flux_dressings_BCS}. The bulk operator A1 survives it intact: the
+\cref{eq:flux_dressings_BCS}. The A1 continuity and coefficient-placement
+structure generalize to this setting: the
 energy-channel coefficient \(\mathcal D_L\) is promoted from its on/off
 BCS form to a smooth, manifestly real function of the complex
 angle, the energy and charge channels stay decoupled, and the only new ingredient is
@@ -2946,22 +2945,30 @@ were verified symbolically and numerically by computer algebra for generic
 \subsection{Remark: lifetime-broadened (Dynes) spectra}
 \label{app:dynes_remark}
 
-The trace simplifications of this appendix---and the channel dictionary
-of main-text~\cref{M-tab:channel_dictionary} built on them---evaluate
-the Nambu traces on the ideal BCS background, where the identity
-\(\DOS^2-N_2^2=1\) holds among the \emph{real} spectral coefficients.
-Inserting a finite lifetime broadening \(\ii\Gamma\) directly into the
-spectral functions changes that identity---the matrix normalization
-\(g^2-f^2=1\) survives the complex shift \(E\to E+\ii\Gamma\); it is the
-identity among the real coefficients that fails---and therefore changes
-the trace simplifications themselves rather than merely smoothing the
-plotted coefficients. Where a finite \(\Gamma\) is physically required,
-the Nambu traces above must be re-evaluated---generally numerically,
-since the real-BCS simplification no longer applies---with the complex
-spectral functions \(\DOS(E+\ii\Gamma)\), \(N_2(E+\ii\Gamma)\). The
-broadening also regularizes the gap-edge structure of the spectral
-coefficients (e.g.\ the divergence of the transverse dressing
-\(\mathcal D_T=\DOS^2\)) and the matched-gap singularity of the
+The ideal-BCS trace simplifications use the real-coefficient identity
+\(\DOS^2-N_2^2=1\). For a Dynes continuation, write
+\[
+z=E+\ii\Gamma,\qquad
+g_\Gamma^R=\frac{z}{\sqrt{z^2-\Delta^2}},\qquad
+f_\Gamma^R=\frac{\Delta}{\sqrt{z^2-\Delta^2}},
+\]
+with the causal advanced partner. Matrix normalization
+\((g_\Gamma^R)^2-(f_\Gamma^R)^2=1\) survives, whereas the corresponding
+identity among their real parts does not. The Dynes spectrum is a particular
+complex spectral angle, so the general closed forms
+\(\mathcal D_L=\cos^2(\Imag\theta)\) and
+\(\mathcal D_T=\cosh^2(\Real\theta)\) apply, and the exact product
+\(\mathcal D_L\mathcal D_T=\DOS^2\) survives. Thus the ideal individual
+relations \(\mathcal D_L=1\) and \(\mathcal D_T=\DOS^2\) fail; only trace
+quantities for which no general-spectrum form has been derived require
+separate re-evaluation.
+
+Finite \(\Gamma\) also changes the boundary physics. Because
+\(\mathcal D_L=\DOS^2/\mathcal D_T>0\) wherever the broadened DOS is nonzero,
+the ideal hard sub-gap zero-flux face becomes leaky. Deep below the gap,
+\(\mathcal D_L(0)=\Gamma^2/(\Delta^2+\Gamma^2)\), while the leakage is order
+unity within an \(O(\Gamma)\) edge layer. Broadening still regularizes the
+gap-edge divergence and the matched-gap singularity of the
 Kupriyanov--Lukichev charge-channel interface weight.
 
 \section{Branch-covariant verification}\label{app:branch}
@@ -3161,9 +3168,10 @@ not a missing ingredient.
 \end{quote}
 
 A moving-$\xi$ or gauge-invariant-energy reformulation of the starting
-representation remains available; it makes the spectral flow manifest
-before the scalar limit, and \cref{sec:resolution} shows that it yields no
-term the fixed-$E$ reduction lacks.
+matrix equation remains available but is not constructed here. Exact scalar
+relabelling determines the corresponding scalar law away from $\xi=0$,
+including its connection terms; \cref{sec:resolution} verifies only the
+fixed-$E$ spatial matrix current.
 
 \paragraph{Caveats.} All traces are first Moyal order, real gap, spatially
 uniform, bulk BCS, $\fT$ adiabatic. The transverse kinetic equation is
@@ -3175,22 +3183,21 @@ verification scripts---I3 verifies the sandwich weight quoted in
 \cref{sec:plain}; see the data and code availability statement of the
 main text).
 
-\subsection{Representation independence for a spatially varying gap}
+\subsection{Fixed-\texorpdfstring{$E$}{E} spatial-current check for a varying gap}
 \label{sec:resolution}
 
 With the time-dependent flow produced directly by the fixed-$E$ projection
-(\cref{sec:plain}), the remaining representation question is spatial: does a
-moving-$\xi$ / branch-covariant frame generate any spatial term---a
-$\bnabla\Delta$ drift or cross-channel current---that the fixed-$E$
-reduction lacks? It does not: the spatially varying calculation below
-produces no such term, by direct Pauli-trace evaluation and, independently,
-by symbolic computer algebra.
+(\cref{sec:plain}), the remaining calculation is the fixed-$E$ spatial
+current for a varying gap. The calculation below proves, by direct Pauli
+traces and symbolic algebra, that this current contains no
+$\bnabla\Delta$ drift or cross-channel term at the retained order. It does
+not construct the matrix current intrinsically in a moving-$\xi$ frame.
 
-\paragraph{Spatially varying gap.} A genuine derivation must in particular reproduce
-the dirty-limit \emph{spatial} current in the \emph{same} representation for a
-spatially varying gap $\Delta(\br)$, with every $\bnabla\Delta$
-spectral-gradient piece produced and cancelled within the representation
-itself rather than imported from the static result. We specialize to one spatial dimension $x$ for brevity; the conclusion is identical for the full gradient $\bnabla$. Take the static, real $\Delta(x)$, leading-gradient
+\paragraph{Spatially varying gap.} Within the fixed-$E$ representation, a
+direct derivation must retain every spectral-gradient contribution for a
+spatially varying gap $\Delta(\br)$. We specialize to one spatial dimension
+$x$ for brevity; the conclusion is identical for the full gradient
+$\bnabla$. Take the static, real $\Delta(x)$, leading-gradient
 Keldysh--Usadel current
 \begin{equation}
   \check J^{K}=\hatg^{R}\,\partial_x\hatg^{K}+\hatg^{K}\,\partial_x\hatg^{A},
@@ -3218,14 +3225,22 @@ $\mathcal D_L(E,\br)$. The $\DOS^2$ dressing, and with it the
 $(\partial_x\DOS^2)\partial_x\fT$ drift inside the divergence, belongs to
 the transverse channel \cref{eq:I8}.
 
-\paragraph{Interpretation.} The $\bnabla\Delta\,\partial_E\fL$ term a \emph{naive}
-moving-$\xi$ current would generate via
-$\bnabla_\xi F=\bnabla_E\fL+(\Delta/E)\bnabla\Delta\,\partial_E\fL$
-(gradients at fixed $\xi$ and fixed $E$, respectively) is simply
-\emph{absent} from the fixed-$E$ matrix current: it is a fixed-$\xi$ relabeling
-artifact, exactly as in the time case (\cref{eq:exact}). The matrix theory
-``derives, not staples'' the A1 spatial current, with no spurious drift and no
-transverse mixing.
+\paragraph{Interpretation.} For
+$F(\xi,x)=\fL(E(\xi,x),x)$, the coordinate change gives
+\[
+  \partial_x\big|_E
+  =
+  \partial_x\big|_\xi
+  -\frac{\Delta}{\xi}(\partial_x\Delta)\,\partial_\xi
+  \equiv\mathcal C_x .
+\]
+Thus exact scalar relabelling sends the fixed-$E$ diffusion operator to
+$\mathcal C_x(\mathcal C_xF)$; the connection acts on both the current and
+its divergence. These terms are required by the coordinate change, not an
+independent physical DOS-gradient drift. The calculation above establishes
+the fixed-$E$ current with no cross-channel mixing; it does not demonstrate
+an intrinsic moving-frame matrix cancellation. The moving-$\xi$ chart is
+nonuniform at $\xi=0$, where its connection diverges.
 
 \paragraph{Collisions.} The kinematic identity \cref{eq:exact} fixes only the
 left-hand side; the source must transform too. Within the adiabatic
@@ -3237,11 +3252,10 @@ genuine inequivalence appears only \emph{outside} the approximation
 (nonadiabatic collision memory, drive sidebands, branch coherence, or a gap
 changing appreciably during a collision event).
 
-\paragraph{Conclusion.} Under the stated assumptions --- real BCS gap
-(uniform or spatially varying), adiabatic, charge-balanced, leading dirty-limit
-gradient order, no phase gradient/supercurrent --- the representation question is
-\textbf{closed}, and the resolution is negative for ``new physics.'' The two
-exact identities
+\paragraph{Conclusion.} Under the stated assumptions---real BCS gap,
+adiabatic, charge-balanced, leading dirty-limit gradient order, and no phase
+gradient or supercurrent---the fixed-$E$ result is closed by the two exact
+identities
 \begin{equation}
   \tfrac14\Tr[\check J^{K}]=\partial_x\fL,
   \qquad
@@ -3249,12 +3263,12 @@ exact identities
   =\DOS\big[\partial_t+(\Delta/E)\dot\Delta\,\partial_E\big]\fL
 \end{equation}
 fix the undressed spatial A1 current and the conservative/advective
-spectral-flow equivalence, while
-collisions transform by the same DOS Jacobian. There is no derivation-level room
-for the A2 density $\DOS^2 f$ (unsupported by the trace identity) or for a hidden
-$\bnabla\Delta$ longitudinal--transverse mixing. The moving-$\xi$ /
-branch-covariant reformulation is a \emph{rigor/manifestness} gain, not a source
-of new terms.
+spectral-flow equivalence, while collisions transform by the same DOS
+Jacobian. There is no room in these fixed-$E$ identities for the A2 density
+$\DOS^2 f$ or for hidden longitudinal--transverse mixing. Exact scalar
+relabelling determines the moving-$\xi$ scalar law away from the gap edge;
+no claim is made here about an intrinsic moving-frame matrix derivation,
+higher-gradient truncations, or uniformity at $\xi=0$.
 
 \paragraph{Beyond-assumption extensions and their status.}
 (i)~A complex order parameter / phase gradient / supercurrent reopens

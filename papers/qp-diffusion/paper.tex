@@ -376,9 +376,11 @@ the two modes without eliminating any harmonic before the refraction force
 is dropped at standard Eilenberger order (next subsection).
 
 \subsection{Quasiparticle Boltzmann-Like Equations}
-We now recombine the two-mode pair
-\cref{eq:beta_twomode_L,eq:beta_twomode_T} into a single Boltzmann-like
-equation. We assume only that the
+We now record the branch-variable map underlying a single Boltzmann-like
+equation. The map is exact within the local positive-energy quasiparticle
+approximation. Its use below with the nonlinear collision law and convective
+spectral-flow drive is the adiabatic completion described above, not a literal
+algebraic recombination of the printed linearized Kopnin rows. We assume that the
 spectral problem is local enough that quasiparticles carry a positive
 semiclassical energy \cite[\S15.2]{kopnin2001}. The
 branch occupation is a momentum-space object, so we work in the momentum
@@ -577,6 +579,9 @@ Conversely,
 \end{equation}
 so the vanishing of both scalar equations is equivalent to the single
 branch equation \cref{eq:beta_boltzmann_explicit} for \(f_{\bk}\).
+This inverse relation establishes equivalence for the projected equations
+just defined; it does not promote the printed linearized two-mode rows to a
+nonlinear theorem.
 
 This reduction must be distinguished from the dirty-limit diffusion
 reduction: here \(\fT'\) is not an auxiliary harmonic to be eliminated
@@ -747,12 +752,13 @@ The branch-symmetric combination and the \emph{unweighted}
 branch-antisymmetric combination---with
 \(\fL=1-\widetilde f_+-\widetilde f_-\) (the drift annihilates the
 constant) and \(\phi_T\equiv\widetilde f_--\widetilde f_+\)---therefore
-inherit it. Kopnin's transverse amplitude is not \(\phi_T\) itself but the
-\(\lambda_{\bk}\)-weighted combination
+inherit it. For the even angular harmonics, Kopnin's transverse amplitude
+is not \(\phi_T\) itself but the \(\lambda_{\bk}\)-weighted combination
 \(\fT=\fT'=\lambda_{\bk}\,\phi_T\) of \cref{eq:beta_fT_inverse} (here the
 gauge shift vanishes, \(\Phi\to0\)); it inherits the diagonal drift only
 up to the spectral-weight derivative \(D\ln\lambda_{\bk}\) made explicit in
-\cref{eq:intro_fT_kopnin}, the two coinciding once \(\fT\to0\). (Had
+\cref{eq:intro_fT_kopnin}. The odd harmonics instead obey the sector swap
+of \cref{eq:intro_parity_dictionary}. (Had
 the refraction force been retained, the same relabelling would have
 turned it branch-odd, coupling \(\fL\) and \(\phi_T\); dropping it first is
 what keeps the streaming diagonal.) The collision kernels and any
@@ -796,11 +802,12 @@ reintroduced, and we project adiabatically onto the instantaneous
 positive-energy Bogoliubov band---valid when the gap is slow on the
 local scale, \(\hbar|\xi_{\bk}\dot{\Delta}|/E^{3}\ll1\) with a smooth
 spatial analogue, so that nonadiabatic particle--hole coherence and pair
-creation do not appear. In this gauge the ballistic streaming is diagonal: \(\fL\) and \(\phi_T\)
-are not coupled by the drift in \cref{eq:intro_fL,eq:intro_fT}
-(equivalently the Kopnin mode \(\fT=\lambda_{\bk}\phi_T\), up to the
-spectral-weight derivative \(D\ln\lambda_{\bk}\)), their
-only direct coupling being through the collision integrals and the
+creation do not appear. In this gauge the ballistic streaming is diagonal
+in \((\fL,\phi_T)\): the two modes are not coupled by the drift in
+\cref{eq:intro_fL,eq:intro_fT}. For the even angular harmonics this is
+equivalently the Kopnin mode \(\fT=\lambda_{\bk}\phi_T\), up to the
+spectral-weight derivative \(D\ln\lambda_{\bk}\). Their only direct
+coupling is through the collision integrals and the
 self-consistent gap \cite{kopnin2001,schmidschon1975}. Whether the
 diffusive (angular) reduction below reintroduces an effective
 longitudinal--transverse coupling at the same gradient order is a
@@ -841,8 +848,8 @@ equation \cite{eliashberg1972,kaplan1976,changscalapino1977}:
   \label{eq:intro_gap}
 \end{align}
 The transverse row is displayed for the \emph{unweighted} branch-odd mode
-\(\phi_T\); for Kopnin's transverse (charge-imbalance) amplitude
-\(\fT=\lambda_{\bk}\phi_T\) [\(\lambda_{\bk}=|\widetilde\xi_{\bk}|/
+\(\phi_T\). For the even, charge-imbalance harmonics of Kopnin's transverse
+amplitude, \(\fT=\lambda_{\bk}\phi_T\) [\(\lambda_{\bk}=|\widetilde\xi_{\bk}|/
 \widetilde E_{\bk}\) of \cref{eq:beta_sigma_lambda}] the same content reads
 \begin{equation}
   D\fT-\fT\,D\ln\lambda_{\bk}=\lambda_{\bk}\,I_{T},
@@ -851,8 +858,9 @@ The transverse row is displayed for the \emph{unweighted} branch-odd mode
   +\vg(E)\,\hat{\bp}\cdot\bnabla_{\br},
   \label{eq:intro_fT_kopnin}
 \end{equation}
-the spectral-weight term \(\fT\,D\ln\lambda_{\bk}\) vanishing identically
-in the charge-balanced sector \(\fT\to0\) used below.
+the spectral-weight term vanishes when the branch-odd mode \(\phi_T\to0\).
+This does not remove the odd momentum-direction harmonic of \(\fT\), which
+remains the current-carrying harmonic in \cref{eq:sc_hidden_harmonic}.
 
 Here \(\langle\cdot\rangle_{\hat{\bp}}\) is the Fermi-surface
 average---only the isotropic part of \(\fL\) sources the \(s\)-wave
@@ -906,7 +914,9 @@ survive, slaved to \(\bnabla_{\br}\fL\) in the diffusive reduction
 (\cref{sec:sc_angular_averaging}). One can then redefine the remaining
 mode as the still angle-resolved occupation probability
 \(f(E,\hat{\bp},\br,t)\equiv\tfrac{1}{2}\bigl[1-\fL(E,\hat{\bp},\br,t)\bigr]\)
-[\cref{eq:beta_f_from_modes} at \(\fT'=0\)], the scalar collision integral
+[the trajectory-representation analogue of \cref{eq:beta_f_from_modes} at
+\(\phi_T=0\); the momentum-space \(\fT'\) retains the odd harmonic of
+\cref{eq:sc_hidden_harmonic}], the scalar collision integral
 \(\Icoll[f,n]\equiv-\tfrac12\,I_L[\,1-2f,0,n\,]\) carrying the sign and
 factor of two from \(\fL=1-2f\), and consider the three coupled
 equations for \(f\), \(n\), and \(\Delta\)
@@ -1986,12 +1996,11 @@ trace statement of SM~\cref{SM-sec:transverse_projection}.
 \Cref{tab:channel_dictionary} collects these assignments in one place:
 each spectral coefficient of the two-mode kinetic theory, its trace
 definition, its value on the ideal BCS background and for a general
-spectral angle, and the scalar mode it dresses.\footnote{The ideal-BCS
-column is where lifetime broadening matters algebraically: a finite
-\(\ii\Gamma\) breaks the real-coefficient identity \(\DOS^2-N_2^2=1\)
-and with it these trace simplifications---not merely a smoothing of the
-plotted coefficients. SM~\cref{SM-app:dynes_remark} records what must be
-re-evaluated at \(\Gamma\neq0\) and what the broadening regularizes.} The table is the lookup
+spectral angle, and the scalar mode it dresses.\footnote{Finite
+\(\ii\Gamma\) invalidates the ideal-BCS relations \(\mathcal D_L=1\) and
+\(\mathcal D_T=\DOS^2\), while the general identity
+\(\mathcal D_L\mathcal D_T=\DOS^2\) survives; SM~\cref{SM-app:dynes_remark}
+records the resulting leaky sub-gap transport.} The table is the lookup
 that prevents the natural misreading---the \(\DOS^{2}\) dressing, the
 relaxation \(\mathcal R\), and the SIS density-of-states product all
 belong to the charge sector, not to the energy mode.
@@ -2106,12 +2115,17 @@ vanish, and for that energy the edge acts as a zero-flux face for
 charge transport continuing through \(\mathcal D_T\neq0\). The
 diverging spectral weight simultaneously sends the local diffusivity
 \(\DE=\DN/\DOS\to0\), so occupation transported toward the edge accumulates
-rather than leaks. A discretization should therefore impose the
-zero-flux face explicitly (as the interface benchmark of
-\cref{sec:program} does at a material boundary) or regularize
-\(\mathcal D_L\) and \(\DOS\) with the lifetime broadening introduced below \cref{eq:bcs_dos}; the moving-bin weak formulation of
-SM~\cref{SM-sec:moving_bin_projection} is the corresponding statement for the
-energy-space flux at a moving edge.
+rather than leaks. A discretization of the ideal spectrum should therefore
+impose the zero-flux face explicitly (as the interface benchmark of
+\cref{sec:program} does at a material boundary). Finite Dynes broadening is a
+distinct physical model: it gives \(\mathcal D_L=\DOS^2/\mathcal D_T>0\)
+below the ideal gap and hence a leaky face, with deep-subgap scale
+\(\mathcal D_L\sim\Gamma^2/\Delta^2\) and order-unity leakage within an
+\(O(\Gamma)\) edge layer. If broadening is used numerically, \(\Gamma\) must
+be chosen so that the induced sub-gap flux lies below the tolerated error;
+an imposed zero-flux face preserves ideal blocking exactly. The moving-bin
+weak formulation of SM~\cref{SM-sec:moving_bin_projection} is the
+corresponding statement for the energy-space flux at a moving edge.
 
 \subsection{From the longitudinal flux to a scalar kinetic equation}
 
@@ -2222,13 +2236,13 @@ to
   L_{D,\mathrm{U}}^{(2,2)}[f]=\DN\nabla_{\br}^2 f ,
   \label{eq:usadel_uniform_delta}
 \end{equation}
-a constant rate independent of \(E\). This test operator treats
-\(\DOS^2 f\) rather than \(\DOS f\) as the locally conserved energy-resolved
-scalar; it is not the bare quasiparticle number density and is not selected by
-the standard Keldysh--Usadel trace projection. Its \(\DOS^2\) flux is the
-transverse-channel dressing of \cref{eq:DL_DT_BCS_bulk} attached, for
-diagnostic purposes, to the occupation mode; it is retained because it
-isolates the consequence of that misassignment in numerical comparisons.
+a constant rate independent of \(E\). For a static spectrum, this test
+operator treats \(\DOS^2f\) as a diagnostic conserved density rather than the
+bare quasiparticle number density. It is not selected by the standard
+Keldysh--Usadel trace projection, and no physical moving-shell completion has
+been derived for this weight when \(\dot\Delta\ne0\). Its \(\DOS^2\) flux is
+retained only to isolate the numerical consequence of assigning the transverse
+dressing to the occupation mode.
 
 \paragraph{Status.} The matrix Usadel reduction fixes \(q=0\) (undressed
 energy-channel flux, with the sub-gap blocking carried by the indicator
@@ -2359,13 +2373,14 @@ sourced by the energy mode alone---with coefficients proportional to
 dependence is inherited from the gap (SM~\cref{SM-app:nonadiabatic})---and,
 being off-diagonal, they do not enter the conserved scalar densities;
 their relaxation feeds the collision-integral sector rather than \(\fL\)
-directly. Such a moving-\(\xi\) / branch-covariant reformulation is, however, a matter of
-representation rather than missing physics: it makes the spectral flow
-manifest before the scalar limit, but yields no term the fixed-\(E\) reduction
-lacks. The fixed-\(E\) matrix reduction already delivers the complete
-content---the longitudinal flux cleanly (its anomalous spatial-gradient
+directly. Away from \(\xi=0\), the moving-\(\xi\) scalar law is fixed by exact
+coordinate relabelling of the fixed-\(E\) law; its spatial operator contains
+the connection terms required by that relabelling. This does not constitute
+an intrinsic moving-frame matrix dirty-limit derivation, and no uniform claim
+is made at the singular gap-edge coordinate. The fixed-\(E\) matrix reduction
+delivers the longitudinal flux directly (its anomalous spatial-gradient
 bracket vanishes identically above the gap, where
-\(\hat g^A=-\hat g^R\)) and the time-dependent spectral flow directly,
+\(\hat g^A=-\hat g^R\)) together with the time-dependent spectral flow,
 \cref{eq:fixedE_conservative_flow}, with the moving-shell identity
 \cref{eq:moving_bin_identity} as its kinematic reading. Content
 beyond A1 enters only beyond the present assumptions---a phase gradient or supercurrent, non-BCS
@@ -2977,14 +2992,22 @@ spatially resolved \emph{total} quasiparticle density
 \(n_{\qp}(\br,t)=4N_0\int_\Delta^\infty\DOS(E)\,f(E,\br,t)\,\dd E\), with \(N_0\)
 the single-spin normal-state density of states at the Fermi level (the
 factor \(4\) counting spin and the two branches \(\pm\xi\)); an
-additional closure is required.
-Integrating the energy-resolved A1 equation over \(E\) under a fixed
-spectral shape or local-equilibrium closure, the effective macroscopic
-diffusion constant is an energy average of \(\DN/\DOS(E)\) weighted by the
-population [integrating \cref{eq:cons_form} over energy for a
-shape-preserving profile gives
-\(D_{\mathrm{eff}}=\DN\!\int\!f\,\dd E\big/\!\int\!\DOS f\,\dd E\), the
-\(\DOS f\)-weighted average of \(\DN/\DOS\)]: near-gap quasiparticles, which dominate the thermal population
+additional closure is required. For a shape-preserving profile
+\(f(E,\br,t)=A(\br,t)\phi(E)\) at fixed spectrum, integrating
+\cref{eq:cons_form} gives
+\[
+D_{\mathrm{eff}}
+=\DN\frac{\int f\,\dd E}{\int\DOS f\,\dd E}.
+\]
+For a one-parameter local-equilibrium family \(f(E;\alpha)\), linear response
+instead gives
+\[
+D_{\mathrm{eff}}
+=\DN\frac{\int\partial_\alpha f\,\dd E}
+          {\int\DOS\,\partial_\alpha f\,\dd E}.
+\]
+The first expression is therefore not a generic local-equilibrium formula.
+Near-gap quasiparticles, which dominate the thermal population
 at \(T\ll\Delta\) where \(\DOS\) is largest, carry a \emph{suppressed}
 diffusive weight in both microscopic routes---a statement about the bulk
 operator away from the gap-edge boundary layer, where the moment
