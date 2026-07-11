@@ -7,6 +7,46 @@ re-flagging settled ones. Everything below was vetted (several adversarial
 review passes); please do not report these as errors without substantively new
 argument. Finding *new* problems is welcome; re-deriving these is not.
 
+> **FIRST-PASS STATUS CORRECTION — 2026-07-10 (read with the second-round
+> refinement immediately below; supersedes the confident framing in this
+> Purpose note and in the 2026-07-04/07 blocks below).** An external
+> adversarial review (GPT, `ADVERSARIAL-REVIEW-2026-07-10.md` in this dir) plus an
+> independent per-issue physics audit
+> (`GPT-REVIEW-PHYSICS-AUDIT-2026-07-10.md` in the Soren folder) found that ~18 of
+> GPT's 19 findings hold up under independent scrutiny — several **blocker-class
+> physics** issues: the nonadiabatic verifier omits a same-order Keldysh term (B2);
+> a displayed projection-average commutator is false (B4c); the O(Q³)
+> supercurrent-mixing onset is nonuniform (B3); the KL boundary law mixes current
+> normalizations (B5); the starting-equation convention bridge is incomplete (M1).
+> **The paper is NOT submission-ready.** Two rules this whole file must now be read
+> under: (1) "sympy-verified" proves only *algebraic consistency given the starting
+> equations*; "settled" means an *editorial choice* — NEITHER is evidence of
+> *physical* correctness (a step can be algebraically exact yet physically wrong —
+> the audit's own B1 agent "confirmed" a result by solving the wrong ODE). (2) Do
+> NOT apply the queued C1/C2 pre-submission package as-is: its C1 derivation as
+> drafted would insert a *false theorem* (B1). The blocker findings need a human
+> physicist to adjudicate before any fixes or submission. This was the
+> pre-counter-audit status; the next block supersedes its tally and severity.
+
+> **SECOND-ROUND REFINEMENT — 2026-07-10 (supersedes the numerical tally and
+> blocker severity above).** The counter-audit is complete; see
+> `ADVERSARIAL-REVIEW-2026-07-10.md`, section *Second-round counter-audit*.
+> It confirmed B2, B3, the false B4c display, M1's incomplete convention map,
+> M3's absent transverse-response loop, and the M5 benchmark overclaim. It
+> also found new errors in the external audit: its B1 window average clamps
+> the uncomputed edge and does not establish a cutoff-insensitive sub-percent
+> rescue; its moving-coordinate recommendation omits the outer covariant
+> derivative; its finite-Dynes edge value is not exactly one half; and its M5
+> superposition defense is invalid for the nonlinear gap closure. M6 is
+> **refuted**: public `main` is `7116d6e`, contains all seven scripts, and its
+> normalized Git blobs match manuscript commit 8598056. B5 is a mandatory
+> current-normalization/notation repair but the KL trace derivation and the
+> supplement's side-labeled law are correct; M1 is a convention-bridge repair,
+> not a failed downstream derivation. B1 is the only narrow **BLOCKER** because
+> it prevents the named C1 insertion; multiple **MAJOR** corrections still
+> prevent submission. Do not apply C1/C2 or alter the physics until a human
+> physicist has adjudicated the surviving derivation-level findings.
+
 Scope: THIS is the single merged manuscript (assembled 2026-07-01). Base =
 paper3 wording/template (intro + scalar route + agreement); imported from
 paper1: the Usadel-route derivation (longitudinal operator, D_L/D_T traces,
@@ -410,10 +450,13 @@ single-spin DOS definition) is in the book PDF.
   directory exists in the Soren folder, including the full book PDF);
   C4 riwar2019 evidence recorded under Known-incomplete; C5 abstract
   guard scope clarified.
-- **REMAINING after this round**: (1) Soren's own abstract review pass —
-  still the only gate before submission; (2) optional: read the PRB PDF
+- **REMAINING after this round** (SUPERSEDED 2026-07-10 — the abstract pass is
+  NO LONGER "the only gate"; see the status correction at the top of this file):
+  (1) B1 must be adjudicated before any C1 insertion; B2, B3, B4c, M1, M3,
+  M5, and the B5 normalization repair must be resolved before submission;
+  (2) Soren's own abstract review pass; (3) optional: read the PRB PDF
   to convert the riwar2019 arXiv Eq. (46) pinpoint to its published
-  (A-)number; (3) the deferred qpsim engine items above.
+  (A-)number; (4) the deferred qpsim engine items above.
 
 ---
 
