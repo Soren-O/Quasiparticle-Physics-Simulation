@@ -1827,12 +1827,14 @@ matrix dirty-limit derivation has not been performed. The fixed-\(E\)
 constant-trace reduction yields the stated scalar content, while the
 off-diagonal coherences are suppressed by the adiabatic parameter of
 \cref{eq:branch_coherence_estimate}. What lies beyond the present assumptions is
-no longer fully open: the supercurrent-induced longitudinal--transverse mixing,
-the non-BCS proximity dressings, and the leading nonadiabatic corrections are
-established in \cref{app:supercurrent,app:proximity,app:nonadiabatic};
-genuinely open beyond those bounds is the collision-level physics
-(nonadiabatic memory, drive sidebands, a gap changing appreciably during a
-collision) and self-consistent gap dynamics.
+no longer fully open: the supercurrent-induced longitudinal--transverse mixing
+and the non-BCS proximity dressings are established, while the normalized
+spectral correction and collisionless coherence residual give the leading
+nonadiabatic content in
+\cref{app:supercurrent,app:proximity,app:nonadiabatic}. The nonadiabatic
+spatial-current correction and collision-level physics (memory, drive
+sidebands, branch-coherence relaxation, or a gap changing appreciably during
+a collision) remain open, as does self-consistent gap dynamics.
 
 \paragraph{Size of the discarded branch coherence.} The adiabatic condition
 can be made explicit. Let
@@ -3073,78 +3075,125 @@ algebra for generic complex \(\theta(E,\br)\).
 \label{app:nonadiabatic}
 
 The time-dependent spectral flow of main-text~\cref{M-sec:tdep_spectral_flow} is the
-\emph{adiabatic} reduction: it is exact to
-first Wigner (Moyal) order, the instantaneous BCS propagator solving
-\([L_0,\hatg^R]_\star=0\) at \(O(\hbar^0)\) and \(O(\hbar^1)\). The last
-beyond-assumption thread is the leading nonadiabatic correction, obtained from
-the second-order Moyal expansion on
-the \((E,t)\) phase space.
+\emph{adiabatic} reduction: it is exact to first Wigner (Moyal) order, the
+instantaneous BCS propagator solving \([L_0,\hatg^R]_\star=0\) at
+\(O(\hbar^0)\) and \(O(\hbar^1)\). The last beyond-assumption thread is the
+leading nonadiabatic correction, obtained from the second-order Moyal
+expansion on the \((E,t)\) phase space.
 
-\paragraph{Spectrum.} Carrying \([L_0,\hatg^R_0]_\star\) for the instantaneous BCS
-propagator \(\hatg^R_0=\DOS\tau_3+\ii N_2\tau_2\) to second order, the \(O(\hbar^0)\)
-and \(O(\hbar^1)\) terms vanish and the leading residual is purely off-diagonal,
+\paragraph{Spectrum.} Write the instantaneous propagator and its orthogonal
+partner as
 \begin{equation}
-  [L_0,\hatg^R_0]_\star
-  =\frac{3\hbar^2 E\,\Delta^2\,\ddot\Delta}{4\,W^5}\,\tau_1+O(\hbar^3),
+  \hat g_0=\frac{E}{W}\tau_3+\ii\frac{\Delta}{W}\tau_2,
+  \qquad
+  \hat m_0=\frac{\Delta}{W}\tau_3+\ii\frac{E}{W}\tau_2,
   \qquad W=\sqrt{E^2-\Delta^2}.
+  \label{eq:nonad_basis}
+\end{equation}
+Carrying the instantaneous result to second order gives the off-diagonal
+residual
+\begin{equation}
+  [L_0,\hat g_0]_\star
+  =\frac{3\hbar^2 E\,\Delta^2\,\ddot\Delta}{4\,W^5}\,\tau_1+O(\hbar^3).
   \label{eq:nonad_residual}
 \end{equation}
-The instantaneous propagator therefore fails the spectral equation only at
-\(O(\hbar^2\ddot\Delta)\), with a purely off-diagonal (\(\tau_1\)) residual;
-the density of states and the spectral coefficients
-\(\mathcal D_L,\mathcal D_T\) are exact through \(O(\hbar)\), receiving
-corrections---which lie in the \(\tau_3/\tau_2\) sector and carry both
-\(\ddot\Delta\) and \(\dot\Delta^2\) pieces---first at \(O(\hbar^2)\).
-
-\paragraph{Distribution.} Form \(\hatg^K=\hatg^R_0\star\hat h-\hat h\star\hatg^A_0\)
-with \(\hat h=\fL\openone+\fT\tau_3\) and
-\(\hatg^A_0=-\tau_3(\hatg^R_0)^\dagger\tau_3=-\hatg^R_0\). The time-dependent kinetic
-operator \(\ii[L_0,\hatg^K]_\star\) keeps the energy and charge modes \emph{decoupled}:
-through \(O(\hbar^2)\) the energy projection \(\tfrac14\Tr[\,\cdot\,]\) carries no
-\(\fT\) and the charge projection \(\tfrac14\Tr[\tau_3\,\cdot\,]\) no \(\fL\),
-with the energy projection reproducing the conservative spectral flow of
-\cref{eq:expected_conservative} exactly at \(O(\hbar)\) and receiving no
-\(O(\hbar^2)\) correction. A
-time-dependent gap thus opens \emph{no} direct longitudinal--transverse coupling, in
-contrast to the supercurrent of \cref{app:supercurrent}. The off-diagonal
-(branch-coherence) projection vanishes at first order,
+On the real above-gap branch used here, it is canceled by the normalized
+spectral correction
 \begin{equation}
-  \tfrac14\Tr\big[\tau_1\,\ii[L_0,\hatg^K]_\star\big]\Big|_{O(\hbar)}
-  =0
+  \hat g^R=\hat g_0+\hbar^2\hat d+O(\hbar^3),
+  \qquad
+  \hat g^A=-\hat g_0-\hbar^2\hat d+O(\hbar^3),
+  \qquad
+  \hat d=\alpha\hat g_0+\beta\hat m_0,
+  \label{eq:nonad_spectral_correction}
+\end{equation}
+where
+\begin{equation}
+  \alpha=\frac{W^2\dot\Delta^2-2E^2\Delta\ddot\Delta}{8W^6},
+  \qquad
+  \beta=-\frac{3E\Delta^2\ddot\Delta}{8W^6}.
+  \label{eq:nonad_coefficients}
+\end{equation}
+Thus the physical advanced correction is \(\hat d^A=-\hat d^R=-\hat d\).
+The corrected retarded and advanced propagators obey both their spectral
+equations and \(\hat g^{R,A}\star\hat g^{R,A}=\openone\) through
+\(O(\hbar^2)\). In particular, with
+\begin{equation}
+  d_3=\frac{E\alpha+\Delta\beta}{W},
+\end{equation}
+the real above-gap density of states becomes
+\(\DOS+\hbar^2d_3+O(\hbar^3)\) (and generally acquires
+\(\hbar^2\Real d_3\)). This is a genuine spectral correction. It does not,
+by itself, determine the nonadiabatic spatial transport coefficients; doing
+so requires a Moyal-corrected derivation of the spatial current.
+
+\paragraph{Distribution.} With
+\(\hat h=\fL\openone+\fT\tau_3\), the normalized Keldysh ansatz must use the
+corrected spectral propagators:
+\begin{align}
+  \hat g^K
+  &=\hat g^R\star\hat h-\hat h\star\hat g^A \notag\\
+  &=\hat g_0\star\hat h+\hat h\star\hat g_0
+    +\hbar^2(\hat d\hat h+\hat h\hat d)+O(\hbar^3),
+  \label{eq:nonad_keldysh_correction}\\
+  \hat d\hat h+\hat h\hat d
+  &=2\fL\hat d+2\fT d_3\openone.
+  \label{eq:nonad_keldysh_modes}
+\end{align}
+This form obeys
+\(\hat g^R\star\hat g^K+\hat g^K\star\hat g^A=0\) through
+\(O(\hbar^2)\). The time-dependent kinetic operator
+\(\ii[L_0,\hat g^K]_\star\) keeps the energy and charge modes decoupled:
+through \(O(\hbar^2)\) the plain and \(\tau_3\) projections retain the
+adiabatic scalar result, while the off-diagonal projection has no \(\fT\)
+source. In particular, the coherence-channel projection vanishes at first
+order,
+\begin{equation}
+  \tfrac14\Tr\big[\tau_1\,\ii[L_0,\hat g^K]_\star\big]\Big|_{O(\hbar)}=0,
   \label{eq:nonad_coherence}
 \end{equation}
-(a spurious \(O(\hbar)\) drive, proportional to
-\(E\dot\Delta\,\partial_E\fL+\Delta\,\partial_t\fL\), appears here only for
-the opposite advanced-propagator sign). The leading branch-coherence
-generation appears at \(O(\hbar^2)\), sourced by the energy mode alone (no
-\(\fT\), including its derivatives)---the same order as the retarded
-spectral residual \cref{eq:nonad_residual}. For a distribution whose time
-dependence is inherited from the gap (each time derivative of \(\fL\)
-carrying a factor \(\dot\Delta\)) its coefficients are proportional to
-\(\ddot\Delta\) and \(\dot\Delta^2\); for an independently driven
-\(\fL(E,t)\) the source also carries
-\(\dot\Delta\,\partial_E\partial_t\fL\) and \(\Delta\,\partial_t^2\fL\)
-pieces. Being off-diagonal it
-does not enter the conserved scalar densities; its relaxation feeds the
-collision-integral sector rather than \(\fL\) directly.
+and its complete second-order residual is
+\begin{align}
+  \left.\Tr\big[\tau_1\,\ii[L_0,\hat g^K]_\star\big]\right|_{O(\hbar^2)}
+  ={}&-\frac{2\ii\hbar^2}{W^3}\Big[
+    (E^2+\Delta^2)\dot\Delta\,\partial_E\partial_t\fL \notag\\
+  &+E\Delta\big(\partial_t^2\fL
+                 +\dot\Delta^2\partial_E^2\fL\big)
+    +\Delta^2\ddot\Delta\,\partial_E\fL\Big].
+  \label{eq:nonad_coherence_source}
+\end{align}
+The \(O(\hbar^2)\) term from
+\(\hbar^2(\hat d\hat h+\hat h\hat d)\) is essential: it cancels the
+same-order Keldysh term that would otherwise leave a false
+\(3\ii\hbar^2 E\Delta^2\ddot\Delta\fL/W^5\) contribution. For every sufficiently smooth
+shell-slaved distribution \(\fL=G(W)\), all terms in
+\cref{eq:nonad_coherence_source} cancel identically; \(\fL=1\) is the
+simplest check. A generic independently driven \(\fL(E,t)\), by contrast,
+does leave a coherence-channel source. Even for a static gap it contains
+\(-2\ii\hbar^2E\Delta\,\partial_t^2\fL/W^3\). No \(\fT\) source is generated.
 
-\paragraph{Summary.} A fast gap leaves the energy and charge diffusion modes decoupled
-at the spectral-flow level and the spectrum adiabatic through \(O(\hbar)\); \emph{all}
-leading nonadiabaticity---the branch-coherence drive and the spectral
-residual \cref{eq:nonad_residual} alike---enters at
-\(O(\hbar^2)\) (for gap-slaved distributions, through \(\ddot\Delta\) and
-\(\dot\Delta^2\), vanishing as \(\dot\Delta,\ddot\Delta\to0\)), recovering
-main-text~\cref{M-eq:usadel_A1_tdep_fL}.
-These are pointwise statements away from the ideal gap edge: the
-residuals carry inverse powers of \(W=\sqrt{E^2-\Delta^2}\)
-[\cref{eq:nonad_residual}], so the adiabatic ordering requires the
-spectral angle to change slowly on the local branch-splitting scale,
+\paragraph{Summary.} The spectral propagator and density of states acquire
+the nonzero correction \cref{eq:nonad_spectral_correction}, while the
+collisionless coherence-channel source
+\cref{eq:nonad_coherence_source} cancels exactly for a shell-slaved
+distribution. For a general independent drive the latter is a residual of
+the collisionless kinetic equation, not yet a branch-coherence amplitude;
+its amplitude and relaxation require an explicit collision or dephasing
+closure. The scalar energy and charge projections remain unmixed at this
+order, but no claim about the full nonadiabatic \(\mathcal D_L\) or
+\(\mathcal D_T\) follows without the corresponding spatial-current
+calculation.
+These are pointwise statements away from the ideal gap edge: the correction
+carries inverse powers of \(W=\sqrt{E^2-\Delta^2}\)
+[\cref{eq:nonad_spectral_correction,eq:nonad_coefficients}], so the adiabatic
+ordering requires the spectral angle to change slowly on the local
+branch-splitting scale,
 \(\hbar|\partial_t\theta|/W\sim\hbar E|\dot\Delta|/W^3\ll1\) (with the
-analogous \(\ddot\Delta\) condition); sufficiently close to the edge the
-expansion must be regularized by lifetime broadening, self-consistency,
-or an explicit edge treatment.
-\Cref{eq:nonad_residual}, the energy/charge decoupling, and \cref{eq:nonad_coherence}
-were verified symbolically and numerically by computer algebra for generic
+analogous \(\ddot\Delta\) condition). Sufficiently close to the edge the
+expansion must be regularized by lifetime broadening, self-consistency, or
+an explicit edge treatment. The spectral equations and star normalization,
+the energy/charge decoupling, \cref{eq:nonad_coherence_source}, and its exact
+shell-slaved cancellation were verified symbolically for generic
 \(\Delta(t)\).
 
 \subsection{Remark: lifetime-broadened (Dynes) spectra}
@@ -3484,10 +3533,11 @@ background, and pointwise $O(Q)$ on already-complex ones).
 ($\mathcal D_L=\cos^2\theta''$, $\mathcal D_T=\cosh^2\theta'$, no
 longitudinal--transverse mixing from a real spectral gradient alone);
 higher-gradient corrections remain beyond the leading dirty-limit order.
-(iii)~Nonadiabatic \emph{spectral} dynamics is bounded at $O(\hbar^2)$ in
-\cref{app:nonadiabatic}; what remains genuinely open is the
-collision-level physics (memory, drive sidebands, branch-coherence
-relaxation, a gap changing appreciably during a collision) together with
+(iii)~The normalized nonadiabatic spectral correction and the collisionless
+coherence-channel residual are obtained at $O(\hbar^2)$ in
+\cref{app:nonadiabatic}; the Moyal-corrected spatial current and collision-level
+physics (memory, drive sidebands, branch-coherence relaxation, or a gap
+changing appreciably during a collision) remain open, together with
 self-consistent gap dynamics. The benchmark problems where A1, A2, and the
 legacy scalar placements make distinct predictions are realized in
 main-text~\cref{M-fig:bench_uniform,M-fig:bench_drift,M-fig:bench_interface}. Every identity used
