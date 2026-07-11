@@ -18,6 +18,12 @@ derivatives are done by sympy, and every identity is checked twice ---
 (b) by numeric substitution with concrete generic functions (guards against
 simplify failing to reduce a true zero).
 
+The script also guards two convention-level identities used in the text:
+the main/supplement starting equations are related by antipodal trajectory
+relabeling and multiplication by -i (not by a reversed Moyal kernel), and
+antipodal relabeling leaves the full angular average invariant even though it
+flips odd harmonics.
+
 Conventions (parent note):
   Moyal:  A*B = AB + (i hbar/2)(dE A . dt B - dt A . dE B)   [(E,t) pair]
   gauge:  L0 = E tau3 - hatDelta,  hatDelta = -i Delta tau2  =>  L0 = E tau3 + i Delta tau2
@@ -109,6 +115,49 @@ def check_numeric(out, subs):
     return allok
 
 
+def check_conventions_and_relabeling():
+    """Regression guards for M1 and the antipodal-average identity."""
+    print("---- (c) convention bridge and antipodal angular relabeling ----")
+    ok = True
+
+    # If the main equation is V+iC=0, evaluation at -p changes V -> -V.
+    # Multiplication by -i then gives the supplement convention iV+C=0.
+    V, C = sp.symbols('V C', commutative=True)
+    bridge = sp.simplify(-I_ * (-V + I_ * C) - (I_ * V + C))
+    good = bridge == 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] -i[-V+iC] = iV+C")
+
+    # For scalar symbols the two half-Poisson terms in the star commutator
+    # add, giving i*hbar*{A,B}_PB rather than half that coefficient.
+    As = sp.Function('A')(E, t)
+    Bs = sp.Function('B')(E, t)
+    AM, BM = sp.Matrix([[As]]), sp.Matrix([[Bs]])
+    pb = sp.diff(As, E) * sp.diff(Bs, t) - sp.diff(As, t) * sp.diff(Bs, E)
+    scalar_comm = sp.simplify(scomm(AM, BM)[0] - I_ * hbar * pb)
+    good = scalar_comm == 0
+    ok &= good
+    print(f"  [{'PASS' if good else 'FAIL'}] scalar [A,B]_star = i*hbar*{{A,B}}_PB")
+
+    # Axisymmetric l=0,1,2 expansion: antipodal relabeling flips the odd
+    # harmonic but preserves the full-sphere average.
+    mu = sp.symbols('mu', real=True)
+    a0, a1, a2 = sp.symbols('a0 a1 a2')
+    p2 = (3 * mu**2 - 1) / 2
+    X = a0 + a1 * mu + a2 * p2
+    RX = sp.expand(X.subs(mu, -mu))
+    expected = a0 - a1 * mu + a2 * p2
+    parity = sp.simplify(RX - expected)
+    avg = lambda expr: sp.integrate(expr, (mu, -1, 1)) / 2
+    average = sp.simplify(avg(RX) - avg(X))
+    good_parity = parity == 0
+    good_average = average == 0
+    ok &= good_parity and good_average
+    print(f"  [{'PASS' if good_parity else 'FAIL'}] R_- flips l=1 and preserves l=0,2")
+    print(f"  [{'PASS' if good_average else 'FAIL'}] <R_s X> = <X>")
+    return ok
+
+
 def build_spatial(Delta, fL, fT):
     """Spatially-varying STATIC gap Delta(x): leading-order dirty-limit
     Keldysh-Usadel spatial current  JK = gR dx(gK) + gK dx(gA).  Channel
@@ -195,6 +244,8 @@ if __name__ == "__main__":
                                      sp.sin(E) * sp.exp(-x)),
                        {E: 2, x: sp.Rational(1, 3)})
     print()
+    c = check_conventions_and_relabeling()
+    print()
     a3 = check_symbolic(build_interface(*sp.symbols('Delta_1 Delta_2', positive=True),
                                         *sp.symbols('fL1 fL2 fT1 fT2', real=True)))
     print()
@@ -203,5 +254,5 @@ if __name__ == "__main__":
                                        sp.Rational(1, 3), sp.Rational(1, 9)),
                        {E: 2})
     print()
-    print("ALL PASS" if (a and b and a2 and b2 and a3 and b3)
+    print("ALL PASS" if (a and b and a2 and b2 and c and a3 and b3)
           else "SOME FAILED -- inspect above")

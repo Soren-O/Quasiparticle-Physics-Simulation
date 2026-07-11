@@ -1150,9 +1150,11 @@ and reduce the result to a diffusion equation by the two-moment procedure
 through which the normal-metal diffusion equation is usually obtained
 \cite{ziman1960,ashcroft1976}, applied here in the variables \((E,\hat{\bp})\);
 this is the route of Refs.~\onlinecite{kopnin2001,aronov1981} announced in
-the introduction, with the angular average performed \emph{after} the branch
-projection---the opposite order of operations from the Usadel route of
-\cref{sec:usadel_route}. The bookkeeping we keep explicit throughout is that
+the introduction. Here the positive-energy branch is selected in the
+trajectory-resolved equation before its first angular harmonic is slaved.
+In the Usadel route of \cref{sec:usadel_route}, by contrast, the matrix first
+harmonic is slaved before the scalar Nambu trace is taken. The bookkeeping we
+keep explicit throughout is that
 every spectral coefficient in the reduction---\(\vg\), \(\DOS\), and the
 impurity rates introduced below---depends on position and time through
 \(\Delta(\br,t)\), so that which factors stand inside and which outside the
@@ -1752,10 +1754,11 @@ picture rather than from the linearized printed equations.
 \section{Diffusion from the Usadel route}
 \label{sec:usadel_route}
 
-In this route the angular average is performed first, at the matrix
-level, and the scalar quasiparticle content is extracted only afterward
-by Nambu projection---the opposite order of operations to
-\cref{sec:scalar_diffusion}.
+In this route the current-carrying matrix first harmonic is retained,
+solved, and eliminated before the scalar quasiparticle content is extracted
+by a Nambu trace. In the branch route of \cref{sec:scalar_diffusion}, the
+positive-energy branch is selected before the corresponding scalar first
+harmonic is closed.
 
 \subsection{Matrix dirty limit}
 
@@ -2012,8 +2015,8 @@ belong to the charge sector, not to the energy mode.
 theory]{\label{tab:channel_dictionary}Channel dictionary for the
 dirty-limit two-mode kinetic theory in the conventions of this paper:
 \(\hatg^A=-\tau_3\hatg^{R\dagger}\tau_3\), gap gauge
-\(\hatD=-\ii\Delta\tau_2\), trace definitions as in Belzig
-et~al.~\cite{belzig1999}, Eqs.~(36)--(39), whose printed kinetic
+\(\hatD=-\ii\Delta\tau_2\), and trace definitions translated into this
+gauge from Belzig et~al.~\cite{belzig1999}, Eqs.~(36)--(39), whose printed kinetic
 equations carry the same coefficients (the spin-degenerate limits of
 Silaev et~al.~\cite{silaev2015} agree). Here \(\theta\) is the complex
 spectral angle (\(\hatg^R=\tau_3\cosh\theta+\ii\tau_2\sinh\theta\);
@@ -2033,8 +2036,9 @@ energy-mode flux, \(\mathbf j_L=-\DN\,\mathcal D_L\bnabla\fL\) \\
 \(\DOS^2\) / \(\Delta^2/(\Delta^2-E^2)\) &
 \(\cosh^2(\Real\theta)\); \(\mathcal D_L\mathcal D_T=\DOS^2\) &
 charge current, \(\mathbf j_T=-\DN\,\mathcal D_T\bnabla\fT\) \\
-\(\mathcal R\) & \(\tfrac14\Tr[\hatD\,(\hatg^R+\hatg^A)]\) &
-\(0\) / \(\neq0\) & \(\propto\Delta\,\Imag\sinh\theta\) &
+\(\mathcal R\) & \(\tfrac{\ii}{4}\Tr[\hatD\,(\hatg^R+\hatg^A)]\) &
+\(0\) / \(\Delta^2/\sqrt{\Delta^2-E^2}\) &
+\(-\Delta\,\Imag\sinh\theta\) &
 coherent charge (\(\fT\)) relaxation \\
 \(S\) &
 \(\tfrac14\Tr[\tau_3(\hatg^R\widetilde\bnabla\hatg^R{-}\hatg^A\widetilde\bnabla\hatg^A)]\) &
@@ -2492,22 +2496,24 @@ member \((p,q)=(1,r+1)\). The continuity-skeleton row of
 assigns the label, and \(r=-1\) is A1.
 
 \Cref{fig:routes_roadmap} summarizes how the candidate operators descend
-from the common quasiclassical parent: the two microscopic routes perform
-the Nambu/branch projection and the angular average in opposite order
-(\cref{sec:projection_vs_averaging}), and their scalar end points
-coincide on A1; \cref{tab:operator_taxonomy} collects it together with
-the legacy and diagnostic placements.
+from the common quasiclassical parent. The antipodal branch relabelling
+commutes with the bare angular average
+(\cref{sec:projection_vs_averaging}); the two routes instead differ in how
+they retain and eliminate the current-carrying first harmonic. Their scalar
+end points coincide on A1, and \cref{tab:operator_taxonomy} collects that
+operator together with the legacy and diagnostic placements.
 
 \begin{figure*}[t]
   \centering
   \includegraphics[width=0.84\textwidth]{figures/routes_roadmap}
   \caption{Reduction routes from the quasiclassical matrix theory to the
-  candidate diffusion operators of \cref{tab:operator_taxonomy}. The two
-  branches perform the same pair of operations---Nambu/branch projection
-  and angular averaging---in opposite order, and the operations do not
-  commute termwise (\cref{sec:projection_vs_averaging}): the
-  relabelling shuffles odd angular harmonics between the longitudinal and
-  transverse sectors. Their scalar end points nevertheless coincide: the
+  candidate diffusion operators of \cref{tab:operator_taxonomy}. The bare
+  angular average is invariant under the antipodal branch relabelling
+  (\cref{sec:projection_vs_averaging}), which shuffles odd angular harmonics
+  between the longitudinal and transverse representations. What differs is
+  whether the current-carrying first harmonic is closed as a scalar branch
+  moment or as a matrix moment before the Nambu trace. The scalar end points
+  nevertheless coincide: the
   matrix (dirty) route and the branch route with the
   Bardeen--Rickayzen--Tewordt-dressed kernel both fix the longitudinal
   operator A1, \((p,q)=(1,0)\): conserved spectral density \(\DOS f\),
@@ -2625,34 +2631,33 @@ operators, and then benchmarks the resulting operators numerically.
 
 The Usadel route averages over trajectory (Fermi-surface) directions before
 extracting a scalar quasiparticle occupation. The scalar Boltzmann route extracts the
-branch occupation first and averages later. The two routes therefore apply
-the same pair of operations in opposite order, and termwise the operations
-do not commute:
+branch occupation first and closes its angular moments afterward. The
+antipodal relabelling involved in the branch projection does \emph{not}
+obstruct the bare average. For any integrable angular function \(X\), define
 \begin{equation}
-  \left[
-    \mathcal{P}_{\qp},
-    \avg{\cdot}_{\hat{\bp}}
-  \right]\checkg
-  \neq 0,
-  \label{eq:projection_average_commutator}
+  R_sX(\hat{\bp})\equiv X(s\hat{\bp}),
+  \qquad
+  \avg{R_sX}_{\hat{\bp}}=\avg{X}_{\hat{\bk}},
+  \qquad
+  \hat{\bk}=s\hat{\bp},\quad s=\pm1 .
+  \label{eq:antipodal_average_identity}
 \end{equation}
-where \(\mathcal{P}_{\qp}\) denotes the positive-branch projection (with
-the branch-to-trajectory relabelling) that extracts the scalar occupation
-\(f(E,\hat\bp)\) from \(\checkg\), and \(\avg{\cdot}_{\hat\bp}\) is the
-Fermi-surface angular average.
-The non-commutation is real but is exhausted by a relabelling: the
-branch-to-trajectory map acts on odd angular harmonics
-[\cref{eq:intro_parity_dictionary}], so the branch
-route's current-carrying first harmonic is the anisotropic
+The equality is just the measure-preserving change of variable
+\(\hat{\bk}=s\hat{\bp}\). The representation dependence instead resides
+in retaining, solving, and eliminating the current-carrying first harmonic.
+The branch-to-trajectory map flips its odd angular harmonics
+[\cref{eq:intro_parity_dictionary}], so the branch route's
+current-carrying first harmonic is the anisotropic
 \emph{transverse} amplitude of the two-mode description in
 disguise---while the isotropic charge-imbalance mode is the component
 that vanishes in the charge-balanced sector. Eliminating that slaved
 harmonic reproduces the same longitudinal operator as the matrix route,
 as the hidden-harmonic map \cref{eq:sc_hidden_harmonic} and the
 closed operator \cref{eq:sc_LD_closed} show explicitly: the scalar end points coincide on A1
-(\cref{fig:routes_roadmap}). The commutator therefore marks a boundary
-between representations, not between diffusion laws; genuinely different
-kinetics appears only outside the shared assumptions---ballistic
+(\cref{fig:routes_roadmap}). Thus the relabelling changes the
+longitudinal/transverse representation of the first harmonic, not the full
+angular average or the resulting diffusion law. Genuinely different kinetics
+appears only outside the shared assumptions---ballistic
 transport with mean free paths comparable to device scales,
 proximity-modified spectra, charge imbalance, and the extensions bounded
 in the SM.

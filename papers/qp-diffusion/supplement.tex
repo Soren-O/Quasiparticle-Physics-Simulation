@@ -248,16 +248,23 @@ is~\cite{kopnin2001,larkin1986,rammer1986,belzig1999}
 The factor of \(\ii\) on the streaming term is the standard Belzig--Kopnin
 real-frequency convention; with it, the impurity self-energy below is purely
 imaginary and the algebraic identities used in the slaving step
-(\cref{sec:slaving}) produce a real coefficient. Other references keep the
-streaming term real and let the impurity self-energy carry the factor of
-\(\ii\) instead; the two forms differ by a global rescaling of the
-equation, not a different physical theory,
-and the matrix Keldysh--Usadel form
-\cref{eq:matrix_keldysh_usadel} is invariant. (The main-text starting
-display, \cref{M-eq:intro_eilenberger}, corresponds to the opposite sign
-convention for the Wigner \((E,t)\) kernel---equivalently the conjugated
-equation, with real streaming and the \(\ii\) carried by the full
-commutator; the reduction below is insensitive to that choice as well.)
+(\cref{sec:slaving}) produce a real coefficient. Its relation to the
+main-text starting display is exact and does not require reversing or
+conjugating the Wigner kernel. Define the antipodally relabelled functions
+\[
+  \bar{\check g}(E,\hat{\bp})\equiv\check g(E,-\hat{\bp}),
+  \qquad
+  \bar{\check\Sigma}(E,\hat{\bp})
+  \equiv\check\Sigma(E,-\hat{\bp}).
+\]
+Writing the main-text equation as \(V+\ii C=0\), evaluation at
+\(-\hat{\bp}\) gives \(-V[\bar{\check g}]+\ii C[\bar{\check g}]=0\).
+Multiplication by \(-\ii\) therefore gives
+\(\ii V[\bar{\check g}]+C[\bar{\check g}]=0\), which is
+\cref{eq:keldysh_eilenberger}. The Wigner product and energy variable are
+unchanged. The angularly averaged Born self-energy retains its form under
+this relabelling, and the resulting matrix Keldysh--Usadel equation
+\cref{eq:matrix_keldysh_usadel} is invariant.
 
 Here \(\checkg\) is the upper-triangular \(2\times 2\) matrix in Keldysh space
 \[
@@ -277,12 +284,17 @@ Here \(\checkg\) is the upper-triangular \(2\times 2\) matrix in Keldysh space
 \]
 and \(\widetilde{\bnabla}_{\!\br}X\equiv\bnabla_{\!\br}X
 -(\ii e/\hbar c)[\tau_3\bA(\br,t),X]\) is the gauge-covariant derivative.
-The square-bracket commutator is taken with the Moyal product, which to
-leading gradient order reduces to the ordinary commutator plus a
-Poisson-bracket-type gradient correction, written schematically
-\([A,B]_{\circ}\to[A,B]+(\ii\hbar/2)\{A,B\}_{\mathrm{P.B.}}\)
-in mixed (Wigner) variables and made precise for matrix-valued operators
-(where the four-product ordering matters) in \cref{eq:moyal_comm}. The Poisson bracket on the
+The square-bracket commutator is taken with the Moyal product. For commuting
+scalar symbols its leading nonzero term is
+\[
+  [A,B]_{\circ}
+  =
+  \ii\hbar\,\{A,B\}_{\mathrm{P.B.}}+O(\hbar^3),
+\]
+with no factor of \(1/2\). For matrix-valued operators the ordinary
+commutator remains and the four first-order products cannot be combined
+into a single scalar Poisson bracket; their ordering is given explicitly in
+\cref{eq:moyal_comm}. The gradient term on the
 \(E\tau_3\) and \(\hatD\) pieces is the candidate source of the
 time-derivative \(\partial_t\) and spectral-flow
 \((\Delta/E)\dot\Delta\,\partial_E\) structures that one expects on the
@@ -438,10 +450,10 @@ weight \(\DOS\) outside the divergence, so with the BRT closure for
 dirty-limit Keldysh--Usadel projection; the \((0,-1)\) and \((0,-2)\)
 entries of the main-text taxonomy are legacy placements (Fick ans\"atze
 for the occupation itself), not the end point of the branch reduction.
-The projection/averaging non-commutation posed in
-main-text~\cref{M-eq:projection_average_commutator} is exhausted by the
-branch-to-trajectory relabelling of odd angular harmonics and marks a
-boundary between representations, not between diffusion laws.
+The antipodal relabelling leaves the bare angular average invariant,
+main-text~\cref{M-eq:antipodal_average_identity}. The representational
+difference lies instead in how the odd, current-carrying first harmonic is
+retained, slaved, and eliminated before the scalar end point is formed.
 The remaining subsections collect the interface boundary conditions and
 the beyond-real-gap (supercurrent, proximity), nonadiabatic, and
 lifetime-broadened extensions that bound the sector of the main text.
@@ -2134,22 +2146,20 @@ the gap gauge of \cref{sec:conventions}, is the trace
 \begin{equation}
   \mathcal R
   \equiv
-  \tfrac14\Tr\!\bigl[\hatD\,(\hatg^R+\hatg^A)\bigr]
+  \frac{\ii}{4}\Tr\!\bigl[\hatD\,(\hatg^R+\hatg^A)\bigr]
   =
-  0
-  \qquad(\text{ideal BCS, } E>\Delta),
+  -\Delta\,\Imag\sinh\theta,
   \label{eq:depairing_coefficient}
 \end{equation}
-because the propagators satisfy \(\hatg^R+\hatg^A=0\) above the
-gap (the opposite advanced-propagator sign would instead give
-\(\mathcal R=\Delta N_2\), the anomalous components adding rather than
-cancelling); consistently, \cref{eq:fT_kinetic_conservative} contains no
-coherent above-gap relaxation. Off the ideal-BCS background
-\(\mathcal R\propto\Delta\,\Imag\sinh\theta\) is generically nonzero---under
-depairing, proximity, or sub-gap conditions, where \(\theta\) is
-complex---and the corresponding relaxation terms enter the transverse
-equation through the same channel projection evaluated on the complex
-spectra. Likewise a supercurrent couples the two channels through
+where the prefactor \(\ii\) converts the raw, purely imaginary trace into
+the real kinetic coefficient used in this gap gauge. Uniform ideal BCS
+above the gap (or the zeroth-order local-BCS background) has real
+\(\theta\) and hence \(\mathcal R=0\), consistently with the
+absence of coherent above-gap relaxation in
+\cref{eq:fT_kinetic_conservative}; for positive-energy ideal BCS below the
+gap, \(\mathcal R=\Delta^2/\sqrt{\Delta^2-E^2}>0\).
+Depairing, proximity, or other complex spectra are covered by the same
+general expression. Likewise a supercurrent couples the two channels through
 \(S=2Q\,\Imag\sinh^{2}\theta\) (\(Q\) the gauge-invariant superfluid
 momentum; derived and verified symbolically in \cref{app:supercurrent}),
 which vanishes on the real-\(\Delta\), zero-\(Q\) background of this section.
@@ -2167,27 +2177,86 @@ For a static real \(\Delta(\br)\) the kernel-channel flux generalizes
   \frac{\hbar\DN}{\DOS}\,
   \widetilde\bnabla\!\cdot\!\bigl[\DOS\,\widetilde\bnabla\fT\bigr]
   +\frac{\hbar\DN}{\DOS}\,N_2\,
-  \widetilde\bnabla\!\cdot\!\bigl[\fT\,\widetilde\bnabla\vartheta\bigr]
+  \widetilde\bnabla\!\cdot\!\bigl[\fT\,\widetilde\bnabla\vartheta_0\bigr]
   +\hbar\,J_T ,
   \qquad
-  \vartheta=\operatorname{artanh}\frac{\Delta}{E},
+  \vartheta_0=\operatorname{artanh}\frac{\Delta}{E},
   \label{eq:fT_inhom}
 \end{equation}
-with \(\widetilde\bnabla\vartheta=E\,\widetilde\bnabla\Delta/W^{2}\) the
-pairing-angle gradient: alongside the weighted diffusion, a gap gradient
-coherently converts charge imbalance, the transverse counterpart of the
-statement that the longitudinal channel has \emph{no} DOS-gradient drift.
+Here \(\vartheta_0\) is the zeroth-order local-BCS angle and
+\(\widetilde\bnabla\vartheta_0
+=E\,\widetilde\bnabla\Delta/W^{2}\). Alongside the weighted diffusion, a
+gap gradient coherently converts charge imbalance, the transverse
+counterpart of the statement that the longitudinal channel has \emph{no}
+DOS-gradient drift.
 The \(\tau_3\)-trace of the same flux is
 \(\widetilde\bnabla\!\cdot\!(\DOS^2\widetilde\bnabla\fT)\), the divergence
 of the dressed current \(\mathbf j_T\), consistent with
 \cref{eq:traceT_diffusion}: through \(\tau_3=\DOS\,\hatg^0-N_2\hat m\),
 the dressed-divergence grouping familiar from the static literature is
 the \(\DOS\)-weighted kernel channel plus slaved \(\hat m\)-channel
-content, not an independent third scalar equation. The slaved
-image-channel residual
-\(\propto\DOS\,(\widetilde\bnabla^{2}\vartheta)\fT\) remains in the
-\(\hat m\) channel and fixes the subleading \(\tau_1\) content of
-\(\hatg_0^K\) without entering the scalar dynamics at this order.
+content, not an independent third scalar equation.
+
+Retaining the curvature in \cref{eq:fT_inhom} also requires the
+same-order spectral completion of the strict local-BCS propagator. With
+\(\hatg_0=\DOS\tau_3+\ii N_2\tau_2\),
+\(\hat m_0=N_2\tau_3+\ii\DOS\tau_2\), and \(W=\sqrt{E^2-\Delta^2}\), define
+\begin{equation}
+  \eta
+  =
+  \frac{\hbar\DN}{2W}\,
+  \widetilde\bnabla^2\vartheta_0,
+  \qquad
+  \delta\hatg^R=\delta\hatg^A=\ii\eta\,\hat m_0,
+  \qquad
+  \delta\hatg^K=-2\ii\eta\,\DOS\fT\,\tau_1 .
+  \label{eq:spatial_spectral_completion}
+\end{equation}
+The correction obeys
+\(\{\hatg_0,\delta\hatg^{R/A}\}=0\). Its spectral commutator cancels the
+local-current image residual exactly,
+\begin{equation}
+  \ii[\hat L_0,\delta\hatg^K]
+  =
+  2\hbar\DN\DOS
+  (\widetilde\bnabla^2\vartheta_0)\fT\,\hat m_0 ,
+  \label{eq:spatial_image_cancellation}
+\end{equation}
+while the opposing local-current term has the same magnitude and negative
+sign. Both have zero kernel projection, so \cref{eq:fT_inhom} is unchanged.
+In the trace representation the completion gives
+\begin{equation}
+  \mathcal R_{\bnabla}
+  =
+  -\Delta\DOS\,\eta
+  =
+  -\frac{\hbar\DN\Delta\DOS}{2W}
+   \widetilde\bnabla^2\vartheta_0,
+  \qquad
+  \tfrac14\Tr\!\left[
+    \tau_3\,\ii[\hat L_0,\delta\hatg^K]
+  \right]
+  =
+  -2\mathcal R_{\bnabla}\fT .
+  \label{eq:spatial_relaxation_trace}
+\end{equation}
+This is the trace-form bookkeeping of curvature already present in the
+kernel equation, not an additional term to be appended to
+\cref{eq:fT_inhom}; doing so would double count it. The diffusion
+coefficients \(\mathcal D_L=1\) and \(\mathcal D_T=\DOS^2\) have no
+linear-\(\eta\) correction.
+
+The local expansion requires
+\(\rho_\Delta\equiv|\eta|\ll1\). It is nonuniform at the ideal gap edge,
+since
+\[
+  \widetilde\bnabla^2\vartheta_0
+  =
+  \frac{E}{W^2}\widetilde\bnabla^2\Delta
+  +
+  \frac{2E\Delta}{W^4}
+  |\widetilde\bnabla\Delta|^2 .
+\]
 
 \paragraph{Scope.} The transverse sector established here comprises the
 kinetic equation
@@ -2546,21 +2615,22 @@ an inhomogeneous gap, by the DOS-gradient drift of
 main-text~\cref{M-eq:Lpq_expanded}; they are not the end point of the
 branch reduction.
 
-The two routes therefore coincide, although the order of operations has
-changed. In the branch route, one projects onto a quasiparticle with
+The two routes therefore coincide, although their first-harmonic closures
+are represented differently. In the branch route, one projects onto a quasiparticle with
 branch velocity \(\vg=\vF/\DOS\) and then uses the coherence-dressed
 elastic collision integral to slave the first angular harmonic; in the
 Usadel route, the impurity self-energy is used first to slave the matrix
 first harmonic,
 \(\check{\mathbf g}_1=-\ell\checkg_0\widetilde\bnabla\checkg_0\), and the
 branch occupation is extracted only afterward by a Nambu trace. The
-operations do not commute termwise---the branch-to-trajectory relabelling
-acts on odd angular harmonics, so the branch route's current-carrying
+bare angular average itself commutes with the antipodal relabelling,
+main-text~\cref{M-eq:antipodal_average_identity}. That relabelling acts on
+odd angular harmonics, so the branch route's current-carrying
 first harmonic is the anisotropic \emph{transverse} amplitude of the
 two-mode description in disguise---but the relabelling is exhausted by
 this exchange of sectors, and the closed longitudinal end points agree:
-main-text~\cref{M-eq:projection_average_commutator} marks a boundary
-between representations, not between diffusion laws.
+the difference is in retaining and eliminating the first harmonic, not in
+the full angular average or the diffusion law.
 
 Consequently a literal ``dirty scalar Boltzmann equation with
 \(I_{\mathrm{imp}}\) left on the right-hand side'' is not an independent
@@ -2702,7 +2772,7 @@ The longitudinal--transverse decoupling established above---for the bulk current
 \(\check J^{K}\equiv(\checkg\,\bnabla\checkg)^{K}\), which carries no
 \(\fT\)---is
 special to a real gap. A supercurrent reopens the coupling---on the
-ideal BCS background, only weakly. With
+ideal BCS background, with a nonuniform small-\(Q\) edge response. With
 a phase gradient the gauge-covariant gradient is
 \(\widetilde\bnabla\hatg=\bnabla\hatg-\ii Q[\tau_3,\hatg]\), \(Q\) the
 gauge-invariant superfluid momentum (taken along a single direction
@@ -2741,14 +2811,44 @@ with \(\theta=\theta_0-\ii\Gamma\sinh\theta_0\cosh\theta_0/W\)
 \begin{equation}
   \Imag\,\sinh^2\theta=-\frac{2\Gamma E^2\Delta^2}{W^5},
   \qquad
-  \boxed{\,S(E;Q)=-\frac{4Q\Gamma E^2\Delta^2}{W^5}
-       =-\frac{8\hbar D\,Q^3 E^2\Delta^2}{W^5}\,}+O(Q^5).
+  \boxed{\,S_{\mathrm{out}}(E;Q)
+       =-\frac{4Q\Gamma E^2\Delta^2}{W^5}
+       =-\frac{8\hbar D\,Q^3 E^2\Delta^2}{W^5}
+       +O(Q^5)\,}.
   \label{eq:S_result}
 \end{equation}
-The \(O(\Gamma)\) expansion is valid for \(W^3\gg\Gamma E\Delta\), i.e.\
+This fixed-energy outer expansion is valid for
+\(W^3\gg\Gamma E\Delta\), i.e.\
 outside the depairing-rounded edge region
 \(E-\Delta\sim\Delta\,(\Gamma/\Delta)^{2/3}\), where the rounded angle of
 \cref{eq:depairing} must be used directly.
+The expansion is nonuniform in that layer. Since \(\Gamma\propto Q^2\),
+its width is \(O(\Gamma^{2/3})=O(Q^{4/3})\), while the peak of
+\(|S|\) is \(O(Q^{-1/3})\). The integrated weight follows directly by
+putting \(y=e^{-\theta}\) and \(\epsilon=E-\Delta\). The leading edge
+equation is
+\(-4\Delta y^3+2\epsilon y+\ii\Gamma=0\); its physical root rotates from
+\(\arg y=\pi/2\) below the edge to \(\arg y=0\) above it. Since
+\(S/Q\simeq\tfrac12\Imag(y^{-2})\) and
+\(\dd\epsilon=(4\Delta y+\ii\Gamma/2y^2)\dd y\), integration across the
+layer gives
+\(\Imag[2\Delta\ln y-\ii\Gamma/(12y^3)]_{-\infty}^{+\infty}
+=-\pi\Delta\). On the positive-energy axis the resulting edge
+contribution therefore has the distributional limit
+\begin{equation}
+  \frac{S(E;Q)}{Q}
+  \xrightarrow[Q\to0]{\mathcal D}
+  -\pi\Delta\,\delta(E-\Delta).
+  \label{eq:S_edge_distribution}
+\end{equation}
+Consequently, for a smooth weight \(w\),
+\begin{equation}
+  \int_0^\infty S(E;Q)w(E)\,\dd E
+  =
+  -\pi\Delta Q\,w(\Delta)+o(Q),
+  \label{eq:S_edge_weight}
+\end{equation}
+unless \(w(\Delta)=0\).
 It enters the coupled dirty-limit kinetic equations~\cite{belzig1999} as
 \begin{equation}
   \mathbf j_L=-\DN\big(\mathcal D_L\bnabla\fL+S\,\fT\big),\qquad
@@ -2759,16 +2859,17 @@ with \(\mathcal D_L=\tfrac14\Tr(1-\hatg^R\hatg^A)\) and
 \(\mathcal D_T=\tfrac14\Tr(1-\hatg^R\tau_3\hatg^A\tau_3)\) as in
 \cref{eq:DL_DT_def} (reducing to \(1\) and \(\DOS^2\)
 in the BCS limit), so a phase gradient mixes the energy (\(\fL\)) and charge
-(\(\fT\)) modes. The mixing is third order in the superfluid momentum---weak at
-small currents, growing toward the critical current---and vanishes as \(Q\to0\),
-consistent with the real-gap decoupling. The \(O(Q^3)\) onset is specific
-to the ideal bulk BCS background, where \(\sinh^2\theta\) is real at
-\(Q=0\) and an imaginary part is generated only by the \(O(Q^2)\)
-depairing; on a background whose zero-current spectrum is already
-complex---proximity, depairing of other origin, or sub-gap
-energies in such broadened spectra---\(S(E)=2Q\,\Imag\sinh^2\theta_0(E)+O(Q^3)\) is generically
-\emph{first} order in \(Q\). (Cancellation and \cref{eq:S_result}
-verified symbolically and numerically by computer algebra.)
+(\(\fT\)) modes. On the ideal bulk BCS background the mixing is
+\(O(Q^3)\) at each fixed energy outside the edge layer, but an
+energy-integrated observable with nonzero weight at the edge has an
+\(O(Q)\) onset by \cref{eq:S_edge_weight}. Thus the pointwise outer
+scaling cannot be promoted to a uniform weak-mixing statement. On a
+background whose zero-current spectrum is already complex---proximity,
+depairing of other origin, or sub-gap energies in such broadened
+spectra---\(S(E)=2Q\,\Imag\sinh^2\theta_0(E)+O(Q^3)\) is already
+pointwise first order in \(Q\). The frozen-spectrum cancellation, the
+outer expansion, and the edge sum rule have been verified by computer
+algebra and physical-root continuation.
 
 
 \subsection{Beyond the real gap II: non-BCS and proximity spectra}
@@ -2981,8 +3082,9 @@ plain-trace projection, in the canonical conservative form, and verifies
 the companion spatial statements. \Cref{sec:exact} states the exact
 identity connecting the conservative and advective (moving-shell) forms;
 \cref{sec:plain,sec:spec} compute the projection and the spectral
-identities behind it; \cref{sec:fT} bounds the transverse feedback at
-$O(\dot\Delta^{2})$; \cref{sec:verdict} collects the interpretation; and
+identities behind it; \cref{sec:fT} shows that the gap drive does not
+generate transverse imbalance in the symmetric sector;
+\cref{sec:verdict} collects the interpretation; and
 \cref{sec:resolution} verifies, for a spatially varying gap, that the matrix
 reduction reproduces the dirty-limit spatial current cleanly, with no spurious
 drift and no transverse mixing. The appendix also records the convention
@@ -3122,30 +3224,26 @@ $\hatg^R-\hatg^A$, forcing $\Delta=0$ in
 the equilibrium gap equation. These two requirements are what fix
 \cref{eq:gRA}.)
 
-\subsection{The transverse channel enters at \texorpdfstring{$O(\dot\Delta^2)$}{O((dDelta/dt)\string^2)}}
+\subsection{The zero-transverse sector is invariant under the gap drive}
 \label{sec:fT}
 
 Could the linear-in-$\dot\Delta$ flow in the energy equation instead be
-mediated by charge imbalance? No, by order counting that is independent of
-the detailed transverse-sector terms (\cref{sec:transverse_projection}). First,
+mediated by charge imbalance? Not in the charge-symmetric sector considered
+here. First,
 the plain-trace energy projection carries no direct $\fT$ source at the
 orders computed: \cref{eq:fTtrace} at first Moyal order, and the symbolic
-verification extends the statement through $O(\hbar^2)$. Second, absent
-externally injected imbalance, any indirect path requires $\fT$ to be
-generated by the gap drive and then fed back. The transverse equation of \cref{sec:transverse_projection} makes the
-first step explicit: the charge mode is a \emph{linear response} to the drive,
-$\fT=O(\dot\Delta)$, with the response coefficient---not the
-order---set by the relaxation physics; and every coupling
-returning $\fT$ to the energy mode at this level itself vanishes at
-$\dot\Delta=0$ (the static channels are exactly decoupled,
-\cref{eq:fTtrace,eq:I7,eq:I8}). The feedback is therefore
-$O(\dot\Delta^{2})$. \textbf{The spectral-flow term is linear in
-$\dot\Delta$; charge imbalance can only feed back at second order.}
-Physically: $\fT$ is the linear response to the drive, and its back-action
-on the energy mode is one more power of the drive. Hence the linear flow is
-necessarily a \emph{direct, kinematic} effect on $\fL$---exactly the term
-the projection produces in \cref{eq:Lpiece}---not a
-charge-imbalance--mediated one.
+verification extends the statement through $O(\hbar^2)$. Second, the
+assembled transverse equation \cref{eq:fT_kinetic_conservative} is
+homogeneous in $\fT$: the gap drive advects and dilutes an existing
+imbalance, while \(J_T[\fL,0,n]=0\) supplies no source. With zero initial and
+boundary imbalance, \(\fT=0\) therefore remains an exact solution through
+the retained order. There is no drive-generated
+\(\fT=O(\dot\Delta)\) leg and hence no associated
+\(O(\dot\Delta^2)\) feedback loop. Such a loop requires an explicit source
+outside this sector, for example injected charge imbalance,
+particle--hole-asymmetric drive or collisions, an electric field, or a
+supercurrent/complex phase. The linear spectral-flow term is instead the
+direct kinematic effect on \(\fL\) produced in \cref{eq:Lpiece}.
 
 \subsection{Interpretation}
 \label{sec:verdict}
@@ -3175,8 +3273,9 @@ fixed-$E$ spatial matrix current.
 
 \paragraph{Caveats.} All traces are first Moyal order, real gap, spatially
 uniform, bulk BCS, $\fT$ adiabatic. The transverse kinetic equation is
-assembled in \cref{sec:transverse_projection}; \cref{sec:fT} itself uses only
-order counting. The trace identities
+assembled in \cref{sec:transverse_projection}; \cref{sec:fT} uses its
+homogeneous structure together with the source condition
+\(J_T[\fL,0,n]=0\). The trace identities
 \cref{eq:Lpiece,eq:fTtrace,eq:specR,eq:specA} have been verified independently by
 symbolic computer algebra (identities I1, I2/I2b, and I4 of the
 verification scripts---I3 verifies the sandwich weight quoted in
@@ -3275,7 +3374,8 @@ higher-gradient truncations, or uniformity at $\xi=0$.
 $\fL$--$\fT$ mixing through the spectral-supercurrent terms; its leading
 content is derived in \cref{app:supercurrent}
 ($S=2Q\,\Imag\sinh^2\theta$, entering through the depaired spectrum,
-$O(Q^3)$ on the ideal BCS background and $O(Q)$ on already-complex ones).
+fixed-energy outer $O(Q^3)$ but energy-integrated $O(Q)$ on the ideal BCS
+background, and pointwise $O(Q)$ on already-complex ones).
 (ii)~Non-BCS proximity spectra are treated in \cref{app:proximity}
 ($\mathcal D_L=\cos^2\theta''$, $\mathcal D_T=\cosh^2\theta'$, no
 longitudinal--transverse mixing from a real spectral gradient alone);
