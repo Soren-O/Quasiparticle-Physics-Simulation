@@ -168,12 +168,23 @@ def solve_nbar_loop(
 
     for it in range(max_iter):
         f_converged = solve_f(n_bar)
-        q_qp_raw = compute_Q_i(f_converged)
-        q_qp = float(q_qp_raw) if np.isfinite(q_qp_raw) else float("nan")
-        if np.isfinite(q_qp) and q_qp > 0:
-            q_tot = 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
-        else:
+        q_qp = float(compute_Q_i(f_converged))
+        if np.isnan(q_qp) or q_qp <= 0.0:
+            # A NaN or non-positive internal Q_i is a failed / unphysical
+            # observable, not the physical zero-loss limit. Folding it into
+            # Q_tot = Q_c (the "Q_i -> inf" stand-in) silently masked a broken
+            # solve and could carry a failed observable into a pinned baseline.
+            # Fail loudly instead, matching phonon_steady_state's policy.
+            raise RuntimeError(
+                f"nbar_loop: compute_Q_i returned a non-physical quality "
+                f"factor Q_i = {q_qp} at iteration {it} (n_bar = {n_bar:g}); "
+                "expected a positive value or +inf (the zero-loss limit)."
+            )
+        if np.isinf(q_qp):
+            # Physical Q_i -> inf (vanishing quasiparticle loss): Q_tot -> Q_c.
             q_tot = float(Q_c)
+        else:
+            q_tot = 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
 
         n_bar_raw = prefactor * q_tot**2 * float(P_read_uev_per_ns)
         n_bar_next = (

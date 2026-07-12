@@ -256,9 +256,9 @@ class M25Coefficients:
                     f"{name} must be a numpy ndarray of shape (2, 2); "
                     f"got shape {getattr(arr, 'shape', None)}"
                 )
-            if np.any(arr < 0):
+            if not np.all(np.isfinite(arr)) or np.any(arr < 0):
                 raise ValueError(
-                    f"{name} entries must be nonneg (rates); "
+                    f"{name} entries must be finite and nonneg (rates); "
                     f"got min {float(arr.min())}"
                 )
         for name in ("g_ph_L_per_state", "g_ph_Rgt_per_state", "g_ph_Rlt_per_state"):
@@ -268,9 +268,9 @@ class M25Coefficients:
                     f"{name} must be a numpy ndarray of shape (2,); "
                     f"got shape {getattr(arr, 'shape', None)}"
                 )
-            if np.any(arr < 0):
+            if not np.all(np.isfinite(arr)) or np.any(arr < 0):
                 raise ValueError(
-                    f"{name} entries must be nonneg (rates); "
+                    f"{name} entries must be finite and nonneg (rates); "
                     f"got min {float(arr.min())}"
                 )
         # The boxed residual (M25 Eqs. 4-6) assumes the ansatz in M25
@@ -306,8 +306,8 @@ class M25Coefficients:
             "tau_R_inv", "tau_E_inv",
         ):
             val = getattr(self, name)
-            if val < 0.0:
-                raise ValueError(f"{name} must be nonnegative; got {val}")
+            if not np.isfinite(val) or val < 0.0:
+                raise ValueError(f"{name} must be finite and nonnegative; got {val}")
 
     def density_gammas(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         r"""Return the single-quasiparticle rates ``(Γ̄^L, Γ̄^{R>}, Γ̄^{R<})``.
@@ -640,7 +640,12 @@ def solve_rate_equation_steady_state(
     )
 
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    residual_check_failed = residual_inf_norm > residual_tol
+    # Phrase every residual gate as ``not (residual <= threshold)`` rather than
+    # ``residual > threshold``. A NaN residual (MINPACK can return one from an
+    # inf-inf cancellation in the density rows) makes every ``>`` comparison
+    # False, which silently accepted a garbage state on the strict path; the
+    # ``<=`` form rejects NaN and +inf.
+    residual_check_failed = not (residual_inf_norm <= residual_tol)
     # Acceptance rules:
     # 1. ``sol.success=True`` → accept only if the physical residual
     #    check passes.
@@ -661,9 +666,11 @@ def solve_rate_equation_steady_state(
             f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
             f"nfev = {sol.nfev}."
         )
-    if is_no_progress_stall and accept_lm_convergence and residual_inf_norm > 1.0:
+    if is_no_progress_stall and accept_lm_convergence and not (residual_inf_norm <= 1.0):
         # Even the bypass should not accept a residual this large —
         # the cancellation-floor regime sits at ~1e-5 Hz, not order 1.
+        # ``not (... <= 1.0)`` (vs ``> 1.0``) also rejects a NaN/inf residual,
+        # which would otherwise slip through the bypass path.
         raise RuntimeError(
             f"M25 Newton stalled with residual far above the expected "
             f"cancellation floor: {sol.message}; "
@@ -1758,7 +1765,7 @@ def _solve_with_lm(
     except Exception:
         return None
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    if residual_inf_norm > residual_ceiling_Hz:
+    if not (residual_inf_norm <= residual_ceiling_Hz):  # NaN/inf -> reject
         return None
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
     if not (0.0 <= p_1 <= 1.0):
@@ -1839,7 +1846,7 @@ def _solve_with_lsq(
         # max-x_L picker over the genuine physical branch.
         return None
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    if residual_inf_norm > residual_ceiling_Hz:
+    if not (residual_inf_norm <= residual_ceiling_Hz):  # NaN/inf -> reject
         return None
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
     # Box constraints guarantee p_1 ∈ [0, 1] and x_α ≥ 0, but the
