@@ -72,6 +72,22 @@ argument. Finding *new* problems is welcome; re-deriving these is not.
 > `INDEPENDENT-ADVERSARIAL-REVIEW-2026-07-11.md`. It independently retained B1
 > and M5 as human gates; all other human-only items below remain untouched.
 
+> **APPROVED GATE DISPOSITION - 2026-07-11 (current; supersedes the open-gate
+> conclusions in the two blocks immediately above).** After three independent
+> advisory panels and the independent reviewer's concurrence, the user explicitly
+> approved the bundle. Commit `229956b` replaces the guarded abstract, removes the
+> reciprocal self-focusing overclaim in favor of passive-probe language, adds a
+> qualitative eliminated-proximity-layer resistance caveat without revising any
+> Riwar--Catelani number, adds a strictly local fixed-energy Peclet diagnostic,
+> and tailors the three inhomogeneous benchmark captions. The prepared quantitative
+> C1 correction, `7 -> 32 um` result, device-error table, and old SM verification
+> sentence remain rejected. D4 is "do not contact now" and PyPI remains deferred;
+> neither is a manuscript gate. Three focused rechecks plus a final whole-diff
+> review pass. The seven-script suite is 7/7 PASS (266.5 s), the final PDFs are
+> 56/52 pages with zero undefined references/citations and zero overfull boxes,
+> and all affected pages passed visual inspection. The complete decision record is
+> `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md`.
+
 Scope: THIS is the single merged manuscript (assembled 2026-07-01). Base =
 paper3 wording/template (intro + scalar route + agreement); imported from
 paper1: the Usadel-route derivation (longitudinal operator, D_L/D_T traces,
@@ -368,16 +384,12 @@ single-spin DOS definition) is in the book PDF.
   "Agreement with the scalar route" to "Longitudinal distribution operator"
   (where the D_L/D_T traces actually live, matching this file's own usage) and
   is now referenced by the §II Dynes pointer.
-- **Dynes footnote final form** (refines the item-5 execution): the full
-  algebraic discussion now lives in SM app:dynes_remark (end of the derivation
-  appendix); the main-text footnote at the channel-dictionary sentence is a
-  compact pointer. Rationale (corrected 2026-07-07): footnote length/style —
-  a 17-line main-text footnote is disproportionate and the algebra belongs
-  with the SM derivation. (The earlier wording of this bullet attributed the
-  move to the §III vbox; the Build note is right that the ~29 pt vbox is
-  display+table density and persists under ANY footnote anchor, so the
-  demotion bought no vbox relief. Decision unchanged.) Don't re-inflate the
-  main-text footnote.
+- **Dynes pointer final form** (refines the item-5 execution): the full
+  algebraic discussion lives in SM app:dynes_remark (end of the derivation
+  appendix); the channel-dictionary paragraph carries one compact pointer
+  sentence. The pointer was moved out of a footnote after the approved abstract
+  repagination put that insertion beside the large dictionary float and created
+  a small overfull page; no scientific content changed. Don't re-inflate it.
 - **S-symbol overload (item 8): deliberately NOT renamed.** The
   channel-dictionary parenthetical disambiguates; a true rename touches the
   boxed, sympy-verified SM supercurrent equation for cosmetic gain. Closed.
@@ -396,7 +408,8 @@ single-spin DOS definition) is in the book PDF.
   The current benchmark establishes legacy-placement passive-tracer drift into
   a population-generated gap well and zero static DOS-gradient tracer drift for
   A1. It does not establish reciprocal net self-focusing of one coupled
-  population; that stronger wording is the unresolved human-only M5 item.
+  population; commit `229956b` now states that limitation consistently in the
+  abstract, benchmark setup/body/caption, and conclusion.
 - **Kupriyanov–Lukichev scalar BC** (eq:scalar_BC_energy): energy weight
   \(N_1N_1'-N_2N_2'\) (regular at matched gaps), charge weight \(N_1N_1'\)
   (carries the SIS edge singularity); the physical spectral-current density
@@ -480,13 +493,11 @@ single-spin DOS definition) is in the book PDF.
   directory exists in the Soren folder, including the full book PDF);
   C4 riwar2019 evidence recorded under Known-incomplete; C5 abstract
   guard scope clarified.
-- **REMAINING after this round** (SUPERSEDED 2026-07-11; B2, B3, B4c, B5,
-  M1, and M3 are repaired in the commits recorded at the top of this file):
-  (1) B1 must be adjudicated before any C1/C2 insertion; (2) M5's protected
-  abstract/caption/body self-focusing wording requires the human decision;
-  (3) Soren's own abstract review pass; (4) optional: read the PRB PDF
-  to convert the riwar2019 arXiv Eq. (46) pinpoint to its published
-  (A-)number; (5) the deferred qpsim engine items above.
+- **REMAINING after this round** (SUPERSEDED by the approved-gate block at the
+  top of this file): B1/C1/C2, M5, D1-D7, and the abstract pass have received
+  their recorded dispositions. The optional riwar2019 published-equation
+  pinpoint, deferred package release/contact, and engine work are not paper
+  correctness gates.
 
 ---
 
@@ -500,23 +511,21 @@ single-spin DOS definition) is in the book PDF.
   equations, R/A/K star normalization, the missing Keldysh anticommutator,
   the completed generic coherence trace, exact shell-slaved and equilibrium
   cancellations, and zero scalar/transverse second-order projections.
-- **Still held for the human:** B1/C1/C2; M5 wording where it reaches the
-  abstract and caption; D1-D7; the abstract review pass; PyPI publication; and
-  contacting Riwar/Catelani. None was attempted.
+- **Subsequent disposition:** the user approved the advisory bundle and the
+  manuscript gates were resolved in `229956b`; see
+  `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md`. PyPI publication and external
+  contact remain deliberately unexecuted and are not paper correctness gates.
 
 ---
 
 ## Known incomplete (work in progress — not defects)
 
-- Abstract: merged draft written 2026-07-01; sharpened 2026-07-02 with
-  Soren-approved wording (the legacy placement named as in common use in
-  device modeling, including published gap-engineered-trap analyses —
-  backed by the verified riwar2019 Appendix-A instance). SCOPE of that
-  guard (clarified 2026-07-07): it covers the legacy-placement sentence
-  only; the abstract as a whole has NOT had Soren's formal review pass,
-  which is the last gate before submission. The 2026-07-07 round added
-  symbol glosses and a punctuation fix without touching the guarded
-  sentence's claim — include them in that pass.
+- Abstract: the previous protected draft and its single-sentence guard are
+  superseded. The user approved the complete replacement on 2026-07-11 after
+  independent abstract/M5 review. The current version is scoped to a homogeneous
+  normal-state material in the dirty, slowly varying local-BCS sector, names one
+  published trap analysis, uses "not selected by either reduction," and expressly
+  disclaims net nonlinear focusing. This abstract pass is complete.
 - riwar2019 Appendix-A evidence (recorded 2026-07-07, re-verified against
   arXiv:1907.04781 via ar5iv): their Eq. (46) [arXiv numbering; PRB
   appendix (A-)number still to be read off the journal PDF] is

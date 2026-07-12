@@ -7,6 +7,17 @@ the state at review time: no finding had then been applied to paper.tex,
 supplement.tex, refs.bib, a verification script, a figure, or qpsim. See
 *Implementation resolution - 2026-07-11* for the subsequent fixes.
 
+> **Final gate disposition - 2026-07-11.** The open human-gate conclusions in
+> this historical report were subsequently adjudicated by three independent AI
+> panels, endorsed by the independent adversarial reviewer, and explicitly
+> approved by the user. The manuscript implementation is commit `229956b` and
+> the complete decision record is
+> `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md`. The quantitative C1 trap-length
+> correction remains rejected; the approved changes are the replacement
+> abstract, qualitative proximity-layer caveat, local fixed-energy Peclet
+> diagnostic, passive-probe M5 wording, and tailored benchmark limitations.
+> PyPI publication and external contact were not performed.
+
 - Repository: Soren-O/Quasiparticle-Physics-Simulation
 - Branch reviewed: fix/gpt-review-2026-07-05
 - Commit reviewed: 85980561003b50fd95184dd90400b8ec67d61c44

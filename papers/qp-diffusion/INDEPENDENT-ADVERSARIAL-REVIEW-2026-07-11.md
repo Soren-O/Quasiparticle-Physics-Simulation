@@ -22,6 +22,17 @@ review record was modified. Nothing was staged or committed.
 > `-halt-on-error` stops at the first imported undefined macro. These corrections
 > do not change any physics finding or PDF diagnostic.
 
+> **Approved-gate reconciliation - 2026-07-11.** This report's human-gate
+> recommendations remain the historical review verdict at `95c2b85`; they are
+> no longer open. Three independent advisory panels produced a conservative
+> bundle, this review's author endorsed it, and the user explicitly approved it.
+> Commit `229956b` implements the replacement abstract, qualitative B1/C1
+> caveat without a quantitative trap correction, scoped C2 diagnostic, and M5
+> passive-probe wording. See
+> `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md` for the exact D1-D7 decisions,
+> exclusions, and final validation. PyPI publication and author contact remain
+> deliberately unexecuted.
+
 ---
 
 ## 1. Executive verdict
