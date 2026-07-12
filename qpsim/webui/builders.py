@@ -234,6 +234,18 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             report.errors.append("M25: T_stop must be ≥ T_start.")
         if setup.omega_10_over_h_GHz >= 2.0 * setup.Delta_R_over_h_GHz:
             report.errors.append("M25: needs ω₁₀ < 2Δ_R (no direct pair-breaking by the qubit).")
+        if setup.branch_picker_mode == "max_x_L":
+            # The engine only emits a (default-suppressed) DeprecationWarning
+            # and the M25 executor captures no warnings, so a saved setup using
+            # this deprecated picker ran silently to "done" on pseudo-roots
+            # (~60x wrong x_L, ~600x parity rates on the default parameters).
+            # The schema keeps the value so old setups still validate-load;
+            # reject it here at run time.
+            report.errors.append(
+                "M25: branch_picker_mode 'max_x_L' is deprecated — it selects "
+                "sub-1-Hz slope pseudo-roots (≈60× wrong x_L). Use "
+                "'min_residual'."
+            )
 
     return report
 

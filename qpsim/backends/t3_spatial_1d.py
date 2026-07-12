@@ -9,6 +9,7 @@ spatial phonons can be layered on once the Ph1/Ph2 state is available.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -211,13 +212,32 @@ class T3Spatial1DBackend:
 
         ops = self._build_transport_operators(state, dt)
         f_new = state.f.copy()
+        clip_loss = 0.0
+        mass_scale = 0.0
         for i, op in enumerate(ops):
             if op is None:
                 continue
             b_mat, lu, idx, rho_p = op
             u = rho_p * f_new[i, idx]
             u_next = lu.solve(b_mat @ u)
-            f_new[i, idx] = np.clip(u_next / rho_p, 0.0, 1.0)
+            f_clipped = np.clip(u_next / rho_p, 0.0, 1.0)
+            # Track density the [0, 1] clip removed/added: exact conservation
+            # (Σ_x N₁^p f) holds only while the CN update stays in [0, 1];
+            # clipping an over/undershoot on an unresolved front trims mass
+            # that is NOT restored.
+            clip_loss += float(np.sum(u_next - rho_p * f_clipped))
+            mass_scale += float(np.sum(np.abs(u)))
+            f_new[i, idx] = f_clipped
+
+        if mass_scale > 0.0 and abs(clip_loss) > 1e-9 * mass_scale:
+            warnings.warn(
+                f"apply_transport: the [0, 1] occupation clip changed the "
+                f"conserved density Σ N₁^p f by {clip_loss / mass_scale:+.2%} "
+                "this step — a Crank–Nicolson over/undershoot on an unresolved "
+                "front (large dt against a sharp gradient). Reduce dt or "
+                "resolve the front to keep the step exactly conservative.",
+                stacklevel=2,
+            )
 
         return replace(state, f=f_new)
 
