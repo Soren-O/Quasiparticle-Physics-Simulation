@@ -84,45 +84,31 @@
 \date{\today}
 
 \begin{abstract}
-Spatially resolved modeling of nonequilibrium quasiparticles in
-superconducting devices requires an energy-resolved diffusion equation,
-and the literature reaches one by two apparently different routes:
-projecting the quasiclassical kinetic theory onto a positive-energy
-quasiparticle occupation and adding elastic impurity scattering to the
-resulting Boltzmann-like equation, or taking the dirty limit at the
-matrix (Usadel) level and reducing its Keldysh block. We compare the two
-constructions in a common, explicitly delimited sector: a homogeneous
-material, local BCS spectrum, isotropic \(s\)-wave gap, nonmagnetic Born
-impurities, and no charge imbalance. The scalar route is shown to be an exact change of
-variables of the dirty two-mode (Kopnin) reduction: the first angular
-harmonic of the branch-projected occupation is the current-carrying
-anisotropic transverse amplitude in disguise, and the coherence factors
-of the impurity kernel force the transport-time closure
-\(\tautr(E)=\DOS(E)\,\tau_{\mathrm N}\), equivalently
-\(\DOS\,\DE=\DN\) (\(\DOS\) the BCS density-of-states factor;
-\(\tau_{\mathrm N}\), \(\DN\) the normal-state transport time and
-diffusion constant; \(\DE\) the energy-resolved diffusivity). Both
-routes then give the same operator for the quasiparticle occupation
-\(f\), with
-conserved spectral density \(\DOS f\), spatial spectral current
-\(-\DN\bnabla f\) undressed above the local gap edge and blocked
-below it, and no density-of-states-gradient drift; the squared-DOS
-dressing \(\DOS^2\) belongs to the transverse charge-imbalance channel.
-What does differ, measurably, is the legacy operator placement
-\(\bnabla\cdot[(\DN/\DOS)\bnabla f]\)---the form in common use in
-device modeling, including as the energy-resolved starting point of
-published analyses of gap-engineered quasiparticle traps: it treats
-the occupation itself as the conserved density and acquires a spurious
-DOS-gradient drift once the gap is inhomogeneous, as it always is, at
-some amplitude, once the occupation feeds back on the gap. We organize the
-candidate operators into a two-exponent family \(L_{p,q}\), derive the
-Kupriyanov--Lukichev interface condition for the scalar current, and
-benchmark the operators numerically on prescribed and self-consistently
-generated gap profiles; under the legacy placement quasiparticles drift
-into the gap well their own population digs, whereas the microscopic
-operator predicts no such self-focusing. We delimit the assumptions
-behind the equivalence and the regimes in which the two-mode or matrix
-equations must be retained instead.
+Which energy-resolved diffusion operator governs a nonequilibrium
+quasiparticle occupation when a superconducting gap varies in space?
+For a homogeneous normal-state material in the dirty limit, with a
+slowly varying local BCS gap, nonmagnetic Born disorder, and negligible
+charge imbalance, we show that two microscopic constructions---a
+branch-projected scalar kinetic theory and a Keldysh--Usadel
+reduction---are related by an exact change of variables. In the scalar
+construction, impurity coherence factors enforce \(\DOS\DE=\DN\); both
+routes then yield the conserved spectral density \(\DOS f\) and the
+undressed current \(-\DN\bnabla f\). The \(\DOS^2\) dressing instead
+belongs to the transverse charge-imbalance channel. The alternative placement
+\(\bnabla\cdot[(\DN/\DOS)\bnabla f]\), used as the energy-resolved
+starting point in a published gap-engineered-trap analysis, is not
+selected by either reduction and produces a spurious
+density-of-states-gradient drift for smoothly varying local-BCS gaps.
+We derive the common-phase, above-gap scalar Kupriyanov--Lukichev
+boundary law and the time-dependent spectral-flow completion, organize candidate
+operators in a two-exponent taxonomy, and benchmark prescribed and
+self-consistent profiles. The benchmarks demonstrate passive inward
+probe drift for the legacy placements and identically zero
+density-of-states-gradient drift for the microscopic operator; they do
+not imply net nonlinear focusing or negate physical trapping by
+gap-edge blocking and inelastic relaxation. We delimit the gap-edge,
+proximity, supercurrent, nonadiabatic, and charge-imbalance regimes in
+which the coupled two-mode or full matrix equations must be retained.
 \end{abstract}
 
 \maketitle
@@ -154,18 +140,15 @@ For a spatially uniform gap the choice is invisible. The coefficient
 Bardeen--Rickayzen--Tewordt (BRT) coherence-factor cancellation produces
 exactly this rate \cite{bardeen1959}---and every placement of the
 spectral weight \(1/\DOS\) yields the same uniform-gap relaxation.
-Once \(\Delta\) varies in space, the placements separate measurably:
-at fixed energy the density of states varies with position, and the
-Fick placement acquires a density-of-states-gradient drift, divergent
-toward the local gap edge, that drives quasiparticles down the gap
-gradient---into an engineered gap well, and into the well that a
-localized population digs for itself through the self-consistent
-gap---whereas the microscopically selected operator carries no such
-drift at any amplitude. Spatial gap variation is not an exotic
-circumstance: it is engineered deliberately in traps and generated
-dynamically by any nonuniform population, so the distinction is
-engaged, at some amplitude, in every self-consistent spatial device
-model.
+Once \(\Delta\) varies in space, the placements separate already at
+leading order in \(\bnabla\Delta\): at fixed energy the Fick placement
+acquires a density-of-states-gradient drift, divergent toward the local
+gap edge, that drives a passive distribution down the gap gradient.
+The microscopically selected operator carries no such fixed-energy
+drift. Spatial gap variation occurs both in engineered traps and under
+self-consistent gap feedback; the net transport effect nevertheless
+competes with ordinary diffusion and depends on the profile and
+amplitude.
 
 This paper settles the placement from the microscopic theory, by both
 routes the literature uses to reach an energy-resolved kinetic
@@ -2001,11 +1984,11 @@ trace statement of SM~\cref{SM-sec:transverse_projection}.
 \Cref{tab:channel_dictionary} collects these assignments in one place:
 each spectral coefficient of the two-mode kinetic theory, its trace
 definition, its value on the ideal BCS background and for a general
-spectral angle, and the scalar mode it dresses.\footnote{Finite
+spectral angle, and the scalar mode it dresses. Finite
 \(\ii\Gamma\) invalidates the ideal-BCS relations \(\mathcal D_L=1\) and
 \(\mathcal D_T=\DOS^2\), while the general identity
 \(\mathcal D_L\mathcal D_T=\DOS^2\) survives; SM~\cref{SM-app:dynes_remark}
-records the resulting leaky sub-gap transport.} The table is the lookup
+records the resulting leaky sub-gap transport. The table is the lookup
 that prevents the natural misreading---the \(\DOS^{2}\) dressing, the
 relaxation \(\mathcal R\), and the SIS density-of-states product all
 belong to the charge sector, not to the energy mode.
@@ -2769,6 +2752,36 @@ complex-spectrum two-mode boundary law also contains
 \(\sin(\chi_1-\chi_2)\) mixing terms and lies outside the common-phase
 sector used here.
 
+\paragraph{Eliminated proximity layer.}
+Ref.~\onlinecite{riwar2019} coarse-grains a coherence-scale proximity
+crossover into a sharp gap step. In the two constant-gap outer regions,
+its legacy placement and A1 have the same bulk rate. For a stationary
+treatment with the collision integral and all other kinetic sources or
+sinks neglected, in the same common-phase, charge-balanced,
+no-supercurrent sector, consider a one-dimensional constant-area reduction
+with \(y\) increasing from the \(-\) to the \(+\) outer region. The
+conductivity-weighted longitudinal spectral current density is conserved,
+\(\mathcal J_L=-\sigma_{\mathrm N}(y)\mathcal D_L(E,y)
+\partial_y\fL\), where \(\sigma_{\mathrm N}(y)\) is the local
+normal-state conductivity [SM~\cref{SM-app:proximity}]. Hence
+\begin{equation}
+  \fL^{+}-\fL^{-}
+  =-\mathcal J_L\mathcal R_{\xi}(E),
+  \qquad
+  \mathcal R_{\xi}(E)
+  \equiv\int_{\mathrm{layer}}
+  \frac{\dd y}{\sigma_{\mathrm N}(y)\mathcal D_L(E,y)} .
+  \label{eq:proximity_layer_resistance}
+\end{equation}
+Here \(\mathcal R_{\xi}\) is a specific spectral resistance, with the
+same area normalization as \(\mathcal R_b\) above.
+Thus equal outer conductivities and ideal spectra above both outer gaps
+imply equal outer gradients, but not continuity of the endpoint
+amplitudes. Because \(\mathcal R_{\xi}(E)\) has not been shown negligible
+relative to the outer spectral resistance throughout the near-edge
+energy window used in Ref.~\onlinecite{riwar2019}, we do not revise that
+work's integrated matching or trap-length estimates.
+
 \subsection{Self-consistent gap feedback}
 \label{sec:self_consistent_feedback}
 
@@ -2818,6 +2831,36 @@ at the edge for \(q-p>-2\) and finite precisely at the marginal exponent
 \(q-p=-2\) of the legacy placement B; the
 dirty-limit operator A1 (\(q=0\)) has no drift response at any amplitude.
 
+For the legacy placement C, \((p,q)=(0,-1)\), the first moment of its
+conserved variable \(f\) has a fixed-energy drift. A compact local
+diagnostic compares that drift with diffusion over a length
+\(L_{\Delta}\), where
+\(|\delta\Delta|\simeq L_{\Delta}|\partial_x\Delta|\):
+\begin{align}
+  |v_C|
+  &=\frac{\DN\Delta|\partial_x\Delta|}
+          {E\sqrt{E^2-\Delta^2}},\\
+  \mathrm{Pe}_E
+  &\equiv\frac{|v_C|L_{\Delta}}{\DE}
+   =\frac{\Delta|\delta\Delta|}{E^2-\Delta^2},
+  \qquad \DE=\frac{\DN}{\DOS}.
+  \label{eq:legacy_local_peclet}
+\end{align}
+At \(E/\Delta=(1.05,1.10,1.30)\), the corresponding triples are
+\begin{align*}
+  \mathrm{Pe}_E&=(9.76,4.76,1.45)\times10^{-5}
+    &&\bigl(|\delta\Delta|/\Delta=10^{-5}\bigr),\\
+  \mathrm{Pe}_E&=(9.76,4.76,1.45)\times10^{-3}
+    &&\bigl(|\delta\Delta|/\Delta=10^{-3}\bigr),\\
+  \mathrm{Pe}_E&=(1.95,0.952,0.290)
+    &&\bigl(|\delta\Delta|/\Delta=0.2\bigr).
+\end{align*}
+This P\'eclet number is a local fixed-energy operator diagnostic, not a
+device observable or a predicted device error. It is nonuniform at the
+ideal BCS gap edge; translating it into an error in a density, lifetime,
+or readout requires a broadened spectrum, an energy distribution, a
+collision kernel, and the full boundary-value problem.
+
 Two statements keep the feedback from threatening the A1 reduction
 itself. First, the combined background \(\Delta(\br,t)\) that
 self-consistency generically produces adds no new terms to the
@@ -2830,11 +2873,12 @@ traces to zero in the energy mode (verified symbolically for generic
 \(\Delta(x,t)\) alongside the identities of \cref{sec:tdep_spectral_flow};
 script \texttt{verify\_tdep\_inhomogeneous.py} in the verification
 repository). Self-consistency changes
-the \emph{background} A1 runs on, not the operator. Second, the feedback
+the \emph{background} A1 runs on, not the operator. Second, feedback
 makes the inhomogeneous-gap regime self-generating: a localized
-population digs its own gap well, so the structure that separates the
-candidate operators is engaged without any externally imposed profile.
-The fourth benchmark below realizes exactly this configuration.
+population suppresses the gap, so the structure that separates the
+candidate operators can be engaged without an externally imposed
+profile. The fourth benchmark below uses a distinct passive probe to
+read out transport on this population-generated landscape.
 
 \subsection{Benchmark problems}
 
@@ -2858,11 +2902,11 @@ Four benchmark problems separate the models cleanly:
   quasiparticle number can be tested against boundary conditions, and where
   A1 (which conserves \(\DOS f\) by construction) and A2 (which conserves
   \(\DOS^2 f\)) can be distinguished by the equilibrium they relax to;
-  \item a self-consistent feedback problem, in which a localized
-  quasiparticle population digs its own gap well through the gap
-  closure \cref{eq:gap_feedback_closure}, and a weak probe packet on the
-  well's flank reads out each operator's drift response to the
-  self-generated DOS gradient.
+  \item a self-consistent feedback problem, in which a maintained
+  quasiparticle population generates a gap well through the gap closure
+  \cref{eq:gap_feedback_closure}, and a separate probe packet, excluded
+  from the gap closure and therefore passive, reads out each operator's
+  response on the well's flank.
 \end{enumerate}
 The first benchmark tests the rate spectrum: the agreeing pair
 A1/constant-\(\elltr\), the diagnostic \((1,2)\) and A2 operators, and
@@ -2873,8 +2917,9 @@ microscopic operator from the legacy placement that shares its
 uniform-gap rate. The third tests whether the scalar
 current is the correct reduction of the matrix spectral current and which scalar
 density it conserves. The fourth closes the loop of
-\cref{sec:self_consistent_feedback}: it asks whether quasiparticles
-respond to the gap landscape they themselves create, and with which sign.
+\cref{sec:self_consistent_feedback}: it asks how each operator transports
+a passive probe on a gap landscape generated by a distinct quasiparticle
+population.
 
 \Cref{fig:bench_uniform,fig:bench_drift,fig:bench_interface} realize the
 first three tests numerically, treating every operator with the same
@@ -2929,7 +2974,9 @@ face (\cref{fig:bench_interface}).
   \(\DOS^{\,q-p}(x)\). A1 (\(q=0\)) shows no DOS-gradient drift; the \(q=2\)
   diagnostics drift up the gap gradient; the legacy placements C
   (\(q=-1\)) and B (\(q=-2\)) drift down, with magnitudes set
-  asymptotically by \(q\).}
+  asymptotically by \(q\). The prescribed 60\% ramp is deliberately
+  large to discriminate the operators; it is not intended as a typical
+  self-consistent gap suppression.}
   \label{fig:bench_drift}
 \end{figure}
 
@@ -2951,7 +2998,9 @@ face (\cref{fig:bench_interface}).
   face. (b)~Closed-box relaxation from a common initial condition: A1
   and A2 relax to \emph{distinct} flat equilibria---they conserve
   \(\DOS f\) and \(\DOS^{2}f\), respectively---differing by
-  \(\sim2\times10^{-3}\) at the drive energy.}
+  \(\sim2\times10^{-3}\) at the drive energy. This idealized K-L face
+  tests scalar current matching; it is not a transfer law for the
+  coherence-scale proximity crossover of Ref.~\onlinecite{riwar2019}.}
   \label{fig:bench_interface}
 \end{figure}
 
@@ -2961,20 +3010,22 @@ maintained near-edge population of width \(10~\mu\mathrm{m}\); probe read
 out at \(E=1.08\,\Delta_0\)). In the quasi-static well the probe's
 conserved-density center of mass reproduces the analytic drift spectrum
 evaluated on the self-generated profile: the legacy placements
-fall \emph{into} the well their own population dug (C and B within a few
-percent of the prediction), the \(q=2\) diagnostics are expelled from
-it, and A1 does not move---zero to round-off, since its undressed face
-flux telescopes across the well. With fully dynamic feedback (the gap
-tracking the population every step) the same signature survives; the
+drive the passive probe \emph{into} the population-generated well (C and
+B within a few percent of the prediction), the \(q=2\) diagnostics expel
+it, and A1 produces no fixed-energy DOS-gradient motion---zero to
+round-off in the quasi-static calculation, since its undressed face flux
+telescopes across the well. With fully dynamic feedback (the gap tracking
+the well-generating population every step) the same sign pattern survives; the
 bookkeeping drift from the neglected energy-space spectral-flow
 advection is measured rather than hidden, at the percent level for the
 \(p\geq1\) operators over the \(20\)-ns run and zero for \(p=0\)
 (A1's residual center-of-mass motion under dynamic feedback is this
 bookkeeping effect---about a factor of \(3\) below the legacy drift at
 this well depth---not a DOS-gradient response).
-Self-focusing into self-generated gap suppression is therefore a
-structural artifact of the \(q<0\) legacy placements; the microscopic
-operator---by either route---predicts no self-focusing.
+An inward passive-tracer response to a population-generated gap well is
+therefore a structural artifact of the \(q<0\) legacy placements; the
+microscopic operator---by either route---has no such fixed-energy
+DOS-gradient drift.
 
 \begin{figure}[t]
   \centering
@@ -2984,14 +3035,18 @@ operator---by either route---predicts no self-focusing.
   \cref{eq:gap_feedback_closure} (solid; target depth
   \(\delta\Delta/\Delta_0=0.05\)), and the same well after \(20\)~ns of
   fully dynamic feedback under A1 (dashed); the dotted line marks the
-  probe packet on the flank. (b)~Probe center-of-mass drift at
+  probe packet on the flank. Only the well-generating population enters
+  the gap closure; the separate probe is excluded and is therefore
+  passive. (b)~Probe center-of-mass drift at
   \(E=1.08\,\Delta_0\) in the quasi-static well: the legacy placements C
   and B fall toward the well, the \(q=2\) diagnostics A1\('\) (legend:
   A1P) and A2 are
   expelled, and the microscopic A1 stays exactly put. (c)~Measured
   (markers) versus analytic (lines) drift velocity at the probe versus
   well depth: the response scales with the feedback strength with the
-  sign of \(q\), and A1's vanishing drift is parameter-free.}
+  sign of \(q\), and A1's vanishing drift is parameter-free. The 5\%
+  well is deliberately exaggerated for discrimination, and inward probe
+  drift is not net compression of the well-generating population.}
   \label{fig:bench_feedback}
 \end{figure}
 
@@ -3074,10 +3129,10 @@ inhomogeneity dynamically wherever the density is nonuniform: the
 inhomogeneous-gap structure of the operator is engaged---at some
 amplitude---in any self-consistent device model, not only in deliberately
 gap-engineered geometries. The feedback benchmark of
-\cref{sec:self_consistent_feedback} makes the distinction concrete: under
-the legacy \(q=-1\) placement a packet drifts into the gap well its own
-population digs, while the microscopic operator predicts no such
-self-focusing.
+\cref{sec:self_consistent_feedback} makes the distinction concrete: for
+a gap well generated by one population, the legacy \(q=-1\) placement
+drives a separate passive probe inward, whereas the microscopic operator
+has no fixed-energy DOS-gradient probe drift.
 
 Finally, the local-BCS scalar operators above are not expected to hold
 where the spectral

@@ -311,6 +311,62 @@ def check_interface_normalization():
     return ok
 
 
+def check_legacy_local_peclet():
+    """Operator-level drift and local Peclet diagnostic for placement C."""
+    print("---- (e) legacy-C local fixed-energy Peclet diagnostic ----")
+    Delta, DN, grad_delta, length = sp.symbols(
+        'Delta D_N grad_Delta L_Delta', positive=True)
+    N1 = E / sp.sqrt(E**2 - Delta**2)
+    diffusivity = DN / N1
+
+    # Placement C is (p,q)=(0,-1), so v_C=-D_N N1^-2 d_x N1.
+    drift = sp.simplify(
+        -DN * N1**-2 * sp.diff(N1, Delta) * grad_delta)
+    speed = sp.simplify(-drift)
+    expected_speed = DN * Delta * grad_delta / (
+        E * sp.sqrt(E**2 - Delta**2))
+    peclet = sp.simplify(speed * length / diffusivity)
+    expected_peclet = Delta * length * grad_delta / (E**2 - Delta**2)
+
+    ratios = (sp.Rational(21, 20), sp.Rational(11, 10),
+              sp.Rational(13, 10))
+    coefficients = tuple(sp.simplify(1 / (ratio**2 - 1)) for ratio in ratios)
+    expected_coefficients = (sp.Rational(400, 41), sp.Rational(100, 21),
+                             sp.Rational(100, 69))
+    amplitudes = (sp.Rational(1, 100000), sp.Rational(1, 1000),
+                  sp.Rational(1, 5))
+    # (printed value, one unit in its last printed digit).
+    reported = (
+        ((sp.Rational(976, 10_000_000), sp.Rational(1, 10_000_000)),
+         (sp.Rational(476, 10_000_000), sp.Rational(1, 10_000_000)),
+         (sp.Rational(145, 10_000_000), sp.Rational(1, 10_000_000))),
+        ((sp.Rational(976, 100_000), sp.Rational(1, 100_000)),
+         (sp.Rational(476, 100_000), sp.Rational(1, 100_000)),
+         (sp.Rational(145, 100_000), sp.Rational(1, 100_000))),
+        ((sp.Rational(195, 100), sp.Rational(1, 100)),
+         (sp.Rational(952, 1000), sp.Rational(1, 1000)),
+         (sp.Rational(290, 1000), sp.Rational(1, 1000))),
+    )
+
+    checks = {
+        '|v_C| = D_N Delta |d_x Delta| / [E sqrt(E^2-Delta^2)]':
+            sp.simplify(speed - expected_speed) == 0,
+        'Pe_E = Delta |delta Delta| / (E^2-Delta^2)':
+            sp.simplify(peclet - expected_peclet) == 0,
+        'E/Delta coefficients are 400/41, 100/21, 100/69':
+            coefficients == expected_coefficients,
+        'printed triples round correctly to three significant figures':
+            all(abs(amplitude * coefficient - shown) < unit / 2
+                for amplitude, row in zip(amplitudes, reported)
+                for coefficient, (shown, unit) in zip(coefficients, row)),
+    }
+    ok = True
+    for name, good in checks.items():
+        ok &= good
+        print(f"  [{'PASS' if good else 'FAIL'}] {name}")
+    return ok
+
+
 if __name__ == "__main__":
     a = check_symbolic(build(sp.Function('Delta')(t),
                              sp.Function('f_L')(E, t),
@@ -362,6 +418,8 @@ if __name__ == "__main__":
     print()
     d = check_interface_normalization()
     print()
+    e = check_legacy_local_peclet()
+    print()
     print("ALL PASS" if (a and b and a2 and b2 and c and a3 and b3
-                         and a4 and b4 and a5 and b5 and d)
+                         and a4 and b4 and a5 and b5 and d and e)
           else "SOME FAILED -- inspect above")
