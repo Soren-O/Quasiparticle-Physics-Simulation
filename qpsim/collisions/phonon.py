@@ -29,6 +29,7 @@ from enum import Enum
 
 import numpy as np
 
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.physics.kaplan_pair_breaking import kaplan_S_plus
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
@@ -289,6 +290,13 @@ def compute_phonon_source_sink(
     """
     rho = ctx.rho
     dE = ctx.dE
+    # Each (i, j) emission/recombination pair below is weighted by dE[j] (dE
+    # broadcasts over the final-state/column axis). That is the correct
+    # integration measure only on a uniform grid; on a piecewise grid it
+    # breaks phonon-side detailed balance (a thermal f then drives n_ph off
+    # n_BE by ~O(1)). Reject nonuniform grids up front, matching the photon
+    # kernels' policy — the production dynamic-phonon path is uniform.
+    uniform_grid_spacing(ctx.E, dE, "compute_phonon_source_sink")
     n_qp = rho * f
     one_minus_f = np.maximum(1.0 - f, 0.0)
     partner = rho * one_minus_f
