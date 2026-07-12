@@ -35,7 +35,11 @@ def qp_number_density(
     ctx
         SpectralContext with ``ρ(E)`` and ``dE``.
     rho_F
-        Single-spin DOS at the Fermi level (J⁻¹ m⁻³ or user units).
+        Single-spin DOS at the Fermi level in **µeV⁻¹ m⁻³** — the code's µeV
+        energy convention, so it combines directly with the µeV integration
+        weights ``ctx.dE`` to give ``n_qp`` in m⁻³. The materials database
+        stores it this way (e.g. Al 1.74e22 µeV⁻¹ m⁻³, i.e. the 1.74e28
+        eV⁻¹ m⁻³ literature value; NOT J⁻¹ m⁻³, which would be ~1e47).
     """
     if rho_F <= 0:
         raise ValueError("rho_F must be positive.")

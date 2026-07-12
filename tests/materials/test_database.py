@@ -85,7 +85,8 @@ class TestLoadMaterial:
                     f"{name}.{field_name} loaded as {type(value).__name__}: {value!r}"
                 )
         al = load_material("Al")
-        assert al.rho_F == pytest.approx(1.74e28)
+        # µeV⁻¹ m⁻³ (the code's µeV energy convention); = 1.74e28 eV⁻¹ m⁻³.
+        assert al.rho_F == pytest.approx(1.74e22)
         assert al.v_F == pytest.approx(1.36e6)
 
     def test_unsigned_exponent_substrate_fields_coerced(self, tmp_path: Path) -> None:

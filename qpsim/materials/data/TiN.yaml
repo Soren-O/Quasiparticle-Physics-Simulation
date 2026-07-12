@@ -7,7 +7,7 @@ T_c: 4.5             # K
 tau_0: 0.5           # ns (varies with film quality)
 D_0: 10.0            # μm²/ns (highly disordered; low diffusion)
 v_F: 1.0e6           # m/s
-rho_F: 3.8e28        # J⁻¹ m⁻³
+rho_F: 3.8e22        # µeV⁻¹ m⁻³ (= 3.8e28 eV⁻¹ m⁻³)
 sound_velocity_longitudinal: 9200.0
 sound_velocity_transverse: 5800.0
 film_thickness: 40.0

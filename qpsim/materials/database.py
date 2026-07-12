@@ -65,7 +65,7 @@ class Material:
     # Normal-state transport.
     D_0: float = 0.0            # normal-state diffusion (μm²/ns)
     v_F: float = 0.0            # Fermi velocity (m/s)
-    rho_F: float = 0.0          # single-spin DOS (J⁻¹ m⁻³)
+    rho_F: float = 0.0          # single-spin DOS (µeV⁻¹ m⁻³)
 
     # Phonon branches (D5 commits to carrying all three; the Debye
     # average is the scalar-s default for the Ph0 single-branch model).
