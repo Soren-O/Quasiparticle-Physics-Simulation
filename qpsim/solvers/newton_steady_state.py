@@ -16,6 +16,8 @@ with the Jacobian and residual helpers co-located here.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
@@ -26,8 +28,16 @@ from qpsim.collisions.phonon import (
     phonon_collision_rates,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
-from qpsim.devices.external_flux import ExternalFlux
 from qpsim.physics.spectral import SpectralContext
+
+if TYPE_CHECKING:
+    # Type-annotation-only import. A runtime import of qpsim.devices.external_flux
+    # triggers qpsim.devices.__init__ -> m25_junction -> services ->
+    # steady_state -> newton_steady_state, a circular import that made this
+    # module (and tests/solvers/test_newton_steady_state.py) unimportable in
+    # isolation. PEP 563 keeps the annotations as strings, so the class object
+    # is never needed at runtime here.
+    from qpsim.devices.external_flux import ExternalFlux
 
 
 def newton_solve_f(

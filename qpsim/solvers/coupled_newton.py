@@ -30,6 +30,8 @@ that the Picard + Anderson path in
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from qpsim.collisions.phonon import (
@@ -38,10 +40,16 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
     phonon_source_sink_jacobian_f,
 )
-from qpsim.devices.external_flux import ExternalFlux
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.newton_steady_state import _gain_loss_sum, _jacobian_analytical
+
+if TYPE_CHECKING:
+    # Type-annotation-only import; kept out of runtime to avoid the
+    # solvers -> devices -> services -> steady_state -> newton_steady_state
+    # import cycle (see newton_steady_state.py). PEP 563 makes annotations
+    # strings, so ExternalFlux is never needed at runtime here.
+    from qpsim.devices.external_flux import ExternalFlux
 
 
 def coupled_newton_solve(

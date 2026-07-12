@@ -40,10 +40,14 @@ def etd1_step(
     p_term = np.maximum(gain + (mu - loss_rate) * f, 0.0)
 
     decay = np.exp(-mu * dt)
-    coeff = np.empty_like(mu)
-    small = mu < 1e-14
-    coeff[~small] = (1.0 - decay[~small]) / mu[~small]
-    coeff[small] = dt
+    # coeff = (1 - e^{-mu dt}) / mu, the exact ETD1 weight on the source
+    # term. Compute it with expm1 so it stays accurate when mu*dt is tiny:
+    # forming 1 - exp(-mu dt) directly cancels to 0 once exp(-mu dt) rounds
+    # to 1.0 (mu*dt below ~1e-16), which silently zeroed the entire gain
+    # contribution for small-but-finite mu. In the mu -> 0 limit coeff -> dt;
+    # the inner np.where keeps the division well-defined at mu == 0.
+    positive = mu > 0.0
+    coeff = np.where(positive, -np.expm1(-mu * dt) / np.where(positive, mu, 1.0), dt)
 
     updated = decay * f + coeff * p_term
     return np.clip(updated, 0.0, 1.0)
