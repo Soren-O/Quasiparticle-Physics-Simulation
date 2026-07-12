@@ -180,11 +180,13 @@ def solve_nbar_loop(
                 f"factor Q_i = {q_qp} at iteration {it} (n_bar = {n_bar:g}); "
                 "expected a positive value or +inf (the zero-loss limit)."
             )
-        if np.isinf(q_qp):
-            # Physical Q_i -> inf (vanishing quasiparticle loss): Q_tot -> Q_c.
-            q_tot = float(Q_c)
-        else:
-            q_tot = 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
+        # Physical Q_i -> inf (vanishing quasiparticle loss) gives Q_tot -> Q_c;
+        # a finite positive Q_i combines with Q_c in parallel.
+        q_tot = (
+            float(Q_c)
+            if np.isinf(q_qp)
+            else 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
+        )
 
         n_bar_raw = prefactor * q_tot**2 * float(P_read_uev_per_ns)
         n_bar_next = (

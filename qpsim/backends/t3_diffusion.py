@@ -13,6 +13,7 @@ diffusion lands at Gate 5).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -730,10 +731,39 @@ class T3DiffusionBackend:
         )
 
         rho_new = new_spectral.rho
-        f_new = np.zeros_like(u_new)
         mask = rho_new > 1e-30
+        f_new = np.zeros_like(u_new)
         f_new[mask] = u_new[mask] / rho_new[mask]
-        f_new = np.clip(f_new, 0.0, 1.0)
+
+        # Conserve N₁·f across a *rising* gap edge. Bins in (Δ_old, Δ_new] were
+        # above the old edge (finite advected density u_new) but are sub-gap at
+        # Δ_new, so the ρ_new-support recovery zeroes them — silently
+        # discarding real quasiparticles (tens of percent when the DOS-singular
+        # near-edge bin closes). On frozen-ξ shells that near-edge population
+        # maps to just above the rising edge and accumulates there (edge rate
+        # D_N/N₁ → 0; paper §"The local gap edge"), so redeposit any orphaned
+        # sub-edge density into the lowest active bin. Σρf (= Σu) is then
+        # conserved regardless of the one-shot advection's edge accuracy. For a
+        # falling gap ~mask holds only genuinely empty deep-subgap bins, so
+        # this is a no-op there.
+        orphaned = float(np.sum(u_new[~mask]))
+        if orphaned != 0.0 and np.any(mask):
+            edge_bin = int(np.argmax(mask))
+            f_new[edge_bin] += orphaned / rho_new[edge_bin]
+
+        f_clipped = np.clip(f_new, 0.0, 1.0)
+        u_in = float(np.sum(u_old))
+        clip_loss = float(np.sum((f_new - f_clipped) * rho_new))
+        if u_in > 0.0 and abs(clip_loss) > 1e-9 * u_in:
+            warnings.warn(
+                f"apply_gap_update: the [0, 1] occupation clip changed the "
+                f"conserved density Σρf by {clip_loss / u_in:+.2%} over one gap "
+                f"step Δ {state.gap:.4g}→{new_gap:.4g} µeV "
+                f"(|ΔΔ|/dE = {abs(new_gap - state.gap) / float(state.spectral.dE[0]):.2f}); "
+                "sub-cycle the gap update so the moving edge advances < 1 bin.",
+                stacklevel=2,
+            )
+        f_new = f_clipped
 
         return replace(state, gap=new_gap, spectral=new_spectral, f=f_new)
 

@@ -225,6 +225,7 @@ def solve_steady_state(
     rho, dE_ctx = ctx.rho, ctx.dE
     x_qp_ref = float(np.sum(rho * f * dE_ctx)) if use_anderson else 0.0
     n_ph_physical: np.ndarray | None = None
+    f_physical: np.ndarray | None = None
 
     max_rel_change = float("inf")
     for _ in range(max_picard_iter):
@@ -259,6 +260,7 @@ def solve_steady_state(
             on_physical = x_qp_now >= 0.1 * x_qp_ref
             if on_physical:
                 n_ph_physical = n_ph.copy()
+                f_physical = f.copy()
 
         # Convergence on n_ph. The metric floors the per-bin relative-change
         # denominator at a fraction of the peak occupation so near-zero,
@@ -267,12 +269,23 @@ def solve_steady_state(
 
         if max_rel_change < picard_tol:
             if use_anderson and x_qp_ref > 0 and not on_physical:
-                # Collapsed to thermal; reset and retry without Anderson.
+                # Anderson accelerated into the thermal branch. Fall back to
+                # the last known physical-branch (f, n_ph) and finish on plain
+                # Picard, which cannot jump branches. Disabling Anderson bounds
+                # this to a single retry: x_qp_ref is only the *initial guess*
+                # x_qp, so a genuinely drained fixed point (true x_qp < 0.1x a
+                # hot guess, e.g. under an external-flux drain) would otherwise
+                # re-trip this guard on every converged iterate and livelock to
+                # max_picard_iter -> spurious "did not converge". Also reset f
+                # (not just n_ph) so a real collapse can actually recover.
                 n_ph = (
                     n_ph_physical
                     if n_ph_physical is not None
                     else thermal_phonon_occupation(omega_bins, T_bath)
                 )
+                if f_physical is not None:
+                    f = f_physical
+                use_anderson = False
                 X_hist.clear()
                 G_hist.clear()
                 continue
