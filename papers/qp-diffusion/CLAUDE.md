@@ -63,6 +63,15 @@ argument. Finding *new* problems is welcome; re-deriving these is not.
 > stronger self-focusing language in the protected abstract/caption/body echo.
 > The author's abstract pass and every D1-D7 decision remain human-only.
 
+> **INDEPENDENT VALIDATION - 2026-07-11.** A separate blind 44-unit review,
+> followed by independent refutation of all nine candidates, found zero
+> surviving blocker, major, or minor physics errors in the delimited sector.
+> Its two surviving NOTE-level presentation issues were fixed in `d9e64b2`
+> (the branch-odd charge-imbalance symbol and adjacent nonadiabatic trace
+> normalization). The review is recorded in
+> `INDEPENDENT-ADVERSARIAL-REVIEW-2026-07-11.md`. It independently retained B1
+> and M5 as human gates; all other human-only items below remain untouched.
+
 Scope: THIS is the single merged manuscript (assembled 2026-07-01). Base =
 paper3 wording/template (intro + scalar route + agreement); imported from
 paper1: the Usadel-route derivation (longitudinal operator, D_L/D_T traces,

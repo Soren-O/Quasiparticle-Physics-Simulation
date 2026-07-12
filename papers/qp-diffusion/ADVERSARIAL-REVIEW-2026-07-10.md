@@ -76,6 +76,12 @@ The paper is not submission-ready while B1, M5, the guarded abstract pass, and
 the D1-D7 decisions remain human-only. No C1/C2 insertion, guarded abstract or
 caption decision, PyPI upload, or author contact was attempted.
 
+A separate blind 44-unit review at `95c2b85`, recorded in
+`INDEPENDENT-ADVERSARIAL-REVIEW-2026-07-11.md`, subsequently found zero
+surviving blocker, major, or minor physics defects. Its two NOTE-level
+presentation findings were fixed in `d9e64b2`; its independent adjudication
+agreed that B1 and M5 must remain human gates.
+
 ## Second-round counter-audit
 
 The external audit in
