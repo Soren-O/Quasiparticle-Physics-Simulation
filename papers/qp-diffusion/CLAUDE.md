@@ -7,6 +7,87 @@ re-flagging settled ones. Everything below was vetted (several adversarial
 review passes); please do not report these as errors without substantively new
 argument. Finding *new* problems is welcome; re-deriving these is not.
 
+> **FIRST-PASS STATUS CORRECTION — 2026-07-10 (read with the second-round
+> refinement immediately below; supersedes the confident framing in this
+> Purpose note and in the 2026-07-04/07 blocks below).** An external
+> adversarial review (GPT, `ADVERSARIAL-REVIEW-2026-07-10.md` in this dir) plus an
+> independent per-issue physics audit
+> (`GPT-REVIEW-PHYSICS-AUDIT-2026-07-10.md` in the Soren folder) found that ~18 of
+> GPT's 19 findings hold up under independent scrutiny — several **blocker-class
+> physics** issues: the nonadiabatic verifier omits a same-order Keldysh term (B2);
+> a displayed projection-average commutator is false (B4c); the O(Q³)
+> supercurrent-mixing onset is nonuniform (B3); the KL boundary law mixes current
+> normalizations (B5); the starting-equation convention bridge is incomplete (M1).
+> **The paper is NOT submission-ready.** Two rules this whole file must now be read
+> under: (1) "sympy-verified" proves only *algebraic consistency given the starting
+> equations*; "settled" means an *editorial choice* — NEITHER is evidence of
+> *physical* correctness (a step can be algebraically exact yet physically wrong —
+> the audit's own B1 agent "confirmed" a result by solving the wrong ODE). (2) Do
+> NOT apply the queued C1/C2 pre-submission package as-is: its C1 derivation as
+> drafted would insert a *false theorem* (B1). The blocker findings need a human
+> physicist to adjudicate before any fixes or submission. This was the
+> pre-counter-audit status; the next block supersedes its tally and severity.
+
+> **SECOND-ROUND REFINEMENT — 2026-07-10 (supersedes the numerical tally and
+> blocker severity above).** The counter-audit is complete; see
+> `ADVERSARIAL-REVIEW-2026-07-10.md`, section *Second-round counter-audit*.
+> It confirmed B2, B3, the false B4c display, M1's incomplete convention map,
+> M3's absent transverse-response loop, and the M5 benchmark overclaim. It
+> also found new errors in the external audit: its B1 window average clamps
+> the uncomputed edge and does not establish a cutoff-insensitive sub-percent
+> rescue; its moving-coordinate recommendation omits the outer covariant
+> derivative; its finite-Dynes edge value is not exactly one half; and its M5
+> superposition defense is invalid for the nonlinear gap closure. M6 is
+> **refuted**: public `main` is `7116d6e`, contains all seven scripts, and its
+> normalized Git blobs match manuscript commit 8598056. B5 is a mandatory
+> current-normalization/notation repair but the KL trace derivation and the
+> supplement's side-labeled law are correct; M1 is a convention-bridge repair,
+> not a failed downstream derivation. B1 is the only narrow **BLOCKER** because
+> it prevents the named C1 insertion; multiple **MAJOR** corrections still
+> prevent submission. Do not apply C1/C2 or alter the physics until a human
+> physicist has adjudicated the surviving derivation-level findings.
+
+> **IMPLEMENTATION STATUS - 2026-07-11 (current; supersedes the repair status
+> above, but not its audit history).** The user authorized the non-human
+> manuscript repairs. The audited scope/reference fixes are in `01ecd61`; the
+> convention, projection, spatial-curvature, and supercurrent-edge repairs are
+> in `46c71f2`; the KL current normalization and phase scope are repaired in
+> `76d822e`; and the complete star-normalized nonadiabatic spectral/Keldysh
+> expansion is in `3423000`. Two independent post-patch reviews found no
+> remaining coefficient or sign defect. The final gate is 7/7 symbolic scripts
+> PASS (266.8 s); `paper.pdf`/`supplement.pdf` build cleanly at 55/52 pages with
+> zero undefined references/citations and zero overfull boxes, and the changed
+> pages passed visual inspection. **The paper is still NOT submission-ready:**
+> B1 keeps the queued C1/C2 package on technical hold, and M5's demonstrated
+> passive-tracer inward drift still needs human-approved replacement of the
+> stronger self-focusing language in the protected abstract/caption/body echo.
+> The author's abstract pass and every D1-D7 decision remain human-only.
+
+> **INDEPENDENT VALIDATION - 2026-07-11.** A separate blind 44-unit review,
+> followed by independent refutation of all nine candidates, found zero
+> surviving blocker, major, or minor physics errors in the delimited sector.
+> Its two surviving NOTE-level presentation issues were fixed in `d9e64b2`
+> (the branch-odd charge-imbalance symbol and adjacent nonadiabatic trace
+> normalization). The review is recorded in
+> `INDEPENDENT-ADVERSARIAL-REVIEW-2026-07-11.md`. It independently retained B1
+> and M5 as human gates; all other human-only items below remain untouched.
+
+> **APPROVED GATE DISPOSITION - 2026-07-11 (current; supersedes the open-gate
+> conclusions in the two blocks immediately above).** After three independent
+> advisory panels and the independent reviewer's concurrence, the user explicitly
+> approved the bundle. Commit `229956b` replaces the guarded abstract, removes the
+> reciprocal self-focusing overclaim in favor of passive-probe language, adds a
+> qualitative eliminated-proximity-layer resistance caveat without revising any
+> Riwar--Catelani number, adds a strictly local fixed-energy Peclet diagnostic,
+> and tailors the three inhomogeneous benchmark captions. The prepared quantitative
+> C1 correction, `7 -> 32 um` result, device-error table, and old SM verification
+> sentence remain rejected. D4 is "do not contact now" and PyPI remains deferred;
+> neither is a manuscript gate. Three focused rechecks plus a final whole-diff
+> review pass. The seven-script suite is 7/7 PASS (266.5 s), the final PDFs are
+> 56/52 pages with zero undefined references/citations and zero overfull boxes,
+> and all affected pages passed visual inspection. The complete decision record is
+> `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md`.
+
 Scope: THIS is the single merged manuscript (assembled 2026-07-01). Base =
 paper3 wording/template (intro + scalar route + agreement); imported from
 paper1: the Usadel-route derivation (longitudinal operator, D_L/D_T traces,
@@ -18,9 +99,14 @@ sources — editing them does NOT change this manuscript.
 
 ## References
 
-You can find kopnin chapters in Documents/kopnin-numbered-equations/
-
-In particular, chapters 10 and 15 are quite relevant.
+Kopnin materials live at `B:\AEinstein\Einstein\Documents\Soren\kopnin-numbered-equations\`
+(on this Windows box): the full book PDF ("Kopnin, Theory of Nonequilibrium
+Superconductivity (2001).pdf"), numbered-equation transcriptions of
+Chapters 10 and 15 ("Local Chapter Copies\Kopnin Chapter 10.tex" / "... 15.tex"),
+and the transcription-audit tooling. A second copy of the Ch. 10/15
+transcriptions is at `G:\My Drive\qp-diffusion-handoff\kopnin\`.
+Chapters 10 and 15 are the most relevant; Ch. 1 (the \(\nu(0)\)
+single-spin DOS definition) is in the book PDF.
 ---
 
 ## Notation conventions (deliberate — not typos)
@@ -298,12 +384,12 @@ In particular, chapters 10 and 15 are quite relevant.
   "Agreement with the scalar route" to "Longitudinal distribution operator"
   (where the D_L/D_T traces actually live, matching this file's own usage) and
   is now referenced by the §II Dynes pointer.
-- **Dynes footnote final form** (refines the item-5 execution): the full
-  algebraic discussion now lives in SM app:dynes_remark (end of the derivation
-  appendix); the main-text footnote at the channel-dictionary sentence is a
-  compact pointer. Rationale: the 17-line footnote overfilled whichever §III
-  page anchored it (23.9–28.7 pt vbox under three different anchors). Don't
-  re-inflate the main-text footnote.
+- **Dynes pointer final form** (refines the item-5 execution): the full
+  algebraic discussion lives in SM app:dynes_remark (end of the derivation
+  appendix); the channel-dictionary paragraph carries one compact pointer
+  sentence. The pointer was moved out of a footnote after the approved abstract
+  repagination put that insertion beside the large dictionary float and created
+  a small overfull page; no scientific content changed. Don't re-inflate it.
 - **S-symbol overload (item 8): deliberately NOT renamed.** The
   channel-dictionary parenthetical disambiguates; a true rename touches the
   boxed, sympy-verified SM supercurrent equation for cosmetic gain. Closed.
@@ -319,16 +405,22 @@ In particular, chapters 10 and 15 are quite relevant.
   \(N_1^2\) dressing belongs to the TRANSVERSE channel. Sympy-verified (I7/I8 etc.).
 - **A1 is selected by BOTH routes**; taxonomy rows B \((0,-2)\)/C \((0,-1)\) are
   legacy placements (Fick ansätze for \(f\)), kept as labeled diagnostics only.
-  The benchmarks quantify the legacy-placement artifact (spurious drift,
-  self-focusing); the microscopic operator predicts NO self-focusing.
+  The current benchmark establishes legacy-placement passive-tracer drift into
+  a population-generated gap well and zero static DOS-gradient tracer drift for
+  A1. It does not establish reciprocal net self-focusing of one coupled
+  population; commit `229956b` now states that limitation consistently in the
+  abstract, benchmark setup/body/caption, and conclusion.
 - **Kupriyanov–Lukichev scalar BC** (eq:scalar_BC_energy): energy weight
   \(N_1N_1'-N_2N_2'\) (regular at matched gaps), charge weight \(N_1N_1'\)
-  (carries the SIS edge singularity); the CURRENT is continuous, \(f\) jumps
-  (Robin condition). Don't swap the weights.
+  (carries the SIS edge singularity); the physical spectral-current density
+  \(\mathcal J\) is continuous while the diffusion-normalized side fluxes
+  differ with \(N_{0i}\), and \(f\) jumps (Robin condition). Don't swap the
+  weights or equate the side fluxes for dissimilar materials.
 - **Time-dependent spectral flow** is produced directly by the fixed-\(E\)
   projection (eq:fixedE_conservative_flow); the moving-\(\xi\)/branch-projector
-  constructions are re-expressions, not missing physics. Settled June 2026 —
-  don't re-open the "reformulation" question.
+  scalar construction is an exact coordinate relabelling away from the gap
+  edge. It is not an intrinsic moving-frame matrix derivation and is nonuniform
+  at \(\xi=0\).
 - **Gap-feedback closure** (eq:gap_feedback_closure) is the exponentiated
   T-free form; \(n_{qp}=4N_0\int N_1 f\,dE\) with single-spin \(N_0\)
   (factor 4 = spin × two \(\xi\) branches). Deliberate.
@@ -339,12 +431,111 @@ In particular, chapters 10 and 15 are quite relevant.
 
 ---
 
+## 2026-07-07 — per-subsection review round (44 referees + CLAUDE.md skeptic), ALL FIXES APPLIED
+
+- **What ran**: one dedicated Fable/xhigh referee per subsection of both
+  documents (44 units) instructed to trust this file, plus one adversarial
+  skeptic auditing this file itself. Full report (verdicts, findings,
+  derivations, dispositions):
+  `B:\AEinstein\Einstein\Documents\Soren\qp-diffusion-SUBSECTION-REVIEW-2026-07-07.md`.
+- **Outcome**: 0 critical / 9 major (8 distinct) / 74 minor / 77 nit; no
+  finding changed a physics result; everything actionable applied
+  2026-07-07 on `fix/gpt-review-2026-07-05` (this round also executed all
+  gpt_review.txt PAPER items).
+- **Major fixes** (details in the report): nonadiabatic source
+  characterization scoped to gap-slaved distributions + O(ℏ²)
+  sector/robustness sentence corrected (SM app:nonadiabatic; main-text echo
+  at sec:tdep_spectral_flow) — both now MACHINE-VERIFIED by the new
+  block (d) of verify_nonadiabatic.py; stale "negative result" opener of
+  SM sec:coordinate_lift rewritten to the settled positive framing; N₂
+  sign in the SM Conventions display fixed (Re, parallel to N₁); KL Robin
+  matching now carries σ_i=2e²N₀D_N (SM + main text, with the
+  diffusion-units g_N=G_N/2e²N₀ bridge); outline preview of the matrix
+  Keldysh–Usadel equation carries its factor of i; Data-availability claim
+  made true by pushing verify_tdep_inhomogeneous.py to the public repo;
+  benchmark figure PDFs committed with Makefile provenance rules.
+- **New settled decisions from this round** (don't re-litigate):
+  \(\mathcal D_L,\mathcal D_T\) calligraphic everywhere incl.
+  app:supercurrent/app:proximity; product-symbol bridges (∘ = main text ⊗;
+  ⋆ = its (E,t) restriction) stated at SM Conventions, eq:moyal_def, and
+  app:branch setup; taxonomy conserved-density weight is \(\mathcal W\)
+  (kernel rate w unchanged); §V.B retitled "Conserved currents and
+  boundary conditions"; branch-Boltzmann route uses τ (SM convention, =
+  main-text τ_N) and bold **a** for the P1 harmonic and u²(E)−v²(E)
+  on-shell coherence factors; intro opening reworded so abstract and intro
+  no longer share their first ten words. COMPLETE record of abstract
+  edits this round (the abstract is the guarded pre-submission gate, so
+  this list is exhaustive): symbol glosses (\(N_1,\tau_N,\DN,\DE\), "for
+  the quasiparticle occupation \(f\)"), one dash-for-comma swap in the
+  guarded sentence's tail, and the \(\bnabla_{\br}\to\bnabla\) notation
+  unification at the spectral-current line. Nothing else.
+- **verify_nonadiabatic.py strengthened**: structural no-coupling checks
+  are now `.has()`-based (see derivative-carried dependence, which
+  `.diff()` missed) and a "(d) 2026-07-07 corrected-claims" block pins the
+  generic τ₁ O(ℏ²) source, its static-gap survival, its gap-slaved
+  vanishing, and the τ₂/τ₃-sector dg solve. Full suite re-run 2026-07-07
+  with the A: venv: 7/7 clean, ALL PASS.
+- **gpt_review.txt disposition**: paper items all fixed (P1 figure
+  packaging; P2 τΔ/ℏ; P3 benchmark-1 wording, Dynes pointer word,
+  log warnings addressed by rebuild). ENGINE items deliberately deferred
+  to a qpsim code session: solve_gap near-T_c bracketing, t3_spatial_1d
+  geometry/conductance validation, webui path containment, CI ruff red,
+  CI slow-coverage gap, picard mixing=0 false convergence, sympy in dev
+  deps + Makefile PY default (the last one IS fixed here). On gpt P3 "log
+  warnings": stuck-float and stale warnings cleared by the rebuild; the
+  SM-/M- dest-warning class persists on this box (xr-hyper v6.00beta4
+  limitation, see the corrected Build note) until the channel-dictionary
+  short-caption fix + snapshots (20569b4) are exercised on a modern
+  toolchain.
+- **Skeptic audit disposition**: C1 (record gpt_review) = this block;
+  C2 Dynes rationale corrected above; C3 Kopnin pointer made precise —
+  NOTE the skeptic's "directory missing" claim was itself wrong (the
+  directory exists in the Soren folder, including the full book PDF);
+  C4 riwar2019 evidence recorded under Known-incomplete; C5 abstract
+  guard scope clarified.
+- **REMAINING after this round** (SUPERSEDED by the approved-gate block at the
+  top of this file): B1/C1/C2, M5, D1-D7, and the abstract pass have received
+  their recorded dispositions. The optional riwar2019 published-equation
+  pinpoint, deferred package release/contact, and engine work are not paper
+  correctness gates.
+
+---
+
+## 2026-07-11 - adversarial repair round
+
+- **Applied:** B2, B3, B4a-e, B5, M1-M4, and M7-M9, plus the newly found
+  local-BCS spatial-curvature completion. The exact commit map is recorded in
+  `ADVERSARIAL-REVIEW-2026-07-10.md` under *Implementation resolution*.
+- **Verification:** all seven `verify_*.py` scripts pass in the pinned A: SymPy
+  environment. The strengthened nonadiabatic verifier checks both spectral
+  equations, R/A/K star normalization, the missing Keldysh anticommutator,
+  the completed generic coherence trace, exact shell-slaved and equilibrium
+  cancellations, and zero scalar/transverse second-order projections.
+- **Subsequent disposition:** the user approved the advisory bundle and the
+  manuscript gates were resolved in `229956b`; see
+  `PRESUBMISSION-GATE-DISPOSITION-2026-07-11.md`. PyPI publication and external
+  contact remain deliberately unexecuted and are not paper correctness gates.
+
+---
+
 ## Known incomplete (work in progress — not defects)
 
-- Abstract: merged draft written 2026-07-01; sharpened 2026-07-02 with
-  Soren-approved wording (the legacy placement named as in common use in
-  device modeling, including published gap-engineered-trap analyses —
-  backed by the verified riwar2019 Appendix-A instance).
+- Abstract: the previous protected draft and its single-sentence guard are
+  superseded. The user approved the complete replacement on 2026-07-11 after
+  independent abstract/M5 review. The current version is scoped to a homogeneous
+  normal-state material in the dirty, slowly varying local-BCS sector, names one
+  published trap analysis, uses "not selected by either reduction," and expressly
+  disclaims net nonlinear focusing. This abstract pass is complete.
+- riwar2019 Appendix-A evidence (recorded 2026-07-07, re-verified against
+  arXiv:1907.04781 via ar5iv): their Eq. (46) [arXiv numbering; PRB
+  appendix (A-)number still to be read off the journal PDF] is
+  \(\dot f_{\rm qp}(\epsilon,y)=\partial_y[D_{\rm qp}(\epsilon,y)\,
+  \partial_y f_{\rm qp}]\) with
+  \(D_{\rm qp}=D_0/\nu_{\rm BCS}(\epsilon)\),
+  \(\nu_{\rm BCS}=\epsilon/\sqrt{\epsilon^2-\Delta^2(y)}\), attributed by
+  them to Belzig et al. 1999 — exactly placement C at a varying gap.
+  Referee-risk pre-emption: those authors are plausible referees; if
+  desired, add the (A-)equation pinpoint at the citation once checked.
 - All former paper3 gaps are closed in the merge: `sec:sc_scalar_equations`
   references were remapped to `eq:beta_f_from_modes`, the supplement is now
   local (SM- refs resolve), and Data/code availability carries the paper1 URLs.
@@ -357,14 +548,26 @@ In particular, chapters 10 and 15 are quite relevant.
   via xr-hyper, each needs the other's .aux), plain `make` afterwards;
   `make roadmap` rebuilds the routes figure; `make verify` runs the sympy
   proof-check scripts (needs `../.venv` or `make setup`).
-- Clean state (as of the 2026-07-04 second session, items 6–10 + MB-6/11):
-  paper.pdf 52pp, supplement.pdf 48pp, ZERO undefined references, zero
-  overfull hboxes, ONE structural overfull \vbox (~29pt, p. 29 — the §III
-  trace-derivation/table stretch; returned when the item-6/7 content
-  additions reflowed §III, persists at 24–29pt under any Dynes-footnote
-  anchor, so it is display+table density, not footnote mass — note only per
-  the standing rule). `make verify` 7/7 no-FAIL. On this Windows box the
-  verify venv is the A: archive clone's
-  (`A:\Einstein\Documents\qp-diffusion-paper\.venv`) — the qpsim repo venv
-  has no sympy and the Makefile's `../.venv/bin/python` default is the Mac
-  layout.
+- Clean state (as of the 2026-07-07 review-fix rebuild): paper.pdf 54pp,
+  supplement.pdf 49pp, ZERO undefined references, ZERO overfull hboxes,
+  and ZERO overfull vboxes — the long-standing ~29 pt §III vbox vanished
+  when the review round compressed the duplicated "Time-dependent spectral
+  flow" paragraph in §III.C (pagination luck regained; if future edits
+  reflow §III it may return — note-only per the standing rule). The only
+  remaining pdfTeX dest warnings ARE the cross-document SM-/M- anchors
+  (CORRECTED 2026-07-07, second pass — the first record here wrongly
+  called them cosmetic/fixed): this box's xr-hyper is v6.00beta4 (2000)
+  and IGNORES the `\externaldocument[..]{..}[url]` URL argument, so on
+  THIS machine the cross-document links are dead, and where anchor names
+  collide across the two PDFs (`figure.N`, `table.N`) a few links land
+  silently on the wrong local object. Reference NUMBERS are all correct.
+  The URL arguments are KEPT because modern toolchains honor them (being
+  confirmed by the 2026-07-07 arXiv/TeX-Live dry run). Do not claim
+  working local cross-document links in any record. `make verify` 7/7 no-FAIL (now
+  including the block-(d) corrected-claims checks). On this Windows box
+  the verify venv is the A: archive clone's
+  (`A:\Einstein\Documents\qp-diffusion-paper\.venv`); the Makefile's `PY`
+  default now matches `make setup` (paper-local `.venv`). Rebuild recipe
+  on this box: `sanitize_aux.py` (tracked) on the other document's .aux
+  before each latexmk pass, alternating supplement/paper twice — see
+  rebuild-2026-07-07.log for a clean transcript.
