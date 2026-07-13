@@ -229,6 +229,23 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             )
         if setup.material.D_0 <= 0.0:
             report.errors.append("1D strip: the material needs a positive D₀ (μm²/ns).")
+        # Transport resolution: the Crank–Nicolson strip step clips any
+        # occupation over/undershoot back to [0, 1], and once that clip alters
+        # more than 0.1% of the conserved density in a step the backend raises
+        # rather than silently return corrupted mass. The clip grows with the
+        # diffusion number ν = D₀·dt/dx²; ν ≲ 5 is clip-free for the shipped
+        # source and ν ≳ 11 trips the raise. Warn before the run so the user
+        # lowers dt (or raises num_cells) instead of hitting a mid-run failure.
+        if setup.material.D_0 > 0.0 and setup.num_cells > 1:
+            dx_um = setup.length_um / (setup.num_cells - 1)
+            diffusion_number = setup.material.D_0 * setup.dt / (dx_um * dx_um)
+            if diffusion_number > 8.0:
+                report.warnings.append(
+                    f"1D strip: diffusion number D₀·dt/dx² ≈ {diffusion_number:.1f} "
+                    f"(dt = {setup.dt:g} ns, dx = {dx_um:.2g} µm). Above ≈11 the "
+                    "Crank–Nicolson transport clip corrupts conserved density and "
+                    "the run fails mid-step; reduce dt or increase num_cells."
+                )
         if setup.injection.enabled:
             e_center = setup.injection.center_over_delta
             if not (setup.grid.min_factor < e_center < setup.grid.max_factor):

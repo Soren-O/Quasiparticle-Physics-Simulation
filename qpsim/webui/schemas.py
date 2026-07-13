@@ -220,7 +220,7 @@ class Spatial1DSetup(StrictModel):
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
     gap_profile: GapStepProfile = GapStepProfile()
     injection: InjectionConfig = InjectionConfig()
-    dt: Annotated[float, Field(gt=0.0)] = 5.0  # split step (ns)
+    dt: Annotated[float, Field(gt=0.0)] = 1.0  # split step (ns); D0*dt/dx^2~5 at defaults
     max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None

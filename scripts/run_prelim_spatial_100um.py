@@ -41,7 +41,11 @@ LENGTH_UM = 100.0
 NX = 31
 NE = 32
 T_BATH_K = 0.1
-DT_NS = 5.0
+DT_NS = 5.0  # collision-timescale cap; reduced per D0 below to bound the transport step
+# Max diffusion number D0*dt/dx^2 per run. The spatial Crank-Nicolson step
+# clips [0,1] over/undershoot and the backend raises once a step alters >0.1%
+# of the conserved density (~diffusion number 11); 4 keeps a clip-free margin.
+CFL_TARGET = 4.0
 MAX_TIME_NS = 20_000.0
 SNAPSHOT_INTERVAL_NS = 500.0
 STOP_TOL = 2e-10
@@ -206,9 +210,12 @@ def main() -> None:
         f_ref = _mean_f(state)
         flux = _source_flux(state)
         backend = T3Spatial1DBackend()
+        dx_um = LENGTH_UM / (NX - 1)
+        dt = min(DT_NS, CFL_TARGET * dx_um * dx_um / D0)
+        print(f"  dt={dt:g} ns (diffusion number {D0 * dt / dx_um**2:.1f})", flush=True)
         result = backend.run_until_steady_state(
             state,
-            dt=DT_NS,
+            dt=dt,
             max_time=MAX_TIME_NS,
             external_flux=flux,
             stop_tol=STOP_TOL,

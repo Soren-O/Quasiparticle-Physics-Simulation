@@ -58,6 +58,11 @@ from qpsim.physics.spectral import SpectralContext
 LENGTH_UM = AL_STRIP_LENGTH_UM
 T_BATH_K = 0.1
 ENERGY_MAX_FACTOR = 5.0
+# Max transport diffusion number D0*dt/dx^2 per run; each config's dt_ns is a
+# cap that is reduced per D0 below. The spatial Crank-Nicolson step clips [0,1]
+# over/undershoot and the backend raises once a step alters >0.1% of the
+# conserved density (~diffusion number 11); 4 keeps a clip-free margin.
+CFL_TARGET = 4.0
 N_SUBGAP_QUAD = 120
 
 
@@ -600,6 +605,11 @@ def main() -> None:
         profile_path = out_dir / f"profile_{run_id}.csv"
         source_calibration = _source_calibration(config, rate)
 
+        # Bound the transport diffusion number per D0 (see CFL_TARGET): the
+        # spatial Crank-Nicolson step clip-raises on an under-resolved dt.
+        dx_um = LENGTH_UM / (config.NX - 1)
+        dt_run = min(config.dt_ns, CFL_TARGET * dx_um * dx_um / D0)
+
         base_row: dict[str, object] = {
             "run_id": run_id,
             "D0_um2_per_ns": D0,
@@ -607,7 +617,7 @@ def main() -> None:
             **source_calibration,
             "source_center_delta": center_delta,
             "source_sigma_delta": sigma_delta,
-            "dt_ns": config.dt_ns,
+            "dt_ns": dt_run,
             "max_time_ns": config.max_time_ns,
             "trace_csv": trace_path.name,
             "profile_csv": profile_path.name,
@@ -625,7 +635,7 @@ def main() -> None:
             backend = T3Spatial1DBackend()
             result = backend.run_until_steady_state(
                 state,
-                dt=config.dt_ns,
+                dt=dt_run,
                 max_time=config.max_time_ns,
                 external_flux=flux,
                 stop_tol=config.stop_tol,
