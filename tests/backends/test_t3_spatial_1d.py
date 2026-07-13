@@ -248,6 +248,28 @@ class TestT3Spatial1DVaryingGap:
         with pytest.raises(ValueError, match="gap_profile"):
             T3Spatial1DBackend().apply_transport(bad, 1.0)
 
+    def test_degenerate_and_descending_mesh_rejected(self) -> None:
+        # A constant mesh (dx=0) and a descending mesh (dx<0) both pass an
+        # equal-diffs test yet corrupt every dx-divided flux downstream.
+        state = _build_state()
+        backend = T3Spatial1DBackend()
+        for bad_x in (np.zeros(state.x.size), state.x[::-1].copy()):
+            state.x = bad_x
+            with pytest.raises(ValueError, match="strictly increasing"):
+                backend.apply_transport(state, 1.0)
+
+    def test_nonpositive_interface_conductance_rejected(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        for bad in (0.0, -1.0):
+            state = T3Spatial1DState(
+                f=np.zeros((NE, NX)), x=x, gap=gap_max, spectral=spectral,
+                material=material, T_bath=0.1, gap_profile=profile,
+                interface_conductance=bad,
+            )
+            with pytest.raises(ValueError, match="interface_conductance"):
+                T3Spatial1DBackend().apply_transport(state, 0.5)
+
     def test_varying_gap_conserves_weighted_density(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup()
         NE = spectral.E.size

@@ -85,6 +85,13 @@ def picard_iterate(
         :class:`PicardInfo` with ``n_iter``, ``converged``, and
         ``final_residual``.
     """
+    # mixing must be a genuine under-relaxation factor. At mixing == 0 the
+    # update is x_mixed = x exactly, so the change-based residual is 0 on the
+    # first pass and the solver reports `converged` without ever consulting
+    # g(x) — a false positive. Reject the whole invalid range up front.
+    if not 0.0 < mixing <= 1.0:
+        raise ValueError(f"mixing must lie in (0, 1]; got {mixing}.")
+
     x = np.array(x0, dtype=float).ravel()
     use_anderson = anderson_depth > 0
     X_hist: list[np.ndarray] = []

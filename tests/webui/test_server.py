@@ -178,3 +178,20 @@ class TestReviewFixes:
         assert "max-age" in png.headers.get("cache-control", "")
         csv_resp = client.get(f"/api/runs/{run_id}/csv/occupation.csv")
         assert "max-age" in csv_resp.headers.get("cache-control", "")
+
+
+class TestPathTraversal:
+    def test_setup_slug_cannot_escape_workspace(self, client: TestClient) -> None:
+        # Plant a setup-shaped file one level above setups/. On Windows the
+        # encoded-backslash form (%5C) survives Starlette's routing, so this
+        # must be rejected at the store, not merely by the '/' router guard.
+        workspace = client.app.state.workspace
+        secret = workspace.setups_dir.parent / "SECRET.json"
+        workspace.setups_dir.mkdir(parents=True, exist_ok=True)
+        secret.write_text('{"name":"x","setup":{"mode":"steady_state_0d"}}', encoding="utf-8")
+        for evil in ("..%5CSECRET", "..%2FSECRET", "foo%5C..%5C..%5CSECRET"):
+            assert client.get(f"/api/setups/{evil}").status_code == 404
+
+    def test_run_id_cannot_escape_workspace(self, client: TestClient) -> None:
+        assert client.get("/api/runs/..%5C..%5Csetups").status_code == 404
+        assert client.delete("/api/runs/..%5C..%5Csetups").status_code == 404

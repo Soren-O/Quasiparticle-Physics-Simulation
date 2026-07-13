@@ -188,30 +188,35 @@ def solve_gap(
 
     from scipy.optimize import brentq
 
-    lo = max(delta_eq * (1.0 - bracket_factor), 1e-3)
-    hi = delta_eq * (1.0 + bracket_factor)
+    lo_floor = 1e-3
+    # Δ must lie below the Debye cutoff: the residual's integral runs over
+    # [Δ, ω_D], so as Δ → ω_D the domain vanishes and residual → −1/λ < 0.
+    # A colder-than-thermal population drives the self-consistent gap far
+    # above Δ_eq (toward the T=0 gap), which can be tens of times Δ_eq near
+    # T_c — so widen the high side all the way to ω_D rather than capping at
+    # a fixed step count that silently underestimated. residual(Δ) is
+    # monotone decreasing, so any straddling bracket isolates the one root.
+    hi_ceiling = omega_D * (1.0 - 1e-9)
 
+    lo = max(delta_eq * (1.0 - bracket_factor), lo_floor)
+    hi = min(delta_eq * (1.0 + bracket_factor), hi_ceiling)
     r_lo, r_hi = residual(lo), residual(hi)
-    for _ in range(5):
-        if r_lo * r_hi < 0:
-            break
-        lo *= 0.5
-        hi *= 1.5
-        lo = max(lo, 1e-3)
+    while r_lo * r_hi > 0 and (lo > lo_floor or hi < hi_ceiling):
+        lo = max(lo * 0.5, lo_floor)
+        hi = min(hi * 1.5, hi_ceiling)
         r_lo, r_hi = residual(lo), residual(hi)
-    else:
-        # Bracket widening failed. Negative residual at lo ~1e-3 means
-        # no superconducting solution (gap collapses to normal state).
+
+    if r_lo * r_hi >= 0:
+        # No sign change even after widening to the physical limits.
+        # Negative residual at the cold floor ⇒ no superconducting solution
+        # (the gap has collapsed to the normal state).
         if r_lo < 0:
             return 0.0
-        # Positive residual without sign change means the true root sits
-        # above the widened bracket (population colder than thermal near
-        # T_c). Returning Δ_eq is then an UNDERestimate — keep the legacy
-        # fallback for continuity, but say so instead of staying silent.
+        # Positive residual all the way to Δ ≈ ω_D is unphysical (the
+        # residual must go negative there); fall back but say so.
         warnings.warn(
-            "solve_gap: bracket widening found no sign change with a "
-            "positive residual at both ends; the self-consistent gap "
-            "exceeds the search bracket and Δ_eq is returned as a "
+            "solve_gap: no sign change up to the Debye cutoff with a "
+            "positive residual at both ends; Δ_eq is returned as a "
             "fallback (an underestimate).",
             stacklevel=2,
         )

@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.solvers.picard import picard_iterate
 
 
 class TestPicardIterate:
+    def test_mixing_zero_rejected(self) -> None:
+        # mixing=0 makes x_mixed == x, so the change-based residual is 0 on
+        # the first pass and a non-fixed-point map would falsely "converge".
+        def g(x: np.ndarray) -> np.ndarray:
+            return x + 100.0  # no fixed point exists
+
+        for bad in (0.0, -0.1, 1.5):
+            with pytest.raises(ValueError, match="mixing must lie"):
+                picard_iterate(np.array([1.0]), g, mixing=bad)
+
     def test_converges_on_linear_contraction(self) -> None:
         # G(x) = 0.5·x + 2. Fixed point: x = 4.
         def g(x: np.ndarray) -> np.ndarray:

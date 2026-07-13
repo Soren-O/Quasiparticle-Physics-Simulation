@@ -35,6 +35,20 @@ def slugify(name: str) -> str:
     return slug or "setup"
 
 
+# A stored slug / run_id becomes a single path component. Anything with a
+# separator, drive letter, or ``..`` could escape its directory once joined —
+# on Windows a raw ``..\name`` segment survives Starlette's routing (only the
+# ``/`` form is rejected) and resolves outside the workspace. Constrain every
+# externally-supplied segment to this alphabet before it touches the filesystem.
+_SAFE_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _safe_segment(value: str, kind: str) -> str:
+    if value in {".", ".."} or not _SAFE_SEGMENT.fullmatch(value):
+        raise ValueError(f"unsafe {kind}: {value!r}")
+    return value
+
+
 def json_sanitize(value: Any) -> Any:
     """Recursively replace non-finite floats with ``None``.
 
@@ -116,7 +130,7 @@ class Workspace:
 
     def save_setup(self, envelope: SetupEnvelope, *, slug: str | None = None) -> str:
         """Persist a named setup; returns the slug it was stored under."""
-        slug = slug or slugify(envelope.name)
+        slug = _safe_segment(slug or slugify(envelope.name), "slug")
         _write_json(
             self.setups_dir / f"{slug}.json",
             {
@@ -146,12 +160,14 @@ class Workspace:
         return entries
 
     def load_setup(self, slug: str) -> SetupEnvelope:
+        slug = _safe_segment(slug, "slug")
         data = _read_json(self.setups_dir / f"{slug}.json")
         return SetupEnvelope.model_validate(
             {"name": data.get("name", slug), "setup": data["setup"]}
         )
 
     def delete_setup(self, slug: str) -> None:
+        slug = _safe_segment(slug, "slug")
         (self.setups_dir / f"{slug}.json").unlink(missing_ok=True)
 
     # -- runs -----------------------------------------------------------
@@ -160,7 +176,10 @@ class Workspace:
         return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
     def run_dir(self, run_id: str) -> Path:
-        return self.runs_dir / run_id
+        # Single chokepoint for run_id -> path: every read/write/delete of a
+        # run's manifest and arrays routes through here, so validating once
+        # closes the traversal for all of them.
+        return self.runs_dir / _safe_segment(run_id, "run_id")
 
     def write_manifest(self, run_id: str, manifest: dict[str, Any]) -> None:
         _write_json(self.run_dir(run_id) / "manifest.json", manifest)

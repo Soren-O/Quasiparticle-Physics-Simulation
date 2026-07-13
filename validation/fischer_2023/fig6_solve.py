@@ -129,6 +129,7 @@ N_BAR_VALUES: np.ndarray = np.logspace(4.0, 8.2, 22)
 # resolve to ~3 sig figs; the --fast CLI flag lowers this to 1e-9 for
 # dev iteration (~30× speedup at the cost of ~1 sig fig).
 PICARD_TOL: float = 1e-12
+PICARD_ATOL: float = 1e-14
 
 # τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
 PAPER_TAU_0_PB_PS = 255.0
@@ -332,6 +333,7 @@ def _solve_picard_sc_gap(
         gap_under_relaxation=0.5,
         gap_solve_xtol=1e-12,
         picard_tol=PICARD_TOL,
+        picard_atol=PICARD_ATOL,
         picard_max_iter=2000,
         picard_mixing=0.3,
         anderson_depth=0,
@@ -670,9 +672,10 @@ def solver_fingerprint() -> dict[str, Any]:
     """Resolved physics + grid + sweep knobs for the cache key's provenance.
 
     Reads the module globals (incl. the ``--fast``-mutated NUM_BINS /
-    N_BAR_VALUES / PICARD_TOL), so the cache key distinguishes a ``--fast`` run
-    from a paper run. Safety also rests on the full-module ``extra_source`` and
-    the qpsim solver-subtree digest; this keeps the provenance legible.
+    N_BAR_VALUES / PICARD_TOL and the occupation-space PICARD_ATOL), so the cache
+    key distinguishes a ``--fast`` run from a paper run. Safety also rests on
+    the full-module ``extra_source`` and the qpsim solver-subtree digest; this
+    keeps the provenance legible.
     """
     return {
         "delta_0": DELTA_0,
@@ -686,9 +689,8 @@ def solver_fingerprint() -> dict[str, Any]:
         "e_min_factor": E_MIN_FACTOR,
         "e_max_factor": E_MAX_FACTOR,
         "picard_tol": PICARD_TOL,
+        "picard_atol": PICARD_ATOL,
         "tau_l_model": TAU_L_MODEL,
         "t_bath_values": [float(x) for x in T_BATH_VALUES],
         "n_bar_values": [float(x) for x in N_BAR_VALUES],
     }
-
-

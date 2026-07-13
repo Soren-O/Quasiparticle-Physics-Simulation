@@ -96,3 +96,28 @@ class TestThermalPhononPath:
         backend = T3DiffusionBackend()
         new_state = backend.steady_state(state)
         np.testing.assert_allclose(new_state.f, state.f, atol=1e-6)
+
+    def test_threads_picard_atol_independently(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.backends.t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        original = backend_module.solve_steady_state
+        observed: list[float] = []
+
+        def capture_picard_atol(*args, **kwargs):
+            observed.append(float(kwargs["picard_atol"]))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            backend_module, "solve_steady_state", capture_picard_atol,
+        )
+        T3DiffusionBackend().steady_state(
+            state,
+            method="picard",
+            newton_tol=1e-9,
+            picard_atol=3e-13,
+        )
+
+        assert observed == [3e-13]
