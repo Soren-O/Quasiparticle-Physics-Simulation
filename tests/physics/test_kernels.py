@@ -34,6 +34,11 @@ class TestThermalPhononOccupation:
         with pytest.raises(ValueError, match="non-negative"):
             thermal_phonon_occupation(np.array([-1.0]), 1.0)
 
+    @pytest.mark.parametrize("temperature", [float("nan"), float("inf")])
+    def test_rejects_non_finite_temperature(self, temperature: float) -> None:
+        with pytest.raises(ValueError, match="temperature must be finite"):
+            thermal_phonon_occupation(np.array([1.0]), temperature)
+
 
 class TestKernelsBase:
     def test_shapes(self) -> None:
@@ -66,6 +71,48 @@ class TestKernelsBase:
         )
         np.testing.assert_allclose(K_r_default, K_r_with_coh)
 
+    @pytest.mark.parametrize(
+        "builder", [recombination_kernel_base, scattering_kernel_base],
+    )
+    def test_rejects_non_finite_energy(self, builder) -> None:
+        with pytest.raises(ValueError, match="E_bins must contain only finite"):
+            builder(np.array([2.0, float("nan")]), gap=1.0, tau_0=1.0, T_c=1.2)
+
+    @pytest.mark.parametrize("name", ["gap", "tau_0", "T_c"])
+    def test_rejects_non_finite_scalar_parameters(self, name: str) -> None:
+        kwargs = {"gap": 1.0, "tau_0": 1.0, "T_c": 1.2}
+        kwargs[name] = float("nan")
+        with pytest.raises(ValueError, match=rf"{name} must be finite"):
+            recombination_kernel_base(np.array([2.0]), **kwargs)
+
+    @pytest.mark.parametrize(
+        ("name", "value", "message"),
+        [
+            ("gap", -1.0, "gap must be non-negative"),
+            ("tau_0", 0.0, "tau_0 must be positive"),
+            ("tau_0", -1.0, "tau_0 must be positive"),
+            ("T_c", 0.0, "T_c must be positive"),
+            ("T_c", -1.0, "T_c must be positive"),
+        ],
+    )
+    def test_rejects_non_physical_scalar_parameters(
+        self, name: str, value: float, message: str,
+    ) -> None:
+        kwargs = {"gap": 1.0, "tau_0": 1.0, "T_c": 1.2}
+        kwargs[name] = value
+        with pytest.raises(ValueError, match=message):
+            scattering_kernel_base(np.array([2.0]), **kwargs)
+
+    def test_rejects_non_finite_precomputed_coherence(self) -> None:
+        with pytest.raises(ValueError, match="coherence_factor"):
+            recombination_kernel_base(
+                np.array([2.0]),
+                gap=1.0,
+                tau_0=1.0,
+                T_c=1.2,
+                coherence_factor=np.array([[float("nan")]]),
+            )
+
 
 class TestKernelsWithPhonon:
     def test_zero_T_recombination_matches_base(self) -> None:
@@ -90,3 +137,14 @@ class TestKernelsWithPhonon:
         K_r = recombination_kernel(E, gap=1.0, tau_0=1.0, T_c=1.2, bath_temperature=0.5)
         assert np.all(K_r >= K_r0 - 1e-14)
         assert np.any(K_r > K_r0 + 1e-12)
+
+    @pytest.mark.parametrize("builder", [recombination_kernel, scattering_kernel])
+    def test_rejects_non_finite_bath_temperature(self, builder) -> None:
+        with pytest.raises(ValueError, match="bath_temperature must be finite"):
+            builder(
+                np.array([2.0]),
+                gap=1.0,
+                tau_0=1.0,
+                T_c=1.2,
+                bath_temperature=float("nan"),
+            )

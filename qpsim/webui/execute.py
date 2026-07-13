@@ -36,6 +36,7 @@ from qpsim.observables import (
     qp_fraction,
     qp_number_density,
 )
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.services.rate_equation import (
     chemical_potentials_kelvin,
     solve_rate_equation_steady_state_multi_seed,
@@ -283,14 +284,46 @@ def run_transient_0d(
     return payload
 
 
-def _xqp_profile(state: T3Spatial1DState, gap: float) -> np.ndarray:
-    """Per-cell x_qp along the strip."""
-    return np.array(
-        [qp_fraction(state.f[:, j], state.spectral, delta_0=gap) for j in range(state.f.shape[1])]
+def _xqp_profile(state: T3Spatial1DState, delta_0: float) -> np.ndarray:
+    """Per-cell ``x_qp`` using each cell's local BCS spectral measure.
+
+    The numerator uses the local gap from ``gap_profile`` because transport
+    does too. The denominator intentionally remains the material reference
+    ``delta_0`` so values on different sides of a gap step share one
+    dimensionless normalization and can be compared directly.
+    """
+    if not np.isfinite(delta_0) or delta_0 <= 0.0:
+        raise ValueError("delta_0 must be finite and positive.")
+    local_gaps = (
+        np.full(state.f.shape[1], state.spectral.gap, dtype=float)
+        if state.gap_profile is None
+        else np.asarray(state.gap_profile, dtype=float)
     )
+    if local_gaps.shape != (state.f.shape[1],):
+        raise ValueError(
+            f"gap_profile must have shape ({state.f.shape[1]},); "
+            f"got {local_gaps.shape}."
+        )
+
+    weights_by_gap: dict[float, np.ndarray] = {}
+    profile = np.empty(state.f.shape[1], dtype=float)
+    for column, local_gap in enumerate(local_gaps):
+        gap_key = float(local_gap)
+        weights = weights_by_gap.get(gap_key)
+        if weights is None:
+            weights = bcs_dos_cell_weights(
+                state.spectral.E,
+                state.spectral.dE,
+                gap_key,
+            )
+            weights_by_gap[gap_key] = weights
+        profile[column] = float(np.sum(weights * state.f[:, column])) / delta_0
+    return profile
 
 
-def _profile_observables(gap: float) -> dict[str, Callable[[T3Spatial1DState], float]]:
+def _profile_observables(
+    delta_0: float,
+) -> dict[str, Callable[[T3Spatial1DState], float]]:
     """Mean/max strip observables sharing one profile pass per state.
 
     Both reductions are evaluated back-to-back on the same state at
@@ -304,7 +337,7 @@ def _profile_observables(gap: float) -> dict[str, Callable[[T3Spatial1DState], f
         nonlocal cached_f, cached_profile
         if cached_profile is None or cached_f is not s.f:
             cached_f = s.f
-            cached_profile = _xqp_profile(s, gap)
+            cached_profile = _xqp_profile(s, delta_0)
         return cached_profile
 
     return {

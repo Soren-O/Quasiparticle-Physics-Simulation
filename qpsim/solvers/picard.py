@@ -1,7 +1,7 @@
 """Generic Picard fixed-point iteration with optional Anderson acceleration.
 
 Iterates ``x_{k+1} = (1 − α) x_k + α G(x_k)`` until the relative
-change falls below ``tol``. When ``anderson_depth > 0``, uses Anderson
+fixed-point residual falls below ``tol``. When ``anderson_depth > 0``, uses Anderson
 extrapolation (see ``qpsim.solvers.anderson``) on the mixed iterate.
 
 The specialized steady-state solver in ``qpsim.services.steady_state``
@@ -33,7 +33,10 @@ class PicardInfo:
     converged
         True iff convergence was reached within ``max_iter``.
     final_residual
-        The ``max_{i} |x_{k+1} − x_k| / (|x_k| + tol)`` at termination.
+        The normalized fixed-point residual
+        ``max_i |G(x_k) - x_k| / (max(|x_k|, |G(x_k)|) + tol)`` at
+        termination. It is evaluated before mixing, so under-relaxation
+        cannot make an unconverged map appear converged.
     """
 
     n_iter: int
@@ -67,7 +70,8 @@ def picard_iterate(
         History window for Anderson acceleration. 0 (default) disables
         acceleration and runs plain mixed Picard. Typical values 5-10.
     tol
-        Relative-L∞ tolerance on the iterate change.
+        Relative-L∞ tolerance on the fixed-point residual, evaluated before
+        under-relaxation.
     max_iter
         Hard cap on iterations.
     clip_non_negative
@@ -102,8 +106,12 @@ def picard_iterate(
         gx = g(x)
         x_mixed = (1.0 - mixing) * x + mixing * gx
 
-        change = np.abs(x_mixed - x)
-        scale = np.maximum(np.abs(x), np.abs(x_mixed)) + tol
+        # Convergence belongs to the original fixed-point equation G(x)=x,
+        # not to the relaxed step. Measuring x_mixed-x would multiply the
+        # residual by ``mixing`` and could falsely accept the first iteration
+        # for a sufficiently small (but valid) relaxation factor.
+        change = np.abs(gx - x)
+        scale = np.maximum(np.abs(x), np.abs(gx)) + tol
         final_residual = float(np.max(change / scale))
 
         if final_residual < tol:

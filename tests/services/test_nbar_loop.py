@@ -28,6 +28,11 @@ class TestDbmToUevPerNs:
         hi = dbm_to_uev_per_ns(-70.0)
         assert hi / lo == pytest.approx(10.0, rel=1e-10)
 
+    @pytest.mark.parametrize("dbm", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_dbm_rejected(self, dbm: float) -> None:
+        with pytest.raises(ValueError, match="dbm must be finite"):
+            dbm_to_uev_per_ns(dbm)
+
 
 class TestFixedQi:
     """With a constant Q_i the loop reduces to a 1-step analytic formula."""
@@ -155,6 +160,33 @@ class TestInputValidation:
                 solve_f=sf, compute_Q_i=cq, under_relaxation=1.5,
             )
 
+    @pytest.mark.parametrize(
+        ("name", "overrides"),
+        [
+            ("P_read_uev_per_ns", {"P_read_uev_per_ns": float("nan")}),
+            ("Q_c", {"Q_c": float("inf")}),
+            ("omega_0", {"omega_0": float("nan")}),
+            ("tol", {"tol": float("inf")}),
+            ("under_relaxation", {"under_relaxation": float("nan")}),
+            ("n_bar_initial", {"n_bar_initial": float("inf")}),
+        ],
+    )
+    def test_non_finite_scalar_inputs_rejected(
+        self, name: str, overrides: dict[str, float],
+    ) -> None:
+        sf, cq = self._trivial_solvers()
+        kwargs: dict[str, object] = {
+            "P_read_uev_per_ns": 1.0,
+            "Q_c": 1e5,
+            "omega_0": 20.0,
+            "solve_f": sf,
+            "compute_Q_i": cq,
+        }
+        kwargs.update(overrides)
+
+        with pytest.raises(ValueError, match=rf"{name} must be finite"):
+            solve_nbar_loop(**kwargs)  # type: ignore[arg-type]
+
     @pytest.mark.parametrize("bad_q_i", [float("nan"), 0.0, -1.0, float("-inf")])
     def test_final_resolve_rejects_invalid_q_i(self, bad_q_i: float) -> None:
         calls = 0
@@ -209,6 +241,24 @@ class TestNonConvergence:
 
 
 class TestFalloffToUnderRelaxation:
+    def test_relaxation_does_not_scale_convergence_residual(self) -> None:
+        # At zero drive the raw map is exactly zero. Starting from n_bar=1
+        # leaves a raw relative residual of 1, even though a 1e-6 relaxed step
+        # moves by less than the 1e-4 tolerance.
+        result = solve_nbar_loop(
+            P_read_uev_per_ns=0.0,
+            Q_c=1e5,
+            omega_0=20.0,
+            solve_f=lambda n_bar: np.array([n_bar]),
+            compute_Q_i=lambda f: 1e6,
+            n_bar_initial=1.0,
+            tol=1e-4,
+            max_iter=1,
+            under_relaxation=1e-6,
+        )
+
+        assert not result.converged
+
     def test_underrelaxation_still_converges(self) -> None:
         # Same Q_i(n̄) roll-off model, but with α = 0.1 — forces more
         # iterations but still converges to the same fixed point.

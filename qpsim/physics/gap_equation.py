@@ -181,7 +181,40 @@ def solve_gap(
     ref_integral = calibration._ref_integral
     E = np.asarray(E_bins, dtype=float).ravel()
     f_arr = np.asarray(f, dtype=float).ravel()
+    if E.size == 0:
+        raise ValueError("E_bins must be non-empty.")
+    if E.shape != f_arr.shape:
+        raise ValueError(
+            f"f and E_bins must have the same shape; got {f_arr.shape} and {E.shape}."
+        )
+    if np.any(~np.isfinite(E)) or np.any(~np.isfinite(f_arr)):
+        raise ValueError("f and E_bins must contain only finite values.")
+    if np.any(np.diff(E) <= 0.0):
+        raise ValueError("E_bins must be strictly increasing.")
     omega_D = calibration._omega_D
+
+    lower_support_edge = (
+        float(E[0])
+        if E.size == 1
+        else float(E[0] - 0.5 * (E[1] - E[0]))
+    )
+
+    def warn_if_below_grid_support(candidate: float) -> None:
+        support_tol = 64.0 * np.finfo(float).eps * max(
+            abs(candidate), abs(lower_support_edge), 1.0,
+        )
+        if candidate < lower_support_edge - support_tol:
+            warnings.warn(
+                "solve_gap: candidate gap "
+                f"Δ={candidate:.12g} μeV lies below the reconstructed "
+                f"energy-grid support edge {lower_support_edge:.12g} μeV "
+                f"by {lower_support_edge - candidate:.12g} μeV. The gap "
+                "integral is therefore extrapolating f across unsampled "
+                "gap-edge support; use an energy grid extending below the "
+                "minimum candidate gap.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
 
     def residual(delta: float) -> float:
         return _gap_integral_f(delta, f_arr, E, omega_D) - ref_integral
@@ -220,7 +253,10 @@ def solve_gap(
             "fallback (an underestimate).",
             stacklevel=2,
         )
+        warn_if_below_grid_support(delta_eq)
         return delta_eq
 
     xtol_brentq = 1e-6 * delta_eq if xtol is None else xtol
-    return float(brentq(residual, lo, hi, xtol=xtol_brentq))
+    candidate = float(brentq(residual, lo, hi, xtol=xtol_brentq))
+    warn_if_below_grid_support(candidate)
+    return candidate

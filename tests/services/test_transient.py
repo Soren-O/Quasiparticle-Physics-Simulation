@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.density import qp_fraction
@@ -27,7 +30,7 @@ def _build_state(T_bath: float = 0.1, num_energy: int = 40) -> T3DiffusionState:
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=6.0,
         num_energy_bins=num_energy,
     )
@@ -139,6 +142,86 @@ class TestSnapshotCadence:
         assert result.snapshots[-1].t == pytest.approx(1.0)
         assert result.n_steps == 4
 
+    def test_dt_larger_than_interval_still_hits_every_snapshot(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=10)
+
+        class NoOpBackend:
+            @staticmethod
+            def apply_collisions(
+                state_arg: T3DiffusionState, dt: float, **kwargs: object,
+            ) -> T3DiffusionState:
+                return state_arg
+
+        result = run_time_dependent(
+            state,
+            dt=5.0,
+            total_time=10.0,
+            snapshot_interval=2.0,
+            backend=NoOpBackend(),  # type: ignore[arg-type]
+        )
+
+        np.testing.assert_allclose(
+            [snapshot.t for snapshot in result.snapshots],
+            [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
+        )
+
+    def test_rounded_cadence_never_extrapolates_past_terminal_time(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=10)
+
+        class NoOpBackend:
+            @staticmethod
+            def apply_collisions(
+                state_arg: T3DiffusionState, dt: float, **kwargs: object,
+            ) -> T3DiffusionState:
+                return state_arg
+
+        result = run_time_dependent(
+            state,
+            dt=1.0,
+            total_time=1.0,
+            snapshot_interval=1.0 / 3.0 + 1e-13,
+            backend=NoOpBackend(),  # type: ignore[arg-type]
+        )
+
+        assert max(snapshot.t for snapshot in result.snapshots) <= 1.0
+        assert result.snapshots[-1].t == 1.0
+
+
+class TestTimeVaryingExternalFlux:
+    def test_flux_is_sampled_at_substep_midpoint(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=3)
+        state = replace(state, f=np.zeros_like(state.f))
+        sampled_times: list[float] = []
+
+        class FluxOnlyBackend:
+            @staticmethod
+            def apply_collisions(
+                state_arg: T3DiffusionState, dt: float, **kwargs: object,
+            ) -> T3DiffusionState:
+                flux = kwargs["external_flux"]
+                assert isinstance(flux, ExternalFlux)
+                return replace(state_arg, f=state_arg.f + dt * flux.gain)
+
+        def linear_flux(t: float) -> ExternalFlux:
+            sampled_times.append(t)
+            return ExternalFlux(
+                gain=np.full(state.f.size, t),
+                loss_rate=np.zeros(state.f.size),
+            )
+
+        result = run_time_dependent(
+            state,
+            dt=0.5,
+            total_time=1.0,
+            snapshot_interval=1.0,
+            external_flux=linear_flux,
+            backend=FluxOnlyBackend(),  # type: ignore[arg-type]
+        )
+
+        np.testing.assert_allclose(sampled_times, [0.25, 0.75])
+        # Midpoint quadrature integrates df/dt=t exactly over [0, 1].
+        np.testing.assert_allclose(result.snapshots[-1].f, 0.5)
+
 
 class TestObservables:
     def test_observable_callables_invoked_per_snapshot(self) -> None:
@@ -160,6 +243,26 @@ class TestObservables:
 
 
 class TestInputValidation:
+    @pytest.mark.parametrize(
+        ("field", "kwargs"),
+        [
+            ("dt", {"dt": float("inf")}),
+            ("dt", {"dt": float("nan")}),
+            ("total_time", {"total_time": float("inf")}),
+            ("total_time", {"total_time": float("nan")}),
+            ("snapshot_interval", {"snapshot_interval": float("nan")}),
+            ("stop_tol", {"stop_tol": float("nan")}),
+        ],
+    )
+    def test_nonfinite_inputs_rejected(
+        self, field: str, kwargs: dict[str, float],
+    ) -> None:
+        state = _build_state(num_energy=10)
+        values = {"dt": 0.1, "total_time": 1.0}
+        values.update(kwargs)
+        with pytest.raises(ValueError, match=field):
+            run_time_dependent(state, **values)
+
     def test_zero_dt_rejected(self) -> None:
         state = _build_state(num_energy=10)
         with pytest.raises(ValueError, match="dt"):

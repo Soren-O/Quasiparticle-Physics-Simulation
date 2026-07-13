@@ -25,10 +25,18 @@ class TestConstantTauL:
         assert tau_l.shape == (2, 4)
         np.testing.assert_allclose(tau_l, 0.3)
 
-    def test_rejects_non_positive(self) -> None:
+    @pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+    def test_rejects_non_positive_or_nonfinite(self, bad: float) -> None:
         omega = np.linspace(0.1, 1.0, 5).reshape(1, 5)
         with pytest.raises(ValueError, match="must be positive"):
-            constant_tau_l(omega, value=0.0)
+            constant_tau_l(omega, value=bad)
+
+    @pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+    def test_rejects_invalid_frequency_grid(self, bad: float) -> None:
+        omega = np.linspace(0.1, 1.0, 5).reshape(1, 5)
+        omega[0, 2] = bad
+        with pytest.raises(ValueError, match="omega_bins"):
+            constant_tau_l(omega, value=0.17)
 
 
 class TestAcousticEscapeTauL:

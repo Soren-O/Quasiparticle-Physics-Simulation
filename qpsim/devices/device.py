@@ -68,6 +68,9 @@ class Device:
 
     def __post_init__(self) -> None:
         names = set(self.regions.keys())
+        junctions_by_region: dict[str, list[Junction]] = {
+            name: [] for name in names
+        }
         for j in self.junctions:
             if j.region_a not in names:
                 raise ValueError(
@@ -79,6 +82,28 @@ class Device:
                     f"Junction {j.name!r} references unknown region_b "
                     f"{j.region_b!r}; known regions are {sorted(names)}."
                 )
+            junctions_by_region[j.region_a].append(j)
+            junctions_by_region[j.region_b].append(j)
+
+        # Reduced closures that solve an isolated subsystem internally cannot
+        # respond to another Junction changing either region's f(E). Letting
+        # one share a region produces a superficially converged but
+        # non-self-consistent Device solution, so reject the topology early.
+        for j in self.junctions:
+            if not getattr(j, "requires_exclusive_regions", False):
+                continue
+            for region_name in (j.region_a, j.region_b):
+                touching = junctions_by_region[region_name]
+                if len(touching) > 1:
+                    other_names = [other.name for other in touching if other is not j]
+                    if not other_names:
+                        other_names = [j.name]
+                    raise ValueError(
+                        f"Junction {j.name!r} requires exclusive regions, but "
+                        f"region {region_name!r} is also touched by junction(s) "
+                        f"{other_names}. Its isolated closure does not consume "
+                        "the evolving region occupation from other junctions."
+                    )
 
 
 @dataclass

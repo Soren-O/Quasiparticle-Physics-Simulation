@@ -15,7 +15,9 @@ contexts use analytic cell weights for the integrable DOS singularity; Dynes
 contexts retain the ordinary cell-centered ``dE`` quadrature. The grid
 energies are in µeV, while the material database stores the conventional
 ``ρ_F`` in eV⁻¹ m⁻³; :func:`qp_number_density` performs that conversion
-explicitly.
+explicitly. A pure-BCS grid must cover the physical gap edge with its first
+cell; starting the grid strictly above ``Δ`` is rejected because the missing
+occupation on ``[Δ, E_min)`` cannot be reconstructed honestly.
 """
 
 from __future__ import annotations

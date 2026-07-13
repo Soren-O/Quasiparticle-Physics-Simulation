@@ -14,7 +14,7 @@ from qpsim.physics.spectral import SpectralContext
 def _thermal_ctx_and_f(T_bath: float = 0.3, T_c: float = 1.2, num: int = 200):
     gap = 1.764 * KB_UEV_PER_K * T_c
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.001, energy_max_factor=10.0, num_energy_bins=num
+        gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=num
     )
     dE = integration_widths_from_centers(E)
     ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)

@@ -178,12 +178,23 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     @app.delete("/api/runs/{run_id}")
     def runs_delete(run_id: str) -> dict[str, bool]:
         live = runner.live_state(run_id)
+        if live is not None and live.status not in ("queued", "running"):
+            # Terminal jobs remain in memory only while their final manifest
+            # is being written or retried. Deleting in that window lets the
+            # worker recreate a one-file zombie run directory.
+            raise HTTPException(409, "Run is still finalizing; retry shortly.")
         if live is not None and live.status in ("queued", "running"):
             raise HTTPException(409, "Run is active — cancel it first.")
         try:
             workspace.delete_run(run_id)
         except ValueError as exc:  # unsafe run_id
             raise HTTPException(404, f"No run {run_id!r}.") from exc
+        except OSError as exc:
+            raise HTTPException(
+                409,
+                "Run artifacts are busy (for example, an active download); "
+                "retry deletion shortly.",
+            ) from exc
         return {"deleted": True}
 
     def _load_run_artifacts(run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:

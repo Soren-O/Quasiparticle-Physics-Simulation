@@ -123,6 +123,14 @@ def _validate_drives_and_probe(
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
 
+    if setup.material.dynes_gamma == 0.0 and setup.grid.min_factor > 1.0:
+        report.errors.append(
+            "Grid: pure-BCS x_qp and Mattis-Bardeen observables require "
+            "grid.min_factor <= 1 so the first finite-volume cell covers "
+            "the gap edge. Starting above Delta drops singular spectral "
+            "support that cannot be reconstructed from the sampled f(E)."
+        )
+
     subgap = getattr(setup, "subgap_drive", None)
     if subgap is not None and subgap.enabled:
         if subgap.omega_0 >= 2.0 * gap:
@@ -172,6 +180,13 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     if isinstance(setup, SteadyState0DSetup):
         _validate_drives_and_probe(report, setup)
+        if setup.solver.self_consistent_gap and setup.grid.min_factor >= 1.0:
+            report.warnings.append(
+                "Self-consistent gap: the energy grid does not extend below "
+                "Delta_0, so any suppressed-gap solution lacks occupation "
+                "samples near its new edge. Set grid.min_factor below the "
+                "smallest expected Delta/Delta_0 for quantitative results."
+            )
         if setup.solver.method == "coupled_newton" and setup.phonons.mode == "thermal_bath":
             report.errors.append(
                 "Solver: coupled-Newton solves (f, n_ph) jointly and cannot be combined "
@@ -223,10 +238,17 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 )
         if setup.gap_profile.kind == "step":
             e_max = setup.grid.max_factor * setup.material.Delta_0
+            e_min = setup.grid.min_factor * setup.material.Delta_0
             for side, val in (
                 ("gap_left", setup.gap_profile.gap_left),
                 ("gap_right", setup.gap_profile.gap_right),
             ):
+                if val < e_min:
+                    report.errors.append(
+                        f"Gap profile: {side} = {val:g} micro-eV lies below the "
+                        f"grid bottom {e_min:g} micro-eV. Lower grid.min_factor "
+                        "so the local BCS edge is represented."
+                    )
                 if val >= e_max:
                     report.errors.append(
                         f"Gap profile: {side} = {val:g} μeV is at or above the grid top "

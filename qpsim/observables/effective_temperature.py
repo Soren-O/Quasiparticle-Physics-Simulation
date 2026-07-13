@@ -64,12 +64,18 @@ def effective_phonon_temperature(
         raise ValueError(
             f"n_ph shape {n_ph.shape} must match omega_bins shape {omega_bins.shape}."
         )
-    if gap <= 0:
+    if n_ph.ndim != 1:
+        raise ValueError("n_ph and omega_bins must be one-dimensional.")
+    if np.any(~np.isfinite(n_ph)) or np.any(n_ph < 0.0):
+        raise ValueError("n_ph must contain finite, non-negative occupations.")
+    if np.any(~np.isfinite(omega_bins)) or np.any(omega_bins < 0.0):
+        raise ValueError("omega_bins must contain finite, non-negative frequencies.")
+    if not np.isfinite(gap) or gap <= 0:
         raise ValueError("gap must be positive.")
-    if T_bath <= 0:
+    if not np.isfinite(T_bath) or T_bath <= 0:
         raise ValueError("T_bath must be positive.")
-    if T_max is not None and T_max <= T_bath:
-        raise ValueError("T_max, when supplied, must exceed T_bath.")
+    if T_max is not None and (not np.isfinite(T_max) or T_max <= T_bath):
+        raise ValueError("T_max, when supplied, must be finite and exceed T_bath.")
 
     mask = (omega_bins >= 2.0 * gap) & (n_ph > 1e-300)
     if not np.any(mask):
@@ -77,6 +83,15 @@ def effective_phonon_temperature(
 
     omega_fit = omega_bins[mask]
     n_fit = n_ph[mask]
+    if omega_fit.size == 1:
+        # The objective fits the *shape* of n_ph/n_BE while allowing an
+        # arbitrary constant amplitude.  With one mode its weighted variance
+        # is identically zero for every T, so returning the optimizer's upper
+        # bound is an arbitrary artifact rather than a temperature estimate.
+        raise ValueError(
+            "effective phonon temperature is underdetermined with only one "
+            "occupied pair-breaking mode; provide at least two frequencies."
+        )
     weights = n_fit / float(np.sum(n_fit))
 
     def _weighted_variance_of_log_ratio(T: float) -> float:

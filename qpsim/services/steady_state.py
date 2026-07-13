@@ -64,10 +64,20 @@ def _picard_convergence_ratio(
     The returned ratio is converged at ``<= 1``. Identical all-zero iterates
     return zero.
     """
-    if rtol <= 0.0:
+    if not np.isfinite(rtol) or rtol <= 0.0:
         raise ValueError(f"rtol must be positive; got {rtol}.")
-    if atol < 0.0:
+    if not np.isfinite(atol) or atol < 0.0:
         raise ValueError(f"atol must be non-negative; got {atol}.")
+
+    n_ph = np.asarray(n_ph, dtype=float)
+    n_ph_new = np.asarray(n_ph_new, dtype=float)
+    if n_ph.shape != n_ph_new.shape:
+        raise ValueError(
+            "n_ph and n_ph_new must have the same shape; "
+            f"got {n_ph.shape} and {n_ph_new.shape}."
+        )
+    if np.any(~np.isfinite(n_ph)) or np.any(~np.isfinite(n_ph_new)):
+        raise ValueError("n_ph and n_ph_new must contain only finite values.")
 
     change = np.abs(n_ph_new - n_ph)
     scale = np.maximum(np.abs(n_ph), np.abs(n_ph_new))

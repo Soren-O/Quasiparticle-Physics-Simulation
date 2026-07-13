@@ -62,7 +62,9 @@ class MaterialParams(StrictModel):
 class EnergyGrid(StrictModel):
     """Uniform cell-centered energy grid in units of the gap."""
 
-    min_factor: Annotated[float, Field(ge=1.0)] = 1.0
+    # Sub-gap cells are required when a self-consistent gap can fall below
+    # Delta_0. They are inert (rho=0) for the initial pure-BCS spectrum.
+    min_factor: Annotated[float, Field(ge=0.0)] = 1.0
     max_factor: Annotated[float, Field(gt=1.0)] = 10.0
     num_bins: Annotated[int, Field(ge=8, le=5000)] = 400
 
@@ -209,7 +211,10 @@ class Spatial1DSetup(StrictModel):
     mode: Literal["spatial_1d"] = "spatial_1d"
     material: MaterialParams = MaterialParams()
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1
-    grid: EnergyGrid = EnergyGrid(min_factor=1.02, max_factor=4.0, num_bins=64)
+    # Gap-edge x_qp and Mattis-Bardeen observables require the first physical
+    # cell edge at Delta; a grid starting above Delta silently drops the BCS
+    # singular spectral weight.
+    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=64)
     length_um: Annotated[float, Field(gt=0.0)] = 100.0
     num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"

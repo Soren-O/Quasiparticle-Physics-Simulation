@@ -85,7 +85,19 @@ class TestWorkspace:
     def test_run_manifest_and_arrays_round_trip(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
         run_id = ws.new_run_id()
-        ws.write_manifest(run_id, {"id": run_id, "status": "done"})
+        ws.write_manifest(
+            run_id,
+            {
+                "id": run_id,
+                "name": "round trip",
+                "mode": "steady_state_0d",
+                "status": "done",
+                "created": "2026-07-13T00:00:00",
+                "setup": {},
+                "summary": {},
+                "notes": [],
+            },
+        )
         ws.write_arrays(run_id, {"a": np.arange(4.0)})
         assert ws.read_manifest(run_id)["status"] == "done"
         np.testing.assert_array_equal(ws.read_arrays(run_id)["a"], np.arange(4.0))

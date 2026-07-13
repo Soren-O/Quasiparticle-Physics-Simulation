@@ -39,9 +39,12 @@ def constant_tau_l(omega_bins: np.ndarray, value: float) -> np.ndarray:
         Array of the same shape as ``omega_bins`` with every entry
         equal to ``value``.
     """
-    if value <= 0:
+    omega = np.asarray(omega_bins, dtype=float)
+    if np.any(~np.isfinite(omega)) or np.any(omega < 0.0):
+        raise ValueError("omega_bins must contain finite, non-negative values.")
+    if not np.isfinite(value) or value <= 0:
         raise ValueError("tau_l value must be positive.")
-    return np.full_like(omega_bins, float(value), dtype=float)
+    return np.full_like(omega, float(value), dtype=float)
 
 
 def acoustic_escape_tau_l(
@@ -74,11 +77,17 @@ def acoustic_escape_tau_l(
     tau_l
         Array of shape ``omega_bins.shape`` with ``τ_l`` in nanoseconds.
     """
-    if material.film_thickness <= 0:
+    omega = np.asarray(omega_bins, dtype=float)
+    if np.any(~np.isfinite(omega)) or np.any(omega < 0.0):
+        raise ValueError("omega_bins must contain finite, non-negative values.")
+    if not np.isfinite(material.film_thickness) or material.film_thickness <= 0:
         raise ValueError(
             "material.film_thickness must be positive to compute acoustic-escape τ_l."
         )
-    if material.substrate_transmission_eta <= 0:
+    if (
+        not np.isfinite(material.substrate_transmission_eta)
+        or not (0.0 < material.substrate_transmission_eta <= 1.0)
+    ):
         raise ValueError(
             "material.substrate_transmission_eta must be positive."
         )
@@ -97,7 +106,7 @@ def acoustic_escape_tau_l(
             f"branch must be 'debye', 'longitudinal', or 'transverse'; got {branch!r}."
         )
 
-    if s is None or s <= 0:
+    if s is None or not np.isfinite(s) or s <= 0:
         raise ValueError(
             f"{missing_msg} is not set; cannot compute acoustic-escape τ_l."
         )
@@ -107,7 +116,7 @@ def acoustic_escape_tau_l(
     tau_l_ns = 4.0 * material.film_thickness / (
         material.substrate_transmission_eta * s
     )
-    return np.full_like(omega_bins, tau_l_ns, dtype=float)
+    return np.full_like(omega, tau_l_ns, dtype=float)
 
 
 def build_tau_l(

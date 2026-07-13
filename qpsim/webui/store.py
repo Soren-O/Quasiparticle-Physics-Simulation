@@ -30,6 +30,7 @@ import numpy as np
 from qpsim.webui.schemas import SetupEnvelope
 
 _SETUP_SCHEMA_VERSION = 2
+_RUN_STATUSES = {"queued", "running", "done", "failed", "cancelled"}
 
 
 def slugify(name: str) -> str:
@@ -81,6 +82,28 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
     tmp.replace(path)
 
 
+def _unlink_with_retry(path: Path) -> None:
+    """Unlink a file despite brief Windows reader sharing violations."""
+    for _ in range(40):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.025)
+    path.unlink(missing_ok=True)
+
+
+def _rmdir_with_retry(path: Path) -> None:
+    """Remove an empty directory after transient Windows handles close."""
+    for _ in range(40):
+        try:
+            path.rmdir()
+            return
+        except PermissionError:
+            time.sleep(0.025)
+    path.rmdir()
+
+
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     # Atomic replace: run manifests are re-written by the worker thread
     # while request handlers read them; a plain write_text would let a
@@ -109,6 +132,42 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ValueError(f"{path} does not contain a JSON object.")
     return loaded
+
+
+def _read_manifest(path: Path) -> dict[str, Any]:
+    """Read and structurally validate one run manifest.
+
+    Syntactically valid JSON is not necessarily a usable manifest. The API
+    indexes these fields directly and the UI relies on their types, so treating
+    ``{}`` as readable only moves the failure to a request-time ``KeyError``.
+    """
+    manifest = _read_json(path)
+    required_types: dict[str, type | tuple[type, ...]] = {
+        "id": str,
+        "name": str,
+        "mode": str,
+        "status": str,
+        "created": str,
+        "setup": dict,
+        "summary": dict,
+        "notes": list,
+    }
+    for key, expected_type in required_types.items():
+        if key not in manifest or not isinstance(manifest[key], expected_type):
+            raise ValueError(
+                f"{path} has an invalid or missing manifest field {key!r}."
+            )
+    if not manifest["id"] or manifest["id"] != path.parent.name:
+        raise ValueError(
+            f"{path} manifest id does not match its run directory."
+        )
+    if manifest["status"] not in _RUN_STATUSES:
+        raise ValueError(
+            f"{path} has unknown run status {manifest['status']!r}."
+        )
+    if not all(isinstance(note, str) for note in manifest["notes"]):
+        raise ValueError(f"{path} manifest notes must be strings.")
+    return manifest
 
 
 @dataclass
@@ -205,7 +264,7 @@ class Workspace:
         _write_json(self.run_dir(run_id) / "manifest.json", manifest)
 
     def read_manifest(self, run_id: str) -> dict[str, Any]:
-        return _read_json(self.run_dir(run_id) / "manifest.json")
+        return _read_manifest(self.run_dir(run_id) / "manifest.json")
 
     def write_arrays(self, run_id: str, arrays: dict[str, np.ndarray]) -> None:
         directory = self.run_dir(run_id)
@@ -243,7 +302,7 @@ class Workspace:
                 if not manifest_path.is_file():
                     continue
                 try:
-                    manifests.append(_read_json(manifest_path))
+                    manifests.append(_read_manifest(manifest_path))
                 except (OSError, ValueError):
                     manifests.append(
                         {
@@ -263,6 +322,14 @@ class Workspace:
     def delete_run(self, run_id: str) -> None:
         directory = self.run_dir(run_id)
         if directory.is_dir():
-            for child in directory.iterdir():
-                child.unlink(missing_ok=True)
-            directory.rmdir()
+            # Delete the manifest last. If a concurrent Windows download
+            # keeps result.npz open past the retry window, the run remains
+            # visible and retryable instead of becoming a half-deleted,
+            # orphaned directory that the UI cannot list.
+            children = list(directory.iterdir())
+            manifest = directory / "manifest.json"
+            for child in children:
+                if child != manifest:
+                    _unlink_with_retry(child)
+            _unlink_with_retry(manifest)
+            _rmdir_with_retry(directory)

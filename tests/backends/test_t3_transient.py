@@ -10,6 +10,10 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
@@ -153,6 +157,12 @@ class TestApplyGapUpdate:
         new_state = backend.apply_gap_update(state, dt=0.0)
         assert new_state is state
 
+    @pytest.mark.parametrize("bad_dt", [float("nan"), float("inf")])
+    def test_nonfinite_dt_is_rejected(self, bad_dt: float) -> None:
+        state = _state_on_physics_grid()
+        with pytest.raises(ValueError, match="dt must be finite"):
+            T3DiffusionBackend().apply_gap_update(state, dt=bad_dt)
+
     def test_preserves_f_bounds(self) -> None:
         state = _state_on_physics_grid()
         backend = T3DiffusionBackend()
@@ -161,22 +171,24 @@ class TestApplyGapUpdate:
         assert np.all(new_state.f <= 1.0)
 
 
-    def test_nonuniform_grid_conserves_dE_weighted_mass(
+    def test_nonuniform_grid_conserves_analytic_bcs_cell_mass(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         E = np.array([0.8, 0.9, 1.01, 1.04, 1.3, 1.6, 2.0])
-        state = _state_on_custom_grid(E)
+        f = np.where((E > 1.0) & (E < 1.6), 0.1, 0.0)
+        state = _state_on_custom_grid(E, f=f)
         dE = state.spectral.dE
-        mass_before = float(np.sum(state.spectral.rho * state.f * dE))
+        weights_before = bcs_dos_cell_weights(E, dE, state.gap)
+        mass_before = float(np.sum(weights_before * state.f))
         monkeypatch.setattr(
             "qpsim.backends.t3_diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.02,
         )
 
-        with pytest.warns(UserWarning, match="conservatively remapped"):
-            out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
 
-        mass_after = float(np.sum(out.spectral.rho * out.f * dE))
+        weights_after = bcs_dos_cell_weights(E, dE, out.gap)
+        mass_after = float(np.sum(weights_after * out.f))
         assert mass_after == pytest.approx(mass_before, rel=1e-12, abs=1e-15)
 
     def test_edge_remap_spreads_mass_without_saturating_one_bin(
@@ -186,23 +198,137 @@ class TestApplyGapUpdate:
         f = np.zeros_like(E)
         f[(E > 1.0) & (E < 1.08)] = 0.9
         state = _state_on_custom_grid(E, f=f)
-        mass_before = float(
-            np.sum(state.spectral.rho * state.f * state.spectral.dE)
+        weights_before = bcs_dos_cell_weights(
+            state.spectral.E, state.spectral.dE, state.gap,
         )
+        mass_before = float(np.sum(weights_before * state.f))
         monkeypatch.setattr(
             "qpsim.backends.t3_diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.1,
         )
 
-        with pytest.warns(UserWarning, match="conservatively remapped"):
-            out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
 
-        mass_after = float(
-            np.sum(out.spectral.rho * out.f * out.spectral.dE)
+        weights_after = bcs_dos_cell_weights(
+            out.spectral.E, out.spectral.dE, out.gap,
         )
+        mass_after = float(np.sum(weights_after * out.f))
         assert mass_after == pytest.approx(mass_before, rel=1e-12, abs=1e-15)
         assert np.count_nonzero(out.f > 1e-10) >= 2
         assert float(np.max(out.f)) < 1.0
+
+    def test_gap_remap_tracks_frozen_xi_characteristic(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        gap_old = 1.0
+        gap_new = 1.01
+        E, _ = build_energy_grid(gap_old, 0.75, 6.0, 241)
+        dE = integration_widths_from_centers(E)
+        edges = cell_edges_from_widths(E, dE)
+
+        def xi_edges(gap: float) -> np.ndarray:
+            xi = np.zeros_like(edges)
+            above = edges > gap
+            xi[above] = np.sqrt((edges[above] - gap) * (edges[above] + gap))
+            return xi
+
+        def primitive(xi: np.ndarray) -> np.ndarray:
+            x = np.minimum(xi, 3.0)
+            return 0.2 * (x - 2.0 * x**3 / 27.0 + x**5 / 405.0)
+
+        old_xi = xi_edges(gap_old)
+        old_widths = np.diff(old_xi)
+        f_old = np.zeros_like(E)
+        active_old = old_widths > 0.0
+        f_old[active_old] = np.diff(primitive(old_xi))[active_old] / old_widths[
+            active_old
+        ]
+        state = _state_on_custom_grid(E, gap=gap_old, f=f_old)
+        monkeypatch.setattr(
+            "qpsim.backends.t3_diffusion.solve_gap",
+            lambda *_args, **_kwargs: gap_new,
+        )
+
+        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+
+        new_xi = xi_edges(gap_new)
+        new_widths = np.diff(new_xi)
+        target = np.zeros_like(E)
+        active_new = new_widths > 0.0
+        target[active_new] = np.diff(primitive(new_xi))[active_new] / new_widths[
+            active_new
+        ]
+        weights = bcs_dos_cell_weights(E, dE, gap_new)
+        relative_l1 = float(np.sum(weights * np.abs(out.f - target))) / float(
+            np.sum(weights * np.abs(target))
+        )
+        mass_before = float(
+            np.sum(bcs_dos_cell_weights(E, dE, gap_old) * f_old)
+        )
+        mass_after = float(np.sum(weights * out.f))
+
+        assert relative_l1 < 1e-3
+        assert mass_after == pytest.approx(mass_before, rel=1e-12, abs=1e-15)
+
+    def test_rejects_material_finite_emax_characteristic_loss(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        E = np.linspace(0.8, 1.5, 101)
+        state = _state_on_custom_grid(E, f=np.full_like(E, 0.2))
+        monkeypatch.setattr(
+            "qpsim.backends.t3_diffusion.solve_gap",
+            lambda *_args, **_kwargs: 1.2,
+        )
+
+        with pytest.raises(RuntimeError, match="finite E_max boundary"):
+            T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+
+    def test_rejects_finite_emax_tail_that_cannot_fit_last_cell(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        E, _ = build_energy_grid(1.0, 0.75, 6.0, 80)
+        state = _state_on_custom_grid(E, f=np.full_like(E, 0.999))
+        monkeypatch.setattr(
+            "qpsim.backends.t3_diffusion.solve_gap",
+            lambda *_args, **_kwargs: 1.01,
+        )
+
+        with pytest.raises(RuntimeError, match="does not fit"):
+            T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+
+    def test_gap_flow_uses_cell_average_dos_not_midpoint_rho(self) -> None:
+        # A constant occupation exposes only the spectral measure error. On a
+        # 40-cell grid the old midpoint sum misses 3.51% of the exact BCS
+        # primitive; the finite-volume representation is exact by construction.
+        gap = 1.0
+        E, _ = build_energy_grid(gap, 0.75, 6.0, 40)
+        dE = integration_widths_from_centers(E)
+        spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        exact_weights = bcs_dos_cell_weights(E, dE, gap)
+        f = np.full(E.size, 0.2)
+
+        exact_mass = float(np.sum(exact_weights * f))
+        midpoint_mass = float(np.sum(spectral.rho * dE * f))
+        primitive = 0.2 * np.sqrt((6.0 * gap) ** 2 - gap**2)
+
+        assert midpoint_mass / primitive - 1.0 == pytest.approx(
+            -0.03512580555882283,
+            rel=1e-12,
+        )
+        assert exact_mass == pytest.approx(primitive, rel=1e-14)
+
+    def test_rejects_moving_gap_grid_with_missing_edge_support(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        E, _ = build_energy_grid(1.0, 1.01, 2.0, 80)
+        state = _state_on_custom_grid(E)
+        monkeypatch.setattr(
+            "qpsim.backends.t3_diffusion.solve_gap",
+            lambda *_args, **_kwargs: 1.02,
+        )
+
+        with pytest.raises(ValueError, match="does not cover"):
+            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     @pytest.mark.parametrize("collapsed_gap", [0.0, -1.0, float("nan")])
     def test_rejects_collapsed_or_nonfinite_gap_root(
@@ -239,7 +365,7 @@ class TestApplyGapUpdate:
             "qpsim.backends.t3_diffusion.solve_gap",
             lambda *_args, **_kwargs: 0.9,
         )
-        with pytest.raises(ValueError, match="sub-gap grid room"):
+        with pytest.raises(ValueError, match="does not cover"):
             T3DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     def test_rejects_state_spectral_gap_mismatch(self) -> None:

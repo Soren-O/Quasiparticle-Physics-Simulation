@@ -33,10 +33,50 @@ def test_cell_crossing_gap_integrates_only_above_gap() -> None:
     assert weights[1] == pytest.approx(np.sqrt(1.2**2 - 1.0), rel=1e-14)
 
 
+def test_rejects_missing_gap_edge_support() -> None:
+    # These are centers of cells whose physical lower edge is 1.01 > Delta.
+    # The missing [Delta, 1.01] occupation cannot be inferred from the grid.
+    E = np.array([1.02, 1.04, 1.06])
+    dE = np.full(3, 0.02)
+
+    with pytest.raises(ValueError, match=r"does not cover.*BCS lower bound"):
+        bcs_dos_cell_weights(E, dE, gap=1.0)
+
+
+def test_explicit_band_boundary_splits_a_cell_exactly() -> None:
+    gap = 1.0
+    E = np.array([1.05, 1.15, 1.25])
+    dE = np.full(3, 0.1)
+    split = 1.17
+
+    below = bcs_dos_cell_weights(
+        E, dE, gap, upper_bound=split,
+    )
+    above = bcs_dos_cell_weights(
+        E, dE, gap, lower_bound=split,
+    )
+    whole = bcs_dos_cell_weights(E, dE, gap)
+
+    np.testing.assert_allclose(below + above, whole, rtol=1e-14, atol=1e-14)
+    assert below[1] > 0.0
+    assert above[1] > 0.0
+
+
 def test_zero_gap_reduces_to_ordinary_cell_widths() -> None:
     E = np.array([1.0, 2.0, 3.0])
     dE = np.ones(3)
     np.testing.assert_allclose(bcs_dos_cell_weights(E, dE, gap=0.0), dE)
+
+
+def test_rejects_widths_whose_reconstructed_cells_miss_the_centers() -> None:
+    E = np.array([1.0, 2.0, 3.0])
+    # Starting from the first cell, these widths reconstruct cells only up to
+    # E=1.5, so the latter two nominal centers have no relation to the cells
+    # whose exact BCS weights they would otherwise receive.
+    dE = np.full(3, 0.2)
+
+    with pytest.raises(ValueError, match="inconsistent cell geometry"):
+        cell_edges_from_widths(E, dE)
 
 
 @pytest.mark.parametrize("gap", [float("nan"), float("inf"), -1.0])

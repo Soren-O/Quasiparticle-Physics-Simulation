@@ -182,9 +182,27 @@ class TestPicardConvergenceMetric:
             n_ph, n_ph.copy(), rtol=1e-7, atol=1e-11,
         ) == 0.0
 
-    @pytest.mark.parametrize("rtol,atol", [(0.0, 1e-11), (-1.0, 1e-11), (1e-7, -1.0)])
+    @pytest.mark.parametrize(
+        "rtol,atol",
+        [
+            (0.0, 1e-11),
+            (-1.0, 1e-11),
+            (1e-7, -1.0),
+            (float("nan"), 1e-11),
+            (float("inf"), 1e-11),
+            (1e-7, float("nan")),
+            (1e-7, float("inf")),
+        ],
+    )
     def test_rejects_invalid_tolerances(self, rtol: float, atol: float) -> None:
         with pytest.raises(ValueError):
             _picard_convergence_ratio(
                 np.ones(2), np.ones(2), rtol=rtol, atol=atol,
+            )
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_rejects_non_finite_iterates(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="finite"):
+            _picard_convergence_ratio(
+                np.array([1.0]), np.array([bad]), rtol=1e-7, atol=1e-11,
             )

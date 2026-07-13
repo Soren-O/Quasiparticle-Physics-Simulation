@@ -6,9 +6,11 @@ observables that build on these integrals.
 
 Ported from ``qpsim/numerics/observables.py`` at Gate 2. The super-gap
 ``σ₁`` integral uses the analytic pure-BCS DOS measure in each cell so the
-integrable gap-edge singularity is not under-sampled. Pure-BCS spectral
-functions only; Dynes-broadened contexts are rejected (the Mattis–Bardeen
-integrands assume ``ρ(E) = 0`` below the gap, which Dynes violates).
+integrable gap-edge singularity is not under-sampled. The sub-gap ``σ₂``
+integral uses a sine-squared coordinate that removes both square-root endpoint
+singularities before applying a midpoint rule. Pure-BCS spectral functions
+only; Dynes-broadened contexts are rejected (the Mattis–Bardeen integrands
+assume ``ρ(E) = 0`` below the gap, which Dynes violates).
 """
 
 from __future__ import annotations
@@ -39,8 +41,9 @@ def compute_ac_conductivity(
             \frac{E}{\sqrt{\Delta^2 - E^2}},
 
     with ``U⁺(E, E') = ρ(E') · K⁺(E, E')``. The sub-gap ``σ₂``
-    integral uses an ``n_subgap``-point midpoint rule that avoids the
-    integrable singularity at ``E = Δ``.
+    integral uses ``E = Δ - ω₀ cos²(θ)`` and an ``n_subgap``-point
+    midpoint rule in ``θ``. The Jacobian cancels the integrable square-root
+    singularities at both ``E = Δ-ω₀`` and ``E = Δ``.
 
     Raises
     ------
@@ -84,14 +87,22 @@ def compute_ac_conductivity(
         np.sum(integrand_1_regular * dos_weights)
     )
 
-    # σ₂: sub-gap integral over [Δ − ω₀, Δ]. Below the QP grid; use a
-    # dedicated midpoint-rule quadrature that excludes the singular endpoint.
+    # σ₂: sub-gap integral over [Δ − ω₀, Δ]. The raw-E
+    # midpoint rule converges only as O(n^{-1/2}) because BOTH endpoints are
+    # square-root singular: the analytically continued DOS diverges at Δ,
+    # while rho(E+ω₀) diverges at Δ-ω₀. Use
+    # E = Δ - ω₀ cos²(theta); its Jacobian cancels both singularities,
+    # leaving a smooth integrand for the midpoint rule.
     E_lo = max(gap - omega_0, 0.0)
     if E_lo >= gap:
         sigma_2_norm = 0.0
     else:
-        dE_sub = (gap - E_lo) / n_subgap
-        E_sub = E_lo + (np.arange(n_subgap) + 0.5) * dE_sub
+        dtheta = 0.5 * np.pi / n_subgap
+        theta = (np.arange(n_subgap) + 0.5) * dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        span = gap - E_lo
+        E_sub = gap - span * cos_theta**2
 
         E_sub_partner = E_sub + omega_0
         f_sub_partner = np.interp(E_sub_partner, E, f, right=0.0)
@@ -101,8 +112,14 @@ def compute_ac_conductivity(
 
         # E / √(Δ² − E²): analytic continuation of the DOS below the gap.
         subgap_dos = E_sub / np.sqrt(np.maximum(gap ** 2 - E_sub ** 2, 1e-30))
+        jacobian = 2.0 * span * sin_theta * cos_theta
 
-        integrand_2 = (1.0 - 2.0 * f_sub_partner) * U_plus_sub * subgap_dos
-        sigma_2_norm = (1.0 / omega_0) * float(np.sum(integrand_2 * dE_sub))
+        integrand_2 = (
+            (1.0 - 2.0 * f_sub_partner)
+            * U_plus_sub
+            * subgap_dos
+            * jacobian
+        )
+        sigma_2_norm = (1.0 / omega_0) * float(np.sum(integrand_2) * dtheta)
 
     return sigma_1_norm, sigma_2_norm

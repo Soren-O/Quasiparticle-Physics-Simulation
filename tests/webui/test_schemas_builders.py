@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.transport.diffusion.base import DiffusionModel
 from qpsim.webui.builders import (
     build_injection_flux,
@@ -16,6 +17,7 @@ from qpsim.webui.builders import (
 )
 from qpsim.webui.schemas import (
     MODE_CLASSES,
+    EnergyGrid,
     M25JunctionSetup,
     SetupEnvelope,
     Spatial1DSetup,
@@ -47,6 +49,10 @@ class TestSchemas:
             SetupEnvelope.model_validate(
                 {"name": "t", "setup": {"mode": "steady_state_0d", "bogus": 1}}
             )
+
+    def test_energy_grid_accepts_subgap_support(self) -> None:
+        grid = EnergyGrid(min_factor=0.8, max_factor=4.0, num_bins=64)
+        assert grid.min_factor == pytest.approx(0.8)
 
 
 class TestValidateSetup:
@@ -110,6 +116,25 @@ class TestValidateSetup:
         report = validate_setup(setup)
         assert any("conserved-energy mode" in e for e in report.errors)
 
+    def test_self_consistent_gap_warns_without_subgap_support(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.solver.self_consistent_gap = True
+        report = validate_setup(setup)
+        assert report.ok
+        assert any("does not extend below" in warning for warning in report.warnings)
+
+        setup.grid.min_factor = 0.8
+        report = validate_setup(setup)
+        assert not any("does not extend below" in warning for warning in report.warnings)
+
+    def test_pure_bcs_grid_starting_above_gap_is_rejected(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.grid.min_factor = 1.01
+
+        report = validate_setup(setup)
+
+        assert any("grid.min_factor <= 1" in error for error in report.errors)
+
     def test_spatial_dynes_rejected(self) -> None:
         setup = Spatial1DSetup()
         setup.material.dynes_gamma = 0.5
@@ -121,6 +146,13 @@ class TestValidateSetup:
         setup.injection.center_over_delta = setup.grid.max_factor + 1.0
         report = validate_setup(setup)
         assert any("outside the energy grid" in e for e in report.errors)
+
+    def test_spatial_gap_below_grid_rejected(self) -> None:
+        setup = Spatial1DSetup()
+        setup.gap_profile.kind = "step"
+        setup.gap_profile.gap_left = 0.9 * setup.material.Delta_0
+        report = validate_setup(setup)
+        assert any("below the grid bottom" in error for error in report.errors)
 
     def test_m25_ej_below_ec_rejected(self) -> None:
         setup = M25JunctionSetup()
@@ -183,6 +215,32 @@ class TestBuilders:
         assert float(state.gap_profile[0]) == 170.0
         assert float(state.gap_profile[-1]) == 200.0
         assert state.interface_conductance == 2.0
+
+    def test_spatial_xqp_profile_uses_each_local_gap_measure(self) -> None:
+        from qpsim.webui.execute import _xqp_profile
+
+        setup = Spatial1DSetup()
+        setup.grid.min_factor = 0.8
+        setup.grid.num_bins = 24
+        setup.num_cells = 4
+        setup.gap_profile.kind = "step"
+        setup.gap_profile.gap_left = 170.0
+        setup.gap_profile.gap_right = 200.0
+        state = build_state_1d(setup)
+        state.f[:] = 0.01
+
+        profile = _xqp_profile(state, setup.material.Delta_0)
+
+        assert state.gap_profile is not None
+        for column, local_gap in enumerate(state.gap_profile):
+            weights = bcs_dos_cell_weights(
+                state.spectral.E,
+                state.spectral.dE,
+                float(local_gap),
+            )
+            expected = float(np.sum(weights * state.f[:, column])) / setup.material.Delta_0
+            assert profile[column] == pytest.approx(expected, rel=1e-14)
+        assert profile[0] != pytest.approx(profile[-1])
 
     def test_injection_flux_placement(self) -> None:
         setup = Spatial1DSetup()

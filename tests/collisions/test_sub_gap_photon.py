@@ -43,6 +43,29 @@ class TestShapesAndNullCases:
         np.testing.assert_allclose(gain, 0.0)
         np.testing.assert_allclose(loss, 0.0)
 
+    def test_positive_frequency_below_half_bin_fails_loudly(self) -> None:
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        with pytest.raises(ValueError, match="below half the grid spacing"):
+            sub_gap_photon_collision_rates(
+                0.1 * np.ones(ctx.E.size),
+                ctx,
+                omega_0=0.4 * dE,
+                n_bar=1.0,
+                c_phot=1.0,
+            )
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0])
+    def test_rejects_invalid_channel_parameters(self, bad: float) -> None:
+        ctx = _setup()
+        f = 0.1 * np.ones(ctx.E.size)
+        with pytest.raises(ValueError):
+            sub_gap_photon_collision_rates(f, ctx, bad, 1.0, 1.0)
+        with pytest.raises(ValueError):
+            sub_gap_photon_collision_rates(f, ctx, 1.0, bad, 1.0)
+        with pytest.raises(ValueError):
+            sub_gap_photon_collision_rates(f, ctx, 1.0, 1.0, bad)
+
     def test_zero_f_zero_nbar_gives_zero_gain(self) -> None:
         # Spontaneous-emission terms (∝ 1 + n_bar) still contribute to
         # the loss-rate coefficient even at n_bar = 0, but with f = 0

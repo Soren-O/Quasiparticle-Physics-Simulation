@@ -40,6 +40,14 @@ from qpsim.constants import HBAR_UEV_NS
 _MW_TO_UEV_PER_NS = 6.241509074e12
 
 
+def _finite_float(name: str, value: float) -> float:
+    """Return ``value`` as a float, rejecting NaN and infinities."""
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite; got {result}.")
+    return result
+
+
 def _validated_quality_factors(
     q_qp_raw: float,
     Q_c: float,
@@ -71,7 +79,8 @@ def dbm_to_uev_per_ns(dbm: float) -> float:
 
     ``P[μeV/ns] = 10^(dBm/10) · 1 mW · (6.241509e12 μeV/ns / mW)``.
     """
-    return (10.0 ** (float(dbm) / 10.0)) * _MW_TO_UEV_PER_NS
+    dbm_value = _finite_float("dbm", dbm)
+    return (10.0 ** (dbm_value / 10.0)) * _MW_TO_UEV_PER_NS
 
 
 @dataclass(frozen=True)
@@ -145,7 +154,8 @@ def solve_nbar_loop(
         ``2·ℏ·Q_c·P_read/ω₀²``, which is a safe upper bound on the
         true ``n̄`` (since ``Q_tot ≤ Q_c``).
     tol
-        Relative-change tolerance on ``n̄``.
+        Relative fixed-point tolerance on ``n̄``, evaluated against the raw
+        map before under-relaxation.
     max_iter
         Iteration cap.
     under_relaxation
@@ -164,6 +174,14 @@ def solve_nbar_loop(
     ValueError
         On any non-physical input (``P_read < 0``, ``Q_c ≤ 0``, etc.).
     """
+    P_read_uev_per_ns = _finite_float(
+        "P_read_uev_per_ns", P_read_uev_per_ns,
+    )
+    Q_c = _finite_float("Q_c", Q_c)
+    omega_0 = _finite_float("omega_0", omega_0)
+    tol = _finite_float("tol", tol)
+    under_relaxation = _finite_float("under_relaxation", under_relaxation)
+
     if P_read_uev_per_ns < 0:
         raise ValueError("P_read_uev_per_ns must be non-negative.")
     if Q_c <= 0:
@@ -172,6 +190,8 @@ def solve_nbar_loop(
         raise ValueError("omega_0 must be positive.")
     if not (0.0 < under_relaxation <= 1.0):
         raise ValueError("under_relaxation must be in (0, 1].")
+    if tol <= 0.0:
+        raise ValueError("tol must be positive.")
     if max_iter < 1:
         raise ValueError("max_iter must be at least 1.")
 
@@ -179,6 +199,7 @@ def solve_nbar_loop(
     prefactor = 2.0 * HBAR_UEV_NS / (omega_sq * float(Q_c))
 
     if n_bar_initial is not None:
+        n_bar_initial = _finite_float("n_bar_initial", n_bar_initial)
         if n_bar_initial < 0:
             raise ValueError("n_bar_initial must be non-negative.")
         n_bar = float(n_bar_initial)
@@ -216,8 +237,11 @@ def solve_nbar_loop(
             )
         )
 
+        # Convergence belongs to the raw fixed-point map. The relaxed step is
+        # alpha times smaller and would make a sufficiently small, valid
+        # under-relaxation factor look converged even far from self-consistency.
         denom = max(abs(n_bar), 1e-300)
-        rel_change = abs(n_bar_next - n_bar) / denom
+        rel_change = abs(n_bar_raw - n_bar) / denom
         n_bar = n_bar_next
         if rel_change < tol:
             converged = True

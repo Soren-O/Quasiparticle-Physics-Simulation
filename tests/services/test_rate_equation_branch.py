@@ -101,6 +101,25 @@ _COARSE_GRID = np.linspace(0.010, 0.150, 8)
 
 
 class TestCompositeCurve:
+    def test_fig3a_no_hint_sweep_survives_old_death_valley(self) -> None:
+        # Regression for the coupled F1/F4 failure: on this exact grid the
+        # old global-min tolerance killed the high-to-low pass at its first
+        # point, while the 1-D fallback let only the opposite pass through.
+        # With no exchange hint the driver then (correctly) refused to invent
+        # a branch choice. Row-wise gates restore both passes, so every point
+        # is independently merged without weakening the no-hint safeguard.
+        T_grid = np.linspace(0.020, 0.100, 9)
+        sweep = solve_rate_equation_branch(
+            lambda T: _coefficients_at(0.5, T),
+            T_grid,
+            photon_seed_case="small_asymmetry",
+            max_step_bisections=2,
+        )
+        assert sweep.branch_labels == ("merged",) * len(T_grid)
+        assert all(state is not None for state in sweep.photon_states)
+        assert all(state is not None for state in sweep.thermal_states)
+        assert sweep.T_exchange_kelvin is None
+
     @pytest.mark.parametrize("omega_LR_GHz", [0.5, 5.0])
     def test_smooth_composite_no_branch_flapping(self, omega_LR_GHz: float) -> None:
         sweep = _run_sweep(omega_LR_GHz, _COARSE_GRID)
@@ -242,6 +261,46 @@ class TestFoldHandlingMachinery:
             residual_tol_relative=1e-3,
         )
         assert state is None
+
+    def test_unpolished_reduced_root_must_pass_all_row_gates(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        coefs = _toy_coefs()
+        monkeypatch.setattr(rate_mod, "_branch_corrector", lambda *args: None)
+        # x_L still brackets the exact reduced root at x_L=1, but this fake
+        # transverse state leaves the R> and R< rows at -3 Hz. Before the
+        # fix, the fallback returned it solely because the x_L row was zero.
+        monkeypatch.setattr(
+            rate_mod, "_transverse_solve",
+            lambda *args: np.array([0.5, 2.0, 2.0]),
+        )
+        state = rate_mod._relocate_root_1d(
+            coefs, 1.0, np.array([0.5, 2.0, 2.0]),
+            window_decades=2.0, n_samples=9,
+            residual_tol_relative=1e-3,
+        )
+        assert state is None
+
+    def test_source_valid_unpolished_reduced_root_is_retained(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        coefs = _toy_coefs()
+        monkeypatch.setattr(rate_mod, "_branch_corrector", lambda *args: None)
+        monkeypatch.setattr(
+            rate_mod, "_transverse_solve",
+            lambda *args: np.array([1.0 / 11.0, 1.0, 1.0]),
+        )
+        state = rate_mod._relocate_root_1d(
+            coefs, 1.0, np.array([1.0 / 11.0, 1.0, 1.0]),
+            window_decades=2.0, n_samples=9,
+            residual_tol_relative=1e-3,
+        )
+        assert state is not None
+        assert state.residual_inf_norm < 1e-14
 
 
 class TestInputValidation:

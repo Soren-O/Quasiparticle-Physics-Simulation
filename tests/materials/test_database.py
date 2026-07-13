@@ -95,10 +95,37 @@ class TestLoadMaterial:
             Material(name="X", Delta_0=200.0, T_c=1.0, tau_0=1.0, rho_F=rho_F)
 
     def test_rejects_legacy_per_uev_rho_f(self) -> None:
-        with pytest.raises(ValueError, match="legacy per-micro-eV"):
+        with pytest.raises(ValueError, match="implausibly small"):
             Material(
                 name="X", Delta_0=200.0, T_c=1.0, tau_0=1.0, rho_F=1.74e22
             )
+
+    def test_rejects_other_tiny_rho_f_unit_mistakes(self) -> None:
+        with pytest.raises(ValueError, match="implausibly small"):
+            Material(
+                name="X", Delta_0=200.0, T_c=1.0, tau_0=1.0, rho_F=1.74e10
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("Delta_0", 0.0),
+            ("T_c", -1.0),
+            ("tau_0", float("nan")),
+            ("tau_s", 0.0),
+            ("D_0", -1.0),
+            ("sound_velocity_longitudinal", float("inf")),
+            ("film_thickness", -1.0),
+            ("substrate_transmission_eta", 1.01),
+        ],
+    )
+    def test_rejects_nonphysical_material_fields(
+        self, field: str, value: float,
+    ) -> None:
+        kwargs = {"Delta_0": 200.0, "T_c": 1.0, "tau_0": 1.0}
+        kwargs[field] = value
+        with pytest.raises(ValueError, match=field):
+            Material(name="X", **kwargs)
 
     def test_unsigned_exponent_substrate_fields_coerced(self, tmp_path: Path) -> None:
         (tmp_path / "Weird.yaml").write_text(

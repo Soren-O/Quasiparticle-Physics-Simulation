@@ -49,6 +49,28 @@ def cell_edges_from_widths(
     edges = np.empty(E.size + 1, dtype=float)
     edges[0] = E[0] - 0.5 * dE[0]
     edges[1:] = edges[0] + np.cumsum(dE)
+    # Widths alone define a contiguous partition only if every nominal
+    # center actually belongs to the corresponding reconstructed cell.
+    # Without this check, an unrelated/inconsistent width vector can shift
+    # the cells away from their samples and silently assign exact BCS
+    # spectral weight to the wrong occupation value.  Midpoint-derived
+    # finite-volume grids need not place a center at the geometric midpoint
+    # on a nonuniform mesh, but they do always place it inside its cell.
+    scale = np.maximum.reduce([
+        np.ones(E.size),
+        np.abs(E),
+        np.abs(edges[:-1]),
+        np.abs(edges[1:]),
+    ])
+    tol = 128.0 * np.finfo(float).eps * scale
+    outside = (edges[:-1] - tol > E) | (edges[1:] + tol < E)
+    if np.any(outside):
+        first = int(np.flatnonzero(outside)[0])
+        raise ValueError(
+            "E_bins and dE_bins describe inconsistent cell geometry: "
+            f"center E_bins[{first}]={E[first]:g} is outside reconstructed "
+            f"cell [{edges[first]:g}, {edges[first + 1]:g}]."
+        )
     return edges
 
 
@@ -56,26 +78,67 @@ def bcs_dos_cell_weights(
     E_bins: np.ndarray,
     dE_bins: np.ndarray,
     gap: float,
+    *,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
 ) -> np.ndarray:
-    r"""Return exact per-cell weights for the BCS DOS measure ``ρ(E) dE``.
+    r"""Return exact per-cell weights for a bounded BCS DOS measure.
 
     Each returned weight is
 
-    ``∫_cell E / sqrt(E² - Δ²) dE``
+    ``∫_(cell ∩ [lower_bound, upper_bound]) E / sqrt(E² - Δ²) dE``
 
     over the part of that cell above the gap.  Multiplication by a regular
     cell-centered factor gives the finite-volume, cell-constant quadrature.
-    The routine does not invent support below the grid's first edge: grids used
-    for gap-edge observables should start at ``Δ``.
+
+    The default lower bound is the physical gap and the default upper bound is
+    the last grid edge.  A requested lower bound must be covered by the grid's
+    first cell edge.  In particular, a grid whose lower edge is above ``Δ``
+    is rejected rather than silently dropping the singular interval or
+    inventing an occupation there.  This is the pure-BCS grid contract used by
+    gap-edge observables and moving-gap finite volumes.
+
+    Explicit bounds also allow a cell crossed by a physical band boundary to
+    be split exactly, which is needed for the M25 ``R<``/``R>`` moments.
     """
     if not np.isfinite(gap) or gap < 0.0:
         raise ValueError("gap must be finite and non-negative.")
     edges = cell_edges_from_widths(E_bins, dE_bins)
-    if gap == 0.0:
+    if gap == 0.0 and lower_bound is None and upper_bound is None:
         return np.diff(edges)
 
-    lo = np.maximum(edges[:-1], gap)
-    hi = np.maximum(edges[1:], gap)
+    requested_lo = gap if lower_bound is None else float(lower_bound)
+    requested_hi = edges[-1] if upper_bound is None else float(upper_bound)
+    if not np.isfinite(requested_lo):
+        raise ValueError("lower_bound must be finite.")
+    if np.isnan(requested_hi):
+        raise ValueError("upper_bound must not be NaN.")
+
+    band_lo = max(gap, requested_lo)
+    band_hi = min(float(edges[-1]), requested_hi)
+    if upper_bound is not None and requested_hi <= band_lo:
+        raise ValueError("upper_bound must be greater than the BCS band lower bound.")
+
+    coverage_tol = 128.0 * np.finfo(float).eps * max(
+        1.0, abs(float(edges[0])), abs(band_lo),
+    )
+    if float(edges[0]) > band_lo + coverage_tol:
+        raise ValueError(
+            "The energy grid does not cover the requested BCS lower bound: "
+            f"first cell edge {float(edges[0]):g} > {band_lo:g}. Start the "
+            "grid at or below the gap/band edge; missing singular support "
+            "cannot be reconstructed from above-edge samples."
+        )
+
+    if band_hi <= band_lo:
+        return np.zeros(np.asarray(E_bins).size, dtype=float)
+
+    lo = np.maximum(edges[:-1], band_lo)
+    hi = np.minimum(edges[1:], band_hi)
+    hi = np.maximum(hi, lo)
+    if gap == 0.0:
+        return hi - lo
+
     # Factored form avoids cancellation in E²-Δ² for the first cell.
     xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
     xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))

@@ -13,7 +13,7 @@ from qpsim.physics.spectral import SpectralContext
 def _ctx(T_c: float = 1.2, num: int = 100) -> SpectralContext:
     gap = 1.764 * KB_UEV_PER_K * T_c
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.001, energy_max_factor=20.0, num_energy_bins=num
+        gap=gap, energy_min_factor=1.0, energy_max_factor=20.0, num_energy_bins=num
     )
     dE = integration_widths_from_centers(E)
     return SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
@@ -23,13 +23,13 @@ class TestQpNumberDensity:
     def test_zero_f_gives_zero(self) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
-        assert qp_number_density(f, ctx, rho_F=1.0) == 0.0
+        assert qp_number_density(f, ctx, rho_F=1.0e28) == 0.0
 
     def test_scales_with_rho_F(self) -> None:
         ctx = _ctx()
         f = 0.1 * np.ones(ctx.E.size)
-        n1 = qp_number_density(f, ctx, rho_F=1.0)
-        n2 = qp_number_density(f, ctx, rho_F=7.0)
+        n1 = qp_number_density(f, ctx, rho_F=1.0e28)
+        n2 = qp_number_density(f, ctx, rho_F=7.0e28)
         assert n2 == pytest.approx(7.0 * n1)
 
     @pytest.mark.parametrize("rho_F", [0.0, -1.0, float("nan"), float("inf")])
@@ -49,7 +49,7 @@ class TestQpNumberDensity:
 
     def test_rejects_silent_legacy_per_uev_input(self) -> None:
         ctx = _ctx()
-        with pytest.raises(ValueError, match="legacy per-micro-eV"):
+        with pytest.raises(ValueError, match="implausibly small"):
             qp_number_density(np.zeros(ctx.E.size), ctx, 1.74e22)
 
     def test_constant_occupation_uses_exact_bcs_dos_measure(self) -> None:
@@ -73,6 +73,18 @@ class TestQpNumberDensity:
             expected, rel=1e-14,
         )
 
+    def test_rejects_grid_that_starts_above_the_gap(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 1.01, 3.0, 200)
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+
+        with pytest.raises(ValueError, match=r"does not cover.*BCS lower bound"):
+            qp_number_density(np.full(E.size, 0.01), ctx, rho_F=1.74e28)
+
     def test_thermal_density_grows_with_temperature(self) -> None:
         # Monotonicity check: x_qp must be strictly increasing in T_bath
         # for a Fermi-Dirac occupation.
@@ -83,7 +95,7 @@ class TestQpNumberDensity:
         for T in [0.05, 0.1, 0.15, 0.2]:
             kT = KB_UEV_PER_K * T
             f = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
-            densities.append(qp_number_density(f, ctx, rho_F=1.0))
+            densities.append(qp_number_density(f, ctx, rho_F=1.0e28))
         for a, b in pairwise(densities):
             assert b > a
 
@@ -97,7 +109,7 @@ class TestQpFraction:
         x1 = qp_fraction(f, ctx, delta_0=ctx.gap)
         # qp_number_density uses ρ_F per eV, so its dimensional denominator
         # uses Δ₀ converted from µeV to eV.
-        rho_F = 1.0
+        rho_F = 1.0e28
         n = qp_number_density(f, ctx, rho_F=rho_F)
         delta_0_eV = ctx.gap / 1.0e6
         assert x1 == pytest.approx(n / (4.0 * rho_F * delta_0_eV))

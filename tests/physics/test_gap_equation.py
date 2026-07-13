@@ -64,3 +64,20 @@ class TestSolveGap:
         E = np.linspace(cal.delta_eq * 1.001, cal.delta_eq * 60.0, 2000)
         f = np.ones_like(E)
         assert solve_gap(cal, f, E) == 0.0
+
+    def test_warns_when_candidate_gap_is_below_grid_support(self) -> None:
+        T_c, T_bath = 1.2, 0.3
+        cal = calibrate_gap(T_c=T_c, T_bath=T_bath)
+        omega_D = 100.0 * KB_UEV_PER_K * T_c
+        # Deliberately omit all occupation support below 2 Δ_eq. The cold
+        # distribution solves near Δ(0), far below the first reconstructed
+        # cell edge, so the constant-left interpolation is quantitatively
+        # unsupported and must be reported.
+        E = np.linspace(2.0 * cal.delta_eq, omega_D, 1000)
+        f = np.zeros_like(E)
+
+        with pytest.warns(RuntimeWarning, match="below the reconstructed"):
+            candidate = solve_gap(cal, f, E)
+
+        lower_edge = E[0] - 0.5 * (E[1] - E[0])
+        assert candidate < lower_edge

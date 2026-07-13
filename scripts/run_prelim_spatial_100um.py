@@ -31,6 +31,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import load_material
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -66,7 +67,7 @@ def _build_state(D0: float) -> T3Spatial1DState:
     gap = material.Delta_0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=5.0,
         num_energy_bins=NE,
     )
@@ -92,9 +93,10 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
     center = SOURCE_CENTER_FACTOR * state.gap
     sigma = SOURCE_SIGMA_FACTOR * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
-    xqp_norm = float(
-        np.sum(state.spectral.rho * profile * state.spectral.dE) / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    xqp_norm = float(np.sum(spectral_weights * profile) / state.gap)
     if xqp_norm <= 0.0:
         raise RuntimeError("Could not normalize source spectrum.")
     gain_spectrum = LOCAL_XQP_GENERATION_RATE_PER_NS * profile / xqp_norm
@@ -113,13 +115,10 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
 
 
 def _xqp_profile(state: T3Spatial1DState) -> np.ndarray:
-    return (
-        np.sum(
-            state.spectral.rho[:, None] * state.f * state.spectral.dE[:, None],
-            axis=0,
-        )
-        / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
 def _mean_f(state: T3Spatial1DState) -> np.ndarray:

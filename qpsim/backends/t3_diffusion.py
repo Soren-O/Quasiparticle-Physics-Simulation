@@ -33,13 +33,16 @@ from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononState
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
 from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
 from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.etd import etd2_step
-from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 
 _TAU_L_UNIFORMITY_RTOL = 1e-10
 _GAP_STATE_MATCH_RTOL = 1e-12
@@ -120,7 +123,7 @@ def _spread_mass_change(
 
 def _recover_conservative_gap_occupation(
     u_advected: np.ndarray,
-    rho_new: np.ndarray,
+    rho_cell_average_new: np.ndarray,
     dE: np.ndarray,
 ) -> tuple[np.ndarray, float, int]:
     """Recover bounded ``f`` while conserving ``sum(u*dE)`` exactly.
@@ -132,7 +135,7 @@ def _recover_conservative_gap_occupation(
     remapped_mass, n_touched)``.
     """
     u = np.asarray(u_advected, dtype=float)
-    rho = np.asarray(rho_new, dtype=float)
+    rho = np.asarray(rho_cell_average_new, dtype=float)
     widths = np.asarray(dE, dtype=float)
     cell_mass = u * widths
     if np.any(~np.isfinite(cell_mass)):
@@ -202,6 +205,97 @@ def _recover_conservative_gap_occupation(
     f_new = np.clip(f_new, 0.0, 1.0)
     remapped_mass = 0.5 * float(np.sum(np.abs(mass_out - cell_mass)))
     return f_new, remapped_mass, n_touched
+
+
+def _remap_bcs_frozen_xi_cell_mass(
+    f_old: np.ndarray,
+    E: np.ndarray,
+    dE: np.ndarray,
+    old_gap: float,
+    new_gap: float,
+) -> tuple[np.ndarray, float]:
+    r"""Map pure-BCS finite-volume mass exactly along frozen-``xi`` shells.
+
+    For ``E = sqrt(xi^2 + Delta^2)``, the ideal BCS measure obeys
+    ``rho(E) dE = dxi`` and gap motion keeps ``xi`` fixed. Treating ``f`` as
+    cell-constant therefore turns the exact characteristic update into a
+    conservative overlap of the old and new ``xi`` cells. The returned array
+    is the quasiparticle mass in each new energy cell; the scalar is old mass
+    whose characteristic exits through the finite ``E_max`` boundary.
+    """
+    occupations = np.asarray(f_old, dtype=float)
+    energies = np.asarray(E, dtype=float)
+    widths = np.asarray(dE, dtype=float)
+    if occupations.shape != energies.shape or widths.shape != energies.shape:
+        raise ValueError("f_old, E, and dE must have identical one-dimensional shapes.")
+    if np.any(~np.isfinite(occupations)) or np.any(
+        (occupations < 0.0) | (occupations > 1.0)
+    ):
+        raise ValueError("f_old must contain finite occupations in [0, 1].")
+
+    cell_edges = cell_edges_from_widths(energies, widths)
+
+    def xi_edges(gap: float) -> np.ndarray:
+        xi = np.zeros_like(cell_edges)
+        above = cell_edges > gap
+        xi[above] = np.sqrt(
+            (cell_edges[above] - gap) * (cell_edges[above] + gap)
+        )
+        return xi
+
+    old_xi = xi_edges(old_gap)
+    new_xi = xi_edges(new_gap)
+    old_widths = np.diff(old_xi)
+    new_widths = np.diff(new_xi)
+    new_mass = np.zeros_like(occupations)
+
+    scale = max(float(old_xi[-1]), float(new_xi[-1]), 1.0)
+    tolerance = 128.0 * np.finfo(float).eps * scale
+    old_index = 0
+    new_index = 0
+    n_cells = occupations.size
+    while old_index < n_cells and new_index < n_cells:
+        old_lo = old_xi[old_index]
+        old_hi = old_xi[old_index + 1]
+        new_lo = new_xi[new_index]
+        new_hi = new_xi[new_index + 1]
+
+        if old_hi <= old_lo + tolerance:
+            old_index += 1
+            continue
+        if new_hi <= new_lo + tolerance:
+            new_index += 1
+            continue
+
+        overlap = min(old_hi, new_hi) - max(old_lo, new_lo)
+        if overlap > tolerance:
+            new_mass[new_index] += occupations[old_index] * overlap
+
+        if old_hi <= new_hi + tolerance:
+            old_index += 1
+        if new_hi <= old_hi + tolerance:
+            new_index += 1
+
+    old_mass = float(np.sum(old_widths * occupations))
+    mapped_mass = float(np.sum(new_mass))
+    mass_tolerance = 256.0 * np.finfo(float).eps * max(
+        abs(old_mass), np.finfo(float).tiny,
+    )
+    escaped_mass = old_mass - mapped_mass
+    if escaped_mass < -mass_tolerance:
+        raise RuntimeError(
+            "Frozen-xi gap remap created quasiparticle mass; "
+            f"signed excess {-escaped_mass:g}."
+        )
+    escaped_mass = max(escaped_mass, 0.0)
+
+    # ``new_widths`` is intentionally evaluated even though the caller also
+    # has analytic BCS weights: asserting the identity here protects this
+    # characteristic remap from drifting away from that shared measure.
+    expected_new_widths = bcs_dos_cell_weights(energies, widths, new_gap)
+    if not np.allclose(new_widths, expected_new_widths, rtol=5e-14, atol=tolerance):
+        raise RuntimeError("Frozen-xi cell widths disagree with BCS DOS weights.")
+    return new_mass, escaped_mass
 
 
 @dataclass
@@ -370,8 +464,10 @@ class T3DiffusionBackend:
         coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
             Coupled-Newton path controls.
         gap_tol, gap_max_iter, gap_under_relaxation
-            Outer self-consistent-gap loop controls. Ignored when
-            ``self_consistent_gap=False``.
+            Outer self-consistent-gap loop controls. ``gap_tol`` applies to
+            the unrelaxed fixed-point residual; under-relaxation changes the
+            step size but cannot weaken the convergence criterion. Ignored
+            when ``self_consistent_gap=False``.
         """
         if use_thermal_phonons and method == "coupled_newton":
             raise ValueError(
@@ -535,7 +631,12 @@ class T3DiffusionBackend:
                 (1.0 - gap_under_relaxation) * solved.gap
                 + gap_under_relaxation * delta_raw
             )
-            last_rel_change = abs(final_delta - solved.gap) / max(abs(solved.gap), 1e-30)
+            # Test the gap equation itself, before under-relaxation. Testing
+            # ``final_delta`` would scale the residual by the relaxation
+            # factor and could accept an arbitrarily poor fixed point.
+            last_rel_change = abs(delta_raw - solved.gap) / max(
+                abs(solved.gap), 1e-30,
+            )
 
             if last_rel_change < gap_tol:
                 break
@@ -550,7 +651,7 @@ class T3DiffusionBackend:
         else:
             raise RuntimeError(
                 "Self-consistent gap iteration did not converge in "
-                f"{gap_max_iter} iterations. Final |Δ_new - Δ| / Δ = "
+                f"{gap_max_iter} iterations. Final |Δ_raw - Δ| / Δ = "
                 f"{last_rel_change:.2e}."
             )
 
@@ -857,19 +958,21 @@ class T3DiffusionBackend:
         state: T3DiffusionState,
         dt: float,
     ) -> T3DiffusionState:
-        """Advance Δ via ``solve_gap`` and advect ``ρ·f`` via spectral flow.
+        r"""Advance ``Delta`` and remap BCS cell mass at frozen ``xi``.
 
         1. Solve for the new gap from the current ``f`` (reference-
            subtracted BCS).
-        2. If Δ moved, compute ``Δ̇ = (Δ_new − Δ_old) / dt`` and apply a
-           displacement-subcycled TVD+SSPRK step on the finite-volume
-           conserved variable ``u = ρ · f``.
+        2. If the gap moved, map the ideal-BCS finite-volume mass exactly
+           along frozen-``xi`` characteristics by overlapping the old and
+           new ``xi`` cells.  This is the characteristic solution of the
+           conservative spectral-flow equation because ``rho(E) dE = dxi``.
         3. Rebuild the :class:`SpectralContext` at the new Δ and recover a
-           bounded ``f`` with a ``dE``-weighted conservative edge remap.
+           bounded ``f`` with an analytic-BCS-cell-weight conservative remap.
 
         Moving-gap flow is currently supported only for ideal BCS spectra.
-        A falling gap also requires at least one energy-bin centre below the
-        new edge; otherwise the fixed lower boundary would trap outflow.
+        The grid cells must cover the new gap edge.  A finite upper energy
+        boundary may truncate rising-gap characteristics; material loss at
+        that boundary is diagnosed rather than silently discarded.
         """
         gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
         if not np.isclose(
@@ -886,11 +989,24 @@ class T3DiffusionBackend:
             raise ValueError(
                 f"apply_gap_update requires a finite positive gap; got {state.gap}."
             )
+        if not np.isfinite(dt):
+            raise ValueError(f"dt must be finite; got {dt}.")
         if dt <= 0:
             return state
 
+        f_state = np.asarray(state.f, dtype=float)
+        if f_state.shape != state.spectral.E.shape:
+            raise ValueError(
+                "state.f must have the same one-dimensional shape as the "
+                "spectral energy grid."
+            )
+        if np.any(~np.isfinite(f_state)) or np.any(
+            (f_state < 0.0) | (f_state > 1.0)
+        ):
+            raise ValueError("state.f must contain finite occupations in [0, 1].")
+
         calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
-        new_gap = float(solve_gap(calibration, state.f, state.spectral.E))
+        new_gap = float(solve_gap(calibration, f_state, state.spectral.E))
 
         if not np.isfinite(new_gap) or new_gap <= 0.0:
             raise RuntimeError(
@@ -909,26 +1025,62 @@ class T3DiffusionBackend:
 
         E = state.spectral.E
         dE = state.spectral.dE
-        if new_gap < state.gap and not (float(E[0]) < new_gap):
-            raise ValueError(
-                "A falling-gap update requires sub-gap grid room: at least "
-                "one energy-bin centre must lie below the new gap. "
-                f"Got E[0]={float(E[0]):g} and Delta_new={new_gap:g}. "
-                "Extend the energy grid below the minimum expected gap."
-            )
-
-        gap_dot = (new_gap - state.gap) / dt
-        u_old = state.spectral.rho * state.f
-        # No active_mask here: for a falling gap the conservative flux
-        # ∂_E[(Δ/E)Δ̇ N₁f] (eq:full_kinetic_conservative) legitimately
-        # carries density below the OLD gap edge into the newly opened
-        # band (Δ_new, Δ_old) — the pre-step mask would zero that
-        # spectral inflow. Numerical residue outside the NEW support is
-        # conservatively remapped after the advection.
-        u_new = advect_spectral_flow(
-            u_old, E, dE,
-            gap=state.gap, gap_dot=gap_dot, dt=dt,
+        # The conserved finite-volume variable is the cell integral of
+        # ``rho*f``, not the point sample ``rho(E_i)*f_i``. Near the BCS edge
+        # the latter has an O(1), grid-alignment-dependent midpoint error.
+        old_dos_weights = bcs_dos_cell_weights(E, dE, state.gap)
+        new_dos_weights = bcs_dos_cell_weights(E, dE, new_gap)
+        rho_cell_average_new = new_dos_weights / dE
+        mass_before = float(np.sum(old_dos_weights * f_state))
+        remapped_cell_mass, escaped_mass = _remap_bcs_frozen_xi_cell_mass(
+            f_state, E, dE, state.gap, new_gap,
         )
+
+        # A rising gap lowers the represented xi_max at fixed E_max.  The
+        # exact characteristic map therefore exposes any finite-domain tail
+        # explicitly.  Reject a material truncation and retain only a tiny
+        # numerical tail in the highest represented active cell so the
+        # closed-domain update remains conservative.
+        mass_scale = max(abs(mass_before), np.finfo(float).tiny)
+        escaped_fraction = escaped_mass / mass_scale
+        if escaped_fraction > 1e-3:
+            raise RuntimeError(
+                "apply_gap_update would lose "
+                f"{escaped_fraction:.2%} of quasiparticle mass through the "
+                "finite E_max boundary. Extend the energy grid before "
+                "evolving this gap change."
+            )
+        if escaped_mass > 0.0:
+            support_indices = np.flatnonzero(new_dos_weights > _GAP_SUPPORT_EPS)
+            tail_tolerance = 256.0 * np.finfo(float).eps * mass_scale
+            if support_indices.size == 0:
+                if escaped_mass > tail_tolerance:
+                    raise RuntimeError(
+                        "The updated gap leaves no represented BCS support "
+                        "for the finite-E_max characteristic tail."
+                    )
+            else:
+                tail_index = int(support_indices[-1])
+                tail_capacity = (
+                    new_dos_weights[tail_index] - remapped_cell_mass[tail_index]
+                )
+                if escaped_mass > tail_capacity + tail_tolerance:
+                    raise RuntimeError(
+                        "The finite-E_max characteristic tail does not fit "
+                        "in the highest represented active cell without "
+                        "violating f <= 1. Extend the energy grid."
+                    )
+                remapped_cell_mass[tail_index] += escaped_mass
+            if escaped_fraction > 1e-9:
+                warnings.warn(
+                    "apply_gap_update retained a finite-E_max characteristic "
+                    f"tail containing {escaped_fraction:.3e} of the "
+                    "quasiparticle mass in the highest represented active "
+                    "cell. Extend E_max to remove this boundary dependence.",
+                    stacklevel=2,
+                )
+
+        u_new = remapped_cell_mass / dE
 
         # Preserve every non-gap configuration from the incoming
         # SpectralContext: the caller may have set a custom
@@ -938,28 +1090,27 @@ class T3DiffusionBackend:
             state.spectral, new_gap=new_gap,
         )
 
-        rho_new = new_spectral.rho
         f_new, remapped_mass, n_touched = _recover_conservative_gap_occupation(
-            u_new, rho_new, dE,
+            u_new, rho_cell_average_new, dE,
         )
 
         # Audit the physical finite-volume invariant, including non-uniform
         # widths.  The recovery helper already enforces 0 <= f <= 1 without a
         # lossy clip; a large remap fraction is reported as a resolution
         # diagnostic, with the signed invariant drift stated separately.
-        mass_before = float(np.sum(u_old * dE))
-        mass_after = float(np.sum(rho_new * f_new * dE))
-        mass_scale = max(abs(mass_before), np.finfo(float).tiny)
+        mass_after = float(np.sum(new_dos_weights * f_new))
         signed_drift = (mass_after - mass_before) / mass_scale
         if abs(signed_drift) > 5e-12:
             raise RuntimeError(
                 "apply_gap_update failed to conserve the finite-volume "
-                f"invariant sum(rho*f*dE): signed drift {signed_drift:+.3e}."
+                "invariant sum(f*integral_cell(rho dE)): "
+                f"signed drift {signed_drift:+.3e}."
             )
         if mass_before > 0.0 and remapped_mass > 0.05 * mass_before:
             warnings.warn(
                 "apply_gap_update conservatively remapped "
-                f"{remapped_mass / mass_before:.2%} of sum(rho*f*dE) across "
+                f"{remapped_mass / mass_before:.2%} of the analytic BCS "
+                "cell measure across "
                 f"{n_touched} above-gap bins for Delta "
                 f"{state.gap:.4g}->{new_gap:.4g} micro-eV; the signed change "
                 f"in the invariant is {signed_drift:+.3e}. Increase energy "

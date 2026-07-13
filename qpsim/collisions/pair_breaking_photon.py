@@ -52,9 +52,28 @@ def pair_breaking_photon_collision_rates(
     K_minus = ctx.K_minus
     dE_scalar = uniform_grid_spacing(E, ctx.dE, "Pair-breaking photon collision")
 
+    if not np.isfinite(omega_PB) or omega_PB < 0.0:
+        raise ValueError(
+            f"omega_PB must be finite and non-negative; got {omega_PB}."
+        )
+    if not np.isfinite(n_bar_PB) or n_bar_PB < 0.0:
+        raise ValueError(
+            f"n_bar_PB must be finite and non-negative; got {n_bar_PB}."
+        )
+    if not np.isfinite(c_phot_PB) or c_phot_PB < 0.0:
+        raise ValueError(
+            f"c_phot_PB must be finite and non-negative; got {c_phot_PB}."
+        )
+
     m = round(omega_PB / dE_scalar)
-    if m <= 0:
+    if omega_PB == 0.0:
         return np.zeros(NE), np.zeros(NE)
+    if m <= 0:
+        raise ValueError(
+            f"omega_PB={omega_PB:.6g} μeV is below half the grid spacing "
+            f"dE={dE_scalar:.6g} μeV and cannot be represented; refine the "
+            "energy grid or set omega_PB=0 explicitly to disable the channel."
+        )
 
     frac_err = abs(omega_PB - m * dE_scalar) / dE_scalar
     if frac_err > _COMMENSURATE_TOL:

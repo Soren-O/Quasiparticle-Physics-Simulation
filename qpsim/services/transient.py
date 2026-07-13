@@ -28,7 +28,7 @@ Use cases
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -94,14 +94,15 @@ def run_time_dependent(
         Optional :class:`qpsim.devices.ExternalFlux` boundary
         source/sink contract. Either a static instance applied at
         every substep, or a callable ``f(t) -> ExternalFlux`` that
-        returns the flux at the current simulation time (for
-        time-varying junction couplings). ``None`` disables.
+        returns the flux at the midpoint of the current substep (for
+        time-varying junction couplings). Midpoint sampling preserves the
+        second-order time centering of ETD2. ``None`` disables.
     snapshot_interval
         Time between saved snapshots (ns). Defaults to
-        ``total_time / 50``. Snapshots are written when the running
-        time first crosses each interval boundary, so the actual
-        snapshot times may land slightly after the requested
-        boundaries (by at most ``dt``).
+        ``total_time / 50``. When a substep crosses one or more interval
+        boundaries, snapshots are linearly interpolated between its ETD2
+        endpoints. This preserves the requested cadence without changing the
+        integration step, including when ``dt`` exceeds the interval.
     observables
         Optional dict ``{name: fn(state) → float}``. Each snapshot's
         ``observables`` dict is populated with the current values —
@@ -137,13 +138,15 @@ def run_time_dependent(
         For non-physical inputs (``dt ≤ 0``, ``total_time ≤ 0``,
         ``snapshot_interval ≤ 0``, or ``stop_tol < 0``).
     """
-    if dt <= 0:
+    if not np.isfinite(dt) or dt <= 0:
         raise ValueError("dt must be positive.")
-    if total_time <= 0:
+    if not np.isfinite(total_time) or total_time <= 0:
         raise ValueError("total_time must be positive.")
-    if snapshot_interval is not None and snapshot_interval <= 0:
+    if snapshot_interval is not None and (
+        not np.isfinite(snapshot_interval) or snapshot_interval <= 0
+    ):
         raise ValueError("snapshot_interval must be positive when provided.")
-    if stop_tol is not None and stop_tol < 0:
+    if stop_tol is not None and (not np.isfinite(stop_tol) or stop_tol < 0):
         raise ValueError("stop_tol must be non-negative when provided.")
 
     if backend is None:
@@ -184,26 +187,42 @@ def run_time_dependent(
         if remaining <= 1e-12:
             break
         step_dt = min(dt, remaining)
-        prev_f = current.f
+        t_previous = t
+        prev_f = current.f.copy()
         current = backend.apply_collisions(
             current, step_dt,
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
-            external_flux=_flux_at(t),
+            external_flux=_flux_at(t + 0.5 * step_dt),
         )
         t += step_dt
         n_steps += 1
+
+        # Emit every crossed cadence boundary. Linear dense output between
+        # second-order step endpoints avoids dropping intervals when dt is
+        # larger than snapshot_interval without changing the integration grid.
+        time_tol = 16.0 * np.finfo(float).eps * max(
+            1.0, abs(t), abs(next_snap),
+        )
+        while next_snap <= t + time_tol:
+            # A cadence boundary can round a few ulps beyond an exactly
+            # coincident step/terminal boundary. Snap that timestamp to the
+            # endpoint; never extrapolate f beyond the state we integrated.
+            snapshot_time = min(next_snap, t)
+            fraction = (snapshot_time - t_previous) / step_dt
+            f_snapshot = prev_f + fraction * (current.f - prev_f)
+            snapshots.append(
+                _snapshot(snapshot_time, replace(current, f=f_snapshot))
+            )
+            next_snap += snapshot_interval
 
         if stop_tol is not None:
             rate = float(np.max(np.abs(current.f - prev_f)) / step_dt)
             if rate < stop_tol:
                 converged = True
-                snapshots.append(_snapshot(t, current))
+                if snapshots[-1].t < t - 1e-12:
+                    snapshots.append(_snapshot(t, current))
                 break
-
-        if t >= next_snap - 1e-12:
-            snapshots.append(_snapshot(t, current))
-            next_snap += snapshot_interval
 
         if progress_hook is not None and not progress_hook(t, total_time):
             break

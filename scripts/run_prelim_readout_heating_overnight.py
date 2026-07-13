@@ -175,7 +175,7 @@ def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:
     gap = material.Delta_0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=ENERGY_MAX_FACTOR,
         num_energy_bins=config.NE,
     )

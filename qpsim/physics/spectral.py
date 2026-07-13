@@ -16,8 +16,34 @@ import numpy as np
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 
 
+def _finite_array(name: str, values: np.ndarray) -> np.ndarray:
+    """Convert an array-like input to float and reject NaN/infinity."""
+    result = np.asarray(values, dtype=float)
+    if np.any(~np.isfinite(result)):
+        raise ValueError(f"{name} must contain only finite values.")
+    return result
+
+
+def _finite_scalar(name: str, value: float) -> float:
+    """Convert a scalar input to float and reject NaN/infinity."""
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite; got {result}.")
+    return result
+
+
+def _non_negative_scalar(name: str, value: float) -> float:
+    """Return a finite scalar that satisfies a non-negative contract."""
+    result = _finite_scalar(name, value)
+    if result < 0.0:
+        raise ValueError(f"{name} must be non-negative; got {result}.")
+    return result
+
+
 def bcs_density_of_states(E: np.ndarray, gap: float) -> np.ndarray:
     """BCS density of states ρ(E) = E / √(E² − Δ²) for E > Δ, else 0."""
+    E = _finite_array("E", E)
+    gap = _non_negative_scalar("gap", gap)
     rho = np.zeros_like(E, dtype=float)
     valid = gap < E
     rho[valid] = E[valid] / np.sqrt(E[valid] ** 2 - gap ** 2)
@@ -31,6 +57,8 @@ def bcs_anomalous_weight(E: np.ndarray, gap: float) -> np.ndarray:
     enters the coherence-factor combination N₁N₁′ − N₂N₂′ carried by the
     Kupriyanov–Lukichev interface projection of the energy channel.
     """
+    E = _finite_array("E", E)
+    gap = _non_negative_scalar("gap", gap)
     n2 = np.zeros_like(E, dtype=float)
     valid = gap < E
     n2[valid] = gap / np.sqrt(E[valid] ** 2 - gap ** 2)
@@ -39,6 +67,9 @@ def bcs_anomalous_weight(E: np.ndarray, gap: float) -> np.ndarray:
 
 def dynes_density_of_states(E: np.ndarray, gap: float, gamma: float) -> np.ndarray:
     """Dynes DOS: Re{(E − iΓ) / √((E − iΓ)² − Δ²)}. Γ=0 falls back to BCS."""
+    E = _finite_array("E", E)
+    gap = _non_negative_scalar("gap", gap)
+    gamma = _non_negative_scalar("gamma", gamma)
     if gamma <= 0:
         return bcs_density_of_states(E, gap)
     z = E - 1j * gamma
@@ -49,12 +80,16 @@ def dynes_density_of_states(E: np.ndarray, gap: float, gamma: float) -> np.ndarr
 
 def coherence_factor_plus(E: np.ndarray, gap: float) -> np.ndarray:
     """K⁺(E_i, E_j) = 1 + Δ² / (E_i E_j). Shape ``(NE, NE)``."""
+    E = _finite_array("E", E)
+    gap = _non_negative_scalar("gap", gap)
     E_prod = np.maximum(E[:, None] * E[None, :], 1e-30)
     return 1.0 + gap ** 2 / E_prod
 
 
 def coherence_factor_minus(E: np.ndarray, gap: float) -> np.ndarray:
     """K⁻(E_i, E_j) = max(0, 1 − Δ² / (E_i E_j)). Shape ``(NE, NE)``."""
+    E = _finite_array("E", E)
+    gap = _non_negative_scalar("gap", gap)
     E_prod = np.maximum(E[:, None] * E[None, :], 1e-30)
     return np.maximum(1.0 - gap ** 2 / E_prod, 0.0)
 
@@ -70,6 +105,8 @@ def thermal_qp_weights(
     Returns zeros at ``temperature <= 0`` (no thermal quasiparticles).
     ``dynes_gamma > 0`` uses the Dynes DOS; 0 falls back to pure BCS.
     """
+    E_bins = _finite_array("E_bins", E_bins)
+    temperature = _finite_scalar("temperature", temperature)
     rho = dynes_density_of_states(E_bins, gap, dynes_gamma)
     if temperature <= 0:
         return np.zeros_like(rho)
@@ -109,14 +146,26 @@ class SpectralContext:
         rebuild_tolerance: float = 1e-4,
         active_margin_factor: float = 0.1,
     ) -> None:
-        self._E = np.asarray(E_bins, dtype=float).ravel()
-        self._dE = np.asarray(dE_bins, dtype=float).ravel()
+        self._E = _finite_array("E_bins", E_bins).ravel()
+        self._dE = _finite_array("dE_bins", dE_bins).ravel()
+        if self._E.size == 0:
+            raise ValueError("E_bins must be non-empty.")
         if self._E.size != self._dE.size:
             raise ValueError("E_bins and dE_bins must have the same length.")
-        self._dynes_gamma = float(dynes_gamma)
-        self._D0 = float(diffusion_coefficient)
-        self._rebuild_tolerance = float(rebuild_tolerance)
-        self._active_margin_factor = float(active_margin_factor)
+        if np.any(np.diff(self._E) <= 0.0):
+            raise ValueError("E_bins must be strictly increasing.")
+        if np.any(self._dE <= 0.0):
+            raise ValueError("dE_bins must be positive.")
+        self._dynes_gamma = _non_negative_scalar("dynes_gamma", dynes_gamma)
+        self._D0 = _non_negative_scalar(
+            "diffusion_coefficient", diffusion_coefficient,
+        )
+        self._rebuild_tolerance = _non_negative_scalar(
+            "rebuild_tolerance", rebuild_tolerance,
+        )
+        self._active_margin_factor = _non_negative_scalar(
+            "active_margin_factor", active_margin_factor,
+        )
 
         self._gap: float = 0.0
         self._rho: np.ndarray = np.empty(0)
@@ -190,6 +239,7 @@ class SpectralContext:
 
     def maybe_rebuild(self, new_gap: float) -> bool:
         """Rebuild iff |Δ − Δ_new|/|Δ| > ``rebuild_tolerance``. Returns True on rebuild."""
+        new_gap = _non_negative_scalar("new_gap", new_gap)
         rel_change = abs(new_gap - self._gap) / max(abs(self._gap), 1e-30)
         if rel_change <= self._rebuild_tolerance:
             return False
@@ -197,7 +247,12 @@ class SpectralContext:
         return True
 
     def _rebuild(self, gap: float) -> None:
-        self._gap = float(gap)
+        gap = _non_negative_scalar("gap", gap)
+        if not np.any(gap < self._E):
+            raise ValueError(
+                "SpectralContext requires at least one energy bin above gap."
+            )
+        self._gap = gap
         E = self._E
 
         if self._dynes_gamma > 0:

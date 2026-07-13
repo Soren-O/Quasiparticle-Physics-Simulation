@@ -24,9 +24,11 @@ Architecture (Phase 5c):
   state-driven Picard locks orders of magnitude below the M25
   fixed point. The Device solver's outer Picard converges in 2
   iterations because the emitted flux is constant across iterates.
-* Per-region rates spread **uniformly over each electrode's
-  active sub-band(s)**, normalized so the moment-integral identity
+* Per-region rates spread **uniformly in spectral measure over each
+  electrode's active sub-band(s)**, normalized so the moment-integral identity
   ``(2/Δ_α) ∫ ρ × gain dE = gain_moment`` holds exactly.
+  Pure-BCS cells use analytic DOS weights, and the R</R> boundary must be a
+  cell face so one cell never carries two incompatible moment rates.
 * Qubit channels: parity-flipping ``eo`` from QP tunneling
   (``Γ̃^α_{ij} × x_α`` for α ∈ {L, R>, R<}), parity-flipping ``eo``
   from photon-assisted tunneling (``Γ̃^{ph}_{ij}``), and parity-
@@ -67,6 +69,11 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.devices.junction import Junction, JunctionResult
 from qpsim.devices.qubit import QubitTransitionChannel
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
+from qpsim.physics.spectral import SpectralContext
 from qpsim.services.rate_equation import (
     M25Coefficients,
     M25SteadyState,
@@ -102,9 +109,58 @@ def _float_dataclass_fingerprint(
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _spectral_band_weights(
+    spectral: SpectralContext,
+    *,
+    lower_bound: float,
+    upper_bound: float | None = None,
+) -> np.ndarray:
+    """Return per-cell spectral measure for one physical energy band.
+
+    Pure BCS cells use the analytic DOS primitive. Dynes cells use the
+    cell-centered DOS times the exact geometric overlap with the band. Both
+    paths require the grid to cover the requested lower boundary rather than
+    silently dropping support.
+    """
+    if not np.isfinite(lower_bound):
+        raise ValueError("lower_bound must be finite.")
+    if upper_bound is not None and (
+        np.isnan(upper_bound) or upper_bound <= lower_bound
+    ):
+        raise ValueError("upper_bound must be greater than lower_bound.")
+
+    if spectral.dynes_gamma == 0.0:
+        return bcs_dos_cell_weights(
+            spectral.E,
+            spectral.dE,
+            spectral.gap,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        )
+
+    edges = cell_edges_from_widths(spectral.E, spectral.dE)
+    coverage_tol = 128.0 * np.finfo(float).eps * max(
+        1.0, abs(float(edges[0])), abs(lower_bound),
+    )
+    if float(edges[0]) > lower_bound + coverage_tol:
+        raise ValueError(
+            "The energy grid does not cover the requested M25 band edge: "
+            f"first cell edge {float(edges[0]):g} > {lower_bound:g}."
+        )
+    hi_bound = float(edges[-1]) if upper_bound is None else upper_bound
+    lo = np.maximum(edges[:-1], lower_bound)
+    hi = np.minimum(edges[1:], hi_bound)
+    overlap = np.maximum(hi - lo, 0.0)
+    return spectral.rho * overlap
+
+
 def _moment_x_M25(
-    f: np.ndarray, rho: np.ndarray, dE: np.ndarray,
-    gap_alpha_uev: float, mask: np.ndarray | None = None,
+    f: np.ndarray,
+    spectral: SpectralContext,
+    gap_alpha_uev: float,
+    *,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
 ) -> float:
     r"""Compute M25-convention dimensionless density ``x_α``.
 
@@ -114,20 +170,29 @@ def _moment_x_M25(
 
     Parameters
     ----------
-    f, rho, dE
-        Region's f(E), DOS ρ(E), and integration weights dE on the
-        same energy grid (μeV).
+    f, spectral
+        Region occupation and spectral context on the same energy grid.
     gap_alpha_uev
         Sub-band gap reference in μeV (Δ_L, Δ_R, etc.). Sets the
         normalization.
-    mask
-        Optional boolean mask selecting a sub-band (e.g. R< vs R>).
-        Restricts the integral to ``E`` bins where the mask is True.
+    lower_bound, upper_bound
+        Optional physical band bounds. Cells crossed by a bound are split by
+        their spectral measure rather than assigned by center location.
     """
-    integrand = rho * f * dE
-    if mask is not None:
-        integrand = integrand * mask
-    return 2.0 * float(np.sum(integrand)) / gap_alpha_uev
+    f_arr = np.asarray(f, dtype=float)
+    if f_arr.shape != spectral.E.shape:
+        raise ValueError(
+            f"f must have shape {spectral.E.shape}; got {f_arr.shape}."
+        )
+    if not np.isfinite(gap_alpha_uev) or gap_alpha_uev <= 0.0:
+        raise ValueError("gap_alpha_uev must be finite and positive.")
+    band_lo = spectral.gap if lower_bound is None else lower_bound
+    weights = _spectral_band_weights(
+        spectral,
+        lower_bound=band_lo,
+        upper_bound=upper_bound,
+    )
+    return 2.0 * float(np.sum(weights * f_arr)) / gap_alpha_uev
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -197,6 +262,10 @@ class M25GapAsymmetricJJ(Junction):
     # T3 backend with external_dissipation_only=True to avoid
     # double-counting against the e-ph collision kernel.
     owns_region_dissipation: bool = field(default=True, init=False, repr=False)
+    # The cached fixed point is an isolated two-electrode closure: evaluate()
+    # intentionally does not consume state_a.f/state_b.f. Another Junction
+    # touching either region would change f without feeding back into it.
+    requires_exclusive_regions: bool = field(default=True, init=False, repr=False)
     _coefficients: M25Coefficients | None = field(default=None, init=False, repr=False)
     _coefficients_fingerprint: tuple[tuple[float, ...], tuple[float, ...]] | None = field(
         default=None, init=False, repr=False,
@@ -303,7 +372,6 @@ class M25GapAsymmetricJJ(Junction):
         """
         del qubit_state  # M25 owns p_1; see _ensure_moment_solution_cached
         coefs = self._ensure_coefficients_cached()
-        moment = self._ensure_moment_solution_cached()
 
         # ── Validate gap consistency before extracting masks ──
         Delta_L_uev = float(state_a.spectral.gap)
@@ -320,6 +388,22 @@ class M25GapAsymmetricJJ(Junction):
         # asymmetry but above float round-trip noise.
         Delta_L_param_uev = self.m25_params.Delta_L_kelvin * KB_UEV_PER_K
         Delta_R_param_uev = self.m25_params.Delta_R_kelvin * KB_UEV_PER_K
+        for region_name, region_state in (
+            (self.region_a, state_a),
+            (self.region_b, state_b),
+        ):
+            if not np.isclose(
+                region_state.T_bath,
+                self.m25_params.T_kelvin,
+                rtol=1e-10,
+                atol=1e-12,
+            ):
+                raise ValueError(
+                    f"Region {region_name!r} T_bath={region_state.T_bath:g} K "
+                    "disagrees with the temperature used to build the M25 "
+                    f"closure ({self.m25_params.T_kelvin:g} K). Rebuild the "
+                    "junction parameters and region states at one temperature."
+                )
         for region_label, region_name, state, spectral_gap_uev, param_gap_uev, param_field in (
             ("L", self.region_a, state_a, Delta_L_uev, Delta_L_param_uev, "Delta_L_kelvin"),
             ("R", self.region_b, state_b, Delta_R_uev, Delta_R_param_uev, "Delta_R_kelvin"),
@@ -348,11 +432,12 @@ class M25GapAsymmetricJJ(Junction):
         #    rho × dE × mask integral inside _build_per_region_flux
         #    would still vanish and silently emit ExternalFlux.zero —
         #    deleting the M25 L moment terms.
-        rho_L = state_a.spectral.rho
-        dE_L = state_a.spectral.dE
         E_L = state_a.spectral.E
-        mask_L = Delta_L_uev <= E_L
-        if float(np.sum(rho_L * dE_L * mask_L)) <= 0.0:
+        mask_L = Delta_L_uev < E_L
+        weights_L = _spectral_band_weights(
+            state_a.spectral, lower_bound=Delta_L_uev,
+        )
+        if not np.any(mask_L & (weights_L > 0.0)):
             raise ValueError(
                 f"Region {self.region_a!r} energy grid has no positive "
                 f"DOS support in the L band E ≥ Δ_L = {Delta_L_uev:.6g} μeV "
@@ -362,21 +447,27 @@ class M25GapAsymmetricJJ(Junction):
 
         # ── R-electrode sub-band masks (still required for spreading) ─
         E_R = state_b.spectral.E
-        rho_R = state_b.spectral.rho
-        dE_R = state_b.spectral.dE
-        mask_Rlt = (Delta_R_uev <= E_R) & (Delta_L_uev > E_R)
+        mask_Rlt = (Delta_R_uev < E_R) & (Delta_L_uev > E_R)
         mask_Rgt = Delta_L_uev <= E_R
-        # Use positive rho × dE × mask sums rather than mere bin counts —
-        # boundary-only sub-bands (e.g. a single bin at E == Δ_R in R<)
-        # would otherwise pass and silently emit zero flux on that band.
-        if float(np.sum(rho_R * dE_R * mask_Rlt)) <= 0.0:
+        weights_Rlt = _spectral_band_weights(
+            state_b.spectral,
+            lower_bound=Delta_R_uev,
+            upper_bound=Delta_L_uev,
+        )
+        weights_Rgt = _spectral_band_weights(
+            state_b.spectral,
+            lower_bound=Delta_L_uev,
+        )
+        # Require an actual representative center in each band, not only a
+        # cell sliver crossed by the boundary.
+        if not np.any(mask_Rlt & (weights_Rlt > 0.0)):
             raise ValueError(
                 f"Region {self.region_b!r} energy grid has no positive "
                 f"DOS support in the R< sub-band (Δ_R, Δ_L) = "
                 f"({Delta_R_uev:.6g}, {Delta_L_uev:.6g}) μeV. Extend the "
                 "grid lower bound or add bins with E strictly above Δ_R."
             )
-        if float(np.sum(rho_R * dE_R * mask_Rgt)) <= 0.0:
+        if not np.any(mask_Rgt & (weights_Rgt > 0.0)):
             raise ValueError(
                 f"Region {self.region_b!r} energy grid has no positive "
                 f"DOS support in the R> sub-band E ≥ Δ_L = "
@@ -385,6 +476,7 @@ class M25GapAsymmetricJJ(Junction):
             )
 
         # ── Use cached moment-solver fixed point ──
+        moment = self._ensure_moment_solution_cached()
         p_1 = moment.p_1
         p_0 = moment.p_0
         x_L = moment.x_L
@@ -449,14 +541,13 @@ class M25GapAsymmetricJJ(Junction):
         )
 
         # ── Spread moment rates → per-bin (gain, loss_rate) ──
-        # Pass the explicit M25 L band mask (E ≥ Δ_L) rather than
-        # mask=None. mask=None would normalize over the full grid,
-        # which on Dynes-broadened SpectralContexts picks up subgap
-        # DOS weight and shrinks the recovered above-gap M25 gain
-        # below gain_moment_Hz.
+        # Pass the explicit M25 L lower bound. This excludes Dynes subgap
+        # weight and uses the exact finite-volume spectral measure rather than
+        # a center mask / rho(E_i)*dE_i approximation.
         ef_L = self._build_per_region_flux(
             state_a, gain_L_moment, loss_rate_L_moment,
-            gap_uev=Delta_L_uev, mask=mask_L,
+            gap_uev=Delta_L_uev,
+            lower_bound=Delta_L_uev,
             label="L",
         )
         ef_R = self._build_per_region_flux_two_band(
@@ -484,7 +575,8 @@ class M25GapAsymmetricJJ(Junction):
         loss_rate_moment: float,
         *,
         gap_uev: float,
-        mask: np.ndarray | None,
+        lower_bound: float,
+        upper_bound: float | None = None,
         label: str,
     ) -> ExternalFlux:
         """Spread a single (gain_moment, loss_rate_moment) over the
@@ -493,13 +585,18 @@ class M25GapAsymmetricJJ(Junction):
         The moment-integral identities (see module docstring) give:
         * loss_rate_per_bin = loss_rate_moment / 1e9  (Hz → 1/ns)
         * gain_per_bin = gain_moment × (Δ/2) / ∫_band ρ dE × (1/1e9)
+
+        The band integral is a finite-volume spectral measure: analytic BCS
+        cell weights (or cell-overlap Dynes weights), not ``rho(E_i)*dE_i``.
         """
-        rho = state.spectral.rho
-        dE = state.spectral.dE
         E = state.spectral.E
-        if mask is None:
-            mask = np.ones_like(E, dtype=bool)
-        rho_band_integral = float(np.sum(rho * dE * mask))
+        weights = _spectral_band_weights(
+            state.spectral,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        )
+        support = weights > 0.0
+        rho_band_integral = float(np.sum(weights))
         if rho_band_integral <= 0.0:
             # Empty band; emit zero flux.
             NE = E.size
@@ -511,8 +608,8 @@ class M25GapAsymmetricJJ(Junction):
         )
         loss_rate_per_bin_value = loss_rate_moment * 1e-9
 
-        gain = np.where(mask, gain_per_bin_value, 0.0)
-        loss_rate = np.where(mask, loss_rate_per_bin_value, 0.0)
+        gain = np.where(support, gain_per_bin_value, 0.0)
+        loss_rate = np.where(support, loss_rate_per_bin_value, 0.0)
         return ExternalFlux(
             gain=gain, loss_rate=loss_rate,
             diagnostics={
@@ -533,24 +630,50 @@ class M25GapAsymmetricJJ(Junction):
         """Combine R< and R> moment rates into a single ExternalFlux
         on the full R-electrode energy grid."""
         E = state.spectral.E
-        rho = state.spectral.rho
-        dE = state.spectral.dE
+        edges = cell_edges_from_widths(E, state.spectral.dE)
+        alignment_scale = max(abs(Delta_L_uev), 1.0)
+        if not np.any(
+            np.isclose(edges, Delta_L_uev, rtol=0.0, atol=1e-12 * alignment_scale)
+        ):
+            raise ValueError(
+                "The M25 R</R> boundary Delta_L must coincide with an "
+                "energy-cell face. A cell that straddles Delta_L cannot "
+                "carry two independent moment gain/loss rates; build a "
+                "piecewise grid with an explicit face at Delta_L."
+            )
 
-        mask_Rlt = (Delta_R_uev <= E) & (Delta_L_uev > E)
-        mask_Rgt = Delta_L_uev <= E
+        weights_Rlt = _spectral_band_weights(
+            state.spectral,
+            lower_bound=Delta_R_uev,
+            upper_bound=Delta_L_uev,
+        )
+        weights_Rgt = _spectral_band_weights(
+            state.spectral,
+            lower_bound=Delta_L_uev,
+        )
+        support_Rlt = weights_Rlt > 0.0
+        support_Rgt = weights_Rgt > 0.0
+        if np.any(support_Rlt & support_Rgt):
+            raise RuntimeError(
+                "M25 band quadrature produced overlapping R</R> cell support."
+            )
 
-        rho_Rlt_int = float(np.sum(rho * dE * mask_Rlt))
-        rho_Rgt_int = float(np.sum(rho * dE * mask_Rgt))
+        rho_Rlt_int = float(np.sum(weights_Rlt))
+        rho_Rgt_int = float(np.sum(weights_Rgt))
 
         gain = np.zeros_like(E)
         loss_rate = np.zeros_like(E)
 
         if rho_Rlt_int > 0.0:
-            gain[mask_Rlt] = gain_Rlt * Delta_R_uev / (2.0 * rho_Rlt_int) * 1e-9
-            loss_rate[mask_Rlt] = loss_rate_Rlt * 1e-9
+            gain[support_Rlt] = (
+                gain_Rlt * Delta_R_uev / (2.0 * rho_Rlt_int) * 1e-9
+            )
+            loss_rate[support_Rlt] = loss_rate_Rlt * 1e-9
         if rho_Rgt_int > 0.0:
-            gain[mask_Rgt] = gain_Rgt * Delta_R_uev / (2.0 * rho_Rgt_int) * 1e-9
-            loss_rate[mask_Rgt] = loss_rate_Rgt * 1e-9
+            gain[support_Rgt] = (
+                gain_Rgt * Delta_R_uev / (2.0 * rho_Rgt_int) * 1e-9
+            )
+            loss_rate[support_Rgt] = loss_rate_Rgt * 1e-9
 
         return ExternalFlux(
             gain=gain, loss_rate=loss_rate,

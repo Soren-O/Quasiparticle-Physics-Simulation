@@ -249,7 +249,13 @@ class M25Coefficients:
     cooper_pair_number_R: float = 1.0
 
     def __post_init__(self) -> None:
-        for name in ("gammas_L", "gammas_Rgt", "gammas_Rlt", "gamma_ee", "gamma_ph"):
+        matrix_names = (
+            "gammas_L", "gammas_Rgt", "gammas_Rlt", "gamma_ee", "gamma_ph",
+        )
+        vector_names = (
+            "g_ph_L_per_state", "g_ph_Rgt_per_state", "g_ph_Rlt_per_state",
+        )
+        for name in matrix_names:
             arr = getattr(self, name)
             if not isinstance(arr, np.ndarray) or arr.shape != (2, 2):
                 raise ValueError(
@@ -261,7 +267,7 @@ class M25Coefficients:
                     f"{name} entries must be finite and nonneg (rates); "
                     f"got min {float(arr.min())}"
                 )
-        for name in ("g_ph_L_per_state", "g_ph_Rgt_per_state", "g_ph_Rlt_per_state"):
+        for name in vector_names:
             arr = getattr(self, name)
             if not isinstance(arr, np.ndarray) or arr.shape != (2,):
                 raise ValueError(
@@ -273,6 +279,16 @@ class M25Coefficients:
                     f"{name} entries must be finite and nonneg (rates); "
                     f"got min {float(arr.min())}"
                 )
+
+        # ``frozen=True`` only prevents rebinding dataclass attributes;
+        # without a defensive copy, a caller can still mutate the arrays it
+        # passed in and silently change a coefficient bundle after validation
+        # (or while it is cached by a temperature sweep).  Own immutable
+        # snapshots so a validated M25Coefficients really is stable.
+        for name in (*matrix_names, *vector_names):
+            arr_copy = getattr(self, name).copy()
+            arr_copy.flags.writeable = False
+            object.__setattr__(self, name, arr_copy)
         # The boxed residual (M25 Eqs. 4-6) assumes the ansatz in M25
         # text below Eq. 2: Γ̃^{R<}_{01} = Γ̃^{R<}_{11} = 0 (trapped-
         # band QP cannot tunnel out without gaining ω_LR) and
@@ -356,13 +372,11 @@ class M25SteadyState:
     n_function_evaluations: int
 
 
-def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray:
-    r"""Compute ``R(y) = (ṗ_1, ẋ_L, ẋ_{R>}, ẋ_{R<})`` at steady state.
-
-    At the steady state ``R(y) = 0``. The equations reproduce M25
-    Eqs. 3-6 (boxed in thesis Part III Appendix A,
-    \cref{res:M25_rate_eqs}).
-    """
+def _rate_equation_terms(
+    y: np.ndarray,
+    coefs: M25Coefficients,
+) -> tuple[tuple[float, ...], ...]:
+    """Return the signed additive terms in each M25 residual row."""
     p_1, x_L, x_Rgt, x_Rlt = y
     p_0 = 1.0 - p_1
 
@@ -398,9 +412,9 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     # Qubit master equation on p_1:
     #   ṗ_1 = −(Γ̃^{eo}_{10} + Γ̃^{ee}_{10}) p_1
     #         + (Γ̃^{eo}_{01} + Γ̃^{ee}_{01}) p_0
-    p_1_dot = (
-        -(gamma_eo[1, 0] + coefs.gamma_ee[1, 0]) * p_1
-        + (gamma_eo[0, 1] + coefs.gamma_ee[0, 1]) * p_0
+    p_1_terms = (
+        -(gamma_eo[1, 0] + coefs.gamma_ee[1, 0]) * p_1,
+        (gamma_eo[0, 1] + coefs.gamma_ee[0, 1]) * p_0,
     )
 
     # Density equations (M25 Eqs. 4–6) use the single-quasiparticle
@@ -425,36 +439,112 @@ def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray
     gamma_Rlt_10 = bars_Rlt[1, 0]
     gamma_L_01 = bars_L[0, 1]
 
-    x_L_dot = (
-        g_L_eff
-        - coefs.r_L * x_L**2
-        - delta * T_L * x_L
-        + delta * T_Rgt * x_Rgt
-        + delta * gamma_Rlt_10 * p_1 * x_Rlt
+    x_L_terms = (
+        g_L_eff,
+        -coefs.r_L * x_L**2,
+        -delta * T_L * x_L,
+        delta * T_Rgt * x_Rgt,
+        delta * gamma_Rlt_10 * p_1 * x_Rlt,
     )
 
-    x_Rgt_dot = (
-        g_Rgt_eff
-        - coefs.r_Rgt * x_Rgt**2
-        - coefs.r_cross * x_Rlt * x_Rgt
-        - T_Rgt * x_Rgt
-        + S_L_to_Rgt * x_L
-        + coefs.xi * gamma_L_01 * p_0 * x_L
-        - coefs.tau_R_inv * x_Rgt
-        + coefs.tau_E_inv * x_Rlt
+    x_Rgt_terms = (
+        g_Rgt_eff,
+        -coefs.r_Rgt * x_Rgt**2,
+        -coefs.r_cross * x_Rlt * x_Rgt,
+        -T_Rgt * x_Rgt,
+        S_L_to_Rgt * x_L,
+        coefs.xi * gamma_L_01 * p_0 * x_L,
+        -coefs.tau_R_inv * x_Rgt,
+        coefs.tau_E_inv * x_Rlt,
     )
 
-    x_Rlt_dot = (
-        g_Rlt_eff
-        - coefs.r_Rlt * x_Rlt**2
-        - coefs.r_cross * x_Rlt * x_Rgt
-        - gamma_Rlt_10 * p_1 * x_Rlt
-        + (1.0 - coefs.xi) * gamma_L_01 * p_0 * x_L
-        + coefs.tau_R_inv * x_Rgt
-        - coefs.tau_E_inv * x_Rlt
+    x_Rlt_terms = (
+        g_Rlt_eff,
+        -coefs.r_Rlt * x_Rlt**2,
+        -coefs.r_cross * x_Rlt * x_Rgt,
+        -gamma_Rlt_10 * p_1 * x_Rlt,
+        (1.0 - coefs.xi) * gamma_L_01 * p_0 * x_L,
+        coefs.tau_R_inv * x_Rgt,
+        -coefs.tau_E_inv * x_Rlt,
     )
 
-    return np.array([p_1_dot, x_L_dot, x_Rgt_dot, x_Rlt_dot], dtype=float)
+    return p_1_terms, x_L_terms, x_Rgt_terms, x_Rlt_terms
+
+
+def _rate_equation_residual(y: np.ndarray, coefs: M25Coefficients) -> np.ndarray:
+    r"""Compute ``R(y) = (ṗ_1, ẋ_L, ẋ_{R>}, ẋ_{R<})`` at steady state.
+
+    At the steady state ``R(y) = 0``. The equations reproduce M25
+    Eqs. 3-6 (boxed in thesis Part III Appendix A,
+    \cref{res:M25_rate_eqs}).
+    """
+    rows = _rate_equation_terms(y, coefs)
+    return np.array([sum(row) for row in rows], dtype=float)
+
+
+def _source_scaled_residual_tolerances(
+    y: np.ndarray,
+    coefs: M25Coefficients,
+    residual_tol_relative: float,
+) -> np.ndarray:
+    """Return four row-wise automatic residual tolerances in Hz.
+
+    For row ``i`` the gate is
+
+    ``|R_i| <= max(1e-14, rel * source_i + 64 eps * sum_j |term_ij|)``.
+
+    ``source_i`` is the larger qubit transition flux for the probability
+    row and the aggregate (thermal + population-weighted photon) generation
+    for each density row.  Thus an exponentially small thermal contribution
+    is added to, rather than compared with, the photon drive; it cannot
+    create the old hard-cutoff discontinuity.  The backward-error term is
+    tied to the actual arithmetic in that row. It admits float64 cancellation
+    granularity in a large qubit flux without loosening any density row enough
+    to admit a slope pseudo-root.
+    """
+    if not (
+        np.isfinite(residual_tol_relative)
+        and residual_tol_relative >= 0.0
+    ):
+        raise ValueError(
+            "residual_tol_relative must be finite and nonnegative; "
+            f"got {residual_tol_relative}"
+        )
+
+    rows = _rate_equation_terms(np.asarray(y, dtype=float), coefs)
+    term_sums = np.array(
+        [sum(abs(float(term)) for term in row) for row in rows],
+        dtype=float,
+    )
+    row_sources = np.array([
+        max(abs(float(rows[0][0])), abs(float(rows[0][1]))),
+        abs(float(rows[1][0])),
+        abs(float(rows[2][0])),
+        abs(float(rows[3][0])),
+    ])
+    backward_error = 64.0 * np.finfo(float).eps * term_sums
+    return np.maximum(
+        1e-14,
+        residual_tol_relative * row_sources + backward_error,
+    )
+
+
+def _passes_source_scaled_residual_gate(
+    y: np.ndarray,
+    residual: np.ndarray,
+    coefs: M25Coefficients,
+    residual_tol_relative: float,
+) -> tuple[bool, np.ndarray]:
+    """Check a residual against the row-wise automatic gate."""
+    tolerances = _source_scaled_residual_tolerances(
+        y, coefs, residual_tol_relative,
+    )
+    accepted = bool(
+        np.all(np.isfinite(residual))
+        and np.all(np.isfinite(tolerances))
+        and np.all(np.abs(residual) <= tolerances)
+    )
+    return accepted, tolerances
 
 
 def solve_rate_equation_steady_state(
@@ -497,41 +587,29 @@ def solve_rate_equation_steady_state(
         thermal-equilibrium fixed point at high T) can be reached by
         passing a guess close to them.
     residual_tol
-        Absolute acceptance threshold on ``||R||_∞`` in Hz. If
-        ``None`` (default), an automatic **source-based** tolerance
-        ``min_nonzero_source_rate × residual_tol_relative`` is used
-        (floored at 1e-14 Hz). At steady state, every residual
-        component balances against the drive/source terms ``g_α``,
-        ``Γ^{ee}``, ``Γ^{ph}``, so ``||R||_∞ << min(sources)`` is
-        the right physical accuracy criterion. Coefficient-magnitude-
-        based auto-scaling (the previous default) accepted residuals
-        far above the physical source scale whenever tunneling
-        coefficients dwarfed the drive — this is specifically the
-        regime of SI-Note-V-built Fig 3 coefficients, so that path
-        now fails loudly (as intended) until variable rescaling or
-        T-continuation lands (Stage B).
+        Optional absolute acceptance threshold applied to every residual
+        row in Hz. If ``None`` (default), row ``i`` uses
+        ``max(1e-14, residual_tol_relative × source_i
+        + 64 eps × sum_j |term_ij|)``. ``source_i`` is the aggregate
+        drive for that row (thermal and photon generation are additive),
+        while the final term is a float64 backward-error allowance for
+        cancellation among the row's actual terms. This prevents a tiny
+        thermal contribution from collapsing all four tolerances and does
+        not loosen density rows when only the qubit row has large fluxes.
     residual_tol_relative
         Multiplier for the auto-scaled default; ignored when
         ``residual_tol`` is given explicitly. The default ``1e-3``
-        demands ~3-significant-figure balance relative to the smallest
-        source rate — enough for physics precision while staying
-        achievable at float64 for SI-derived M25 coefficients (where
-        cancellation between tunneling terms at ``~10¹¹ Hz`` floors
-        the achievable ``||R||_∞`` at ``~10⁻⁴`` Hz). Tighten this
-        when coefficients are smaller or variable rescaling is in
-        place (Stage B).
+        demands ~3-significant-figure balance relative to each row's
+        physical source; the backward-error term separately covers
+        float64 cancellation granularity.
     accept_lm_convergence
         Backward-compatible name (kept across the lm→hybr solver
-        switch). When ``True``, accept the result if hybr stalls
-        with the specific "iteration is not making good progress"
-        status AND the residual is at or below 1.0 Hz. This is the
-        cancellation-floor escape hatch for M25 Fig 3 inputs, where
-        ``Γ̃ × x ~ 1e4 Hz`` tunneling currents cancel to ~1e-5 Hz —
-        below ``residual_tol`` is unreachable but the answer is
-        still physically meaningful. The bypass does NOT cover
-        other failure modes (maxfev hit, "no further improvement",
-        etc.) which always raise. Default ``False`` keeps the strict
-        residual check.
+        switch). When ``True``, a result with hybr's specific
+        "iteration is not making good progress" status may be
+        accepted only if it passes the same source-scaled residual
+        gate as a successful solve. The flag relaxes a solver-status
+        check, never the physical accuracy check. Other failure modes
+        (maxfev hit, "no further improvement", etc.) always raise.
     max_function_evaluations
         Hard cap passed to scipy. Each Newton step typically costs
         5 evaluations (1 residual + 4 FD-Jacobian columns).
@@ -591,34 +669,20 @@ def solve_rate_equation_steady_state(
                 f"initial_guess must have shape (4,); got {y0.shape}"
             )
 
-    if residual_tol is None:
-        source_rates = [
-            coefs.g_L, coefs.g_Rgt, coefs.g_Rlt,
-            float(np.max(coefs.g_ph_L_per_state)),
-            float(np.max(coefs.g_ph_Rgt_per_state)),
-            float(np.max(coefs.g_ph_Rlt_per_state)),
-            float(np.max(coefs.gamma_ee)),
-            float(np.max(coefs.gamma_ph)),
-        ]
-        # Filter out thermal-phonon generation noise: at low T/Δ the
-        # ``g_α`` terms scale as ``exp(-Δ/T)`` and can be ~1e-50 or
-        # smaller without representing any meaningful physical drive.
-        # Including them in min(sources) drives the auto-tol below the
-        # 1e-14 floor for any setup with a sub-Kelvin bath, which then
-        # demands machine-precision balancing of ~1e10 Hz tunneling
-        # currents — unachievable. Use 1e-30 Hz as the "physically
-        # meaningful source" cutoff; well below the smallest realistic
-        # photon-driven generation rate (~1e-15 Hz at the M25 Fig 3
-        # tail) but far above the exp(-Δ/T) thermal noise floor.
-        meaningful_sources = [s for s in source_rates if s > 1e-30]
-        if meaningful_sources:
-            residual_tol = max(
-                min(meaningful_sources) * residual_tol_relative, 1e-14,
-            )
-        else:
-            # No driving — exact steady state is (p from ee-balance,
-            # all x = 0). Machine-precision floor only.
-            residual_tol = 1e-14
+    if residual_tol is None and not (
+        np.isfinite(residual_tol_relative)
+        and residual_tol_relative >= 0.0
+    ):
+        raise ValueError(
+            "residual_tol_relative must be finite and nonnegative; "
+            f"got {residual_tol_relative}"
+        )
+    if residual_tol is not None and not (
+        np.isfinite(residual_tol) and residual_tol >= 0.0
+    ):
+        raise ValueError(
+            f"residual_tol must be finite and nonnegative; got {residual_tol}"
+        )
 
     # Use ``scipy.optimize.root(method='hybr')`` for deterministic
     # behavior across repeated calls — the legacy ``method='lm'``
@@ -639,22 +703,34 @@ def solve_rate_equation_steady_state(
         options={"xtol": 1e-13, "maxfev": int(max_function_evaluations)},
     )
 
-    residual_inf_norm = float(np.max(np.abs(sol.fun)))
+    residual_vector = np.asarray(sol.fun, dtype=float)
+    residual_inf_norm = float(np.max(np.abs(residual_vector)))
     # Phrase every residual gate as ``not (residual <= threshold)`` rather than
     # ``residual > threshold``. A NaN residual (MINPACK can return one from an
     # inf-inf cancellation in the density rows) makes every ``>`` comparison
     # False, which silently accepted a garbage state on the strict path; the
     # ``<=`` form rejects NaN and +inf.
-    residual_check_failed = not (residual_inf_norm <= residual_tol)
+    if residual_tol is None:
+        residual_passed, row_tolerances = _passes_source_scaled_residual_gate(
+            np.asarray(sol.x, dtype=float), residual_vector, coefs,
+            residual_tol_relative,
+        )
+    else:
+        row_tolerances = np.full(4, residual_tol, dtype=float)
+        residual_passed = bool(
+            np.all(np.abs(residual_vector) <= row_tolerances)
+        )
+    residual_check_failed = not residual_passed
+    residual_detail = (
+        f"|R| = {np.array2string(np.abs(residual_vector), precision=3)}; "
+        f"row tolerances = {np.array2string(row_tolerances, precision=3)}"
+    )
     # Acceptance rules:
     # 1. ``sol.success=True`` → accept only if the physical residual
     #    check passes.
     # 2. ``sol.success=False`` with the "no progress" message →
-    #    hybr stalled at the float64 cancellation floor of the
-    #    polynomial residual; accept iff ``accept_lm_convergence``
-    #    AND the residual is bounded (we cap at 1.0 Hz so a
-    #    runaway maxfev hit doesn't sneak through with a huge
-    #    residual just because the caller set the bypass flag).
+    #    accept the solver status iff ``accept_lm_convergence`` is
+    #    enabled, but never bypass the source-scaled residual check.
     # 3. Any other failure (maxfev, etc.) → raise unconditionally.
     NO_PROGRESS_MARKER = "iteration is not making good progress"
     is_no_progress_stall = (
@@ -663,28 +739,22 @@ def solve_rate_equation_steady_state(
     if not sol.success and not is_no_progress_stall:
         raise RuntimeError(
             f"M25 Newton solve failed: {sol.message}; "
-            f"||R||_∞ = {residual_inf_norm:g} (tol {residual_tol:g}); "
+            f"||R||_∞ = {residual_inf_norm:g}; {residual_detail}; "
             f"nfev = {sol.nfev}."
         )
-    if is_no_progress_stall and accept_lm_convergence and not (residual_inf_norm <= 1.0):
-        # Even the bypass should not accept a residual this large —
-        # the cancellation-floor regime sits at ~1e-5 Hz, not order 1.
-        # ``not (... <= 1.0)`` (vs ``> 1.0``) also rejects a NaN/inf residual,
-        # which would otherwise slip through the bypass path.
-        raise RuntimeError(
-            f"M25 Newton stalled with residual far above the expected "
-            f"cancellation floor: {sol.message}; "
-            f"||R||_∞ = {residual_inf_norm:g} > 1.0 Hz; nfev = {sol.nfev}. "
-            "accept_lm_convergence does not bypass this safety check."
-        )
-    allow_residual_bypass = accept_lm_convergence and is_no_progress_stall
-    if residual_check_failed and not allow_residual_bypass:
+    if residual_check_failed:
         raise RuntimeError(
             f"M25 Newton converged with high residual: {sol.message}; "
-            f"||R||_∞ = {residual_inf_norm:g} > tol = {residual_tol:g}; "
-            f"nfev = {sol.nfev}. Pass accept_lm_convergence=True if "
-            "your problem sits at the float64 cancellation floor "
-            "(typical for M25 Fig 3 inputs)."
+            f"||R||_∞ = {residual_inf_norm:g}; {residual_detail}; "
+            f"nfev = {sol.nfev}. accept_lm_convergence never bypasses "
+            "the source-scaled residual gate."
+        )
+    if is_no_progress_stall and not accept_lm_convergence:
+        raise RuntimeError(
+            f"M25 Newton solve stalled: {sol.message}; "
+            f"||R||_∞ = {residual_inf_norm:g}; {residual_detail}; "
+            f"nfev = {sol.nfev}. Pass accept_lm_convergence=True to "
+            "accept this solver status after the residual gate passes."
         )
 
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
@@ -1303,10 +1373,17 @@ def _relocate_root_1d(
     )
     if polished is not None:
         return polished
-    # Accept the reduced root as-is when the full Newton polish is
-    # unavailable (e.g. exactly at a fold, where the full Jacobian is
-    # singular); record the measured residual honestly.
-    residual = float(np.max(np.abs(_rate_equation_residual(y_root, coefs))))
+    # The reduced root may still be useful exactly at a fold, where the full
+    # Jacobian is singular, but it must pass the same physical acceptance
+    # gate as every Newton result.  In particular, a zero in the reduced
+    # x_L row does not certify the three transverse rows.
+    residual_vector = _rate_equation_residual(y_root, coefs)
+    residual = float(np.max(np.abs(residual_vector)))
+    residual_passed, _ = _passes_source_scaled_residual_gate(
+        y_root, residual_vector, coefs, residual_tol_relative,
+    )
+    if not residual_passed:  # NaN/inf -> reject
+        return None
     return M25SteadyState(
         p_0=1.0 - float(z_root[0]),
         p_1=float(z_root[0]),
@@ -1734,7 +1811,8 @@ def _solve_with_lm(
     coefs: M25Coefficients,
     seed: np.ndarray,
     *,
-    residual_ceiling_Hz: float,
+    residual_ceiling_Hz: float | None = None,
+    residual_tol_relative: float | None = None,
 ) -> M25SteadyState | None:
     """Try ``scipy.optimize.root(method='lm')`` from ``seed``.
 
@@ -1745,8 +1823,11 @@ def _solve_with_lm(
     :func:`solve_rate_equation_steady_state` keeps hybr for its
     well-understood stall semantics.
 
-    Returns ``None`` if the solve fails, lands on an unphysical
-    branch, or has residual above ``residual_ceiling_Hz``.
+    Returns ``None`` if the solve fails, lands on an unphysical branch, or
+    fails the requested residual gate. ``residual_ceiling_Hz`` retains the
+    private helper's scalar-test API; the multi-seed solver uses the row-wise
+    source gate selected by ``residual_tol_relative``. Exactly one must be
+    provided.
 
     Note on determinism: lm has been verified bit-identical across
     100 repeated calls on the test platform (scipy ≥ 1.13). The
@@ -1754,6 +1835,11 @@ def _solve_with_lm(
     ``tests/services/test_rate_equation.py::TestLmDeterminism``
     will catch any platform/version regression.
     """
+    if (residual_ceiling_Hz is None) == (residual_tol_relative is None):
+        raise ValueError(
+            "provide exactly one of residual_ceiling_Hz and "
+            "residual_tol_relative"
+        )
     try:
         sol = root(
             _rate_equation_residual,
@@ -1769,8 +1855,17 @@ def _solve_with_lm(
         # Even a small residual there is not a solver-certified candidate and
         # must not enter the branch picker.
         return None
-    residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    if not (residual_inf_norm <= residual_ceiling_Hz):  # NaN/inf -> reject
+    residual_vector = np.asarray(sol.fun, dtype=float)
+    residual_inf_norm = float(np.max(np.abs(residual_vector)))
+    if residual_tol_relative is not None:
+        residual_passed, _ = _passes_source_scaled_residual_gate(
+            np.asarray(sol.x, dtype=float), residual_vector, coefs,
+            residual_tol_relative,
+        )
+    else:
+        assert residual_ceiling_Hz is not None
+        residual_passed = bool(residual_inf_norm <= residual_ceiling_Hz)
+    if not residual_passed:  # NaN/inf -> reject
         return None
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
     if not (0.0 <= p_1 <= 1.0):
@@ -1792,7 +1887,8 @@ def _solve_with_lsq(
     coefs: M25Coefficients,
     seed: np.ndarray,
     *,
-    residual_ceiling_Hz: float,
+    residual_ceiling_Hz: float | None = None,
+    residual_tol_relative: float | None = None,
 ) -> M25SteadyState | None:
     r"""Try ``scipy.optimize.least_squares`` with bounds from ``seed``.
 
@@ -1807,9 +1903,17 @@ def _solve_with_lsq(
     picker — the standalone :func:`solve_rate_equation_steady_state`
     keeps the original hybr semantics.
 
-    Returns ``None`` if the solve fails, the post-hoc physical-branch
-    check fails, or the residual exceeds ``residual_ceiling_Hz``.
+    Returns ``None`` if the solve fails, the post-hoc physical-branch check
+    fails, or the requested residual gate fails. Exactly one of the scalar
+    ``residual_ceiling_Hz`` compatibility argument and the row-wise
+    ``residual_tol_relative`` gate must be provided.
     """
+    if (residual_ceiling_Hz is None) == (residual_tol_relative is None):
+        raise ValueError(
+            "provide exactly one of residual_ceiling_Hz and "
+            "residual_tol_relative"
+        )
+
     # Lower bound: every component nonnegative. Upper bound: p_1 ≤ 1,
     # densities unbounded above (the physical branch can sit at any
     # positive scale; the residual itself prevents runaway).
@@ -1850,8 +1954,17 @@ def _solve_with_lsq(
         # the candidate pool, where its inflated x_L could win the
         # max-x_L picker over the genuine physical branch.
         return None
-    residual_inf_norm = float(np.max(np.abs(sol.fun)))
-    if not (residual_inf_norm <= residual_ceiling_Hz):  # NaN/inf -> reject
+    residual_vector = np.asarray(sol.fun, dtype=float)
+    residual_inf_norm = float(np.max(np.abs(residual_vector)))
+    if residual_tol_relative is not None:
+        residual_passed, _ = _passes_source_scaled_residual_gate(
+            np.asarray(sol.x, dtype=float), residual_vector, coefs,
+            residual_tol_relative,
+        )
+    else:
+        assert residual_ceiling_Hz is not None
+        residual_passed = bool(residual_inf_norm <= residual_ceiling_Hz)
+    if not residual_passed:  # NaN/inf -> reject
         return None
     p_1, x_L, x_Rgt, x_Rlt = (float(v) for v in sol.x)
     # Box constraints guarantee p_1 ∈ [0, 1] and x_α ≥ 0, but the
@@ -1921,21 +2034,15 @@ def solve_rate_equation_steady_state_multi_seed(
     Three branch-picker modes are supported (``branch_picker_mode``):
 
     * ``"min_residual"`` (default since the normalization fix):
-      return the candidate with the smallest residual ∞-norm — the
-      true fixed point beats any valley pseudo-root by many orders of
-      magnitude. The previous default ``"max_x_L"`` selected sub-1-Hz
-      pseudo-roots on the ``r x_L²`` slope (residual ~1e-3 Hz vs the
-      ~1e-8 Hz physical source scale) and is no longer a defensible
-      default.
+      return the source-valid candidate with the smallest residual
+      ∞-norm. Every solver candidate is first checked row by row, so
+      the historical valley pseudo-roots never reach this dispatch.
 
     * ``"max_x_L"`` (DEPRECATED — emits ``DeprecationWarning``): return
-      the candidate with the largest ``x_L``. Validated against early
-      (pre-normalization-fix) M25 baselines but selects slope
-      pseudo-roots admitted by the 1 Hz lm/lsq candidate ceiling; also
-      documented to pick the wrong branch for large gap asymmetry
-      (M25 Fig 3b/4b, ~600× parity-rate inflation). Kept only so
-      historical baselines remain reproducible; scheduled for removal
-      (2026-07-04 deep review, finding 10).
+      the source-valid candidate with the largest ``x_L``. Even after
+      numerical pseudo-roots are removed, largest density is not a
+      physics-based selector when a coefficient family has genuine
+      multiple roots. Kept for API compatibility; scheduled for removal.
 
     * ``"lock_to_preferred"``: if ``preferred_seed`` converges to a
       positive-density branch, **always** return it (no max-x_L /
@@ -1955,11 +2062,21 @@ def solve_rate_equation_steady_state_multi_seed(
     M25 Fig 3b large-asymmetry physical branch ``x_R< ≥ x_L ≥ x_R>``).
     When set, candidates that violate the ordering are filtered out
     **before** the branch-picker dispatch. If no candidate satisfies
-    the ordering, a stderr warning is emitted and the picker falls
-    back to the unfiltered candidate set.
+    the ordering, the solve raises rather than silently re-admitting
+    states that the caller explicitly rejected.
 
     Raises ``RuntimeError`` if no seed yields a physical solution.
     """
+    # Validate once before launching the seed grid. Candidate-specific row
+    # tolerances are evaluated at each returned state below.
+    if not (
+        np.isfinite(residual_tol_relative)
+        and residual_tol_relative >= 0.0
+    ):
+        raise ValueError(
+            "residual_tol_relative must be finite and nonnegative; "
+            f"got {residual_tol_relative}"
+        )
     seeds: list[np.ndarray | None] = [None]
     if preferred_seed is not None:
         seeds.append(preferred_seed)
@@ -1970,7 +2087,7 @@ def solve_rate_equation_steady_state_multi_seed(
     candidates: list[tuple[np.ndarray | None, M25SteadyState]] = []
     for seed in seeds:
         # Primary: hybr via the validated solve_rate_equation_steady_state
-        # path (with all its residual / bypass / unphysical-branch checks).
+        # path (with all its residual, status, and physical-branch checks).
         try:
             sol = solve_rate_equation_steady_state(
                 coefs,
@@ -1987,11 +2104,13 @@ def solve_rate_equation_steady_state_multi_seed(
         # Secondary: lm as an additional candidate source. lm finds true
         # fixed points at the high-x_L end of M25's multi-stable manifold
         # where hybr stalls at the cancellation floor. We accept lm
-        # candidates with residual below the same 1.0 Hz safety ceiling
-        # used for hybr's no-progress bypass.
+        # candidates only when they meet the same source-scaled residual
+        # tolerance as the primary solver.
         if seed is None:
             continue  # lm and lsq need an explicit seed
-        lm_sol = _solve_with_lm(coefs, seed, residual_ceiling_Hz=1.0)
+        lm_sol = _solve_with_lm(
+            coefs, seed, residual_tol_relative=residual_tol_relative,
+        )
         if lm_sol is not None:
             candidates.append((seed, lm_sol))
 
@@ -2002,15 +2121,52 @@ def solve_rate_equation_steady_state_multi_seed(
         # point sits right at the seed (M25 Fig 3a small-asymmetry
         # case at low T). The bounded solver enforces ``p_1 ∈ [0, 1]``
         # and ``x_α ≥ 0`` during iteration, so the analytic-seed root
-        # is recovered as a candidate. Same residual ceiling as lm.
-        lsq_sol = _solve_with_lsq(coefs, seed, residual_ceiling_Hz=1.0)
+        # is recovered as a candidate. Same row-wise residual gate as lm.
+        lsq_sol = _solve_with_lsq(
+            coefs, seed, residual_tol_relative=residual_tol_relative,
+        )
         if lsq_sol is not None:
             candidates.append((seed, lsq_sol))
+
+    # Final gate at the common collection boundary. Never trust a solver
+    # wrapper's cached diagnostic as branch-picker evidence: re-evaluate the
+    # residual from the returned state and apply the row-wise source/backward-
+    # error criterion once more before ordering or branch selection.
+    gated_candidates: list[tuple[np.ndarray | None, M25SteadyState]] = []
+    for seed, candidate in candidates:
+        y = _state_to_array(candidate)
+        if not (
+            0.0 <= candidate.p_1 <= 1.0
+            and candidate.x_L > 0.0
+            and candidate.x_Rgt > 0.0
+            and candidate.x_Rlt > 0.0
+        ):
+            continue
+        residual_vector = _rate_equation_residual(y, coefs)
+        residual_passed, _ = _passes_source_scaled_residual_gate(
+            y, residual_vector, coefs, residual_tol_relative,
+        )
+        if not residual_passed:
+            continue
+        gated_candidates.append((
+            seed,
+            M25SteadyState(
+                p_0=1.0 - candidate.p_1,
+                p_1=candidate.p_1,
+                x_L=candidate.x_L,
+                x_Rgt=candidate.x_Rgt,
+                x_Rlt=candidate.x_Rlt,
+                residual_inf_norm=float(np.max(np.abs(residual_vector))),
+                n_function_evaluations=candidate.n_function_evaluations,
+            ),
+        ))
+    candidates = gated_candidates
     if not candidates:
         raise RuntimeError(
             "M25 multi-seed solve: no seed produced a positive-density "
-            "physical solution. Coefficients may be degenerate or the "
-            "seed grid may not bracket the relevant branch."
+            "physical solution that passed the row-wise source-scaled "
+            "residual gate. Coefficients may be degenerate or the seed "
+            "grid may not bracket the relevant branch."
         )
 
     # Density-ordering filter (optional). Applied before branch picker
@@ -2033,16 +2189,14 @@ def solve_rate_equation_steady_state_multi_seed(
             (seed, sol) for seed, sol in candidates
             if _candidate_satisfies_ordering(sol, expected_ordering)
         ]
-        if filtered:
-            candidates_for_picker = filtered
-        else:
-            import sys
-            print(
-                f"M25 multi-seed: no candidate satisfies "
-                f"expected_ordering={expected_ordering}; falling back to "
-                f"unfiltered candidate set ({len(candidates)} candidates).",
-                file=sys.stderr,
+        if not filtered:
+            raise RuntimeError(
+                f"M25 multi-seed solve: no source-valid candidate satisfies "
+                f"expected_ordering={expected_ordering}; refusing to "
+                f"fall back to the unfiltered set ({len(candidates)} "
+                "candidates)."
             )
+        candidates_for_picker = filtered
 
     # Branch picker dispatch.
     if branch_picker_mode == "lock_to_preferred":
@@ -2067,17 +2221,14 @@ def solve_rate_equation_steady_state_multi_seed(
             "('max_x_L' is deprecated)."
         )
 
-    # DEPRECATED (2026-07-04 deep review, finding 10): even on the
-    # Γ̄-normalized single-root system, lm/lsq candidate pools admit
-    # sub-1-Hz slope pseudo-roots and max-x_L selects them over the true
-    # root (observed: x_L = 3.16e-6 at residual 6.5e-5 Hz picked over
-    # x_L = 5.28e-8 at 2.5e-22 Hz). Kept only so historical baselines
-    # remain reproducible; scheduled for removal.
+    # DEPRECATED: all candidates are source-valid here, but largest density
+    # is still not a physics-based branch selector for a genuinely
+    # multi-stable coefficient family.
     warnings.warn(
-        "branch_picker_mode='max_x_L' is deprecated: it can select "
-        "large-x_L pseudo-roots over the true fixed point (see "
-        "docs/REVIEW-2026-07-04-deep-review.md, finding 10). Use "
-        "'min_residual' (default) or 'lock_to_preferred'.",
+        "branch_picker_mode='max_x_L' is deprecated: largest density "
+        "does not identify a physical branch when multiple source-valid "
+        "roots exist. Use 'min_residual' (default) or "
+        "'lock_to_preferred'.",
         DeprecationWarning,
         stacklevel=2,
     )

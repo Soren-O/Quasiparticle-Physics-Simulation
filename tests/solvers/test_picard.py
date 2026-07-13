@@ -18,6 +18,21 @@ class TestPicardIterate:
             with pytest.raises(ValueError, match="mixing must lie"):
                 picard_iterate(np.array([1.0]), g, mixing=bad)
 
+    def test_under_relaxation_does_not_scale_convergence_residual(self) -> None:
+        # G(x)=2 is far from fixed at x=1. A 1e-6 relaxed step moves only
+        # 1e-6, but that small step must not satisfy a 1e-4 fixed-point
+        # tolerance after only one iteration.
+        _, info = picard_iterate(
+            np.array([1.0]),
+            lambda x: np.array([2.0]),
+            mixing=1e-6,
+            tol=1e-4,
+            max_iter=1,
+        )
+
+        assert not info.converged
+        assert info.final_residual > 0.49
+
     def test_converges_on_linear_contraction(self) -> None:
         # G(x) = 0.5·x + 2. Fixed point: x = 4.
         def g(x: np.ndarray) -> np.ndarray:
