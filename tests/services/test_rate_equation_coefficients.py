@@ -83,6 +83,11 @@ class TestInputValidation:
         with pytest.raises(ValueError, match="must be nonnegative"):
             _fig3a_params(r_L_Hz=-1.0)
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_rejects_nonfinite_primitive(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="must be finite"):
+            _fig3a_params(Gamma_ph_00_Hz=bad)
+
     def test_derived_properties(self) -> None:
         params = _fig3a_params()
         assert params.omega_LR_kelvin == pytest.approx(0.5e9 * _H_OVER_KB, rel=1e-12)

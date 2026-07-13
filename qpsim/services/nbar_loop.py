@@ -40,6 +40,32 @@ from qpsim.constants import HBAR_UEV_NS
 _MW_TO_UEV_PER_NS = 6.241509074e12
 
 
+def _validated_quality_factors(
+    q_qp_raw: float,
+    Q_c: float,
+    *,
+    location: str,
+) -> tuple[float, float]:
+    """Validate ``Q_i`` and return ``(Q_i, Q_tot)`` fail-closed.
+
+    Positive infinity is the physical zero-loss limit and must be preserved;
+    NaN, negative infinity, zero, and negative values are failed observables.
+    """
+    q_qp = float(q_qp_raw)
+    if np.isnan(q_qp) or q_qp <= 0.0:
+        raise RuntimeError(
+            "nbar_loop: compute_Q_i returned a non-physical quality "
+            f"factor Q_i = {q_qp} {location}; expected a positive value "
+            "or +inf (the zero-loss limit)."
+        )
+    q_tot = (
+        float(Q_c)
+        if np.isinf(q_qp)
+        else 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
+    )
+    return q_qp, q_tot
+
+
 def dbm_to_uev_per_ns(dbm: float) -> float:
     """Convert microwave drive power from dBm to μeV/ns (the code units).
 
@@ -168,24 +194,10 @@ def solve_nbar_loop(
 
     for it in range(max_iter):
         f_converged = solve_f(n_bar)
-        q_qp = float(compute_Q_i(f_converged))
-        if np.isnan(q_qp) or q_qp <= 0.0:
-            # A NaN or non-positive internal Q_i is a failed / unphysical
-            # observable, not the physical zero-loss limit. Folding it into
-            # Q_tot = Q_c (the "Q_i -> inf" stand-in) silently masked a broken
-            # solve and could carry a failed observable into a pinned baseline.
-            # Fail loudly instead, matching phonon_steady_state's policy.
-            raise RuntimeError(
-                f"nbar_loop: compute_Q_i returned a non-physical quality "
-                f"factor Q_i = {q_qp} at iteration {it} (n_bar = {n_bar:g}); "
-                "expected a positive value or +inf (the zero-loss limit)."
-            )
-        # Physical Q_i -> inf (vanishing quasiparticle loss) gives Q_tot -> Q_c;
-        # a finite positive Q_i combines with Q_c in parallel.
-        q_tot = (
-            float(Q_c)
-            if np.isinf(q_qp)
-            else 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
+        q_qp, q_tot = _validated_quality_factors(
+            compute_Q_i(f_converged),
+            Q_c,
+            location=f"at iteration {it} (n_bar = {n_bar:g})",
         )
 
         n_bar_raw = prefactor * q_tot**2 * float(P_read_uev_per_ns)
@@ -215,12 +227,10 @@ def solve_nbar_loop(
     # reported n_bar. (After the break, n_bar has already advanced to
     # n_bar_next; the last solve inside the loop used the old n_bar.)
     f_converged = solve_f(n_bar)
-    q_qp_raw = compute_Q_i(f_converged)
-    q_qp = float(q_qp_raw) if np.isfinite(q_qp_raw) else float("nan")
-    q_tot = (
-        1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
-        if np.isfinite(q_qp) and q_qp > 0
-        else float(Q_c)
+    q_qp, q_tot = _validated_quality_factors(
+        compute_Q_i(f_converged),
+        Q_c,
+        location=f"after the final re-solve (n_bar = {n_bar:g})",
     )
 
     return NbarLoopResult(

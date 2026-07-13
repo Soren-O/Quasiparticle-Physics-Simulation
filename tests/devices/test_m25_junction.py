@@ -466,6 +466,141 @@ class TestM25JunctionEvaluate:
         j.evaluate(state_L, state_R, qstate)
         assert j._coefficients is cached
 
+    @pytest.mark.parametrize(
+        ("input_name", "mutate", "rebuilds_coefficients"),
+        [
+            (
+                "m25_params",
+                lambda j: setattr(
+                    j,
+                    "m25_params",
+                    replace(j.m25_params, T_kelvin=1.01 * j.m25_params.T_kelvin),
+                ),
+                True,
+            ),
+            (
+                "m25_drive",
+                lambda j: setattr(
+                    j,
+                    "m25_drive",
+                    replace(
+                        j.m25_drive,
+                        Gamma_nu_scale_Hz=1.1 * j.m25_drive.Gamma_nu_scale_Hz,
+                    ),
+                ),
+                True,
+            ),
+            (
+                "branch_picker_mode",
+                lambda j: setattr(j, "branch_picker_mode", "lock_to_preferred"),
+                False,
+            ),
+            (
+                "expected_ordering",
+                lambda j: setattr(j, "expected_ordering", ("x_L", "x_Rlt")),
+                False,
+            ),
+        ],
+    )
+    def test_mutating_cache_input_rebuilds_affected_physics(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        input_name: str,
+        mutate,
+        rebuilds_coefficients: bool,
+    ) -> None:
+        """Every mutable cache input invalidates coefficients and/or moments."""
+        import qpsim.devices.m25_junction as m25_junction_module
+
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+
+        coefficient_calls = 0
+        moment_calls = 0
+
+        def coefficient_spy(*args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal coefficient_calls
+            coefficient_calls += 1
+            return object()
+
+        def moment_spy(*args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal moment_calls
+            moment_calls += 1
+            return object()
+
+        monkeypatch.setattr(
+            m25_junction_module,
+            "coefficients_from_physical_parameters_with_photon_drive",
+            coefficient_spy,
+        )
+        monkeypatch.setattr(
+            m25_junction_module,
+            "solve_rate_equation_steady_state_multi_seed",
+            moment_spy,
+        )
+
+        j._ensure_moment_solution_cached()
+        first_coefficients = j._coefficients
+        first_moment = j._moment_solution
+
+        mutate(j)
+        j._ensure_moment_solution_cached()
+
+        expected_coefficient_calls = 2 if rebuilds_coefficients else 1
+        assert coefficient_calls == expected_coefficient_calls, input_name
+        assert moment_calls == 2, input_name
+        if rebuilds_coefficients:
+            assert j._coefficients is not first_coefficients
+        else:
+            assert j._coefficients is first_coefficients
+        assert j._moment_solution is not first_moment
+
+        # Once rebuilt for the new values, an unchanged third call is a cache hit.
+        rebuilt_coefficients = j._coefficients
+        rebuilt_moment = j._moment_solution
+        j._ensure_moment_solution_cached()
+        assert coefficient_calls == expected_coefficient_calls
+        assert moment_calls == 2
+        assert j._coefficients is rebuilt_coefficients
+        assert j._moment_solution is rebuilt_moment
+
+    def test_value_fingerprint_detects_in_place_bundle_tampering(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The key stores values, not a reference to the nominally frozen bundle."""
+        import qpsim.devices.m25_junction as m25_junction_module
+
+        params, drive = _fig3a_setup()
+        j = M25GapAsymmetricJJ(
+            name="JJ", region_a="L", region_b="R",
+            m25_params=params, m25_drive=drive,
+        )
+        built = []
+
+        def coefficient_spy(*args, **kwargs):  # type: ignore[no-untyped-def]
+            result = object()
+            built.append(result)
+            return result
+
+        monkeypatch.setattr(
+            m25_junction_module,
+            "coefficients_from_physical_parameters_with_photon_drive",
+            coefficient_spy,
+        )
+
+        assert j._ensure_coefficients_cached() is not None
+        object.__setattr__(
+            drive,
+            "Gamma_nu_scale_Hz",
+            1.1 * drive.Gamma_nu_scale_Hz,
+        )
+        assert j._ensure_coefficients_cached() is not None
+        assert len(built) == 2
+        assert built[0] is not built[1]
+
     def test_emits_eo_and_ee_channels(self) -> None:
         # M25 has both parity-flipping (eo, from QP tunneling and
         # photon-assisted) and parity-preserving (ee) channels.

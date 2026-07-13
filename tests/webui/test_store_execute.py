@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +39,48 @@ class TestWorkspace:
         assert loaded.setup == envelope.setup
         ws.delete_setup(slug)
         assert ws.list_setups() == []
+
+    def test_load_migrates_legacy_rho_f_units(self, tmp_path: Path) -> None:
+        ws = Workspace(tmp_path)
+        setup_dir = tmp_path / "setups"
+        setup_dir.mkdir(parents=True)
+        legacy = SteadyState0DSetup().model_dump()
+        legacy["material"]["rho_F"] = 1.74e22  # v1: µeV^-1 m^-3
+        (setup_dir / "legacy.json").write_text(
+            json.dumps({"name": "legacy", "setup": legacy}),
+            encoding="utf-8",
+        )
+
+        loaded = ws.load_setup("legacy")
+
+        assert loaded.setup.material.rho_F == pytest.approx(1.74e28)
+
+    def test_saved_setup_stamps_current_schema_version(self, tmp_path: Path) -> None:
+        ws = Workspace(tmp_path)
+        slug = ws.save_setup(
+            SetupEnvelope(name="versioned", setup=SteadyState0DSetup())
+        )
+        stored = json.loads((ws.setups_dir / f"{slug}.json").read_text("utf-8"))
+        assert stored["schema_version"] == 2
+
+    @pytest.mark.parametrize("bad_version", [0, 2.5, 999])
+    def test_load_rejects_unsupported_schema_version(
+        self, tmp_path: Path, bad_version: object
+    ) -> None:
+        ws = Workspace(tmp_path)
+        ws.setups_dir.mkdir(parents=True)
+        (ws.setups_dir / "bad.json").write_text(
+            json.dumps(
+                {
+                    "name": "bad",
+                    "schema_version": bad_version,
+                    "setup": SteadyState0DSetup().model_dump(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="unsupported setup schema_version"):
+            ws.load_setup("bad")
 
     def test_run_manifest_and_arrays_round_trip(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
@@ -75,6 +119,27 @@ class TestSteadyState0DExecutor:
         payload = execute_setup(setup, _noop_progress, _never)
         assert "Q_i" not in payload.summary
         assert any("Dynes" in n for n in payload.notes)
+
+    def test_negative_sigma1_is_reported_as_active_gain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import qpsim.webui.execute as execute_mod
+
+        monkeypatch.setattr(
+            execute_mod,
+            "compute_ac_conductivity",
+            lambda *_args, **_kwargs: (-1.0, 2.0),
+        )
+        monkeypatch.setattr(
+            execute_mod,
+            "compute_quality_factor",
+            lambda *_args, **_kwargs: -20.0,
+        )
+
+        payload = execute_setup(_tiny_steady_state(), _noop_progress, _never)
+
+        assert payload.summary["Q_i"] == -20.0
+        assert any("active microwave gain" in note for note in payload.notes)
 
     def test_cancel_before_solve(self) -> None:
         with pytest.raises(RunCancelledError):
@@ -128,6 +193,33 @@ class TestSpatial1DExecutor:
         profile = payload.arrays["xqp_profile"]
         assert profile[0] > profile[-1]
         assert payload.summary["n_steps"] == 5
+
+    def test_backend_warnings_are_exposed_in_run_notes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend
+
+        original = T3Spatial1DBackend.run_until_steady_state
+
+        def warning_wrapper(self: T3Spatial1DBackend, *args: object, **kwargs: object):
+            warnings.warn(
+                "spatial conservation diagnostic", RuntimeWarning, stacklevel=2
+            )
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(
+            T3Spatial1DBackend, "run_until_steady_state", warning_wrapper
+        )
+        setup = Spatial1DSetup()
+        setup.grid.num_bins = 12
+        setup.num_cells = 7
+        setup.dt = 1.0
+        setup.max_time = 1.0
+        setup.stop_tol = 0.0
+
+        payload = execute_setup(setup, _noop_progress, _never)
+
+        assert "spatial conservation diagnostic" in payload.notes
 
 
 class TestM25Executor:

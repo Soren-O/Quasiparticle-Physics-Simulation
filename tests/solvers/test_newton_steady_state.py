@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.collisions.phonon import (
     build_recombination_kernel_base,
     build_scattering_kernel_base,
@@ -62,6 +63,29 @@ class TestNewtonSolveF:
             ctx, f0, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath, active=mask,
         )
         np.testing.assert_allclose(got, f0)
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        [float("nan"), float("inf"), float("-inf"), -1e-12, 1.0 + 1e-12],
+    )
+    def test_rejects_nonphysical_initial_occupation(self, bad_value: float) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        f0 = np.full(ctx.E.size, 0.1)
+        f0[0] = bad_value
+
+        with pytest.raises(ValueError, match="initial occupation"):
+            newton_solve_f(
+                ctx, f0, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath,
+            )
+
+    def test_rejects_non_vector_initial_occupation(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        f0 = np.full((1, ctx.E.size), 0.1)
+
+        with pytest.raises(ValueError, match="must have shape"):
+            newton_solve_f(
+                ctx, f0, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath,
+            )
 
     def test_overrides_match_thermal(self) -> None:
         # Explicitly passing the thermal occupation matrices as overrides

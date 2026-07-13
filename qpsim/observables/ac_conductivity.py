@@ -4,16 +4,18 @@ Returns normalized conductivities ``σ₁/σ_N`` and ``σ₂/σ_N`` — the
 normal-state ``σ_N`` cancels out of the ``Q_i`` and ``δω/ω``
 observables that build on these integrals.
 
-Ported from ``qpsim/numerics/observables.py`` at Gate 2 (no logic
-changes). Pure-BCS spectral functions only; Dynes-broadened contexts
-are rejected (the Mattis–Bardeen integrands assume ``ρ(E) = 0`` below
-the gap, which Dynes violates).
+Ported from ``qpsim/numerics/observables.py`` at Gate 2. The super-gap
+``σ₁`` integral uses the analytic pure-BCS DOS measure in each cell so the
+integrable gap-edge singularity is not under-sampled. Pure-BCS spectral
+functions only; Dynes-broadened contexts are rejected (the Mattis–Bardeen
+integrands assume ``ρ(E) = 0`` below the gap, which Dynes violates).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
 
 
@@ -66,7 +68,6 @@ def compute_ac_conductivity(
     gap = ctx.gap
     E = ctx.E
     dE = ctx.dE
-    rho = ctx.rho
 
     # σ₁: supergap integral over [Δ, ∞).
     E_partner = E + omega_0
@@ -75,8 +76,13 @@ def compute_ac_conductivity(
     K_plus_partner = 1.0 + gap ** 2 / np.maximum(E * E_partner, 1e-30)
 
     U_plus = rho_partner * K_plus_partner
-    integrand_1 = (f - f_partner) * rho * U_plus
-    sigma_1_norm = (2.0 / omega_0) * float(np.sum(integrand_1 * dE))
+    # Integrate the singular leading DOS analytically over every cell. The
+    # remaining factor is regular at E=Δ for a sub-gap probe (E+ω₀>Δ).
+    dos_weights = bcs_dos_cell_weights(E, dE, gap)
+    integrand_1_regular = (f - f_partner) * U_plus
+    sigma_1_norm = (2.0 / omega_0) * float(
+        np.sum(integrand_1_regular * dos_weights)
+    )
 
     # σ₂: sub-gap integral over [Δ − ω₀, Δ]. Below the QP grid; use a
     # dedicated midpoint-rule quadrature that excludes the singular endpoint.

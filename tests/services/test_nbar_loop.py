@@ -155,6 +155,36 @@ class TestInputValidation:
                 solve_f=sf, compute_Q_i=cq, under_relaxation=1.5,
             )
 
+    @pytest.mark.parametrize("bad_q_i", [float("nan"), 0.0, -1.0, float("-inf")])
+    def test_final_resolve_rejects_invalid_q_i(self, bad_q_i: float) -> None:
+        calls = 0
+
+        def compute_Q_i(f: np.ndarray) -> float:
+            nonlocal calls
+            calls += 1
+            return 1e6 if calls == 1 else bad_q_i
+
+        with pytest.raises(RuntimeError, match="final re-solve"):
+            solve_nbar_loop(
+                P_read_uev_per_ns=0.0,
+                Q_c=1e5,
+                omega_0=20.0,
+                solve_f=lambda n_bar: np.array([n_bar]),
+                compute_Q_i=compute_Q_i,
+            )
+
+    def test_positive_infinite_q_i_is_preserved_after_final_resolve(self) -> None:
+        result = solve_nbar_loop(
+            P_read_uev_per_ns=1.0,
+            Q_c=1e5,
+            omega_0=20.0,
+            solve_f=lambda n_bar: np.array([n_bar]),
+            compute_Q_i=lambda f: float("inf"),
+        )
+
+        assert np.isposinf(result.Q_i)
+        assert result.Q_tot == 1e5
+
 
 class TestNonConvergence:
     def test_returns_not_converged_at_max_iter(self) -> None:

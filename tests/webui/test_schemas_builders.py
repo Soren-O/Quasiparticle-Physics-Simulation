@@ -103,6 +103,13 @@ class TestValidateSetup:
         report = validate_setup(setup)
         assert any("coupled-Newton" in e for e in report.errors)
 
+    def test_coupled_newton_with_closed_phonons_rejected(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.solver.method = "coupled_newton"
+        setup.phonons.mode = "dynamic_closed"
+        report = validate_setup(setup)
+        assert any("conserved-energy mode" in e for e in report.errors)
+
     def test_spatial_dynes_rejected(self) -> None:
         setup = Spatial1DSetup()
         setup.material.dynes_gamma = 0.5

@@ -85,9 +85,20 @@ class TestLoadMaterial:
                     f"{name}.{field_name} loaded as {type(value).__name__}: {value!r}"
                 )
         al = load_material("Al")
-        # µeV⁻¹ m⁻³ (the code's µeV energy convention); = 1.74e28 eV⁻¹ m⁻³.
-        assert al.rho_F == pytest.approx(1.74e22)
+        # Conventional single-spin DOS in eV⁻¹ m⁻³.
+        assert al.rho_F == pytest.approx(1.74e28)
         assert al.v_F == pytest.approx(1.36e6)
+
+    @pytest.mark.parametrize("rho_F", [float("nan"), float("inf"), -1.0])
+    def test_rejects_invalid_rho_F(self, rho_F: float) -> None:
+        with pytest.raises(ValueError, match="rho_F"):
+            Material(name="X", Delta_0=200.0, T_c=1.0, tau_0=1.0, rho_F=rho_F)
+
+    def test_rejects_legacy_per_uev_rho_f(self) -> None:
+        with pytest.raises(ValueError, match="legacy per-micro-eV"):
+            Material(
+                name="X", Delta_0=200.0, T_c=1.0, tau_0=1.0, rho_F=1.74e22
+            )
 
     def test_unsigned_exponent_substrate_fields_coerced(self, tmp_path: Path) -> None:
         (tmp_path / "Weird.yaml").write_text(

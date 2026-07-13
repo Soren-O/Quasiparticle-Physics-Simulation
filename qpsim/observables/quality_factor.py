@@ -49,8 +49,15 @@ def compute_quality_factor(
         raise ValueError("alpha must be positive.")
 
     s1, s2 = compute_ac_conductivity(f, ctx, omega_0, n_subgap=n_subgap)
-    Q_qp = s2 / (alpha * s1) if s1 > 0 else float(np.inf)
+    # sigma_1 < 0 is microwave gain (negative damping), not the zero-loss
+    # limit. Preserve its sign in Q so callers can distinguish an active,
+    # unstable response from a passive resonator with Q -> infinity.
+    Q_qp = s2 / (alpha * s1) if s1 != 0.0 else float(np.inf)
 
-    if Q_ext is not None and Q_ext > 0:
-        return 1.0 / (1.0 / Q_qp + 1.0 / Q_ext)
+    if Q_ext is not None:
+        if not np.isfinite(Q_ext) or Q_ext <= 0.0:
+            raise ValueError("Q_ext must be finite and positive when provided.")
+        inverse_total = 1.0 / Q_qp + 1.0 / Q_ext
+        # Exact gain/loss cancellation is the net zero-damping threshold.
+        return float(np.inf) if inverse_total == 0.0 else 1.0 / inverse_total
     return Q_qp

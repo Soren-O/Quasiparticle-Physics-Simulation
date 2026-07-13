@@ -91,9 +91,9 @@ def test_thermal_chain_xqp_th_then_eq53() -> None:
     """
     _, _, spectral = _build_grid_and_spectral()
     pins = (
-        (0.05, 1.1724918084784963e-19, 0.02393703683929167, 1.1587107498173132e-19),
-        (0.10, 2.093260733455312e-10, 0.04787407367858334, 2.0449533744072507e-10),
-        (0.20, 1.0754067671260618e-05, 0.09574814735716668, 1.0276197949185817e-05),
+        (0.05, 1.3744248789767633e-19, 0.02393703683929167, 1.3582703696270156e-19),
+        (0.10, 2.346672204655683e-10, 0.04787407367858334, 2.2925167261017608e-10),
+        (0.20, 1.1652298123216673e-05, 0.09574814735716668, 1.1134514468148642e-05),
     )
     for T_bath, expected_xth, expected_rb, expected_dt in pins:
         xth = _x_qp_thermal(spectral, T_bath)
@@ -101,6 +101,6 @@ def test_thermal_chain_xqp_th_then_eq53() -> None:
         dt = _paper_eq53_analytic_thermal(xth, rb)
         # x_qp_thermal uses the qp_fraction integral over the 1620-bin grid;
         # algebra-form drift at ~1e-12 relative is the float64 floor.
-        assert xth == pytest.approx(expected_xth, rel=1e-12)
+        assert xth == pytest.approx(expected_xth, rel=1e-12, abs=0.0)
         assert rb == pytest.approx(expected_rb, rel=1e-15)
-        assert dt == pytest.approx(expected_dt, rel=1e-12)
+        assert dt == pytest.approx(expected_dt, rel=1e-12, abs=0.0)

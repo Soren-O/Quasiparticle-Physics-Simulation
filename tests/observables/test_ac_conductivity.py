@@ -80,6 +80,43 @@ class TestComputeAcConductivity:
         s1, _ = compute_ac_conductivity(f_hot, ctx, omega_0=0.5)
         assert s1 == pytest.approx(0.0, abs=1e-4)
 
+    def test_sigma_1_thermal_gap_edge_matches_adaptive_reference(self) -> None:
+        from scipy.integrate import quad
+
+        gap = 180.0
+        temperature = 0.2
+        omega_0 = 20.0
+        # dE=4 µeV, so omega_0 is exactly five cells and interpolation of the
+        # thermal partner occupation adds no grid-offset error.
+        E, _ = build_energy_grid(gap, 1.0, 10.0, 405)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        kT = KB_UEV_PER_K * temperature
+        f = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+
+        sigma_1, _ = compute_ac_conductivity(f, ctx, omega_0)
+
+        # Independent ξ-space reference: dξ = ρ(E)dE removes the leading
+        # gap-edge singularity without using qpsim's cell weights.
+        def reference_integrand(xi: float) -> float:
+            energy = np.sqrt(xi * xi + gap * gap)
+            partner = energy + omega_0
+            f_energy = 1.0 / (np.exp(min(energy / kT, 500.0)) + 1.0)
+            f_partner = 1.0 / (np.exp(min(partner / kT, 500.0)) + 1.0)
+            rho_partner = partner / np.sqrt(partner * partner - gap * gap)
+            coherence = 1.0 + gap * gap / (energy * partner)
+            return (f_energy - f_partner) * rho_partner * coherence
+
+        reference = (2.0 / omega_0) * quad(
+            reference_integrand,
+            0.0,
+            np.inf,
+            epsabs=1e-18,
+            epsrel=1e-11,
+            limit=500,
+        )[0]
+        assert sigma_1 == pytest.approx(reference, rel=0.05)
+
     def test_sigma_2_positive_at_low_T(self) -> None:
         # σ₂ is the kinetic-inductance response; > 0 in the superconducting state.
         ctx, f_hot = _thermal_ctx_and_f(T_bath=0.01, num=200)

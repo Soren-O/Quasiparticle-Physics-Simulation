@@ -29,6 +29,8 @@ import numpy as np
 
 from qpsim.webui.schemas import SetupEnvelope
 
+_SETUP_SCHEMA_VERSION = 2
+
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
@@ -136,6 +138,7 @@ class Workspace:
             {
                 "name": envelope.name,
                 "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "schema_version": _SETUP_SCHEMA_VERSION,
                 "setup": envelope.setup.model_dump(),
             },
         )
@@ -162,8 +165,25 @@ class Workspace:
     def load_setup(self, slug: str) -> SetupEnvelope:
         slug = _safe_segment(slug, "slug")
         data = _read_json(self.setups_dir / f"{slug}.json")
+        version_raw = data.get("schema_version", 1)
+        if type(version_raw) is not int or not (1 <= version_raw <= _SETUP_SCHEMA_VERSION):
+            raise ValueError(
+                "unsupported setup schema_version "
+                f"{version_raw!r}; supported versions are 1..{_SETUP_SCHEMA_VERSION}"
+            )
+        version = version_raw
+        setup_data = data["setup"]
+        if version < 2:
+            # Schema v1 persisted rho_F in µeV^-1 m^-3 (Al 1.74e22).
+            # Schema v2 restores the conventional eV^-1 m^-3 contract, so
+            # migrate stored values by 1e6.  This is keyed by the persisted
+            # schema version, never by magnitude, and therefore does not
+            # reinterpret a deliberately small v2 DOS.
+            material = setup_data.get("material")
+            if isinstance(material, dict) and "rho_F" in material:
+                material["rho_F"] = float(material["rho_F"]) * 1.0e6
         return SetupEnvelope.model_validate(
-            {"name": data.get("name", slug), "setup": data["setup"]}
+            {"name": data.get("name", slug), "setup": setup_data}
         )
 
     def delete_setup(self, slug: str) -> None:

@@ -32,11 +32,46 @@ class TestQpNumberDensity:
         n2 = qp_number_density(f, ctx, rho_F=7.0)
         assert n2 == pytest.approx(7.0 * n1)
 
-    def test_rejects_non_positive_rho_F(self) -> None:
+    @pytest.mark.parametrize("rho_F", [0.0, -1.0, float("nan"), float("inf")])
+    def test_rejects_invalid_rho_F(self, rho_F: float) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
         with pytest.raises(ValueError, match="rho_F"):
-            qp_number_density(f, ctx, rho_F=0.0)
+            qp_number_density(f, ctx, rho_F=rho_F)
+
+    def test_converts_uev_integral_to_eV(self) -> None:
+        ctx = _ctx()
+        f = 0.01 * np.ones(ctx.E.size)
+        rho_F = 1.74e28  # eV⁻¹ m⁻³
+        integral_uev = qp_fraction(f, ctx, delta_0=ctx.gap) * ctx.gap
+        expected = 4.0 * rho_F * integral_uev / 1.0e6
+        assert qp_number_density(f, ctx, rho_F) == pytest.approx(expected)
+
+    def test_rejects_silent_legacy_per_uev_input(self) -> None:
+        ctx = _ctx()
+        with pytest.raises(ValueError, match="legacy per-micro-eV"):
+            qp_number_density(np.zeros(ctx.E.size), ctx, 1.74e22)
+
+    def test_constant_occupation_uses_exact_bcs_dos_measure(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.0,
+            energy_max_factor=3.0,
+            num_energy_bins=40,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        f0 = 0.02
+        f = np.full(E.size, f0)
+        rho_F = 1.74e28
+
+        # ∫_Δ^(3Δ) E/sqrt(E²-Δ²) dE = sqrt((3Δ)²-Δ²).
+        exact_integral_uev = f0 * np.sqrt((3.0 * gap) ** 2 - gap**2)
+        expected = 4.0 * rho_F * exact_integral_uev / 1.0e6
+        assert qp_number_density(f, ctx, rho_F) == pytest.approx(
+            expected, rel=1e-14,
+        )
 
     def test_thermal_density_grows_with_temperature(self) -> None:
         # Monotonicity check: x_qp must be strictly increasing in T_bath
@@ -60,14 +95,28 @@ class TestQpFraction:
         ctx = _ctx()
         f = 0.01 * np.ones(ctx.E.size)
         x1 = qp_fraction(f, ctx, delta_0=ctx.gap)
-        # qp_number_density scales with ρ_F; the fraction should equal
-        # qp_number_density(f, ctx, ρ_F) / (4 ρ_F Δ₀).
-        n = qp_number_density(f, ctx, rho_F=1.0)
-        assert x1 == pytest.approx(n / (4.0 * 1.0 * ctx.gap))
+        # qp_number_density uses ρ_F per eV, so its dimensional denominator
+        # uses Δ₀ converted from µeV to eV.
+        rho_F = 1.0
+        n = qp_number_density(f, ctx, rho_F=rho_F)
+        delta_0_eV = ctx.gap / 1.0e6
+        assert x1 == pytest.approx(n / (4.0 * rho_F * delta_0_eV))
 
     def test_zero_f_gives_zero(self) -> None:
         ctx = _ctx()
         assert qp_fraction(np.zeros(ctx.E.size), ctx, delta_0=ctx.gap) == 0.0
+
+    def test_constant_occupation_matches_exact_bcs_primitive(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 1.0, 3.0, 40)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        f0 = 0.02
+
+        expected = f0 * np.sqrt((3.0 * gap) ** 2 - gap**2) / gap
+        assert qp_fraction(np.full(E.size, f0), ctx, gap) == pytest.approx(
+            expected, rel=1e-14,
+        )
 
     def test_rejects_non_positive_delta_0(self) -> None:
         ctx = _ctx()

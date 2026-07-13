@@ -14,10 +14,13 @@ stepper was split out as a generic primitive.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 
 import numpy as np
 
 from qpsim.solvers.ssprk import ssprk22_step
+
+_MAX_SPECTRAL_FLOW_CFL = 0.8
 
 
 def advect_spectral_flow(
@@ -83,27 +86,64 @@ def advect_spectral_flow(
     if abs(gap_dot) < 1e-30 or gap <= 0:
         return u_arr.copy()
 
-    v = (gap / E) * gap_dot  # spectral-flow velocity at cell centers
-
-    cfl = dt * float(np.max(np.abs(v))) / float(np.min(dE))
-    if cfl > 1.0:
+    # The stability parameter is the *gap displacement* |gap_dot| dt, not
+    # gap_dot or dt separately.  apply_gap_update obtains gap_dot from a root
+    # jump, so decreasing dt alone leaves this raw CFL unchanged.  Estimate
+    # it locally (important on non-uniform grids), then split the requested
+    # displacement into genuinely smaller, stable advances.  The midpoint
+    # gap in each substep follows the linearly moving spectrum.
+    gap_displacement = float(gap_dot) * float(dt)
+    gap_end = float(gap) + gap_displacement
+    max_gap_magnitude = max(abs(float(gap)), abs(gap_end))
+    raw_cfl = float(
+        np.max(max_gap_magnitude * abs(gap_displacement) / (np.abs(E) * dE))
+    )
+    n_substeps = max(1, int(np.ceil(raw_cfl / _MAX_SPECTRAL_FLOW_CFL)))
+    if raw_cfl > 1.0:
         warnings.warn(
-            f"Spectral-flow CFL number {cfl:.2f} > 1. "
-            f"Consider reducing dt or increasing energy resolution.",
+            f"Spectral-flow displacement CFL {raw_cfl:.2f} > 1 for signed "
+            f"gap displacement {gap_displacement:+.6g}; internally "
+            f"subcycling into {n_substeps} advances (target CFL "
+            f"{_MAX_SPECTRAL_FLOW_CFL:g}). Reduce |gap_dot|*dt or increase "
+            "energy resolution to avoid this extra work; reducing dt alone "
+            "does not help when gap_dot is recomputed from the same gap jump.",
             stacklevel=2,
         )
 
-    def _rhs(f: np.ndarray) -> np.ndarray:
-        return _advection_rhs(f, E, v, dE)
-
-    if u_arr.ndim == 1:
-        u_new = ssprk22_step(u_arr, _rhs, dt)
-    elif u_arr.ndim == 2 and u_arr.shape[0] == 2:
-        u_new = np.empty_like(u_arr)
-        u_new[0] = ssprk22_step(u_arr[0], _rhs, dt)
-        u_new[1] = ssprk22_step(u_arr[1], _rhs, dt)
-    else:
+    if u_arr.ndim not in (1, 2) or (u_arr.ndim == 2 and u_arr.shape[0] != 2):
         raise ValueError(f"u must be shape (NE,) or (2, NE), got {u_arr.shape}")
+
+    dt_sub = float(dt) / n_substeps
+    gap_step = gap_displacement / n_substeps
+    u_new = u_arr.copy()
+
+    def _rhs_for_velocity(
+        velocity: np.ndarray,
+    ) -> Callable[[np.ndarray], np.ndarray]:
+        def rhs(f: np.ndarray) -> np.ndarray:
+            return _advection_rhs(f, E, velocity, dE)
+
+        return rhs
+
+    for substep in range(n_substeps):
+        # Preserve the legacy small-step discretization bit-for-bit.  The
+        # midpoint gap is needed only when a large requested displacement is
+        # actually split into multiple stable advances.
+        gap_mid = (
+            float(gap)
+            if n_substeps == 1
+            else float(gap) + (substep + 0.5) * gap_step
+        )
+        v = (gap_mid / E) * gap_dot
+        rhs = _rhs_for_velocity(v)
+
+        if u_new.ndim == 1:
+            u_new = ssprk22_step(u_new, rhs, dt_sub)
+        else:
+            advanced = np.empty_like(u_new)
+            advanced[0] = ssprk22_step(u_new[0], rhs, dt_sub)
+            advanced[1] = ssprk22_step(u_new[1], rhs, dt_sub)
+            u_new = advanced
 
     if active_mask is not None:
         mask = np.asarray(active_mask, dtype=bool)

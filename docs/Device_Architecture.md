@@ -362,18 +362,22 @@ uses the Fischer convention from ``qpsim.observables.density``:
   ``n_qp = 4 ρ_F ∫ ρ(E) f(E) dE``
 
 where ``ρ_F`` is the single-spin normal-state DOS at the Fermi
-level and ``ρ(E)`` is the BCS (or Dynes-broadened) spectral
-enhancement. If the junction injects QPs at rate ``I_J(E) dE`` per
-unit time, the density rate ``∂_t n_qp`` in that region is
-``I_J(E) dE / V_region``. Matching to ``4 ρ_F ρ(E) ∂_t f(E) dE``
-per bin gives:
+level in eV⁻¹ m⁻³, the integration measure in this formula is in eV,
+and ``ρ(E)`` is the BCS (or Dynes-broadened) spectral enhancement.
+Code operating on qpsim's µeV grids must divide the energy measure by
+``1e6``. Write the continuous junction spectrum as ``j_J(E)`` in
+events/(ns·eV), so a qpsim cell receives
+``I_{J,i} = j_J(E_i) dE_i[eV]`` events/ns. Matching
+``I_{J,i}/V_region`` to
+``4 ρ_F ρ(E_i) ∂_t f_i dE_i[eV]`` gives the equivalent forms:
 
 * **0D regions (v1):**
-  ``gain(E) = I_J(E) / (4 ρ_F ρ(E) V_region)``
-  ``loss_rate(E) = I_J^{out}(E) / (4 ρ_F ρ(E) V_region × f(E))``
-  where ``I_J^{out}(E)`` is the per-bin extraction rate (split off
-  from an ``I_J^{in}(E)`` by sign; the loss-rate form recovers
-  positivity-preserving solver structure — see §2.2).
+  ``gain_i = j_J^{in}(E_i) / (4 ρ_F ρ_i V_region)`` or
+  ``I_{J,i}^{in} / (4 ρ_F ρ_i V_region dE_i[eV])``;
+  ``loss_rate_i = j_J^{out}(E_i) / (4 ρ_F ρ_i V_region f_i)`` or
+  ``I_{J,i}^{out} / (4 ρ_F ρ_i V_region f_i dE_i[eV])``.
+  The in/out spectra are split by sign; the loss-rate form recovers
+  positivity-preserving solver structure — see §2.2.
 * **Spatial regions (Gate 5+):** same formula per spatial cell with
   ``V_cell`` and with ``target_cells`` masking the junction
   interface. Not implemented in v1.
@@ -384,9 +388,13 @@ per Cooper pair, the appropriate normalization for the M25
 moment-level ``dx_α/dt`` equations. It relates to the E-resolved
 gain via
 
-  ``g_moment = ∫ gain(E) × ρ(E) × (4 ρ_F / 2 ν_0 Δ) dE = (2 ρ_F/ν_0 Δ) × ∫ gain(E) ρ(E) dE``
+  ``g_moment = (2 ρ_F/(ν_0 Δ)) ∫ gain(E) ρ(E) dE``
 
-When ``ρ_F = ν_0`` (same DOS convention on both sides) this
+Every quantity in that expression must use one energy unit. Stage A stores
+``ν_0`` in J⁻¹m⁻³, so convert it to eV⁻¹m⁻³ via
+``ν_0[eV⁻¹m⁻³] = ν_0[J⁻¹m⁻³] × 1.602176634e-19 J/eV`` before comparing it
+with ``ρ_F``; likewise use ``Δ[eV]`` and ``dE[eV]``. When the converted
+``ρ_F = ν_0`` (same DOS convention on both sides), this
 simplifies to ``g_moment = (2/Δ) × ∫ gain(E) ρ(E) dE``. The
 ``M25GapAsymmetricJJ`` implementation is responsible for this
 mapping: it evaluates Stage A's moment-rate ``Γ̃^α`` per qubit
@@ -400,11 +408,11 @@ f_L(E), f_R(E') at paired energies.
 **Conservation invariants (pinned by Phase 3 tests).**
 
 1. **Per-region total injection matches the junction current**:
-   ``4 ρ_F V_region ∫ ρ(E) gain(E) dE = I_J^{total}`` — the
+   ``4 ρ_F V_region Σ_i ρ_i gain_i dE_i[eV] = I_J^{total}`` — the
    device-level junction diagnostic — to float64.
 2. **Cross-region balance at detailed balance**: summing over
-   every region of ``∂_t n_qp = 4 ρ_F V_region ∫ ρ(E) (gain −
-   loss_rate · f) dE`` equals zero when the Device is at thermal
+   every region of ``∂_t N_qp = 4 ρ_F V_region Σ_i ρ_i (gain_i −
+   loss_rate_i f_i) dE_i[eV]`` equals zero when the Device is at thermal
    equilibrium with matched temperature and no drive.
 3. **Steady-state matched-T limit**: two-region Device at
    ``T_L = T_R``, no drive: both regions land on ``f = f_FD(T)``,
@@ -415,7 +423,8 @@ f_L(E), f_R(E') at paired energies.
 | Quantity | Unit | Why |
 |---|---|---|
 | ``ExternalFlux.gain``, ``loss_rate`` | 1/ns | Matches T3 stack |
-| Junction current ``I_J(E)`` | events/(ns · Δ E-bin) | Internal |
+| Junction spectrum ``j_J(E)`` | events/(ns·eV) | Continuous normalization |
+| Per-bin current ``I_{J,i}`` | events/ns | Includes ``dE_i[eV]`` |
 | Stage A ``Γ̃^α_{ij}`` | Hz | Paper convention; converted at the Junction boundary |
 | Gaps, energies | μeV or K (per backend) | Existing T3 convention |
 | ``tau_0``, ``tau_0_phonon`` | ns | Material YAML |

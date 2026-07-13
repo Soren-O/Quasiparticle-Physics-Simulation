@@ -368,6 +368,11 @@ def _pair_breaking_quadrature_correction(
     QP-side behavior remains unchanged.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
+    # Kaplan S_+ is the analytic integral of the *pure-BCS K_plus* kernel.
+    # Applying it to a Dynes-broadened context or to a same-shaped K_minus /
+    # custom kernel silently replaces the caller's physics with BCS K_plus.
+    if ctx.dynes_gamma > 0.0:
+        return np.ones(n_omega)
     if K.shape != ctx.K_plus.shape:
         return np.ones(n_omega)
 
@@ -376,6 +381,10 @@ def _pair_breaking_quadrature_correction(
         return np.ones(n_omega)
     prefactor = float(np.median(K[valid] / ctx.K_plus[valid]))
     if prefactor <= 0.0 or not np.isfinite(prefactor):
+        return np.ones(n_omega)
+    if not np.allclose(
+        K[valid], prefactor * ctx.K_plus[valid], rtol=1e-10, atol=0.0
+    ):
         return np.ones(n_omega)
 
     tau_0_pb = 1.0 / (np.pi * ctx.gap * prefactor)
@@ -449,6 +458,7 @@ def phonon_source_sink_jacobian_f(
     NE = int(f.size)
     rho = ctx.rho
     dE = ctx.dE
+    uniform_grid_spacing(ctx.E, dE, "phonon_source_sink_jacobian_f")
     one_minus_f = np.maximum(1.0 - f, 0.0)
     pref = dE * (rho[:, None] * rho[None, :])  # dE ρ_i ρ_j, shape (NE, NE)
 

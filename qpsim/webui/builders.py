@@ -178,6 +178,12 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 "with the pinned thermal bath — pick a dynamic phonon sector or the "
                 "auto/picard route."
             )
+        if setup.solver.method == "coupled_newton" and setup.phonons.mode == "dynamic_closed":
+            report.errors.append(
+                "Solver: coupled-Newton requires finite phonon escape; the dynamic_closed "
+                "sector has an unconstrained conserved-energy mode. Use Picard/auto or "
+                "select dynamic_escape."
+            )
         if (
             setup.phonons.use_phonon_side_kernel
             and setup.material.tau_0_pb_ns is None

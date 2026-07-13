@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from qpsim.collisions.phonon import (
     CoherenceAssignment,
+    _pair_breaking_quadrature_correction,
     apply_phonon_collision,
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -173,6 +174,30 @@ class TestPhononSidePairBreaking:
         mask = (omega > 2.0 * gap) & (b_ph < 0.0)
         first_idx = int(np.argmax(mask))
         assert 1.0 / -b_ph[first_idx] == pytest.approx(tau_0_pb, rel=2e-3)
+
+    def test_kaplan_correction_does_not_override_k_minus(self) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        omega, _, idx_sum, _ = build_phonon_frequency_map(ctx.E)
+        correction = _pair_breaking_quadrature_correction(
+            ctx, 7.0 * ctx.K_minus, idx_sum, omega.size
+        )
+
+        np.testing.assert_array_equal(correction, 1.0)
+
+    def test_kaplan_correction_does_not_override_dynes_kernel(self) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        dynes = SpectralContext(
+            E_bins=ctx.E,
+            dE_bins=ctx.dE,
+            gap=ctx.gap,
+            dynes_gamma=0.5,
+        )
+        omega, _, idx_sum, _ = build_phonon_frequency_map(dynes.E)
+        correction = _pair_breaking_quadrature_correction(
+            dynes, 3.0 * dynes.K_plus, idx_sum, omega.size
+        )
+
+        np.testing.assert_array_equal(correction, 1.0)
 
 
 class TestCollisionRates:

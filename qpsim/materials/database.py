@@ -15,12 +15,33 @@ directory for user-defined materials.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from qpsim.materials.substrate import Substrate
+
+_LEGACY_RHO_F_MIN = 1.0e20
+_LEGACY_RHO_F_MAX = 1.0e25
+
+
+def validate_rho_F_eV(rho_F: float, *, allow_zero: bool) -> float:
+    """Validate the eV-based DOS contract and catch legacy micro-eV values."""
+    value = float(rho_F)
+    if not isfinite(value) or value < 0.0 or (value == 0.0 and not allow_zero):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(
+            f"rho_F must be finite and {qualifier} (eV^-1 m^-3); got {value}."
+        )
+    if _LEGACY_RHO_F_MIN <= value < _LEGACY_RHO_F_MAX:
+        raise ValueError(
+            f"rho_F={value:g} eV^-1 m^-3 is in qpsim's legacy per-micro-eV "
+            "range. Multiply the old value by 1e6 "
+            "(for Al: 1.74e22 -> 1.74e28)."
+        )
+    return value
 
 
 @dataclass
@@ -65,7 +86,7 @@ class Material:
     # Normal-state transport.
     D_0: float = 0.0            # normal-state diffusion (μm²/ns)
     v_F: float = 0.0            # Fermi velocity (m/s)
-    rho_F: float = 0.0          # single-spin DOS (µeV⁻¹ m⁻³)
+    rho_F: float = 0.0          # single-spin DOS (eV⁻¹ m⁻³)
 
     # Phonon branches (D5 commits to carrying all three; the Debye
     # average is the scalar-s default for the Ph0 single-branch model).
@@ -93,6 +114,8 @@ class Material:
             self.tau_s = self.tau_0
         if self.tau_r is None:
             self.tau_r = self.tau_0
+
+        self.rho_F = validate_rho_F_eV(self.rho_F, allow_zero=True)
 
         if (
             self.sound_velocity_debye is None

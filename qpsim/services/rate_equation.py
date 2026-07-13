@@ -1764,6 +1764,11 @@ def _solve_with_lm(
         )
     except Exception:
         return None
+    if not sol.success:
+        # ``root(method='lm')`` returns its last iterate on non-convergence.
+        # Even a small residual there is not a solver-certified candidate and
+        # must not enter the branch picker.
+        return None
     residual_inf_norm = float(np.max(np.abs(sol.fun)))
     if not (residual_inf_norm <= residual_ceiling_Hz):  # NaN/inf -> reject
         return None

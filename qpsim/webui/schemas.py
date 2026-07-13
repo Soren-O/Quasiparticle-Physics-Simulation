@@ -25,9 +25,10 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qpsim.materials import load_material
+from qpsim.materials.database import validate_rho_F_eV
 
 # Default material values come straight from the YAML database so the
 # frontend never carries a second, drifting copy of Al's parameters.
@@ -37,7 +38,7 @@ _AL = load_material("Al")
 class StrictModel(BaseModel):
     """Base: reject unknown keys so stale setup files fail loudly."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class MaterialParams(StrictModel):
@@ -49,8 +50,13 @@ class MaterialParams(StrictModel):
     tau_0: Annotated[float, Field(gt=0.0)] = _AL.tau_0  # e-ph characteristic time (ns)
     tau_0_pb_ns: Annotated[float, Field(gt=0.0)] | None = _AL.tau_0_pb_ns  # τ₀^PB (ns)
     D_0: Annotated[float, Field(ge=0.0)] = _AL.D_0  # normal-state diffusion (μm²/ns)
-    rho_F: Annotated[float, Field(ge=0.0)] = _AL.rho_F  # single-spin DOS (J⁻¹ m⁻³)
+    rho_F: Annotated[float, Field(ge=0.0, allow_inf_nan=False)] = _AL.rho_F  # eV⁻¹ m⁻³
     dynes_gamma: Annotated[float, Field(ge=0.0)] = 0.0  # Dynes broadening Γ (μeV)
+
+    @model_validator(mode="after")
+    def reject_legacy_rho_f_units(self) -> MaterialParams:
+        validate_rho_F_eV(self.rho_F, allow_zero=True)
+        return self
 
 
 class EnergyGrid(StrictModel):
@@ -59,6 +65,12 @@ class EnergyGrid(StrictModel):
     min_factor: Annotated[float, Field(ge=1.0)] = 1.0
     max_factor: Annotated[float, Field(gt=1.0)] = 10.0
     num_bins: Annotated[int, Field(ge=8, le=5000)] = 400
+
+    @model_validator(mode="after")
+    def max_must_exceed_min(self) -> EnergyGrid:
+        if self.max_factor <= self.min_factor:
+            raise ValueError("max_factor must be greater than min_factor")
+        return self
 
 
 class PhononSector(StrictModel):
@@ -174,7 +186,7 @@ class GapStepProfile(StrictModel):
     gap_left: Annotated[float, Field(gt=0.0)] = 180.0  # (μeV)
     gap_right: Annotated[float, Field(gt=0.0)] = 200.0  # (μeV)
     step_position_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.5
-    interface_G_N: Annotated[float, Field(gt=0.0)] | None = None
+    interface_G_N: Annotated[float, Field(ge=0.0)] | None = None
 
 
 class InjectionConfig(StrictModel):

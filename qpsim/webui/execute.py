@@ -125,16 +125,21 @@ def _mb_observables(
     sigma1, sigma2 = compute_ac_conductivity(f, ctx, probe.omega_0)
     summary["sigma1_over_sigmaN"] = sigma1
     summary["sigma2_over_sigmaN"] = sigma2
-    if sigma1 > 0.0:
+    if sigma1 != 0.0:
         summary["Q_i"] = compute_quality_factor(f, ctx, probe.omega_0, probe.alpha)
         if probe.Q_ext is not None:
             summary["Q_tot"] = compute_quality_factor(
                 f, ctx, probe.omega_0, probe.alpha, Q_ext=probe.Q_ext
             )
+        if sigma1 < 0.0:
+            notes.append(
+                "The probe has σ₁ < 0: this is active microwave gain "
+                "(negative damping), reported as a signed quality factor."
+            )
     else:
         notes.append(
-            "Q_i skipped: the probe response is non-dissipative (σ₁ ≤ 0), "
-            "so the quality factor is unbounded."
+            "Q_i skipped: σ₁ = 0, so the quasiparticle quality factor is "
+            "unbounded."
         )
     summary["frac_freq_shift"] = compute_frequency_shift(
         f, f_ref, ctx, probe.omega_0, probe.alpha
@@ -321,16 +326,19 @@ def run_spatial_1d(
     obs = _profile_observables(gap)
 
     backend = T3Spatial1DBackend()
-    result = backend.run_until_steady_state(
-        state,
-        dt=setup.dt,
-        max_time=setup.max_time,
-        external_flux=flux,
-        stop_tol=setup.stop_tol,
-        snapshot_interval=setup.snapshot_interval,
-        observables=obs,
-        progress_hook=_time_progress_hook(progress, is_cancelled),
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("once")
+        result = backend.run_until_steady_state(
+            state,
+            dt=setup.dt,
+            max_time=setup.max_time,
+            external_flux=flux,
+            stop_tol=setup.stop_tol,
+            snapshot_interval=setup.snapshot_interval,
+            observables=obs,
+            progress_hook=_time_progress_hook(progress, is_cancelled),
+        )
+    payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
     if is_cancelled():
         raise RunCancelledError
 

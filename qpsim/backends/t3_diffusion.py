@@ -42,6 +42,166 @@ from qpsim.solvers.etd import etd2_step
 from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 
 _TAU_L_UNIFORMITY_RTOL = 1e-10
+_GAP_STATE_MATCH_RTOL = 1e-12
+_GAP_SUPPORT_EPS = 1e-30
+_EDGE_REMAP_MIN_BINS = 4
+_EDGE_REMAP_OCCUPATION_CEILING = 1.0 - 1e-12
+
+
+def _spread_mass_change(
+    mass: np.ndarray,
+    capacity: np.ndarray,
+    support_indices: np.ndarray,
+    delta: float,
+    tolerance: float,
+) -> int:
+    """Spread a signed mass correction over a compact edge stencil.
+
+    At least ``_EDGE_REMAP_MIN_BINS`` above-gap bins participate when they
+    exist.  The stencil expands until it has enough room (or removable mass),
+    and the change is proportional to that room.  This avoids the old
+    one-bin deposit, which could force the first active occupation above one.
+    """
+    if abs(delta) <= tolerance:
+        return 0
+
+    mass_before = float(np.sum(mass))
+    need = abs(float(delta))
+    add_mass = delta > 0.0
+    n_support = int(support_indices.size)
+    n_selected = min(_EDGE_REMAP_MIN_BINS, n_support)
+
+    while True:
+        selected = support_indices[:n_selected]
+        available = (
+            capacity[selected] - mass[selected]
+            if add_mass
+            else mass[selected]
+        )
+        available = np.maximum(available, 0.0)
+        available_total = float(np.sum(available))
+        if available_total + tolerance >= need or n_selected == n_support:
+            break
+        n_selected = min(n_support, max(n_selected + 1, 2 * n_selected))
+
+    if available_total + tolerance < need:
+        action = "store" if add_mass else "remove"
+        raise RuntimeError(
+            "apply_gap_update could not conservatively "
+            f"{action} {need:g} of quasiparticle mass within the physical "
+            "occupation bounds; refine or extend the energy grid."
+        )
+
+    if available_total > 0.0:
+        fraction = min(need / available_total, 1.0)
+        change = fraction * available
+        mass[selected] += change if add_mass else -change
+
+    # Close the last few ulps without violating a bound.  This also handles
+    # the case where ``available_total`` and ``need`` agreed only within the
+    # tolerance above.
+    signed_remaining = float(delta - (np.sum(mass) - mass_before))
+    remaining = abs(signed_remaining)
+    if remaining > tolerance:
+        correction_adds = signed_remaining > 0.0
+        for idx in support_indices:
+            room = (
+                capacity[idx] - mass[idx]
+                if correction_adds
+                else mass[idx]
+            )
+            amount = min(max(float(room), 0.0), remaining)
+            mass[idx] += amount if correction_adds else -amount
+            remaining -= amount
+            if remaining <= tolerance:
+                break
+    return int(np.count_nonzero(available > 0.0))
+
+
+def _recover_conservative_gap_occupation(
+    u_advected: np.ndarray,
+    rho_new: np.ndarray,
+    dE: np.ndarray,
+) -> tuple[np.ndarray, float, int]:
+    """Recover bounded ``f`` while conserving ``sum(u*dE)`` exactly.
+
+    Numerical edge diffusion can leave mass below the new BCS support, and a
+    coarse step can also overfill an above-gap cell.  Work with finite-volume
+    cell masses, clip only the provisional allocation, then spread the signed
+    remainder across a compact set of above-gap bins.  Returns ``(f,
+    remapped_mass, n_touched)``.
+    """
+    u = np.asarray(u_advected, dtype=float)
+    rho = np.asarray(rho_new, dtype=float)
+    widths = np.asarray(dE, dtype=float)
+    cell_mass = u * widths
+    if np.any(~np.isfinite(cell_mass)):
+        raise RuntimeError("apply_gap_update produced non-finite spectral mass.")
+
+    mass_scale = float(np.sum(np.abs(cell_mass)))
+    tolerance = 256.0 * np.finfo(float).eps * max(
+        mass_scale, np.finfo(float).tiny,
+    )
+    total_mass = float(np.sum(cell_mass))
+    if total_mass < -tolerance:
+        raise RuntimeError(
+            "apply_gap_update produced negative total quasiparticle mass; "
+            "the spectral-flow step is outside its stable regime."
+        )
+    total_mass = max(total_mass, 0.0)
+
+    support = rho > _GAP_SUPPORT_EPS
+    support_indices = np.flatnonzero(support)
+    if support_indices.size == 0:
+        if total_mass > tolerance:
+            raise RuntimeError(
+                "The updated gap leaves no above-gap energy bins able to "
+                "hold the conserved quasiparticle mass."
+            )
+        return np.zeros_like(u), 0.0, 0
+
+    capacity = np.zeros_like(cell_mass)
+    capacity[support] = rho[support] * widths[support]
+    capacity_total = float(np.sum(capacity[support]))
+    if total_mass > capacity_total + tolerance:
+        raise RuntimeError(
+            "The updated energy grid has insufficient above-gap capacity to "
+            "conserve quasiparticle mass with 0 <= f <= 1."
+        )
+
+    # Retain a few ulps of headroom when the global mass permits it, so a
+    # local numerical overshoot is spread rather than pinning one edge bin at
+    # exactly f=1.  Truly saturated states still use the physical capacity.
+    allocation_capacity = capacity * _EDGE_REMAP_OCCUPATION_CEILING
+    if total_mass > float(np.sum(allocation_capacity[support])) + tolerance:
+        allocation_capacity = capacity
+
+    mass_out = np.zeros_like(cell_mass)
+    mass_out[support] = np.clip(
+        cell_mass[support], 0.0, allocation_capacity[support],
+    )
+    delta = total_mass - float(np.sum(mass_out))
+    n_touched = _spread_mass_change(
+        mass_out, allocation_capacity, support_indices, delta, tolerance,
+    )
+
+    final_mass = float(np.sum(mass_out))
+    residual = total_mass - final_mass
+    if abs(residual) > tolerance:
+        raise RuntimeError(
+            "apply_gap_update conservative remap left a mass residual of "
+            f"{residual:g}."
+        )
+
+    f_new = np.zeros_like(u)
+    f_new[support] = mass_out[support] / capacity[support]
+    if np.any(f_new < -1e-13) or np.any(f_new > 1.0 + 1e-13):
+        raise RuntimeError(
+            "apply_gap_update conservative remap violated occupation bounds."
+        )
+    f_new = np.clip(f_new, 0.0, 1.0)
+    remapped_mass = 0.5 * float(np.sum(np.abs(mass_out - cell_mass)))
+    return f_new, remapped_mass, n_touched
 
 
 @dataclass
@@ -701,19 +861,61 @@ class T3DiffusionBackend:
 
         1. Solve for the new gap from the current ``f`` (reference-
            subtracted BCS).
-        2. If Δ moved, compute ``Δ̇ = (Δ_new − Δ_old) / dt`` and apply
-           one TVD+SSPRK step on the conserved variable ``u = ρ · f``.
-        3. Rebuild the :class:`SpectralContext` at the new Δ and recover
-           ``f = u / ρ_new`` above the new gap edge (clipped to [0, 1]).
+        2. If Δ moved, compute ``Δ̇ = (Δ_new − Δ_old) / dt`` and apply a
+           displacement-subcycled TVD+SSPRK step on the finite-volume
+           conserved variable ``u = ρ · f``.
+        3. Rebuild the :class:`SpectralContext` at the new Δ and recover a
+           bounded ``f`` with a ``dE``-weighted conservative edge remap.
+
+        Moving-gap flow is currently supported only for ideal BCS spectra.
+        A falling gap also requires at least one energy-bin centre below the
+        new edge; otherwise the fixed lower boundary would trap outflow.
         """
+        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=_GAP_STATE_MATCH_RTOL,
+            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match before a gap "
+                f"update; got {state.gap:g} and {state.spectral.gap:g}."
+            )
+        if not np.isfinite(state.gap) or state.gap <= 0.0:
+            raise ValueError(
+                f"apply_gap_update requires a finite positive gap; got {state.gap}."
+            )
         if dt <= 0:
             return state
 
         calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
-        new_gap = solve_gap(calibration, state.f, state.spectral.E)
+        new_gap = float(solve_gap(calibration, state.f, state.spectral.E))
 
+        if not np.isfinite(new_gap) or new_gap <= 0.0:
+            raise RuntimeError(
+                "solve_gap returned a collapsed or non-finite gap "
+                f"({new_gap}); normal-state moving-gap dynamics are not "
+                "implemented."
+            )
         if abs(new_gap - state.gap) < 1e-14:
             return state
+        if state.spectral.dynes_gamma > 0.0:
+            raise ValueError(
+                "Moving-gap spectral flow is implemented only for an ideal "
+                "BCS spectrum (dynes_gamma == 0). A Dynes DOS requires the "
+                "complex anomalous spectral flux, not (Delta/E)*rho."
+            )
+
+        E = state.spectral.E
+        dE = state.spectral.dE
+        if new_gap < state.gap and not (float(E[0]) < new_gap):
+            raise ValueError(
+                "A falling-gap update requires sub-gap grid room: at least "
+                "one energy-bin centre must lie below the new gap. "
+                f"Got E[0]={float(E[0]):g} and Delta_new={new_gap:g}. "
+                "Extend the energy grid below the minimum expected gap."
+            )
 
         gap_dot = (new_gap - state.gap) / dt
         u_old = state.spectral.rho * state.f
@@ -721,11 +923,10 @@ class T3DiffusionBackend:
         # ∂_E[(Δ/E)Δ̇ N₁f] (eq:full_kinetic_conservative) legitimately
         # carries density below the OLD gap edge into the newly opened
         # band (Δ_new, Δ_old) — the pre-step mask would zero that
-        # spectral inflow. Sub-edge residue at the NEW gap is dropped by
-        # the ρ_new-support recovery below, which is the physically
-        # correct support.
+        # spectral inflow. Numerical residue outside the NEW support is
+        # conservatively remapped after the advection.
         u_new = advect_spectral_flow(
-            u_old, state.spectral.E, state.spectral.dE,
+            u_old, E, dE,
             gap=state.gap, gap_dot=gap_dot, dt=dt,
         )
 
@@ -738,39 +939,33 @@ class T3DiffusionBackend:
         )
 
         rho_new = new_spectral.rho
-        mask = rho_new > 1e-30
-        f_new = np.zeros_like(u_new)
-        f_new[mask] = u_new[mask] / rho_new[mask]
+        f_new, remapped_mass, n_touched = _recover_conservative_gap_occupation(
+            u_new, rho_new, dE,
+        )
 
-        # Conserve N₁·f across a *rising* gap edge. Bins in (Δ_old, Δ_new] were
-        # above the old edge (finite advected density u_new) but are sub-gap at
-        # Δ_new, so the ρ_new-support recovery zeroes them — silently
-        # discarding real quasiparticles (tens of percent when the DOS-singular
-        # near-edge bin closes). On frozen-ξ shells that near-edge population
-        # maps to just above the rising edge and accumulates there (edge rate
-        # D_N/N₁ → 0; paper §"The local gap edge"), so redeposit any orphaned
-        # sub-edge density into the lowest active bin. Σρf (= Σu) is then
-        # conserved regardless of the one-shot advection's edge accuracy. For a
-        # falling gap ~mask holds only genuinely empty deep-subgap bins, so
-        # this is a no-op there.
-        orphaned = float(np.sum(u_new[~mask]))
-        if orphaned != 0.0 and np.any(mask):
-            edge_bin = int(np.argmax(mask))
-            f_new[edge_bin] += orphaned / rho_new[edge_bin]
-
-        f_clipped = np.clip(f_new, 0.0, 1.0)
-        u_in = float(np.sum(u_old))
-        clip_loss = float(np.sum((f_new - f_clipped) * rho_new))
-        if u_in > 0.0 and abs(clip_loss) > 1e-9 * u_in:
+        # Audit the physical finite-volume invariant, including non-uniform
+        # widths.  The recovery helper already enforces 0 <= f <= 1 without a
+        # lossy clip; a large remap fraction is reported as a resolution
+        # diagnostic, with the signed invariant drift stated separately.
+        mass_before = float(np.sum(u_old * dE))
+        mass_after = float(np.sum(rho_new * f_new * dE))
+        mass_scale = max(abs(mass_before), np.finfo(float).tiny)
+        signed_drift = (mass_after - mass_before) / mass_scale
+        if abs(signed_drift) > 5e-12:
+            raise RuntimeError(
+                "apply_gap_update failed to conserve the finite-volume "
+                f"invariant sum(rho*f*dE): signed drift {signed_drift:+.3e}."
+            )
+        if mass_before > 0.0 and remapped_mass > 0.05 * mass_before:
             warnings.warn(
-                f"apply_gap_update: the [0, 1] occupation clip changed the "
-                f"conserved density Σρf by {clip_loss / u_in:+.2%} over one gap "
-                f"step Δ {state.gap:.4g}→{new_gap:.4g} µeV "
-                f"(|ΔΔ|/dE = {abs(new_gap - state.gap) / float(state.spectral.dE[0]):.2f}); "
-                "sub-cycle the gap update so the moving edge advances < 1 bin.",
+                "apply_gap_update conservatively remapped "
+                f"{remapped_mass / mass_before:.2%} of sum(rho*f*dE) across "
+                f"{n_touched} above-gap bins for Delta "
+                f"{state.gap:.4g}->{new_gap:.4g} micro-eV; the signed change "
+                f"in the invariant is {signed_drift:+.3e}. Increase energy "
+                "resolution if this edge-remap fraction is too large.",
                 stacklevel=2,
             )
-        f_new = f_clipped
 
         return replace(state, gap=new_gap, spectral=new_spectral, f=f_new)
 

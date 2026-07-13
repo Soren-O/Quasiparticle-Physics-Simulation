@@ -15,7 +15,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from qpsim.webui.execute import execute_setup
-from qpsim.webui.schemas import SetupEnvelope, Spatial1DSetup, SteadyState0DSetup
+from qpsim.webui.schemas import (
+    EnergyGrid,
+    SetupEnvelope,
+    Spatial1DSetup,
+    SteadyState0DSetup,
+)
 from qpsim.webui.store import Workspace, json_sanitize
 
 
@@ -50,6 +55,33 @@ class TestNonFiniteSanitization:
 
         json.dumps(manifest, allow_nan=False)
         assert manifest["summary"]["Q_i"] is None
+
+
+class TestSchemaNumerics:
+    @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+    def test_all_setup_floats_reject_non_finite_values(self, value: float) -> None:
+        with pytest.raises(ValueError, match="finite number"):
+            SteadyState0DSetup.model_validate({"T_bath": value})
+
+    @pytest.mark.parametrize(
+        ("minimum", "maximum"), [(2.0, 2.0), (3.0, 2.0)]
+    )
+    def test_energy_grid_requires_ordered_bounds(
+        self, minimum: float, maximum: float
+    ) -> None:
+        with pytest.raises(ValueError, match="max_factor must be greater"):
+            EnergyGrid(min_factor=minimum, max_factor=maximum)
+
+    def test_zero_interface_conductance_is_valid(self) -> None:
+        setup = Spatial1DSetup.model_validate(
+            {
+                "gap_profile": {
+                    "kind": "step",
+                    "interface_G_N": 0.0,
+                }
+            }
+        )
+        assert setup.gap_profile.interface_G_N == 0.0
 
 
 class TestStoreRobustness:
@@ -133,7 +165,26 @@ class TestMaterialDefaultsFromDatabase:
         assert params.T_c == al.T_c
         assert params.tau_0 == al.tau_0
         assert params.rho_F == al.rho_F  # was hand-copied as 0.0 pre-review
-        assert params.rho_F > 0.0
+        assert params.rho_F == pytest.approx(1.74e28)
+
+    def test_existing_ev_unit_setup_needs_no_migration(self) -> None:
+        envelope = SetupEnvelope.model_validate(
+            {
+                "name": "existing eV-unit setup",
+                "setup": {
+                    "mode": "steady_state_0d",
+                    "material": {"rho_F": 1.74e28},
+                },
+            }
+        )
+        assert envelope.setup.material.rho_F == pytest.approx(1.74e28)
+
+    @pytest.mark.parametrize("rho_F", [float("nan"), float("inf")])
+    def test_material_params_reject_non_finite_rho_F(self, rho_F: float) -> None:
+        from qpsim.webui.schemas import MaterialParams
+
+        with pytest.raises(ValueError, match="rho_F"):
+            MaterialParams.model_validate({"rho_F": rho_F})
 
     def test_default_steady_state_reports_density(self) -> None:
         setup = SteadyState0DSetup()

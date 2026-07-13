@@ -11,6 +11,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import load_material
 from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.transient import run_time_dependent
@@ -234,7 +235,7 @@ class TestDriveKick:
     """Start at thermal equilibrium, turn on a sub-gap drive, watch f
     climb toward the driven steady state."""
 
-    def test_x_qp_rises_under_drive(self) -> None:
+    def test_subgap_drive_heats_distribution(self) -> None:
         state = _build_state(T_bath=0.1, num_energy=40)
         drive = {"omega_0": 20.0, "n_bar": 1e8, "c_phot": 1e-9}
 
@@ -248,10 +249,25 @@ class TestDriveKick:
                 "x_qp": lambda s: qp_fraction(s.f, s.spectral, delta_0=s.gap),
             },
         )
-        x_qp_series = [snap.observables["x_qp"] for snap in result.snapshots]
-        # Non-decreasing (drive adds QPs), ends strictly above initial.
-        assert x_qp_series[-1] > x_qp_series[0]
-        assert all(
-            x_qp_series[i + 1] >= x_qp_series[i] * 0.99
-            for i in range(len(x_qp_series) - 1)
+        # A sub-gap photon cannot break a Cooper pair: it redistributes QP
+        # energy, while e-ph recombination/generation may move the total count
+        # either way. The old assertion that it must create QPs was unphysical.
+        weights = bcs_dos_cell_weights(
+            state.spectral.E, state.spectral.dE, state.gap
+        )
+
+        def mean_energy(f: np.ndarray) -> float:
+            spectral_mass = weights * f
+            return float(
+                np.sum(state.spectral.E * spectral_mass) / np.sum(spectral_mass)
+            )
+
+        assert mean_energy(result.snapshots[-1].f) > mean_energy(
+            result.snapshots[0].f
+        )
+        assert not np.allclose(
+            result.snapshots[-1].f,
+            result.snapshots[0].f,
+            rtol=1e-5,
+            atol=0.0,
         )

@@ -102,12 +102,24 @@ def newton_solve_f(
 
     Raises
     ------
+    ValueError
+        If the initial occupation is not a finite one-dimensional array on the
+        spectral grid or contains values outside ``[0, 1]``.
     RuntimeError
         If the Jacobian is singular, the line search fails above ``tol``,
         or Newton doesn't converge within ``max_iter``.
     """
-    NE = len(f)
-    f_cur = np.array(f, dtype=float).ravel()
+    f_cur = np.asarray(f, dtype=float)
+    if f_cur.ndim != 1 or f_cur.shape != ctx.E.shape:
+        raise ValueError(
+            f"initial occupation f must have shape {ctx.E.shape}; got {f_cur.shape}"
+        )
+    f_cur = f_cur.copy()
+    if not np.all(np.isfinite(f_cur)):
+        raise ValueError("initial occupation f must contain only finite values")
+    if np.any((f_cur < 0.0) | (f_cur > 1.0)):
+        raise ValueError("initial occupation f must lie in [0, 1]")
+    NE = f_cur.size
 
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
@@ -154,7 +166,10 @@ def newton_solve_f(
         converged_abs = max_residual < tol
         converged_rel = rate_scale > 0 and max_residual / rate_scale < tol
         if converged_abs and (converged_rel or rate_scale == 0):
-            return np.clip(f_cur, 0.0, 1.0)
+            # Return exactly the feasible vector whose residual was certified.
+            # The initial state is validated and accepted trials are projected
+            # before their residual is evaluated, so no post-hoc clip is needed.
+            return f_cur.copy()
 
         J = _jacobian_analytical(
             f_cur, ctx, K_s0, K_r0,
@@ -197,7 +212,7 @@ def newton_solve_f(
             # residual is already at or below tol, accept — anything else
             # is noise chasing (mirrors scipy.optimize's Newton guard).
             if max_residual < tol:
-                return np.clip(f_cur, 0.0, 1.0)
+                return f_cur.copy()
             raise RuntimeError(
                 f"Newton line search failed at iteration {iteration}. "
                 f"max |residual| = {max_residual:.2e}"

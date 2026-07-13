@@ -30,7 +30,7 @@ def anderson_extrapolate(
     Given the current iterate ``x``, its image ``gx = G(x)``, and the
     history of prior ``(x_k, G(x_k))`` pairs, returns an extrapolated
     iterate that tends to converge faster than plain Picard. Requires
-    at least ``m = min(depth, len(X_hist)) ≥ 2`` history entries;
+    at least ``m = min(depth, len(X_hist)) ≥ 1`` history entry;
     returns ``None`` when history is insufficient or the least-squares
     solve is degenerate.
 
@@ -51,7 +51,7 @@ def anderson_extrapolate(
         a negative component.
     """
     m = min(depth, len(X_hist))
-    if m < 2:
+    if m < 1:
         return None
 
     # Residuals r_k = G(x_k) − x_k.

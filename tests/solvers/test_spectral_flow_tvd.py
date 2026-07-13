@@ -40,8 +40,32 @@ class TestAdvectSpectralFlow:
         # Enormous dt → CFL >> 1.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=10.0, dt=1.0)
-        assert any("CFL" in str(w.message) for w in caught)
+            out = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=1.0, dt=1.0)
+        messages = [str(w.message) for w in caught]
+        assert any(
+            "CFL" in message and "internally subcycling" in message
+            for message in messages
+        )
+        assert float(np.min(out)) >= -1e-14
+        np.testing.assert_allclose(
+            np.sum(out * dE), np.sum(u * dE), rtol=1e-12,
+        )
+
+    def test_nonuniform_grid_subcycling_conserves_finite_volume_mass(self) -> None:
+        import pytest
+
+        E = np.geomspace(0.7, 5.0, 120)
+        dE = integration_widths_from_centers(E)
+        u = np.exp(-((E - 1.4) / 0.25) ** 2)
+        before = float(np.sum(u * dE))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            out = advect_spectral_flow(
+                u, E, dE, gap=1.0, gap_dot=0.4, dt=1.0,
+            )
+        after = float(np.sum(out * dE))
+        assert after == pytest.approx(before, rel=1e-12, abs=1e-15)
+        assert float(np.min(out)) >= -1e-14
 
     def test_active_mask_zeros_outside(self) -> None:
         E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)

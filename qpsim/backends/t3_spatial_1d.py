@@ -594,10 +594,10 @@ class T3Spatial1DBackend:
                 raise ValueError("gap_profile must be finite and non-negative.")
         if state.interface_conductance is not None and not (
             np.isfinite(state.interface_conductance)
-            and state.interface_conductance > 0.0
+            and state.interface_conductance >= 0.0
         ):
             raise ValueError(
-                "interface_conductance must be finite and positive; "
+                "interface_conductance must be finite and non-negative; "
                 f"got {state.interface_conductance}."
             )
 

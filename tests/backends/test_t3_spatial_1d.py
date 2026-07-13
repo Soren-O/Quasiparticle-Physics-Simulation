@@ -258,10 +258,10 @@ class TestT3Spatial1DVaryingGap:
             with pytest.raises(ValueError, match="strictly increasing"):
                 backend.apply_transport(state, 1.0)
 
-    def test_nonpositive_interface_conductance_rejected(self) -> None:
+    def test_negative_interface_conductance_rejected(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
         NE, NX = spectral.E.size, x.size
-        for bad in (0.0, -1.0):
+        for bad in (-1.0, -np.inf, np.inf, np.nan):
             state = T3Spatial1DState(
                 f=np.zeros((NE, NX)), x=x, gap=gap_max, spectral=spectral,
                 material=material, T_bath=0.1, gap_profile=profile,
@@ -269,6 +269,25 @@ class TestT3Spatial1DVaryingGap:
             )
             with pytest.raises(ValueError, match="interface_conductance"):
                 T3Spatial1DBackend().apply_transport(state, 0.5)
+
+    def test_zero_interface_conductance_is_an_opaque_interface(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        f0 = np.zeros((NE, NX))
+        face = NX // 2 - 1
+        f0[:, : face + 1] = 0.4
+        state = T3Spatial1DState(
+            f=f0.copy(), x=x, gap=gap_max, spectral=spectral,
+            material=material, T_bath=0.1, diffusion_model=DiffusionModel.A1,
+            gap_profile=profile, interface_conductance=0.0,
+        )
+
+        out = T3Spatial1DBackend().apply_transport(state, 0.5)
+
+        # G_N = 0 is the physical opaque-interface limit.  It is distinct
+        # from None, which leaves the step face on the bulk-diffusion path.
+        np.testing.assert_array_equal(out.f[:, face + 1 :], 0.0)
+        np.testing.assert_allclose(out.f[:, : face + 1], f0[:, : face + 1])
 
     def test_varying_gap_conserves_weighted_density(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup()

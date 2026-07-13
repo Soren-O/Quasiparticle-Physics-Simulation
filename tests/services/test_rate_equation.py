@@ -646,6 +646,29 @@ class TestSolverReturnType:
         assert state.residual_inf_norm >= 0.0
 
 
+class TestLmCandidateAcceptance:
+    def test_rejects_unsuccessful_result_with_small_residual(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        def fake_root(*args: object, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                success=False,
+                message="maximum iterations reached",
+                fun=np.zeros(4),
+                x=np.array([0.5, 1e-8, 1e-8, 1e-8]),
+                nfev=5000,
+            )
+
+        monkeypatch.setattr(rate_mod, "root", fake_root)
+        assert rate_mod._solve_with_lm(
+            _make_trivial_coefs(),
+            np.array([0.5, 1e-8, 1e-8, 1e-8]),
+            residual_ceiling_Hz=1.0,
+        ) is None
+
+
 class TestLmDeterminism:
     """The multi-seed picker uses scipy.optimize.root(method='lm') as an
     additional candidate source. The original switch from lm to hybr was

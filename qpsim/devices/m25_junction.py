@@ -13,7 +13,9 @@ Architecture (Phase 5c):
   ``M25Coefficients`` (state-independent) and the moment-solver
   fixed point ``(p_1, x_L, x_{R>}, x_{R<})`` from
   :func:`solve_rate_equation_steady_state`. Subsequent
-  ``evaluate`` calls reuse both caches.
+  ``evaluate`` calls reuse both caches while their value-based input
+  fingerprints match. Replacing any physics or branch-selection input
+  automatically rebuilds the affected cache.
 * Per-region ``ExternalFlux(gain, loss_rate)`` is built from the
   *cached* moment-solver values, NOT from integrating ``state.f``
   or reading ``qubit_state.p``. This sidesteps the cross-electrode
@@ -56,7 +58,7 @@ Caveats:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -79,6 +81,20 @@ from qpsim.services.rate_equation_coefficients import (
 if TYPE_CHECKING:
     from qpsim.backends.t3_diffusion import T3DiffusionState
     from qpsim.devices.qubit import QubitState
+
+
+def _float_dataclass_fingerprint(
+    value: M25PhysicalParameters | M25PhotonDrive,
+) -> tuple[float, ...]:
+    """Snapshot every primitive input field for cache invalidation.
+
+    The input bundles are frozen, but :class:`M25GapAsymmetricJJ` is
+    intentionally mutable for backward compatibility: callers can replace
+    either bundle after construction.  A value snapshot, rather than the
+    bundle object itself, also remains correct if a caller bypasses the
+    frozen guard with ``object.__setattr__``.
+    """
+    return tuple(float(getattr(value, item.name)) for item in fields(value))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -126,7 +142,8 @@ class M25GapAsymmetricJJ(Junction):
     Wraps Stage A's coefficient evaluators
     (:func:`coefficients_from_physical_parameters_with_photon_drive`)
     inside the Layer-2 Junction protocol. Caches ``M25Coefficients``
-    on first ``evaluate`` (state-independent for fixed parameters).
+    on first ``evaluate`` (state-independent for fixed parameters) and
+    refreshes the cache if its mutable junction inputs change.
 
     Parameters
     ----------
@@ -181,9 +198,17 @@ class M25GapAsymmetricJJ(Junction):
     # double-counting against the e-ph collision kernel.
     owns_region_dissipation: bool = field(default=True, init=False, repr=False)
     _coefficients: M25Coefficients | None = field(default=None, init=False, repr=False)
+    _coefficients_fingerprint: tuple[tuple[float, ...], tuple[float, ...]] | None = field(
+        default=None, init=False, repr=False,
+    )
     _moment_solution: M25SteadyState | None = field(
         default=None, init=False, repr=False,
     )
+    _moment_solution_fingerprint: tuple[
+        tuple[tuple[float, ...], tuple[float, ...]],
+        str,
+        tuple[str, ...] | None,
+    ] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.region_a == self.region_b:
@@ -192,19 +217,30 @@ class M25GapAsymmetricJJ(Junction):
                 f"region_a and region_b = {self.region_a!r}."
             )
 
+    def _coefficient_inputs_fingerprint(
+        self,
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """Return a value snapshot of all coefficient-builder inputs."""
+        return (
+            _float_dataclass_fingerprint(self.m25_params),
+            _float_dataclass_fingerprint(self.m25_drive),
+        )
+
     def _ensure_coefficients_cached(self) -> M25Coefficients:
-        if self._coefficients is None:
-            object.__setattr__(
-                self, "_coefficients",
-                coefficients_from_physical_parameters_with_photon_drive(
-                    self.m25_params, self.m25_drive,
-                ),
+        fingerprint = self._coefficient_inputs_fingerprint()
+        if self._coefficients is None or self._coefficients_fingerprint != fingerprint:
+            coefficients = coefficients_from_physical_parameters_with_photon_drive(
+                self.m25_params, self.m25_drive,
             )
+            object.__setattr__(
+                self, "_coefficients", coefficients,
+            )
+            object.__setattr__(self, "_coefficients_fingerprint", fingerprint)
         assert self._coefficients is not None  # for mypy
         return self._coefficients
 
     def _ensure_moment_solution_cached(self) -> M25SteadyState:
-        """Solve the M25 4-unknown moment system once, cache the result.
+        """Solve and cache the M25 4-unknown moment system.
 
         The M25 fixed point ``(p_1, x_L, x_{R>}, x_{R<})`` is purely a
         function of ``m25_params`` and ``m25_drive``; it does not
@@ -221,16 +257,26 @@ class M25GapAsymmetricJJ(Junction):
         deterministically — single-seed calls land on the lower
         thermal-ish branch at typical M25 Fig 3 inputs.
         """
-        if self._moment_solution is None:
-            coefs = self._ensure_coefficients_cached()
-            object.__setattr__(
-                self, "_moment_solution",
-                solve_rate_equation_steady_state_multi_seed(
-                    coefs,
-                    branch_picker_mode=self.branch_picker_mode,
-                    expected_ordering=self.expected_ordering,
-                ),
+        coefs = self._ensure_coefficients_cached()
+        expected_ordering = (
+            None if self.expected_ordering is None else tuple(self.expected_ordering)
+        )
+        coefficient_fingerprint = self._coefficient_inputs_fingerprint()
+        fingerprint = (
+            coefficient_fingerprint,
+            self.branch_picker_mode,
+            expected_ordering,
+        )
+        if self._moment_solution is None or self._moment_solution_fingerprint != fingerprint:
+            moment_solution = solve_rate_equation_steady_state_multi_seed(
+                coefs,
+                branch_picker_mode=self.branch_picker_mode,
+                expected_ordering=self.expected_ordering,
             )
+            object.__setattr__(
+                self, "_moment_solution", moment_solution,
+            )
+            object.__setattr__(self, "_moment_solution_fingerprint", fingerprint)
         assert self._moment_solution is not None  # for mypy
         return self._moment_solution
 
