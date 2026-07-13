@@ -1,5 +1,9 @@
 # Integrated physics and code audit — 2026-07-12
 
+> **Historical record.** For the current repo state and audit rabbit-hole flags,
+> start at [`docs/NEXT-AUDIT-BRIEF.md`](NEXT-AUDIT-BRIEF.md). Treat the findings
+> below as done and verify independently.
+
 ## Scope and provenance
 
 This audit reviewed the qpsim kinetic, diffusion, phonon, junction, observable,

@@ -1,5 +1,10 @@
 # qpsim deep re-audit — 2026-07-13
 
+> **Historical record.** For the current repo state and audit rabbit-hole flags,
+> start at [`docs/NEXT-AUDIT-BRIEF.md`](NEXT-AUDIT-BRIEF.md). Treat the findings
+> below as done and verify independently rather than assuming the touched areas
+> are now flawless.
+
 ## Scope and method
 
 This review re-audited the repository after the integrated 2026-07-12 fixes.
@@ -81,9 +86,11 @@ flux cannot loosen a density equation.  Every candidate path—strict solve,
 status-stall compatibility path, LM/least-squares helpers, root relocation,
 and multi-seed branch selection—must pass this same physics gate.  Solver
 status can no longer bypass it, and the residual is recomputed from the exact
-state returned to the caller.  The hintless branch driver's failure modes are
-also distinguished instead of reporting every missing cross-check state as a
-branch disagreement.
+state returned to the caller.  With the paper-window points now solving, the
+hintless branch driver's passes complete and no longer raise a spurious branch
+disagreement across the former death valley — a downstream consequence of the
+corrected gate, not a change to the driver's merge logic (which is unchanged;
+the latent case of one empty pass beside a full one still fails loudly).
 
 The formerly failing paper-window points now solve, while deliberately
 injected slope pseudo-roots are rejected.  M25 coefficient arrays are copied
@@ -214,8 +221,9 @@ The integration pass found defects that no individual subsystem owned:
 - a failed NPZ write could escape the runner's failure transition;
 - terminal jobs accumulated indefinitely in the in-memory registry;
 - Windows file sharing could turn deletion during download into a server
-  error or leave a zombie run directory; deletion is now staged safely and
-  makes the manifest disappear first; and
+  error or leave a zombie run directory; deletion now removes the manifest
+  last, so an interrupted delete leaves a still-listable, retryable run
+  instead of an orphaned directory; and
 - concurrent runner paths could overwrite a terminal manifest with stale
   `running` state.  Per-job locking and a terminal-state guard now make the
   state transition monotone.  Malformed/non-object manifests are treated as
