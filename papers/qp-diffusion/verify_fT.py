@@ -368,4 +368,6 @@ if __name__ == "__main__":
               "(e) spatial sector, static inhomogeneous gap")
     print()
 
-    print("ALL PASS" if (a and b and c and d and e) else "SOME FAILED -- inspect above")
+    all_ok = a and b and c and d and e
+    print("ALL PASS" if all_ok else "SOME FAILED -- inspect above")
+    raise SystemExit(0 if all_ok else 1)

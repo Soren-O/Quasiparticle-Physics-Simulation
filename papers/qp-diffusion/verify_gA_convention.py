@@ -81,11 +81,16 @@ def is_zero(M):
     return all(sp.simplify(e) == 0 for e in sp.Matrix(M))
 
 
+ALL_OK = True
+
+
 def report(label, results):
     """results: list of (convention, expression, claimed_closed_form)."""
+    global ALL_OK
     line = f"{label:<58s}"
     for conv, expr, claim in results:
         ok = is_zero(sp.Matrix(expr) - sp.Matrix(claim))
+        ALL_OK &= ok
         line += f" | {conv}: {'PASS' if ok else 'FAIL'}"
     print(line)
 
@@ -221,3 +226,4 @@ print('static spectral equation as gR), T3 (equilibrium anomalous Keldysh weight
 print('be 2 N2 tanh(E/2T) or the gap equation yields Delta = 0), Belzig 1999 text')
 print('(D_L = 0 below the gap), PRL 114 167002 Eqs. (15)-(16), dirty-limit kappa_s,')
 print('sub-gap Andreev (charge penetrates, energy blocked), SIS I-V (N1N1 = charge).')
+raise SystemExit(0 if ALL_OK else 1)

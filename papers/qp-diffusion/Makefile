@@ -55,8 +55,8 @@ arxiv-labels:
 	python gen_xr_labels.py supplement.aux SM- xr-labels-from-supplement.tex supplement.pdf
 	python gen_xr_labels.py paper.aux M- xr-labels-from-paper.tex paper.pdf
 
-# Symbolic/numeric proof-checks. The scripts report [PASS]/[FAIL] lines but
-# always exit 0, so failure is detected by grepping the output for FAIL.
+# Symbolic/numeric proof-checks. The scripts exit nonzero on a failed claim;
+# the FAIL grep remains a second fail-closed check for future scripts.
 # Override the interpreter with e.g. `make verify PY=python3` (needs sympy).
 # Default matches `make setup` (which creates .venv HERE); on the Windows
 # box use e.g. PY='A:/Einstein/Documents/qp-diffusion-paper/.venv/Scripts/python.exe'.

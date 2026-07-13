@@ -380,4 +380,6 @@ if __name__ == "__main__":
     print()
     d = mclaims_2026_07_10()
     print()
-    print("ALL PASS" if (a and b and R2c == 0 and d) else "SOME FAILED -- inspect above")
+    all_ok = a and b and R2c == 0 and d
+    print("ALL PASS" if all_ok else "SOME FAILED -- inspect above")
+    raise SystemExit(0 if all_ok else 1)

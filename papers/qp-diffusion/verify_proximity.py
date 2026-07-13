@@ -200,4 +200,6 @@ for (av, bv) in [(sp.Rational(2, 5), sp.Rational(3, 10)),
     ok &= res < 1e-12
     print(f"  a={float(av):+.2f} b={float(bv):+.2f}: D_dress={dl:.4f} D_undress={dt:.4f}"
           f" N1^2={n1v**2:.4f}  |prod-N1^2|={res:.1e}")
-print("\nALL PASS" if (ident == 0 and ok and partC_ok) else "SOME FAILED -- inspect above")
+all_ok = ident == 0 and ok and partC_ok
+print("\nALL PASS" if all_ok else "SOME FAILED -- inspect above")
+raise SystemExit(0 if all_ok else 1)

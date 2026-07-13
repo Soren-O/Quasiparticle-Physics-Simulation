@@ -420,6 +420,7 @@ if __name__ == "__main__":
     print()
     e = check_legacy_local_peclet()
     print()
-    print("ALL PASS" if (a and b and a2 and b2 and c and a3 and b3
-                         and a4 and b4 and a5 and b5 and d and e)
-          else "SOME FAILED -- inspect above")
+    all_ok = (a and b and a2 and b2 and c and a3 and b3
+              and a4 and b4 and a5 and b5 and d and e)
+    print("ALL PASS" if all_ok else "SOME FAILED -- inspect above")
+    raise SystemExit(0 if all_ok else 1)
