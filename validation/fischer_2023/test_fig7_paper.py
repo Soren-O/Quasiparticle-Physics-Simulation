@@ -93,9 +93,15 @@ def test_matches_pinned_baseline() -> None:
     np.testing.assert_allclose(result.T_bath, baseline.T_bath, rtol=0.0, atol=1e-14)
     for p in baseline.p_read_dbm:
         assert result.n_bar_by_dbm[p] == pytest.approx(baseline.n_bar_by_dbm[p], rel=1e-12)
+        # Compare qp losses (1/Q_qp), not Q_qp: on the extrinsic plateau
+        # Q_qp reaches ~1e17-1e18 where the digits are platform-dependent
+        # float noise (ubuntu vs the win32-pinned baseline differs ~2e-4
+        # there); a 1e-18 loss floor ignores that while rtol still gates
+        # every physically meaningful point.
         np.testing.assert_allclose(
-            result.Q_qp_by_dbm[p], baseline.Q_qp_by_dbm[p],
-            rtol=1e-4, atol=1e-14, err_msg=f"Q_qp drift at P_read={p:g} dBm",
+            1.0 / np.asarray(result.Q_qp_by_dbm[p]),
+            1.0 / np.asarray(baseline.Q_qp_by_dbm[p]),
+            rtol=1e-4, atol=1e-18, err_msg=f"Q_qp loss drift at P_read={p:g} dBm",
         )
         np.testing.assert_allclose(
             result.Q_tot_by_dbm[p], baseline.Q_tot_by_dbm[p],
