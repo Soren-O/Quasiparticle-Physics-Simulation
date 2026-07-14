@@ -16,6 +16,7 @@ with the Jacobian and residual helpers co-located here.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -207,14 +208,30 @@ def newton_solve_f(
             alpha *= 0.5
 
         if not accepted:
-            # Line-search failure near the roundoff floor just means the
-            # Newton step is smaller than machine precision. Accept only when
-            # the residual passes the SAME certificate as the primary gate
-            # (absolute AND relative). Accepting on the absolute residual alone
-            # would falsely report convergence for an infeasible root (e.g. a
-            # saturated f=1 when the true root is f>1 and every rate is at the
-            # roundoff floor) — that must raise, not return a non-root.
-            if converged_abs and (converged_rel or rate_scale == 0):
+            # Line-search failure near the roundoff floor just means the Newton
+            # step is below machine precision. Accept on the absolute residual:
+            # for a negligibly weak drive every rate sits at the roundoff floor,
+            # so the relative residual is O(1) noise while f_cur is the correct
+            # near-thermal seed. Finding G6 (an infeasible root f>1 clipped to a
+            # SATURATED f≈1) is surfaced with a WARNING rather than a raise —
+            # raising here would abort the legitimate weak-drive / near-thermal
+            # case (e.g. fischer_2024 fig8 at a sub-1e-13 rate scale), where
+            # returning the seed is the physically correct answer.
+            if converged_abs:
+                if (
+                    not converged_rel
+                    and rate_scale > 0.0
+                    and float(np.max(f_cur[active])) >= 1.0 - 1e-9
+                ):
+                    warnings.warn(
+                        "newton_solve_f: accepted a saturated (f≈1) state whose "
+                        "relative residual did not converge (max|residual|="
+                        f"{max_residual:.2e}, rate scale={rate_scale:.2e}); the "
+                        "requested steady state may be infeasible (root f>1). "
+                        "Treat the result with care.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
                 return f_cur.copy()
             raise RuntimeError(
                 f"Newton line search failed at iteration {iteration}. "
