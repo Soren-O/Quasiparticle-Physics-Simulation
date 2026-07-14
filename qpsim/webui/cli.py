@@ -8,10 +8,22 @@ Workspace resolution: ``--workspace`` flag, else the
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
+import sys
 import threading
 import webbrowser
 from pathlib import Path
+
+
+def _is_loopback(host: str) -> bool:
+    """True for localhost / 127.0.0.0/8 / ::1 binds."""
+    if host.lower() in ("localhost", ""):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def default_workspace() -> Path:
@@ -44,6 +56,14 @@ def main(argv: list[str] | None = None) -> None:
     workspace = args.workspace if args.workspace is not None else default_workspace()
     app = create_app(workspace)
 
+    if not _is_loopback(args.host):
+        print(
+            f"WARNING: binding to {args.host} exposes the qpsim UI on the network with "
+            "NO authentication — the setup/run read, write, delete and compute-submit "
+            "endpoints are reachable by anyone who can connect to this address. Bind "
+            "127.0.0.1 (the default) unless you intend to expose it.",
+            file=sys.stderr,
+        )
     url = f"http://{args.host}:{args.port}/"
     print(f"qpsim frontend — workspace: {workspace}")
     if not args.no_browser:

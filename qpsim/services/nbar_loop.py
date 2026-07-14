@@ -257,6 +257,17 @@ def solve_nbar_loop(
         location=f"after the final re-solve (n_bar = {n_bar:g})",
     )
 
+    # Re-certify on the RETURNED state. The in-loop flag certified the
+    # pre-advance point; n_bar then advanced and was re-solved above. If the
+    # returned (n_bar, f) pair is not itself self-consistent (a non-contractive
+    # map can advance past the fixed point), it is not converged regardless of
+    # the in-loop check. For the smooth/contractive physical maps this residual
+    # is O(tol) or smaller, so ``converged`` is unaffected.
+    n_bar_raw_final = prefactor * q_tot**2 * float(P_read_uev_per_ns)
+    rel_final = abs(n_bar_raw_final - n_bar) / max(abs(n_bar), 1e-300)
+    if converged and rel_final >= tol:
+        converged = False
+
     return NbarLoopResult(
         n_bar=float(n_bar),
         f=f_converged,

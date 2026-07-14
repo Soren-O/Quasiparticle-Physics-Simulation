@@ -196,6 +196,14 @@ def load_material(
     """
     dir_path = _default_database_dir() if database_dir is None else database_dir
     yaml_path = dir_path / f"{name}.yaml"
+    # Guard against path traversal in the material name (e.g. "../secret"): the
+    # resolved path must stay inside the database directory. Material names are
+    # simple file stems, never paths.
+    if not yaml_path.resolve().is_relative_to(Path(dir_path).resolve()):
+        raise ValueError(
+            f"Material name {name!r} resolves outside the database directory "
+            f"{dir_path}; material names must be simple file stems."
+        )
     if not yaml_path.exists():
         raise FileNotFoundError(
             f"Material '{name}' not found at {yaml_path}."

@@ -43,6 +43,11 @@ def _qp_integral_uev(f: np.ndarray, ctx: SpectralContext) -> float:
         # broadening removes the ideal square-root singularity, so retain the
         # context's ordinary cell-centered quadrature there.
         return float(np.sum(ctx.rho * f_arr * ctx.dE))
+    # EXACT singular-cell weights for the pure-BCS DOS (integrate E/√(E²−Δ²)
+    # analytically per cell). NOTE (finding G1): the collision operators in
+    # collisions/phonon.py use the coarser midpoint measure ρ·dE, so the number
+    # reported here and the number the collisions conserve differ by ~1/√NE at
+    # the gap edge. Unifying the two measures is the deferred fix.
     weights = bcs_dos_cell_weights(ctx.E, ctx.dE, ctx.gap)
     return float(np.sum(f_arr * weights))
 

@@ -886,6 +886,27 @@ class T3DiffusionBackend:
         self._validate_gate2_scope(state.phonon)
         self._validate_phonon_on_physics_grid(state)
 
+        # Fail-loud input guards, matching apply_gap_update and the spatial
+        # backend's apply_collisions (which already validate dt): a NaN /
+        # non-positive dt or a NaN state would otherwise propagate silently, and
+        # a state whose gap disagrees with its spectral gap would run kernels
+        # built from spectral.gap while ignoring state.gap.
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError(f"apply_collisions requires a finite positive dt; got {dt}.")
+        if not np.all(np.isfinite(state.f)):
+            raise ValueError("apply_collisions requires a finite state.f.")
+        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=_GAP_STATE_MATCH_RTOL,
+            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match; got "
+                f"{state.gap:g} and {state.spectral.gap:g}."
+            )
+
         if external_flux is not None:
             external_flux._validate_for_NE(int(state.spectral.E.size))
 

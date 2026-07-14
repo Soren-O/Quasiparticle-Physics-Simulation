@@ -473,4 +473,10 @@ class TestKaplanRecombinationNormalization:
             enable_scattering=False, enable_recombination=True,
         )
         ratio = float(loss[0]) / inv_tau_r_exact
+        # The ±15% budget is the midpoint-vs-exact-cell discretization gap at the
+        # sqrt-singular gap edge (finding G1): the collision operator contracts
+        # with the midpoint measure ρ·dE, which converges only ~1/√NE against the
+        # exact continuum rate here. This is a TRACKED convergence budget, not an
+        # arbitrary tolerance — tighten it once the collision measure is unified
+        # with the exact observable weights (bcs_dos_cell_weights).
         assert 0.85 < ratio < 1.15

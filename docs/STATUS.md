@@ -46,7 +46,7 @@ All reproductions self-pinned with CSV baselines + PDF plots under `validation/b
 |---|---|---|---|
 | Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ✅ paper-faithful (1620-bin grid, phonon-side Eq. 12 + pair-breaking kernels) |
 | Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ✅ paper-faithful; Eq. 47 + Appendix-E analytic overlay |
-| Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py` | `ph0_kaplan/` | ✅ paper-faithful ordinate (δΔ_T − δΔ)/δΔ_T; Eq. 53 overlay |
+| Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py` | `ph0_kaplan/` | ✅ paper-faithful ordinate (δΔ_T − δΔ)/δΔ_T; Eq. 53 overlay — ⚠️ **numerical ordinate not currently re-validated**: the only full-sweep value test is `manual_slow` (~14 h, CI-excluded) and its baseline predates the corrected `bcs_dos_cell_weights` regeneration deferred in `FISCHER-BASELINE-REGEN-2026-07-12.md` §4. The Eq. 53 analytic overlay + thermal x_qp are fast-tested; the numerical sweep is not. Re-pin under corrected quadrature to clear. |
 | Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ Tables II/III parameters + Eq. 65 extrinsic-loss cap |
 | Fischer 2023 Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ✅ via `nbar_loop` service; not a literal paper figure |
 | Fischer 2024 Figs 5-7 f(E) | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ |

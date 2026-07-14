@@ -615,6 +615,18 @@ def phonon_collision_rates(
             else _thermal_phonon_scattering_occupation(E, T_bath)
         )
         K_s_eff = K_s0 * N_p
+        # DISCRETE-MEASURE INCONSISTENCY (finding G1, docs/AUDIT-2026-07-13-
+        # gpt-reconciliation.md): the collision integrals here contract with the
+        # midpoint measure ρ·dE, whereas the observables (observables/density.py)
+        # integrate the same singular BCS DOS with the EXACT per-cell weights
+        # (bcs_dos_cell_weights). The gap edge is sqrt-integrable, so the
+        # midpoint rule converges only ~1/√NE there: the collision-conserved
+        # number (Σ ρ f dE) and the reported x_qp (Σ f · exact_weights) disagree
+        # by ~10-15% at the default NE=400 low-T, shrinking with NE. A strictly
+        # number-conserving relaxation thus shows a spurious drift in reported
+        # x_qp. Exact weights are the physically correct value; unifying both
+        # onto one SpectralContext cell-weight vector is the fix — deferred
+        # because it is baseline-moving and needs paper-faithfulness review.
         n_qp = rho * f
         gain += one_minus_f * (K_s_eff.T @ (n_qp * dE))
         loss_rate += K_s_eff @ (rho * one_minus_f * dE)

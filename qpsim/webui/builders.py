@@ -279,6 +279,18 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             report.errors.append("M25: T_stop must be ≥ T_start.")
         if setup.omega_10_over_h_GHz >= 2.0 * setup.Delta_R_over_h_GHz:
             report.errors.append("M25: needs ω₁₀ < 2Δ_R (no direct pair-breaking by the qubit).")
+        # The photon drive must clear the junction pair-breaking threshold
+        # Δ_L + Δ_R (with Δ_L = Δ_R + ω_LR); below it S⁻ = 0 makes the Γ_ph
+        # calibration singular and every sweep point returns NaN. This is a
+        # deterministic, T-independent setup error — reject it up front here
+        # rather than running the whole sweep to an all-NaN "done".
+        drive_threshold_GHz = 2.0 * setup.Delta_R_over_h_GHz + setup.omega_LR_over_h_GHz
+        if setup.drive.omega_nu_GHz <= drive_threshold_GHz:
+            report.errors.append(
+                f"M25: drive ω_ν = {setup.drive.omega_nu_GHz:g} GHz is at or below the "
+                f"pair-breaking threshold Δ_L + Δ_R = {drive_threshold_GHz:g} GHz; the "
+                "Γ_ph calibration is singular (S⁻ = 0) and the sweep returns all-NaN."
+            )
         if setup.branch_picker_mode == "max_x_L":
             # The engine only emits a (default-suppressed) DeprecationWarning
             # and the M25 executor captures no warnings, so a saved setup using

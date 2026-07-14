@@ -146,8 +146,11 @@ class SpectralContext:
         rebuild_tolerance: float = 1e-4,
         active_margin_factor: float = 0.1,
     ) -> None:
-        self._E = _finite_array("E_bins", E_bins).ravel()
-        self._dE = _finite_array("dE_bins", dE_bins).ravel()
+        # Defensive copy: asarray aliases a contiguous float64 caller buffer, so
+        # a later in-place mutation of the passed grid would silently desync the
+        # cached ρ/K±/mask (all built from this E at construction time).
+        self._E = _finite_array("E_bins", E_bins).ravel().copy()
+        self._dE = _finite_array("dE_bins", dE_bins).ravel().copy()
         if self._E.size == 0:
             raise ValueError("E_bins must be non-empty.")
         if self._E.size != self._dE.size:
@@ -176,37 +179,44 @@ class SpectralContext:
 
         self._rebuild(float(gap))
 
+    @staticmethod
+    def _ro(arr: np.ndarray) -> np.ndarray:
+        """Return a read-only view so callers can't mutate the cache in place."""
+        view = arr.view()
+        view.flags.writeable = False
+        return view
+
     @property
     def gap(self) -> float:
         return self._gap
 
     @property
     def E(self) -> np.ndarray:
-        return self._E
+        return self._ro(self._E)
 
     @property
     def dE(self) -> np.ndarray:
-        return self._dE
+        return self._ro(self._dE)
 
     @property
     def rho(self) -> np.ndarray:
         """DOS ρ(E), shape ``(NE,)``."""
-        return self._rho
+        return self._ro(self._rho)
 
     @property
     def K_plus(self) -> np.ndarray:
         """K⁺(E_i, E_j), shape ``(NE, NE)``."""
-        return self._K_plus
+        return self._ro(self._K_plus)
 
     @property
     def K_minus(self) -> np.ndarray:
         """K⁻(E_i, E_j), shape ``(NE, NE)``."""
-        return self._K_minus
+        return self._ro(self._K_minus)
 
     @property
     def D_E(self) -> np.ndarray:
         """D(E) under the LEGACY closure, shape ``(NE,)``."""
-        return self._D_E
+        return self._ro(self._D_E)
 
     @property
     def active_mask(self) -> np.ndarray:
@@ -216,7 +226,7 @@ class SpectralContext:
         (equals ``mean(dE)`` on uniform grids; preserves correct
         margin behavior on piecewise / nonuniform grids).
         """
-        return self._active_mask
+        return self._ro(self._active_mask)
 
     @property
     def dynes_gamma(self) -> float:

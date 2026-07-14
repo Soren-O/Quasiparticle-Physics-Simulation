@@ -19,6 +19,8 @@ Port of the legacy ``extract_T_star_phonon`` from the old
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.constants import KB_UEV_PER_K
@@ -115,4 +117,17 @@ def effective_phonon_temperature(
         bounds=(T_bath, upper),
         method="bounded",
     )
-    return float(result.x)
+    T_star = float(result.x)
+    # A bounded optimizer parks the solution on the upper bound when the true
+    # T_* exceeds the fit window; the returned value is then a clamp, not a
+    # fit, and must not be read as a measured temperature. (The lower bound at
+    # T_bath is deliberate physics — n_ph ≥ BE(T_bath) — so it is not flagged.)
+    if T_star >= upper * (1.0 - 1e-3):
+        warnings.warn(
+            f"effective_phonon_temperature pinned to the upper fit bound "
+            f"{upper:g} K; the true effective temperature likely exceeds the fit "
+            f"window. Pass a larger T_max — this value is a clamp, not a fit.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return T_star

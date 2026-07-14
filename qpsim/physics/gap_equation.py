@@ -15,6 +15,7 @@ Ported from the old ``qpsim/numerics/gap_equation.py`` at Gate 2.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -193,6 +194,22 @@ def solve_gap(
         raise ValueError("E_bins must be strictly increasing.")
     omega_D = calibration._omega_D
 
+    # The gap integral runs to ω_D but zero-fills f above E_bins[-1]
+    # (np.interp right=0.0). If the occupation has not decayed at the top of
+    # the grid, that tail is silently dropped and the solved gap depends on
+    # E_max. Warn — mirroring the low-edge support check below — so a mis-sized
+    # grid does not silently under-integrate. (Physical, decaying f: no warning.)
+    if float(E[-1]) < omega_D and float(f_arr[-1]) > 1e-5:
+        warnings.warn(
+            "solve_gap: occupation at the top of the energy grid "
+            f"f(E_max={float(E[-1]):.6g} μeV)={float(f_arr[-1]):.3g} is non-negligible "
+            f"while E_max < ω_D={omega_D:.6g} μeV; the gap integral zero-fills f above "
+            "the grid, so the result may depend on grid extent. Extend the energy grid "
+            "until the high-energy tail has decayed.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     lower_support_edge = (
         float(E[0])
         if E.size == 1
@@ -227,8 +244,12 @@ def solve_gap(
     # A colder-than-thermal population drives the self-consistent gap far
     # above Δ_eq (toward the T=0 gap), which can be tens of times Δ_eq near
     # T_c — so widen the high side all the way to ω_D rather than capping at
-    # a fixed step count that silently underestimated. residual(Δ) is
-    # monotone decreasing, so any straddling bracket isolates the one root.
+    # a fixed step count that silently underestimated. NOTE: residual(Δ) is
+    # monotone in Δ only for an equilibrium (monotone-decreasing) f, where
+    # 1 − 2f increases in E. For a strongly non-equilibrium f with a gap-edge
+    # occupation bump the residual can have several roots; the bracketed root
+    # returned here may then depend on bracket_factor. _warn_if_multirooted
+    # surfaces that ambiguity below.
     hi_ceiling = omega_D * (1.0 - 1e-9)
 
     lo = max(delta_eq * (1.0 - bracket_factor), lo_floor)
@@ -258,5 +279,44 @@ def solve_gap(
 
     xtol_brentq = 1e-6 * delta_eq if xtol is None else xtol
     candidate = float(brentq(residual, lo, hi, xtol=xtol_brentq))
+    _warn_if_multirooted(residual, candidate, bracket_factor, lo_floor, hi_ceiling)
     warn_if_below_grid_support(candidate)
     return candidate
+
+
+def _warn_if_multirooted(
+    residual: Callable[[float], float],
+    candidate: float,
+    bracket_factor: float,
+    lo_floor: float,
+    hi_ceiling: float,
+) -> None:
+    """Warn if the gap residual has more than one root near ``candidate``.
+
+    For a non-equilibrium occupation the residual is not monotone, so several
+    physical gaps can satisfy it. ``solve_gap`` returns the bracketed root,
+    which can then depend on ``bracket_factor`` — a numerical knob selecting
+    among physically distinct gaps. This scan is diagnostic only (it does not
+    change the returned value); it makes the ambiguity loud instead of silent.
+    """
+    half = max(2.0 * bracket_factor, 0.1) * abs(candidate)
+    lo = max(candidate - half, lo_floor)
+    hi = min(candidate + half, hi_ceiling)
+    if hi <= lo:
+        return
+    grid = np.linspace(lo, hi, 257)
+    signs = np.sign(np.array([residual(float(x)) for x in grid]))
+    nonzero = signs[signs != 0]
+    n_changes = (
+        int(np.count_nonzero(np.diff(nonzero) != 0)) if nonzero.size else 0
+    )
+    if n_changes > 1:
+        warnings.warn(
+            "solve_gap: the gap residual has multiple roots near "
+            f"Δ={candidate:.6g} μeV for this non-equilibrium occupation "
+            f"({n_changes} sign changes in the search neighborhood). The returned "
+            "gap is the bracketed root and can depend on bracket_factor; treat the "
+            "self-consistent gap as ambiguous here.",
+            RuntimeWarning,
+            stacklevel=3,
+        )

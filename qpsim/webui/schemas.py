@@ -34,6 +34,26 @@ from qpsim.materials.database import validate_rho_F_eV
 # frontend never carries a second, drifting copy of Al's parameters.
 _AL = load_material("Al")
 
+# Upper bound on emitted snapshots. A ``snapshot_interval`` far below the
+# integration step would otherwise drain an unbounded inner cadence loop
+# before cancellation is ever polled (single-worker runner → memory blow-up
+# and an uninterruptible job). Reject such setups at validation time.
+_MAX_SNAPSHOTS = 100_000
+
+
+def _reject_dense_snapshots(snapshot_interval: float | None, run_time: float) -> None:
+    """Raise if ``snapshot_interval`` would emit more than ``_MAX_SNAPSHOTS``."""
+    if snapshot_interval is None:
+        return
+    n_snapshots = run_time / snapshot_interval
+    if n_snapshots > _MAX_SNAPSHOTS:
+        raise ValueError(
+            f"snapshot_interval={snapshot_interval:g} would emit ~{n_snapshots:.3g} "
+            f"snapshots over a run time of {run_time:g} (cap {_MAX_SNAPSHOTS}). "
+            f"Increase snapshot_interval to at least "
+            f"{run_time / _MAX_SNAPSHOTS:g}."
+        )
+
 
 class StrictModel(BaseModel):
     """Base: reject unknown keys so stale setup files fail loudly."""
@@ -174,6 +194,11 @@ class Transient0DSetup(StrictModel):
     stop_tol: Annotated[float, Field(ge=0.0)] | None = None  # early stop on max|df|/dt
     probe: ProbeConfig = ProbeConfig()
 
+    @model_validator(mode="after")
+    def snapshot_interval_not_pathological(self) -> Transient0DSetup:
+        _reject_dense_snapshots(self.snapshot_interval, self.total_time)
+        return self
+
 
 class GapStepProfile(StrictModel):
     """Optional two-gap step along the strip.
@@ -224,6 +249,11 @@ class Spatial1DSetup(StrictModel):
     max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
+
+    @model_validator(mode="after")
+    def snapshot_interval_not_pathological(self) -> Spatial1DSetup:
+        _reject_dense_snapshots(self.snapshot_interval, self.max_time)
+        return self
     # No probe here: strip-resonator response needs a current-weighted
     # treatment (observables.spatial_ac_response) this mode doesn't
     # drive yet — carrying a probe config would validate and render a

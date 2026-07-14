@@ -35,6 +35,12 @@ import numpy as np
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
 from qpsim.devices.external_flux import ExternalFlux
 
+# Hard backstop on emitted snapshots. The webui schema rejects dense cadences
+# up front (``_MAX_SNAPSHOTS`` there); this catches direct callers so a
+# ``snapshot_interval`` far below ``dt`` fails loud instead of draining an
+# unbounded inner loop (a ``1e-300`` interval would otherwise hang forever).
+_SNAPSHOT_HARD_CAP = 200_000
+
 
 @dataclass(frozen=True)
 class TransientSnapshot:
@@ -205,6 +211,16 @@ def run_time_dependent(
             1.0, abs(t), abs(next_snap),
         )
         while next_snap <= t + time_tol:
+            # Bound the cadence drain: a snapshot_interval far below step_dt
+            # would otherwise loop unboundedly (a 1e-300 interval never advances
+            # next_snap past t). The webui schema rejects such setups up front;
+            # this fails loud for direct callers instead of hanging.
+            if len(snapshots) >= _SNAPSHOT_HARD_CAP:
+                raise ValueError(
+                    f"snapshot_interval={snapshot_interval:g} ns is too small for "
+                    f"total_time={total_time:g} ns: the cadence would emit more than "
+                    f"{_SNAPSHOT_HARD_CAP} snapshots. Increase snapshot_interval."
+                )
             # A cadence boundary can round a few ulps beyond an exactly
             # coincident step/terminal boundary. Snap that timestamp to the
             # endpoint; never extrapolate f beyond the state we integrated.

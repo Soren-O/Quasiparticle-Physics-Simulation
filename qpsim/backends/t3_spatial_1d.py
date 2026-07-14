@@ -38,6 +38,12 @@ from qpsim.transport.diffusion.base import (
     flux_weight,
 )
 
+# Hard backstop on emitted snapshots (see the 0-D transient driver): a
+# ``snapshot_interval`` far below ``dt`` would otherwise drain an unbounded
+# inner cadence loop before cancellation is polled. The webui schema rejects
+# dense cadences up front; this protects direct callers.
+_SNAPSHOT_HARD_CAP = 200_000
+
 #: One energy's cached Crank-Nicolson transport operator:
 #: ``(B, LU[A], active_indices, N_1**p)`` for ``A u^{n+1} = B u^n``.
 _EnergyOp = tuple[Any, Any, np.ndarray, np.ndarray]
@@ -566,6 +572,16 @@ class T3Spatial1DBackend:
                 1.0, abs(t), abs(next_snapshot),
             )
             while next_snapshot <= t + time_tol:
+                # Bound the cadence drain (see the 0-D transient driver): a
+                # snapshot_interval far below step_dt would otherwise loop
+                # unboundedly. Fail loud for direct callers; the webui schema
+                # rejects such setups up front.
+                if len(snapshots) >= _SNAPSHOT_HARD_CAP:
+                    raise ValueError(
+                        f"snapshot_interval={snapshot_interval:g} ns is too small for "
+                        f"max_time={max_time:g} ns: the cadence would emit more than "
+                        f"{_SNAPSHOT_HARD_CAP} snapshots. Increase snapshot_interval."
+                    )
                 snapshot_time = min(next_snapshot, t)
                 fraction = (snapshot_time - t_previous) / step_dt
                 snapshot_f = old_f + fraction * (current.f - old_f)

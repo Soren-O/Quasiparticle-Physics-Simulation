@@ -15,6 +15,8 @@ assume ``ρ(E) = 0`` below the gap, which Dynes violates).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
@@ -71,6 +73,18 @@ def compute_ac_conductivity(
     gap = ctx.gap
     E = ctx.E
     dE = ctx.dE
+
+    # σ₁'s partner term zero-fills f above E_max (np.interp right=0.0). For a
+    # physical, decaying occupation this drops a negligible top-slice tail, but
+    # a non-decayed grid would silently under-integrate — warn, don't hide it.
+    if float(f[-1]) > 1e-5:
+        warnings.warn(
+            "compute_ac_conductivity: occupation at the top of the energy grid "
+            f"f(E_max)={float(f[-1]):.3g} is non-negligible; the σ₁ partner term "
+            "zero-fills f above E_max, dropping the high-energy tail. Extend the grid.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     # σ₁: supergap integral over [Δ, ∞).
     E_partner = E + omega_0

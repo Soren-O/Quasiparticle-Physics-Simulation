@@ -209,6 +209,22 @@ def solve_steady_state(
 
     active = ctx.active_mask
     if int(np.sum(active)) == 0:
+        # Degenerate grid: every above-gap bin lies within the active margin of
+        # the gap edge, so there is nothing to solve. Don't silently hand a
+        # non-finite / out-of-range initial guess back as a "solution", and
+        # honor the phonon_out contract so a finite-τ_l caller does not KeyError
+        # on a missing "n_ph".
+        if np.any(~np.isfinite(f)) or np.any(f < 0.0) or np.any(f > 1.0):
+            raise ValueError(
+                "solve_steady_state: no active energy bins (every above-gap bin is "
+                "within the active margin of the gap edge) and the initial occupation "
+                "is non-finite or outside [0, 1]; refusing to return it unchanged. "
+                "Check the energy-grid extent and the initial guess."
+            )
+        if phonon_out is not None:
+            omega_bins = build_phonon_frequency_map(ctx.E)[0]
+            phonon_out["n_ph"] = thermal_phonon_occupation(omega_bins, T_bath)
+            phonon_out["omega_bins"] = omega_bins
         return f
 
     # Thermal-phonon path (τ_l → 0). Just Newton.

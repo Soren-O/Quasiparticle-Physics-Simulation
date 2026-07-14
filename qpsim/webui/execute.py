@@ -215,6 +215,10 @@ def run_steady_state_0d(
         except (ValueError, RuntimeError) as exc:
             payload.notes.append(f"Effective-phonon-temperature fit failed: {exc}")
 
+    # Honor a cancel requested during the (uninterruptible) blocking solve,
+    # matching run_transient_0d / run_spatial_1d — otherwise the run is
+    # persisted as "done" despite the user having cancelled it.
+    _check_cancel(is_cancelled)
     progress(1.0, "done")
     return payload
 
@@ -508,6 +512,9 @@ def run_m25_junction(
             f"temperature grid (better warm starts) or a different seed; far from the "
             f"paper's parameter regime multiple roots remain possible."
         )
+    # Honor a cancel requested during the final sweep point's solve, which the
+    # per-iteration top-of-loop check cannot catch (there is no next iteration).
+    _check_cancel(is_cancelled)
     progress(1.0, "done")
     return payload
 

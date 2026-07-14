@@ -208,14 +208,18 @@ def newton_solve_f(
 
         if not accepted:
             # Line-search failure near the roundoff floor just means the
-            # Newton step is smaller than machine precision. If the
-            # residual is already at or below tol, accept — anything else
-            # is noise chasing (mirrors scipy.optimize's Newton guard).
-            if max_residual < tol:
+            # Newton step is smaller than machine precision. Accept only when
+            # the residual passes the SAME certificate as the primary gate
+            # (absolute AND relative). Accepting on the absolute residual alone
+            # would falsely report convergence for an infeasible root (e.g. a
+            # saturated f=1 when the true root is f>1 and every rate is at the
+            # roundoff floor) — that must raise, not return a non-root.
+            if converged_abs and (converged_rel or rate_scale == 0):
                 return f_cur.copy()
             raise RuntimeError(
                 f"Newton line search failed at iteration {iteration}. "
-                f"max |residual| = {max_residual:.2e}"
+                f"max |residual| = {max_residual:.2e}, "
+                f"relative = {max_residual / max(rate_scale, 1e-30):.2e}"
             )
 
         f_cur = np.clip(f_cur + alpha * delta_f, 0.0, 1.0)

@@ -109,7 +109,11 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     # while request handlers read them; a plain write_text would let a
     # reader see a half-written file.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Per-writer unique tmp: two concurrent saves of the same slug would
+    # otherwise race on one fixed ``<name>.tmp`` and clobber each other
+    # (spurious PermissionError / FileNotFoundError). The final replace stays
+    # atomic, so this is last-writer-wins without spurious failures.
+    tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(json_sanitize(data), indent=2), encoding="utf-8")
     _replace_with_retry(tmp, path)
 
@@ -271,8 +275,9 @@ class Workspace:
         directory.mkdir(parents=True, exist_ok=True)
         # Same atomic discipline as the manifests: a killed writer must
         # not leave a truncated result.npz at the final path. The tmp
-        # name must end in .npz or savez appends another extension.
-        tmp = directory / "result.tmp.npz"
+        # name must end in .npz or savez appends another extension; the
+        # uuid makes it unique so concurrent same-run writers don't collide.
+        tmp = directory / f"result.{uuid.uuid4().hex}.tmp.npz"
         # numpy's stub types the **kwds of savez_compressed as the
         # allow_pickle flag; the call itself is the documented form.
         np.savez_compressed(tmp, **arrays)  # type: ignore[arg-type]
