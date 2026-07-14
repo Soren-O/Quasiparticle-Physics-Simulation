@@ -249,7 +249,14 @@ not bad luck.
 **Fix first (medium, real, reachable at default settings):**
 1. **G1** — unify the discrete DOS measure across collision kernels and
    observables. Highest physics impact; drives a 10–15% x_qp inconsistency in the
-   low-T regime the tool targets.
+   low-T regime the tool targets. **⚠️ ATTEMPTED 2026-07-14 and REJECTED** — the
+   naive exact-cell-weight swap passes detailed balance / conservation / the fast
+   suite but **catastrophically degrades the driven Fischer reproductions**
+   (fig3/5/6 collapse 5–8 orders of magnitude; A/B-isolated to the measure
+   change). The exact singular gap-edge weight over-weights recombination in the
+   driven self-consistent solve. See `G1-MEASURE-ATTEMPT-2026-07-14.md`; needs a
+   physicist. Do NOT ship the swap; the inconsistency stays a documented ~1/√NE
+   convergence budget for now.
 2. **G3** — clamp `snapshot_interval` in schema + bound/poll the inner cadence
    loop. Trivial; closes an uninterruptible DoS.
 3. **G4** — make Fig.3 (and Fig.5/6 tail) numerical pins signal-scaled; restores
