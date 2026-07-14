@@ -55,6 +55,24 @@ class TestWorkspace:
 
         assert loaded.setup.material.rho_F == pytest.approx(1.74e28)
 
+    def test_load_keeps_versionless_ev_rho_f_unmigrated(self, tmp_path: Path) -> None:
+        # The shipped webui wrote versionless setups already on the
+        # eV^-1 m^-3 contract (Al 1.74e28); loading one must NOT apply
+        # the x1e6 µeV migration.
+        ws = Workspace(tmp_path)
+        setup_dir = tmp_path / "setups"
+        setup_dir.mkdir(parents=True)
+        shipped = SteadyState0DSetup().model_dump()
+        shipped["material"]["rho_F"] = 1.74e28
+        (setup_dir / "shipped.json").write_text(
+            json.dumps({"name": "shipped", "setup": shipped}),
+            encoding="utf-8",
+        )
+
+        loaded = ws.load_setup("shipped")
+
+        assert loaded.setup.material.rho_F == pytest.approx(1.74e28)
+
     def test_saved_setup_stamps_current_schema_version(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
         slug = ws.save_setup(

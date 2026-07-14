@@ -27,9 +27,18 @@ from typing import Any
 
 import numpy as np
 
+from qpsim.materials.database import _LEGACY_RHO_F_MAX
 from qpsim.webui.schemas import SetupEnvelope
 
 _SETUP_SCHEMA_VERSION = 2
+
+# Versionless (v1) setup files predate the schema_version key and are
+# ambiguous: the shipped webui always wrote rho_F in eV^-1 m^-3
+# (Al 1.74e28), while a short-lived intermediate build wrote µeV^-1 m^-3
+# (Al 1.74e22). Values below this cutoff get the x1e6 migration; values at
+# or above it are already on the eV contract and must pass through
+# untouched.
+_RHO_F_MIGRATION_CUTOFF_EV = _LEGACY_RHO_F_MAX
 _RUN_STATUSES = {"queued", "running", "done", "failed", "cancelled"}
 
 
@@ -237,14 +246,14 @@ class Workspace:
         version = version_raw
         setup_data = data["setup"]
         if version < 2:
-            # Schema v1 persisted rho_F in µeV^-1 m^-3 (Al 1.74e22).
-            # Schema v2 restores the conventional eV^-1 m^-3 contract, so
-            # migrate stored values by 1e6.  This is keyed by the persisted
-            # schema version, never by magnitude, and therefore does not
-            # reinterpret a deliberately small v2 DOS.
+            # v1 files are ambiguous between the shipped eV^-1 m^-3 contract
+            # and the short-lived µeV^-1 m^-3 build — see
+            # _RHO_F_MIGRATION_CUTOFF_EV. Migrate by magnitude, not blindly.
             material = setup_data.get("material")
             if isinstance(material, dict) and "rho_F" in material:
-                material["rho_F"] = float(material["rho_F"]) * 1.0e6
+                rho_f = float(material["rho_F"])
+                if rho_f < _RHO_F_MIGRATION_CUTOFF_EV:
+                    material["rho_F"] = rho_f * 1.0e6
         return SetupEnvelope.model_validate(
             {"name": data.get("name", slug), "setup": setup_data}
         )
