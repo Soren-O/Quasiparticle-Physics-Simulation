@@ -60,6 +60,15 @@ tell you what is or isn't a bug.
   transient/spatial output; webui `kind="step"` with equal gaps + `interface_G_N`
   fails at runtime instead of returning a 400; a run whose manifest write keeps
   failing stays undeletable until restart.
+- **fig7 (fischer_2023) Picard chain is non-deterministic at low-occupancy
+  points** (found landing PR #3, 2026-07-14/15): across repeated ubuntu CI runs
+  of identical code, `run()` results at losses 1/Q_qp ≲ 1e-9 vary by up to
+  ~2.5e-11 absolute loss (up to ~2.4% relative), and the 3.13/3.14 legs disagree
+  with each other; points at loss ≥ 3e-8 reproduce to ≤ 2e-4. The pinned test
+  now gates losses at rtol=1e-3 / atol=1e-10, which absorbs the noise, but the
+  underlying run-to-run irreproducibility (thread-order/BLAS-reduction dependent
+  accumulation in the Picard chain?) is an unexplained engine finding worth a
+  root-cause pass.
 
 ## Orthogonal: paper physics
 
