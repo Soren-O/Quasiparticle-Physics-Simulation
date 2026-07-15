@@ -13,7 +13,7 @@ from qpsim.physics.spectral import SpectralContext
 def _thermal_ctx_and_f(T_bath: float = 0.3, T_c: float = 1.2, num: int = 200):
     gap = 1.764 * KB_UEV_PER_K * T_c
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.001, energy_max_factor=10.0, num_energy_bins=num
+        gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=num
     )
     dE = integration_widths_from_centers(E)
     ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
@@ -80,6 +80,56 @@ class TestComputeAcConductivity:
         s1, _ = compute_ac_conductivity(f_hot, ctx, omega_0=0.5)
         assert s1 == pytest.approx(0.0, abs=1e-4)
 
+    def test_sigma_1_thermal_gap_edge_matches_adaptive_reference(self) -> None:
+        from scipy.integrate import quad
+
+        gap = 180.0
+        temperature = 0.2
+        omega_0 = 20.0
+        # dE=4 µeV, so omega_0 is exactly five cells and interpolation of the
+        # thermal partner occupation adds no grid-offset error.
+        E, _ = build_energy_grid(gap, 1.0, 10.0, 405)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        kT = KB_UEV_PER_K * temperature
+        f = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+
+        sigma_1, _ = compute_ac_conductivity(f, ctx, omega_0)
+
+        # Independent ξ-space reference: dξ = ρ(E)dE removes the leading
+        # gap-edge singularity without using qpsim's cell weights.
+        def reference_integrand(xi: float) -> float:
+            energy = np.sqrt(xi * xi + gap * gap)
+            partner = energy + omega_0
+            f_energy = 1.0 / (np.exp(min(energy / kT, 500.0)) + 1.0)
+            f_partner = 1.0 / (np.exp(min(partner / kT, 500.0)) + 1.0)
+            rho_partner = partner / np.sqrt(partner * partner - gap * gap)
+            coherence = 1.0 + gap * gap / (energy * partner)
+            return (f_energy - f_partner) * rho_partner * coherence
+
+        reference = (2.0 / omega_0) * quad(
+            reference_integrand,
+            0.0,
+            np.inf,
+            epsabs=1e-18,
+            epsrel=1e-11,
+            limit=500,
+        )[0]
+        assert sigma_1 == pytest.approx(reference, rel=0.05)
+
+    def test_rejects_sigma_1_grid_with_dropped_gap_support(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 1.01, 10.0, 1620)
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+        f = np.zeros_like(E)
+
+        with pytest.raises(ValueError, match=r"does not cover.*BCS lower bound"):
+            compute_ac_conductivity(f, ctx, omega_0=20.0)
+
     def test_sigma_2_positive_at_low_T(self) -> None:
         # σ₂ is the kinetic-inductance response; > 0 in the superconducting state.
         ctx, f_hot = _thermal_ctx_and_f(T_bath=0.01, num=200)
@@ -94,3 +144,56 @@ class TestComputeAcConductivity:
         _, s2_low = compute_ac_conductivity(f_low, ctx_low, omega_0=1.0)
         _, s2_hi = compute_ac_conductivity(f_hi, ctx_low, omega_0=1.0)
         assert s2_low > s2_hi
+
+    def test_sigma_2_endpoint_transform_matches_adaptive_reference(self) -> None:
+        from scipy.integrate import quad
+
+        gap = 180.0
+        omega_0 = 20.0
+        E, _ = build_energy_grid(gap, 1.0, 10.0, 405)
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+        f = np.zeros_like(E)
+
+        _, sigma_2 = compute_ac_conductivity(
+            f, ctx, omega_0, n_subgap=500,
+        )
+
+        # Independent adaptive integral after the endpoint-regularizing
+        # E = Delta - omega*cos(theta)^2 substitution.
+        def reference_integrand(theta: float) -> float:
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+            energy = gap - omega_0 * cos_theta**2
+            partner = gap + omega_0 * sin_theta**2
+            rho_partner = partner / np.sqrt(partner**2 - gap**2)
+            coherence = 1.0 + gap**2 / (energy * partner)
+            subgap_dos = energy / np.sqrt(gap**2 - energy**2)
+            jacobian = 2.0 * omega_0 * sin_theta * cos_theta
+            return rho_partner * coherence * subgap_dos * jacobian / omega_0
+
+        reference = quad(
+            reference_integrand,
+            0.0,
+            0.5 * np.pi,
+            epsabs=1e-12,
+            epsrel=1e-12,
+            limit=200,
+        )[0]
+
+        # Reproduce the old raw-E midpoint bias: 500 points remained about
+        # 1.72% low because it sampled two square-root singular endpoints.
+        dE_sub = omega_0 / 500
+        E_sub = gap - omega_0 + (np.arange(500) + 0.5) * dE_sub
+        partner = E_sub + omega_0
+        legacy = (1.0 / omega_0) * float(np.sum(
+            partner / np.sqrt(partner**2 - gap**2)
+            * (1.0 + gap**2 / (E_sub * partner))
+            * E_sub / np.sqrt(gap**2 - E_sub**2)
+            * dE_sub
+        ))
+        assert abs(legacy / reference - 1.0) > 0.015
+        assert sigma_2 == pytest.approx(reference, rel=2e-11)

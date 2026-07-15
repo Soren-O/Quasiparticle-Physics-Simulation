@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import qpsim.observables.quality_factor as quality_factor_module
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.observables.quality_factor import compute_quality_factor
@@ -13,7 +14,7 @@ from qpsim.physics.spectral import SpectralContext
 def _thermal_ctx_and_f(T_bath: float = 0.3, T_c: float = 1.2, num: int = 200):
     gap = 1.764 * KB_UEV_PER_K * T_c
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.001, energy_max_factor=10.0, num_energy_bins=num
+        gap=gap, energy_min_factor=1.0, energy_max_factor=10.0, num_energy_bins=num
     )
     dE = integration_widths_from_centers(E)
     ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
@@ -57,3 +58,28 @@ class TestComputeQualityFactor:
         Q2 = compute_quality_factor(f, ctx, omega_0=1.0, alpha=0.2)
         if np.isfinite(Q1):
             assert pytest.approx(0.5 * Q1, rel=1e-6) == Q2
+
+    def test_negative_sigma1_reports_signed_gain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        monkeypatch.setattr(
+            quality_factor_module,
+            "compute_ac_conductivity",
+            lambda *_args, **_kwargs: (-2.0, 6.0),
+        )
+
+        q_gain = compute_quality_factor(f, ctx, omega_0=1.0, alpha=0.5)
+
+        assert q_gain == pytest.approx(-6.0)
+        assert compute_quality_factor(
+            f, ctx, omega_0=1.0, alpha=0.5, Q_ext=6.0
+        ) == float("inf")
+
+    @pytest.mark.parametrize("bad_q_ext", [0.0, -1.0, np.nan, np.inf])
+    def test_rejects_invalid_external_q(self, bad_q_ext: float) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="Q_ext"):
+            compute_quality_factor(
+                f, ctx, omega_0=1.0, alpha=0.1, Q_ext=bad_q_ext
+            )

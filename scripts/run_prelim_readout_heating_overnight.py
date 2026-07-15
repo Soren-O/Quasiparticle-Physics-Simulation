@@ -175,7 +175,7 @@ def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:
     gap = material.Delta_0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=ENERGY_MAX_FACTOR,
         num_energy_bins=config.NE,
     )
@@ -203,10 +203,17 @@ def _run_id(
     tau_l_ns: float,
     n_bar: float,
     readout_index: int,
+    config: ReadoutOvernightConfig,
 ) -> str:
+    # Fold the resolution-defining parameters into the id: otherwise the smoke
+    # and overnight presets (which share the default OUT_DIR) produce identical
+    # ids for the same physics point, and a resumed smoke result would silently
+    # substitute for an overnight case.
     return (
         f"D0_{D0:g}_rate_{source_rate:.0e}_taul_{tau_l_ns:g}_"
-        f"nbar_{n_bar:.0e}_mode_{readout_index}"
+        f"nbar_{n_bar:.0e}_mode_{readout_index}_"
+        f"nx{config.NX}_ne{config.NE}_dt{config.dt_ns:g}_"
+        f"tmax{config.max_time_ns:g}_tol{config.stop_tol:.0e}"
     ).replace("+", "").replace(".", "p")
 
 
@@ -291,7 +298,7 @@ def _run_case(
         )
     )
     runner = FinitePhononSpatialRunner(state, tau_l_ns=tau_l_ns)
-    run_id = _run_id(D0, source_rate, tau_l_ns, n_bar, readout_index)
+    run_id = _run_id(D0, source_rate, tau_l_ns, n_bar, readout_index, config)
     trace_path = out_dir / f"trace_{run_id}.csv"
     profile_path = out_dir / f"profile_{run_id}.csv"
     trace_path.unlink(missing_ok=True)
@@ -356,7 +363,10 @@ def _run_case(
 
     base_row: dict[str, object] = {
         "run_id": run_id,
-        "status": "completed",
+        # Don't overload "completed": a run that hit max_time without meeting
+        # stop_tol is not converged, and resume gates on status == "completed"
+        # (so it would otherwise skip re-running a nonconverged case).
+        "status": "completed" if converged else "max_time_reached",
         "T_bath_K": T_BATH_K,
         "D0_um2_per_ns": D0,
         "tau_l_ns": tau_l_ns,
@@ -490,7 +500,7 @@ def main() -> None:
             print("Wall-time limit reached; stopping cleanly.", flush=True)
             break
 
-        run_id = _run_id(D0, source_rate, tau_l_ns, n_bar, readout_index)
+        run_id = _run_id(D0, source_rate, tau_l_ns, n_bar, readout_index, config)
         if run_id in completed:
             print(f"[{run_number}/{len(combinations)}] skip completed {run_id}", flush=True)
             continue

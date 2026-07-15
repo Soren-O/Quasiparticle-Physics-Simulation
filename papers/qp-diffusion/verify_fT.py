@@ -57,8 +57,8 @@ RESULTS (all verified below):
       xi = sqrt(E^2 - Delta(t)^2): branch-odd occupations are frozen on the
       moving shells exactly like the energy mode, and the extra 1/E is the
       BCS effective-charge dilution q = xi/E.  A spatially uniform real
-      Ddot does NOT source fT (no fL anywhere in B): particle-hole symmetry
-      realized explicitly.
+      Ddot does NOT source fT (no fL anywhere in B): with J_T[fL,0,n]=0,
+      the zero-transverse solution is invariant under the gap drive.
 
   R5  Spatial sector, uniform gap (real Delta(t), fL/fT(E,x,t)):
         kernel channels of the full K-block residual give
@@ -73,6 +73,12 @@ RESULTS (all verified below):
       coherent quasiparticle-condensate charge conversion.
 
   R6  Spatial sector, static inhomogeneous real gap Delta(x):
+        The strict local-BCS propagator has a second-gradient retarded
+        residual.  The normalized spectral correction
+          eta = hbar DN dx(theta)'/(2W),  delta gR = delta gA = i eta m
+        cancels the local-current m-channel residual and leaves the scalar
+        kernel below unchanged.  Its relaxation trace is curvature
+        bookkeeping already contained in that kernel, not an added term.
         longitudinal channel: 2 DN dxx fL  (no drift, no fT -- A1 structure)
         transverse kernel channel:
           B = 2 DN [ dx(N1 dx fT) + N2 dx(thp fT) ],  thp = E Delta'/W^2
@@ -193,6 +199,8 @@ def build_time(Delta, fL, fT):
         # structure: no L-T mixing in the kernel channels
         out['B has no fL'] = sp.simplify(B.diff(fL))
         out['A has no fT'] = sp.simplify(r0.diff(fT))
+        out['source-free transverse residual vanishes at fT=0'] = \
+            sp.simplify(B.subs(fT, 0).doit())
     return out
 
 
@@ -220,6 +228,8 @@ def build_space_uniform(Delta, fL, fT):
               + 2 * DN * sp.diff(fL, x, 2)))
     out['transverse: B = -2 N1^2 [adv fT] + 2 DN N1 dxx fT'] = sp.simplify(
         B - (-2 * N1**2 * adv + 2 * DN * N1 * sp.diff(fT, x, 2)))
+    out['uniform-space transverse residual vanishes at fT=0'] = \
+        sp.simplify(B.subs(fT, 0).doit())
     jT = -(DN / 4) * sp.trace(t3 * flux_K(gR0, gA0, h))
     out['charge current jT = -DN N1^2 dx fT'] = sp.simplify(
         jT - (-DN * N1**2 * sp.diff(fT, x)))
@@ -227,7 +237,7 @@ def build_space_uniform(Delta, fL, fT):
 
 
 def build_space_inhom(Delta, fL, fT):
-    """Static, real Delta(x); fL/fT(E,x).  Only the gradient term contributes."""
+    """Static, real Delta(x); fL/fT(E,x), including spectral completion."""
     W = sp.sqrt(E**2 - Delta**2)
     N1, N2 = E / W, Delta / W
     L0 = E * t3 + I_ * Delta * t2
@@ -248,10 +258,57 @@ def build_space_inhom(Delta, fL, fT):
         r0 - 2 * DN * sp.diff(fL, x, 2))
     out['transverse kernel: B = 2 DN [dx(N1 dxfT) + N2 dx(thp fT)]'] = sp.simplify(
         B - 2 * DN * (sp.diff(N1 * sp.diff(fT, x), x) + N2 * sp.diff(thp * fT, x)))
+    out['inhomogeneous transverse residual vanishes at fT=0'] = \
+        sp.simplify(B.subs(fT, 0).doit())
     out['slaved m channel: beta = -2 DN N1 dx(thp) fT'] = sp.simplify(
         beta - (-2 * DN * N1 * sp.diff(thp, x) * fT))
     out['tau3-trace = 2 DN dx(N1^2 dxfT) (current divergence)'] = sp.simplify(
         2 * r3 - 4 * DN * sp.diff(N1**2 * sp.diff(fT, x), x))
+
+    # Same-order spectral completion of the local-BCS ansatz.  The correction
+    # is O(hbar * second spatial gradient); its contribution to the spatial
+    # current divergence starts beyond the order retained here.
+    m0 = N2 * t3 + I_ * N1 * t2
+    eta = hbar * DN * sp.diff(thp, x) / (2 * W)
+    delta_gR = I_ * eta * m0
+    delta_gA = delta_gR
+    delta_gK = delta_gR * h - h * delta_gA
+    delta_gK_exp = -2 * I_ * eta * N1 * fT * t1
+
+    out['spectral correction preserves normalization'] = sp.simplify(
+        (gR0 * delta_gR + delta_gR * gR0).norm())
+    out['delta gK = -2 i eta N1 fT tau1'] = sp.simplify(
+        (delta_gK - delta_gK_exp).norm())
+
+    retarded_residual = (
+        hbar * DN * dx(gR0 * dx(gR0))
+        + I_ * (L0 * delta_gR - delta_gR * L0)
+    )
+    out['retarded local-BCS curvature residual is cancelled'] = sp.simplify(
+        hmat(retarded_residual, 1).norm())
+
+    correction_K = I_ * (L0 * delta_gK - delta_gK * L0)
+    rc0, rc1, rc2, rc3, Bc, betac = channels(hmat(correction_K, 1), N1, N2)
+    out['spectral completion has zero longitudinal kernel projection'] = \
+        sp.simplify(rc0)
+    out['spectral completion has zero transverse kernel projection'] = \
+        sp.simplify(Bc)
+    out['local-current and spectral image residuals cancel'] = sp.simplify(
+        beta + betac)
+
+    hatD = -I_ * Delta * t2
+    Rgrad = I_ * sp.trace(hatD * (delta_gR + delta_gA)) / 4
+    out['gradient relaxation trace R_grad = -Delta N1 eta'] = sp.simplify(
+        Rgrad + Delta * N1 * eta)
+    out['tau3 correction trace = -2 R_grad fT'] = sp.simplify(
+        sp.trace(t3 * correction_K) / 4 + 2 * Rgrad * fT)
+
+    dDL = -sp.trace(delta_gR * gA0 + gR0 * delta_gA) / 4
+    dDT = -sp.trace(
+        delta_gR * t3 * gA0 * t3 + gR0 * t3 * delta_gA * t3
+    ) / 4
+    out['no linear-eta correction to D_L'] = sp.simplify(dDL)
+    out['no linear-eta correction to D_T'] = sp.simplify(dDT)
     return out
 
 
@@ -311,4 +368,6 @@ if __name__ == "__main__":
               "(e) spatial sector, static inhomogeneous gap")
     print()
 
-    print("ALL PASS" if (a and b and c and d and e) else "SOME FAILED -- inspect above")
+    all_ok = a and b and c and d and e
+    print("ALL PASS" if all_ok else "SOME FAILED -- inspect above")
+    raise SystemExit(0 if all_ok else 1)

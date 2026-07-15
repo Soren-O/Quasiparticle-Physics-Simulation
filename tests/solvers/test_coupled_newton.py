@@ -110,6 +110,105 @@ class TestCoupledNewtonSolve:
         assert rel_err_abs > 1e-2   # tol-only stayed ~5% off (frozen on seed)
         assert rel_err_rel < 1e-4   # step_rtol refined to the fixed point
 
+    def test_step_rtol_requires_a_residual_certificate(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.solvers import coupled_newton as coupled_newton_module
+
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            num=3,
+        )
+        f_init = np.full(ctx.E.size, 0.5)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        # Pin R_f=1 while presenting Newton with an artificial 1e12
+        # f-Jacobian. The resulting relative step is ~1e-12, but the balance
+        # residual remains exactly one: step size alone cannot certify a root.
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "_gain_loss_sum",
+            lambda f, *args, **kwargs: (np.ones_like(f), np.zeros_like(f)),
+        )
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "_jacobian_analytical",
+            lambda f, *args, **kwargs: np.eye(f.size) * 1e12,
+        )
+
+        def zero_phonon_balance(
+            f: np.ndarray,
+            ctx: SpectralContext,
+            K_s0: np.ndarray | None,
+            K_r0: np.ndarray | None,
+            omega_idx_diff: np.ndarray,
+            omega_idx_sum: np.ndarray,
+            diff_sign: np.ndarray,
+            n_omega: int,
+            **kwargs: object,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            return np.zeros(n_omega), np.zeros(n_omega)
+
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "compute_phonon_source_sink",
+            zero_phonon_balance,
+        )
+
+        with pytest.raises(RuntimeError, match="line search failed"):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                tol=1e-12,
+                step_rtol=1e-6,
+                max_iter=1,
+            )
+
+    def test_non_finite_residual_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.solvers import coupled_newton as coupled_newton_module
+
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            num=3,
+        )
+        f_init = np.full(ctx.E.size, 0.5)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "_gain_loss_sum",
+            lambda f, *args, **kwargs: (
+                np.full_like(f, np.nan),
+                np.zeros_like(f),
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="residual became non-finite"):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                tol=1e-12,
+                step_rtol=1e-6,
+                max_iter=1,
+            )
+
     def test_matches_picard_on_shared_case(self) -> None:
         # Where Picard converges (thermal case), coupled Newton should
         # land on the same (f, n_ph) within tolerance.
@@ -162,7 +261,7 @@ class TestCoupledNewtonSolve:
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=10)
         kT = KB_UEV_PER_K * T_bath
         f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
-        with pytest.raises(ValueError, match="n_ph_init length"):
+        with pytest.raises(ValueError, match="n_ph_init must have shape"):
             coupled_newton_solve(
                 ctx, f_init, np.zeros(omega.size + 5),  # wrong length
                 omega_bins=omega,
@@ -171,27 +270,80 @@ class TestCoupledNewtonSolve:
                 T_bath=T_bath, tau_l=0.1,
             )
 
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf, -0.1, 1.1])
+    def test_rejects_nonphysical_f_init(self, bad_value: float) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=10)
+        f_init = np.full(ctx.E.size, 0.1)
+        f_init[0] = bad_value
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        with pytest.raises(ValueError, match="f_init"):
+            coupled_newton_solve(
+                ctx, f_init, n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d, omega_idx_sum=idx_s, diff_sign=sgn,
+                K_s0=K_s0, K_r0=K_r0,
+                T_bath=T_bath, tau_l=0.1,
+            )
+
+    def test_fd_cross_jacobian_respects_occupation_upper_bound(self) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=3)
+        f_init = np.ones(ctx.E.size)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        try:
+            coupled_newton_solve(
+                ctx, f_init, n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.1,
+                max_iter=1,
+                analytic_cross=False,
+            )
+        except RuntimeError as error:
+            # One iteration need not converge from the saturated state, but
+            # assembling its finite-difference cross block must not probe
+            # f > 1 and fail the physical-state guard.
+            assert "non-physical trial state" not in str(error)
+
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf, -0.1])
+    def test_rejects_nonphysical_n_ph_init(self, bad_value: float) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=10)
+        f_init = np.full(ctx.E.size, 0.1)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+        n_init[0] = bad_value
+
+        with pytest.raises(ValueError, match="n_ph_init"):
+            coupled_newton_solve(
+                ctx, f_init, n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d, omega_idx_sum=idx_s, diff_sign=sgn,
+                K_s0=K_s0, K_r0=K_r0,
+                T_bath=T_bath, tau_l=0.1,
+            )
+
     def test_zero_tau_l_branch(self) -> None:
-        # τ_l = 0: no substrate coupling. Residual R_ph reduces to
-        # a_ph + b_ph · n_ph. The solver should still converge.
+        # τ_l = 0 leaves total energy unconstrained. Starting exactly at a
+        # thermal root used to exit before assembling the singular Jacobian,
+        # making this a vacuous "solver" test for an underdetermined problem.
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=12)
         kT = KB_UEV_PER_K * T_bath
         f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
         n_init = thermal_phonon_occupation(omega, T_bath)
-        f_out, n_out = coupled_newton_solve(
-            ctx, f_init, n_init,
-            omega_bins=omega,
-            omega_idx_diff=idx_d, omega_idx_sum=idx_s, diff_sign=sgn,
-            K_s0=K_s0, K_r0=K_r0,
-            T_bath=T_bath, tau_l=0.0,
-            tol=1e-8,
-        )
-        # Just check everything is finite and bounded.
-        assert np.all(np.isfinite(f_out))
-        assert np.all(np.isfinite(n_out))
-        assert np.all(f_out >= 0.0)
-        assert np.all(f_out <= 1.0)
-        assert np.all(n_out >= 0.0)
+        with pytest.raises(ValueError, match="finite positive tau_l"):
+            coupled_newton_solve(
+                ctx, f_init, n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d, omega_idx_sum=idx_s, diff_sign=sgn,
+                K_s0=K_s0, K_r0=K_r0,
+                T_bath=T_bath, tau_l=0.0,
+                tol=1e-8,
+            )
 
 
 def _generic_cross_state(ctx, omega):

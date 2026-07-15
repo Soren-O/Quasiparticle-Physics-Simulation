@@ -20,13 +20,14 @@ Usage::
     python scripts/demo_kid_pulse_response.py
 """
 
-# ruff: noqa: E402, I001
+# ruff: noqa: E402
 
 from __future__ import annotations
 
 import csv
 import json
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -176,7 +177,7 @@ def main() -> None:
 
     # Instantaneous decay time tau = -x / xdot along the tail.
     decay = [r for r in rows if r["drive_on"] == 0.0]
-    for a, b in zip(decay[:-1], decay[1:], strict=False):
+    for a, b in pairwise(decay):
         dx_dt = (b["x_qp"] - a["x_qp"]) / (b["t_ns"] - a["t_ns"])
         mid_x = 0.5 * (a["x_qp"] + b["x_qp"])
         b["tau_inst_ns"] = float(-mid_x / dx_dt) if dx_dt < 0 else float("nan")

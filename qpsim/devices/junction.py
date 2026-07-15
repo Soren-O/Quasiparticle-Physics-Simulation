@@ -76,12 +76,18 @@ class Junction(ABC):
         disable the e-ph kernel on the touched regions to avoid
         double-counting. At most one such Junction may touch any
         region; the device solver enforces this.
+    requires_exclusive_regions
+        Class-level flag. Default ``False``. ``True`` means this Junction's
+        closure is only valid when each touched region belongs to this
+        Junction alone. The :class:`Device` constructor rejects any other
+        Junction sharing either region.
     """
 
     name: str
     region_a: str
     region_b: str
     owns_region_dissipation: bool = False
+    requires_exclusive_regions: bool = False
 
     @abstractmethod
     def evaluate(

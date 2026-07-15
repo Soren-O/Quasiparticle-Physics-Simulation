@@ -152,3 +152,37 @@ class TestSelfConsistentGapPath:
                 gap_tol=1e-6,
                 gap_max_iter=4,
             )
+
+    def test_gap_under_relaxation_does_not_scale_convergence_residual(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.backends import t3_diffusion as t3_mod
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        backend = T3DiffusionBackend()
+        solved_gaps: list[float] = []
+
+        def fixed_gap_identity(
+            state_arg: T3DiffusionState, **kwargs: object,
+        ) -> T3DiffusionState:
+            solved_gaps.append(state_arg.gap)
+            return state_arg
+
+        monkeypatch.setattr(backend, "_steady_state_fixed_gap", fixed_gap_identity)
+        monkeypatch.setattr(
+            t3_mod,
+            "solve_gap",
+            lambda *args, **kwargs: 2.0 * solved_gaps[-1],
+        )
+
+        # The raw gap-map residual is 1.0. A 1e-6 relaxed update is smaller
+        # than gap_tol, but must not be reported as a converged gap equation.
+        with pytest.raises(RuntimeError, match=r"Final \|Δ_raw - Δ\| / Δ = 1.00e\+00"):
+            backend.steady_state(
+                state,
+                self_consistent_gap=True,
+                use_thermal_phonons=True,
+                gap_under_relaxation=1e-6,
+                gap_tol=1e-4,
+                gap_max_iter=1,
+            )

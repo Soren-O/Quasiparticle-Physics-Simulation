@@ -51,7 +51,7 @@ const MATERIAL_FIELDS = (withTransport) => ({
     F("material.tau_0", "τ₀ e-ph (ns)"),
     F("material.tau_0_pb_ns", "τ₀^PB phonon-side (ns)", "number", { nullable: true }),
     ...(withTransport ? [F("material.D_0", "D₀ (μm²/ns)")] : []),
-    F("material.rho_F", "ρ_F (J⁻¹m⁻³)"),
+    F("material.rho_F", "ρ_F (eV⁻¹m⁻³)"),
     F("material.dynes_gamma", "Dynes Γ (μeV)"),
   ],
 });
@@ -491,7 +491,7 @@ async function refreshMaterials() {
   const cols = [
     ["Delta_0", "Δ₀ (μeV)"], ["T_c", "T_c (K)"], ["tau_0", "τ₀ (ns)"],
     ["tau_0_phonon", "τ₀^ph (ns)"], ["tau_0_pb_ns", "τ₀^PB (ns)"], ["D_0", "D₀ (μm²/ns)"],
-    ["v_F", "v_F (m/s)"], ["rho_F", "ρ_F (J⁻¹m⁻³)"], ["film_thickness", "d (nm)"],
+    ["v_F", "v_F (m/s)"], ["rho_F", "ρ_F (eV⁻¹m⁻³)"], ["film_thickness", "d (nm)"],
     ["substrate_transmission_eta", "η"],
   ];
   $("#materials-list").innerHTML =

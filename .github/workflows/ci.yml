@@ -26,5 +26,14 @@ jobs:
         run: ruff check .
       - name: Type check (mypy)
         run: mypy qpsim
+      - name: Verify qp-diffusion symbolic identities
+        run: make -C papers/qp-diffusion verify PY=python
       - name: Test (pytest)
         run: pytest
+      # The default addopts deselect `slow`, so the paper regression / slow
+      # validation tests would never run in CI otherwise. The full Fischer
+      # Fig. 6 paper sweep is a separate ~14 h manual target; its fast metadata
+      # and cache-wiring guards remain in the default suite.
+      - name: Test (slow / paper validation)
+        timeout-minutes: 180
+        run: pytest -m "slow and not manual_slow"

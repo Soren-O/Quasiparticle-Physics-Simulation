@@ -48,9 +48,22 @@ def sub_gap_photon_collision_rates(
     NE = E.size
     dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
 
+    if not np.isfinite(omega_0) or omega_0 < 0.0:
+        raise ValueError(f"omega_0 must be finite and non-negative; got {omega_0}.")
+    if not np.isfinite(n_bar) or n_bar < 0.0:
+        raise ValueError(f"n_bar must be finite and non-negative; got {n_bar}.")
+    if not np.isfinite(c_phot) or c_phot < 0.0:
+        raise ValueError(f"c_phot must be finite and non-negative; got {c_phot}.")
+
     m = round(omega_0 / dE_scalar)
-    if m <= 0:
+    if omega_0 == 0.0:
         return np.zeros(NE), np.zeros(NE)
+    if m <= 0:
+        raise ValueError(
+            f"omega_0={omega_0:.6g} μeV is below half the grid spacing "
+            f"dE={dE_scalar:.6g} μeV and cannot be represented; refine the "
+            "energy grid or set omega_0=0 explicitly to disable the channel."
+        )
 
     frac_err = abs(omega_0 - m * dE_scalar) / dE_scalar
     if frac_err > _COMMENSURATE_TOL:

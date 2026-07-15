@@ -1,11 +1,11 @@
 """Side-by-side symbolic audit of the two advanced-propagator conventions.
 
-Context (2026-06-09 audit): paper.tex, Chapter4Appendix.tex, and all four
-verify_*.py scripts use
+Context (2026-06-09 audit): the manuscript and verification scripts formerly
+used
 
     PAPER:      gA = -N1 tau3 + i N2 tau2        ( = -(gR)^dagger )
 
-while the standard quasiclassical relation for this parameterization is
+The current manuscript uses the standard quasiclassical relation
 
     CORRECTED:  gA = -N1 tau3 - i N2 tau2        ( = -tau3 (gR)^dagger tau3 )
 
@@ -26,9 +26,10 @@ verify_traces.py (gA is the only switch):
                                                  Delta = 0; corrected: 2 N2]
   T4  D_L = (1/4)Tr[1 - gR gA]                  [paper: N1^2; corrected: 1]
   T5  D_T = (1/4)Tr[1 - gR t3 gA t3]            [paper: 1;    corrected: N1^2]
-  T6  depairing R = (1/4)Tr[hatDelta (gR+gA)]   [paper: Delta*N2; corrected: 0
-                                                 (literature: R ~ Delta*Im sinh(theta),
-                                                 = 0 for ideal BCS above the gap)]
+  T6  depairing R = (i/4)Tr[hatDelta (gR+gA)]   [superseded: i*Delta*N2;
+                                                 physical ideal BCS: 0;
+                                                 general physical spectrum:
+                                                 -Delta*Im sinh(theta)]
   T7  plain trace of i[L0, gK]_star             [paper: -4 hbar dt(N1 fL) only;
                                                  corrected: -4 hbar (dt(N1 fL)
                                                  + dE(Ddot N2 fL)) -- the canonical
@@ -39,7 +40,8 @@ verify_traces.py (gA is the only switch):
                                                  corrected: Tr/4 = dx fL,
                                                             t3-Tr/4 = N1^2 dx fT;
                                                  all grad-Delta terms cancel in both]
-  T9  Kupriyanov-Lukichev commutator [g1,g2]^K  [paper:    energy weight N1N1',
+  T9  K-L commutator, ideal BCS above both gaps, common phase
+                                                [paper:    energy weight N1N1',
                                                             charge weight N1N1'-N2N2';
                                                  corrected: energy weight N1N1'-N2N2',
                                                             charge weight N1N1']
@@ -79,11 +81,16 @@ def is_zero(M):
     return all(sp.simplify(e) == 0 for e in sp.Matrix(M))
 
 
+ALL_OK = True
+
+
 def report(label, results):
     """results: list of (convention, expression, claimed_closed_form)."""
+    global ALL_OK
     line = f"{label:<58s}"
     for conv, expr, claim in results:
         ok = is_zero(sp.Matrix(expr) - sp.Matrix(claim))
+        ALL_OK &= ok
         line += f" | {conv}: {'PASS' if ok else 'FAIL'}"
     print(line)
 
@@ -136,12 +143,27 @@ report('T5  D_T = (1/4)Tr[1-gR t3 gA t3]: paper = 1, corrected = N1^2', [
     ('corrected', sp.Matrix([sp.Rational(1, 4) * (I2 - built['corrected']['gR'] * t3 * built['corrected']['gA'] * t3).trace()]),
      sp.Matrix([N1s**2]))])
 
-# T6 depairing coefficient (Belzig eq. 39)
-report('T6  R = (1/4)Tr[hatD (gR+gA)]: paper = Delta N2, corrected = 0', [
-    ('paper', sp.Matrix([sp.Rational(1, 4) * (hatD * (built['paper']['gR'] + built['paper']['gA'])).trace()]),
-     sp.Matrix([Delta * N2s])),
-    ('corrected', sp.Matrix([sp.Rational(1, 4) * (hatD * (built['corrected']['gR'] + built['corrected']['gA'])).trace()]),
+# T6 depairing coefficient (Belzig eq. 39), in this paper's gap gauge.
+# The raw trace is imaginary for a general physical spectrum, so the
+# manifestly real kinetic coefficient includes the prefactor i.
+report('T6  R = (i/4)Tr[hatD (gR+gA)]: old sign = i Delta N2, physical BCS = 0', [
+    ('paper', sp.Matrix([I_ * sp.Rational(1, 4)
+                         * (hatD * (built['paper']['gR'] + built['paper']['gA'])).trace()]),
+     sp.Matrix([I_ * Delta * N2s])),
+    ('corrected', sp.Matrix([I_ * sp.Rational(1, 4)
+                             * (hatD * (built['corrected']['gR']
+                                        + built['corrected']['gA'])).trace()]),
      sp.Matrix([0]))])
+
+# A generic complex angle is needed to expose the missing-i defect; ideal BCS
+# above the gap makes both the raw trace and the physical coefficient zero.
+cr, ci, sr, si = sp.symbols('c_r c_i s_r s_i', real=True)
+gR_complex = (cr + I_ * ci) * t3 + I_ * (sr + I_ * si) * t2
+gA_complex = -t3 * gR_complex.conjugate().T * t3
+raw_R = sp.Rational(1, 4) * (hatD * (gR_complex + gA_complex)).trace()
+report('T6b complex angle: raw trace = i Delta Im(sinh); R = -Delta Im(sinh)', [
+    ('raw', sp.Matrix([raw_R]), sp.Matrix([I_ * Delta * si])),
+    ('physical', sp.Matrix([I_ * raw_R]), sp.Matrix([-Delta * si]))])
 
 # T7 time-dependent plain-trace projection (the App-B question)
 report('T7  Tr i[L0,gK]_star: paper = -4hb dt(N1 fL); corr adds -4hb dE(Dd N2 fL)', [
@@ -171,7 +193,9 @@ report('T8b (1/4)Tr[t3 JK]: paper = dx fT, corrected = N1^2 dx fT', [
     ('corrected', sp.Matrix([sp.Rational(1, 4) * (t3 * spat['corrected'][0]).trace()]),
      sp.Matrix([spat['corrected'][1]**2 * sp.diff(fTx, x)]))])
 
-# T9 Kupriyanov-Lukichev interface commutator, independent gaps
+# T9 K-L interface trace, common phase and ideal BCS above both gaps.
+# This historical convention comparison does not test current units or the
+# generic complex-spectrum boundary law; verify_traces.py covers those.
 D1, D2 = sp.symbols('Delta_1 Delta_2', positive=True)
 fL1, fL2, fT1, fT2 = sp.symbols('fL1 fL2 fT1 fT2', real=True)
 kl = {}
@@ -202,3 +226,4 @@ print('static spectral equation as gR), T3 (equilibrium anomalous Keldysh weight
 print('be 2 N2 tanh(E/2T) or the gap equation yields Delta = 0), Belzig 1999 text')
 print('(D_L = 0 below the gap), PRL 114 167002 Eqs. (15)-(16), dirty-limit kappa_s,')
 print('sub-gap Andreev (charge penetrates, energy blocked), SIS I-V (N1N1 = charge).')
+raise SystemExit(0 if ALL_OK else 1)

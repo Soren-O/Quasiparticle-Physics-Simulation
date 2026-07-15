@@ -31,6 +31,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import load_material
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -40,7 +41,11 @@ LENGTH_UM = 100.0
 NX = 31
 NE = 32
 T_BATH_K = 0.1
-DT_NS = 5.0
+DT_NS = 5.0  # collision-timescale cap; reduced per D0 below to bound the transport step
+# Max diffusion number D0*dt/dx^2 per run. The spatial Crank-Nicolson step
+# clips [0,1] over/undershoot and the backend raises once a step alters >0.1%
+# of the conserved density (~diffusion number 11); 4 keeps a clip-free margin.
+CFL_TARGET = 4.0
 MAX_TIME_NS = 20_000.0
 SNAPSHOT_INTERVAL_NS = 500.0
 STOP_TOL = 2e-10
@@ -66,7 +71,7 @@ def _build_state(D0: float) -> T3Spatial1DState:
     gap = material.Delta_0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=5.0,
         num_energy_bins=NE,
     )
@@ -92,9 +97,10 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
     center = SOURCE_CENTER_FACTOR * state.gap
     sigma = SOURCE_SIGMA_FACTOR * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
-    xqp_norm = float(
-        np.sum(state.spectral.rho * profile * state.spectral.dE) / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    xqp_norm = float(np.sum(spectral_weights * profile) / state.gap)
     if xqp_norm <= 0.0:
         raise RuntimeError("Could not normalize source spectrum.")
     gain_spectrum = LOCAL_XQP_GENERATION_RATE_PER_NS * profile / xqp_norm
@@ -113,13 +119,10 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
 
 
 def _xqp_profile(state: T3Spatial1DState) -> np.ndarray:
-    return (
-        np.sum(
-            state.spectral.rho[:, None] * state.f * state.spectral.dE[:, None],
-            axis=0,
-        )
-        / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
 def _mean_f(state: T3Spatial1DState) -> np.ndarray:
@@ -207,9 +210,12 @@ def main() -> None:
         f_ref = _mean_f(state)
         flux = _source_flux(state)
         backend = T3Spatial1DBackend()
+        dx_um = LENGTH_UM / (NX - 1)
+        dt = min(DT_NS, CFL_TARGET * dx_um * dx_um / D0)
+        print(f"  dt={dt:g} ns (diffusion number {D0 * dt / dx_um**2:.1f})", flush=True)
         result = backend.run_until_steady_state(
             state,
-            dt=DT_NS,
+            dt=dt,
             max_time=MAX_TIME_NS,
             external_flux=flux,
             stop_tol=STOP_TOL,

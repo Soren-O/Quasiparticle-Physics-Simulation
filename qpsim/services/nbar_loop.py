@@ -40,12 +40,47 @@ from qpsim.constants import HBAR_UEV_NS
 _MW_TO_UEV_PER_NS = 6.241509074e12
 
 
+def _finite_float(name: str, value: float) -> float:
+    """Return ``value`` as a float, rejecting NaN and infinities."""
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite; got {result}.")
+    return result
+
+
+def _validated_quality_factors(
+    q_qp_raw: float,
+    Q_c: float,
+    *,
+    location: str,
+) -> tuple[float, float]:
+    """Validate ``Q_i`` and return ``(Q_i, Q_tot)`` fail-closed.
+
+    Positive infinity is the physical zero-loss limit and must be preserved;
+    NaN, negative infinity, zero, and negative values are failed observables.
+    """
+    q_qp = float(q_qp_raw)
+    if np.isnan(q_qp) or q_qp <= 0.0:
+        raise RuntimeError(
+            "nbar_loop: compute_Q_i returned a non-physical quality "
+            f"factor Q_i = {q_qp} {location}; expected a positive value "
+            "or +inf (the zero-loss limit)."
+        )
+    q_tot = (
+        float(Q_c)
+        if np.isinf(q_qp)
+        else 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
+    )
+    return q_qp, q_tot
+
+
 def dbm_to_uev_per_ns(dbm: float) -> float:
     """Convert microwave drive power from dBm to μeV/ns (the code units).
 
     ``P[μeV/ns] = 10^(dBm/10) · 1 mW · (6.241509e12 μeV/ns / mW)``.
     """
-    return (10.0 ** (float(dbm) / 10.0)) * _MW_TO_UEV_PER_NS
+    dbm_value = _finite_float("dbm", dbm)
+    return (10.0 ** (dbm_value / 10.0)) * _MW_TO_UEV_PER_NS
 
 
 @dataclass(frozen=True)
@@ -119,7 +154,8 @@ def solve_nbar_loop(
         ``2·ℏ·Q_c·P_read/ω₀²``, which is a safe upper bound on the
         true ``n̄`` (since ``Q_tot ≤ Q_c``).
     tol
-        Relative-change tolerance on ``n̄``.
+        Relative fixed-point tolerance on ``n̄``, evaluated against the raw
+        map before under-relaxation.
     max_iter
         Iteration cap.
     under_relaxation
@@ -138,6 +174,14 @@ def solve_nbar_loop(
     ValueError
         On any non-physical input (``P_read < 0``, ``Q_c ≤ 0``, etc.).
     """
+    P_read_uev_per_ns = _finite_float(
+        "P_read_uev_per_ns", P_read_uev_per_ns,
+    )
+    Q_c = _finite_float("Q_c", Q_c)
+    omega_0 = _finite_float("omega_0", omega_0)
+    tol = _finite_float("tol", tol)
+    under_relaxation = _finite_float("under_relaxation", under_relaxation)
+
     if P_read_uev_per_ns < 0:
         raise ValueError("P_read_uev_per_ns must be non-negative.")
     if Q_c <= 0:
@@ -146,6 +190,8 @@ def solve_nbar_loop(
         raise ValueError("omega_0 must be positive.")
     if not (0.0 < under_relaxation <= 1.0):
         raise ValueError("under_relaxation must be in (0, 1].")
+    if tol <= 0.0:
+        raise ValueError("tol must be positive.")
     if max_iter < 1:
         raise ValueError("max_iter must be at least 1.")
 
@@ -153,6 +199,7 @@ def solve_nbar_loop(
     prefactor = 2.0 * HBAR_UEV_NS / (omega_sq * float(Q_c))
 
     if n_bar_initial is not None:
+        n_bar_initial = _finite_float("n_bar_initial", n_bar_initial)
         if n_bar_initial < 0:
             raise ValueError("n_bar_initial must be non-negative.")
         n_bar = float(n_bar_initial)
@@ -168,12 +215,11 @@ def solve_nbar_loop(
 
     for it in range(max_iter):
         f_converged = solve_f(n_bar)
-        q_qp_raw = compute_Q_i(f_converged)
-        q_qp = float(q_qp_raw) if np.isfinite(q_qp_raw) else float("nan")
-        if np.isfinite(q_qp) and q_qp > 0:
-            q_tot = 1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
-        else:
-            q_tot = float(Q_c)
+        q_qp, q_tot = _validated_quality_factors(
+            compute_Q_i(f_converged),
+            Q_c,
+            location=f"at iteration {it} (n_bar = {n_bar:g})",
+        )
 
         n_bar_raw = prefactor * q_tot**2 * float(P_read_uev_per_ns)
         n_bar_next = (
@@ -191,8 +237,11 @@ def solve_nbar_loop(
             )
         )
 
+        # Convergence belongs to the raw fixed-point map. The relaxed step is
+        # alpha times smaller and would make a sufficiently small, valid
+        # under-relaxation factor look converged even far from self-consistency.
         denom = max(abs(n_bar), 1e-300)
-        rel_change = abs(n_bar_next - n_bar) / denom
+        rel_change = abs(n_bar_raw - n_bar) / denom
         n_bar = n_bar_next
         if rel_change < tol:
             converged = True
@@ -202,13 +251,22 @@ def solve_nbar_loop(
     # reported n_bar. (After the break, n_bar has already advanced to
     # n_bar_next; the last solve inside the loop used the old n_bar.)
     f_converged = solve_f(n_bar)
-    q_qp_raw = compute_Q_i(f_converged)
-    q_qp = float(q_qp_raw) if np.isfinite(q_qp_raw) else float("nan")
-    q_tot = (
-        1.0 / (1.0 / q_qp + 1.0 / float(Q_c))
-        if np.isfinite(q_qp) and q_qp > 0
-        else float(Q_c)
+    q_qp, q_tot = _validated_quality_factors(
+        compute_Q_i(f_converged),
+        Q_c,
+        location=f"after the final re-solve (n_bar = {n_bar:g})",
     )
+
+    # Re-certify on the RETURNED state. The in-loop flag certified the
+    # pre-advance point; n_bar then advanced and was re-solved above. If the
+    # returned (n_bar, f) pair is not itself self-consistent (a non-contractive
+    # map can advance past the fixed point), it is not converged regardless of
+    # the in-loop check. For the smooth/contractive physical maps this residual
+    # is O(tol) or smaller, so ``converged`` is unaffected.
+    n_bar_raw_final = prefactor * q_tot**2 * float(P_read_uev_per_ns)
+    rel_final = abs(n_bar_raw_final - n_bar) / max(abs(n_bar), 1e-300)
+    if converged and rel_final >= tol:
+        converged = False
 
     return NbarLoopResult(
         n_bar=float(n_bar),

@@ -13,7 +13,7 @@ tau_0: 0.149         # ns (Kaplan 1976 for Nb — much faster than Al)
 tau_0_phonon: 0.00417  # ns (Kaplan 1976 Table II; phonon τ_0^ph for Nb)
 D_0: 25.0            # μm²/ns
 v_F: 1.37e6          # m/s
-rho_F: 5.4e28        # J⁻¹ m⁻³
+rho_F: 5.4e28        # eV⁻¹ m⁻³ (single-spin DOS at Fermi level)
 sound_velocity_longitudinal: 5100.0
 sound_velocity_transverse: 2100.0
 film_thickness: 100.0

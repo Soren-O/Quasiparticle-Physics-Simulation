@@ -7,7 +7,10 @@ T_c: 4.5             # K
 tau_0: 0.5           # ns (varies with film quality)
 D_0: 10.0            # μm²/ns (highly disordered; low diffusion)
 v_F: 1.0e6           # m/s
-rho_F: 3.8e28        # J⁻¹ m⁻³
+# Film-dependent: rounded from the 3.9e10 eV^-1 um^-3 single-spin value
+# derived from TiN pulse response by Gao et al., APL 101, 142602 (2012).
+# The earlier band-theory estimate is 8.7e9 eV^-1 um^-3 (Leduc 2010).
+rho_F: 3.8e28        # eV⁻¹ m⁻³ (single-spin DOS at Fermi level)
 sound_velocity_longitudinal: 9200.0
 sound_velocity_transverse: 5800.0
 film_thickness: 40.0

@@ -184,6 +184,7 @@ def _solve_picard(
         photon_params=photon_params,
         use_phonon_side_kernel=True,
         picard_tol=1e-8,
+        picard_atol=1e-12,
         picard_max_iter=10000,
         picard_mixing=mixing,
         anderson_depth=0,

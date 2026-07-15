@@ -15,12 +15,33 @@ directory for user-defined materials.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from qpsim.materials.substrate import Substrate
+
+_LEGACY_RHO_F_MAX = 1.0e25
+
+
+def validate_rho_F_eV(rho_F: float, *, allow_zero: bool) -> float:
+    """Validate the eV-based DOS contract and catch legacy micro-eV values."""
+    value = float(rho_F)
+    if not isfinite(value) or value < 0.0 or (value == 0.0 and not allow_zero):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(
+            f"rho_F must be finite and {qualifier} (eV^-1 m^-3); got {value}."
+        )
+    if 0.0 < value < _LEGACY_RHO_F_MAX:
+        raise ValueError(
+            f"rho_F={value:g} eV^-1 m^-3 is implausibly small for a "
+            "volumetric electronic DOS and likely carries legacy per-"
+            "micro-eV or per-micrometre^3 units. Convert to eV^-1 m^-3 "
+            "(for legacy Al: 1.74e22 -> 1.74e28)."
+        )
+    return value
 
 
 @dataclass
@@ -65,7 +86,7 @@ class Material:
     # Normal-state transport.
     D_0: float = 0.0            # normal-state diffusion (μm²/ns)
     v_F: float = 0.0            # Fermi velocity (m/s)
-    rho_F: float = 0.0          # single-spin DOS (J⁻¹ m⁻³)
+    rho_F: float = 0.0          # single-spin DOS (eV⁻¹ m⁻³)
 
     # Phonon branches (D5 commits to carrying all three; the Debye
     # average is the scalar-s default for the Ph0 single-branch model).
@@ -93,6 +114,38 @@ class Material:
             self.tau_s = self.tau_0
         if self.tau_r is None:
             self.tau_r = self.tau_0
+
+        required_positive = ("Delta_0", "T_c", "tau_0", "tau_s", "tau_r")
+        optional_positive = ("tau_0_phonon", "tau_0_pb_ns")
+        optional_nonnegative = (
+            "D_0",
+            "v_F",
+            "sound_velocity_longitudinal",
+            "sound_velocity_transverse",
+            "sound_velocity_debye",
+            "film_thickness",
+        )
+        for field_name in required_positive:
+            value = getattr(self, field_name)
+            if not isfinite(value) or value <= 0.0:
+                raise ValueError(f"{field_name} must be finite and positive; got {value}.")
+        for field_name in optional_positive:
+            value = getattr(self, field_name)
+            if value is not None and (not isfinite(value) or value <= 0.0):
+                raise ValueError(f"{field_name} must be finite and positive when set; got {value}.")
+        for field_name in optional_nonnegative:
+            value = getattr(self, field_name)
+            if value is not None and (not isfinite(value) or value < 0.0):
+                raise ValueError(f"{field_name} must be finite and non-negative; got {value}.")
+        if not isfinite(self.substrate_transmission_eta) or not (
+            0.0 <= self.substrate_transmission_eta <= 1.0
+        ):
+            raise ValueError(
+                "substrate_transmission_eta must be finite and lie in [0, 1]; "
+                f"got {self.substrate_transmission_eta}."
+            )
+
+        self.rho_F = validate_rho_F_eV(self.rho_F, allow_zero=True)
 
         if (
             self.sound_velocity_debye is None
@@ -143,6 +196,14 @@ def load_material(
     """
     dir_path = _default_database_dir() if database_dir is None else database_dir
     yaml_path = dir_path / f"{name}.yaml"
+    # Guard against path traversal in the material name (e.g. "../secret"): the
+    # resolved path must stay inside the database directory. Material names are
+    # simple file stems, never paths.
+    if not yaml_path.resolve().is_relative_to(Path(dir_path).resolve()):
+        raise ValueError(
+            f"Material name {name!r} resolves outside the database directory "
+            f"{dir_path}; material names must be simple file stems."
+        )
     if not yaml_path.exists():
         raise FileNotFoundError(
             f"Material '{name}' not found at {yaml_path}."

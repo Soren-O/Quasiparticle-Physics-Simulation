@@ -16,9 +16,10 @@ from qpsim.physics.spectral import SpectralContext
 
 def _build_state(T_bath: float = 0.3, num_energy: int = 18) -> T3DiffusionState:
     material = load_material("Al")
-    gap = 1.764 * KB_UEV_PER_K * material.T_c
+    gap = material.Delta_0
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.01, energy_max_factor=6.0, num_energy_bins=num_energy,
+        gap=gap, energy_min_factor=0.75, energy_max_factor=6.0,
+        num_energy_bins=num_energy,
     )
     dE = integration_widths_from_centers(E)
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
@@ -102,7 +103,7 @@ class TestApplyGapUpdatePreservesSpectralConfig:
         new_state = T3DiffusionBackend().apply_gap_update(state, dt=0.1)
         assert new_state.spectral.diffusion_coefficient == pytest.approx(7.0)
 
-    def test_preserves_custom_dynes_gamma(self) -> None:
+    def test_rejects_custom_dynes_gamma_for_gap_motion(self) -> None:
         state = _build_state(T_bath=0.01, num_energy=20)
         state.spectral = SpectralContext(  # type: ignore[misc]
             E_bins=state.spectral.E,
@@ -110,8 +111,8 @@ class TestApplyGapUpdatePreservesSpectralConfig:
             gap=state.gap,
             dynes_gamma=0.05,
         )
-        new_state = T3DiffusionBackend().apply_gap_update(state, dt=0.1)
-        assert new_state.spectral.dynes_gamma == pytest.approx(0.05)
+        with pytest.raises(ValueError, match="dynes_gamma == 0"):
+            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     def test_preserves_custom_rebuild_tolerance_and_margin(self) -> None:
         state = _build_state(T_bath=0.01, num_energy=20)

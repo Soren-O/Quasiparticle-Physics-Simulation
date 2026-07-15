@@ -9,6 +9,7 @@ spatial phonons can be layered on once the Ph1/Ph2 state is available.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -36,6 +37,12 @@ from qpsim.transport.diffusion.base import (
     density_weight,
     flux_weight,
 )
+
+# Hard backstop on emitted snapshots (see the 0-D transient driver): a
+# ``snapshot_interval`` far below ``dt`` would otherwise drain an unbounded
+# inner cadence loop before cancellation is polled. The webui schema rejects
+# dense cadences up front; this protects direct callers.
+_SNAPSHOT_HARD_CAP = 200_000
 
 #: One energy's cached Crank-Nicolson transport operator:
 #: ``(B, LU[A], active_indices, N_1**p)`` for ``A u^{n+1} = B u^n``.
@@ -106,8 +113,9 @@ class T3Spatial1DState:
     ``gap_profile`` (optional, shape ``(NX,)``) gives a spatially-varying
     gap so the DOS ``N_1(E, x)`` -- and hence the transport dressing -- is
     evaluated per cell; ``None`` means a uniform scalar gap. With a
-    ``gap_profile`` and a finite ``interface_conductance`` ``G_N``, every
-    face where the gap steps becomes a Kupriyanov-Lukichev interface
+    ``gap_profile`` and a finite ``interface_conductance`` ``G_N``, the
+    profile must contain exactly one piecewise-constant step. That face
+    becomes a Kupriyanov-Lukichev interface
     carrying the energy-channel current
     ``F = G_N (N_1^L N_1^R - N_2^L N_2^R) (f_L - f_R)`` -- the
     coherence-factor (Maki-Griffin) weight, regular at matched gaps --
@@ -202,7 +210,7 @@ class T3Spatial1DBackend:
         same PDE as the legacy ``D_E = D_0 sqrt(1 - (Delta/E)**2)`` step.
         """
         self._validate_state(state)
-        if dt <= 0.0:
+        if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive.")
 
         _NE, NX = state.f.shape
@@ -211,13 +219,47 @@ class T3Spatial1DBackend:
 
         ops = self._build_transport_operators(state, dt)
         f_new = state.f.copy()
+        signed_clip_change = 0.0
+        absolute_clip_change = 0.0
+        mass_scale = 0.0
         for i, op in enumerate(ops):
             if op is None:
                 continue
             b_mat, lu, idx, rho_p = op
             u = rho_p * f_new[i, idx]
             u_next = lu.solve(b_mat @ u)
-            f_new[i, idx] = np.clip(u_next / rho_p, 0.0, 1.0)
+            f_clipped = np.clip(u_next / rho_p, 0.0, 1.0)
+            # Track density the [0, 1] clip removed/added: exact conservation
+            # (Σ_x N₁^p f) holds only while the CN update stays in [0, 1];
+            # clipping an over/undershoot on an unresolved front trims mass
+            # that is NOT restored.
+            clip_change = u_next - rho_p * f_clipped
+            signed_clip_change += float(np.sum(clip_change))
+            absolute_clip_change += float(np.sum(np.abs(clip_change)))
+            mass_scale += float(np.sum(np.abs(u)))
+            f_new[i, idx] = f_clipped
+
+        if mass_scale > 0.0:
+            absolute_clip_fraction = absolute_clip_change / mass_scale
+            signed_clip_fraction = signed_clip_change / mass_scale
+            clip_message = (
+                "apply_transport: the [0, 1] occupation clip changed an "
+                "absolute conserved density Σ N₁^p f of "
+                f"{absolute_clip_fraction:.2%} this step "
+                f"(signed net {signed_clip_fraction:+.2%}). This indicates a "
+                "Crank–Nicolson over/undershoot on an unresolved front "
+                "(large dt against a sharp gradient). Reduce dt or resolve "
+                "the front to keep the step conservative."
+            )
+            if absolute_clip_fraction > 1e-3:
+                # An O(1) clipped step can otherwise continue through the
+                # outer driver and even be reported as converged. Once more
+                # than 0.1% of the represented mass is altered, the step is
+                # not a defensible approximation: fail and force dt/grid
+                # refinement rather than returning corrupted physics.
+                raise RuntimeError(clip_message)
+            if absolute_clip_fraction > 1e-9:
+                warnings.warn(clip_message, stacklevel=2)
 
         return replace(state, f=f_new)
 
@@ -375,7 +417,7 @@ class T3Spatial1DBackend:
     ) -> T3Spatial1DState:
         """One local ETD2 collision/source step at every spatial cell."""
         self._validate_state(state)
-        if dt <= 0.0:
+        if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive.")
         if external_flux is not None:
             external_flux.validate_for_shape(state.f.shape)
@@ -457,6 +499,11 @@ class T3Spatial1DBackend:
     ) -> SpatialTransientResult:
         """Run fixed-step dynamics until ``max|df/dt| < stop_tol`` or timeout.
 
+        Snapshot boundaries crossed by a step are all emitted. Observable
+        values at an interior boundary use linear dense output between the
+        split-step endpoints, so ``dt > snapshot_interval`` does not drop
+        cadence points or mislabel endpoint states.
+
         ``progress_hook``, when given, is called after every step with
         ``(t, max_time)``; returning ``False`` stops the run cleanly at
         the current time exactly as if ``max_time`` had been reached
@@ -465,35 +512,45 @@ class T3Spatial1DBackend:
         unchanged. Intended for progress reporting and cooperative
         cancellation from interactive callers.
         """
-        if dt <= 0.0:
+        if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive.")
-        if max_time <= 0.0:
+        if not np.isfinite(max_time) or max_time <= 0.0:
             raise ValueError("max_time must be positive.")
-        if stop_tol < 0.0:
+        if not np.isfinite(stop_tol) or stop_tol < 0.0:
             raise ValueError("stop_tol must be non-negative.")
         if snapshot_interval is None:
             snapshot_interval = max_time / 50.0
-        if snapshot_interval <= 0.0:
+        if not np.isfinite(snapshot_interval) or snapshot_interval <= 0.0:
             raise ValueError("snapshot_interval must be positive.")
 
         current = state
         t = 0.0
         n_steps = 0
-        next_snapshot = 0.0
+        next_snapshot = snapshot_interval
         snapshots: list[SpatialSnapshot] = []
 
-        def record(max_rate: float) -> None:
+        def record(
+            snapshot_time: float,
+            snapshot_state: T3Spatial1DState,
+            max_rate: float,
+        ) -> None:
             obs = (
-                {name: float(fn(current)) for name, fn in observables.items()}
+                {
+                    name: float(fn(snapshot_state))
+                    for name, fn in observables.items()
+                }
                 if observables
                 else {}
             )
             snapshots.append(
-                SpatialSnapshot(t=float(t), max_rate=float(max_rate), observables=obs)
+                SpatialSnapshot(
+                    t=float(snapshot_time),
+                    max_rate=float(max_rate),
+                    observables=obs,
+                )
             )
 
-        record(float("inf"))
-        next_snapshot += snapshot_interval
+        record(0.0, current, float("inf"))
         converged = False
         last_max_rate = float("inf")
         max_steps = int(np.ceil(max_time / dt))
@@ -503,26 +560,49 @@ class T3Spatial1DBackend:
             if remaining <= 1e-12:
                 break
             step_dt = min(dt, remaining)
-            old_f = current.f
+            t_previous = t
+            old_f = current.f.copy()
             current = self.step(current, step_dt, external_flux=external_flux)
             t += step_dt
             n_steps += 1
             max_rate = float(np.max(np.abs(current.f - old_f)) / step_dt)
             last_max_rate = max_rate
 
+            time_tol = 16.0 * np.finfo(float).eps * max(
+                1.0, abs(t), abs(next_snapshot),
+            )
+            while next_snapshot <= t + time_tol:
+                # Bound the cadence drain (see the 0-D transient driver): a
+                # snapshot_interval far below step_dt would otherwise loop
+                # unboundedly. Fail loud for direct callers; the webui schema
+                # rejects such setups up front.
+                if len(snapshots) >= _SNAPSHOT_HARD_CAP:
+                    raise ValueError(
+                        f"snapshot_interval={snapshot_interval:g} ns is too small for "
+                        f"max_time={max_time:g} ns: the cadence would emit more than "
+                        f"{_SNAPSHOT_HARD_CAP} snapshots. Increase snapshot_interval."
+                    )
+                snapshot_time = min(next_snapshot, t)
+                fraction = (snapshot_time - t_previous) / step_dt
+                snapshot_f = old_f + fraction * (current.f - old_f)
+                record(
+                    snapshot_time,
+                    replace(current, f=snapshot_f),
+                    max_rate,
+                )
+                next_snapshot += snapshot_interval
+
             if max_rate < stop_tol:
                 converged = True
-                record(max_rate)
+                if snapshots[-1].t < t - time_tol:
+                    record(t, current, max_rate)
                 break
-            if t >= next_snapshot - 1e-12:
-                record(max_rate)
-                next_snapshot += snapshot_interval
 
             if progress_hook is not None and not progress_hook(t, max_time):
                 break
 
         if snapshots[-1].t < t:
-            record(0.0 if n_steps == 0 else last_max_rate)
+            record(t, current, 0.0 if n_steps == 0 else last_max_rate)
 
         return SpatialTransientResult(
             state=current,
@@ -540,6 +620,8 @@ class T3Spatial1DBackend:
             raise ValueError(f"state.f must have shape (NE, NX); got {f.shape}.")
         if x.ndim != 1:
             raise ValueError("state.x must be 1D.")
+        if x.size == 0 or np.any(~np.isfinite(x)):
+            raise ValueError("state.x must be non-empty and finite.")
         if f.shape[0] != state.spectral.E.size:
             raise ValueError(
                 f"state.f has {f.shape[0]} energy bins, but spectral has "
@@ -549,12 +631,35 @@ class T3Spatial1DBackend:
             raise ValueError(
                 f"state.f has {f.shape[1]} spatial cells, but x has {x.size}."
             )
-        if x.size > 1 and not np.allclose(np.diff(x), np.diff(x)[0]):
-            raise ValueError("state.x must be uniformly spaced.")
+        if x.size > 1:
+            diffs = np.diff(x)
+            # Uniform *and* strictly increasing: an equal-diffs test alone
+            # admits a zero mesh ([0,0,0] -> dx=0 -> divide-by-zero) and a
+            # descending mesh ([3,2,1] -> dx<0), both of which corrupt every
+            # flux/Laplacian downstream that divides by dx.
+            if diffs[0] <= 0.0 or not np.allclose(diffs, diffs[0]):
+                raise ValueError(
+                    "state.x must be uniformly spaced and strictly increasing."
+                )
         if np.any(~np.isfinite(f)):
             raise ValueError("state.f contains non-finite values.")
         if np.any((f < 0.0) | (f > 1.0)):
             raise ValueError("state.f must lie in [0, 1].")
+        if not np.isfinite(state.T_bath) or state.T_bath < 0.0:
+            raise ValueError("state.T_bath must be finite and non-negative.")
+        if not np.isfinite(state.gap) or state.gap <= 0.0:
+            raise ValueError("state.gap must be finite and positive.")
+        gap_scale = max(abs(float(state.gap)), abs(state.spectral.gap), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=1e-10,
+            atol=1e-10 * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match; "
+                f"got {state.gap:g} and {state.spectral.gap:g}."
+            )
         if state.gap_profile is not None:
             gap_profile = np.asarray(state.gap_profile)
             if gap_profile.shape != (f.shape[1],):
@@ -564,6 +669,32 @@ class T3Spatial1DBackend:
                 )
             if np.any(~np.isfinite(gap_profile)) or np.any(gap_profile < 0.0):
                 raise ValueError("gap_profile must be finite and non-negative.")
+        if state.interface_conductance is not None and not (
+            np.isfinite(state.interface_conductance)
+            and state.interface_conductance >= 0.0
+        ):
+            raise ValueError(
+                "interface_conductance must be finite and non-negative; "
+                f"got {state.interface_conductance}."
+            )
+        if state.interface_conductance is not None:
+            if state.gap_profile is None:
+                raise ValueError(
+                    "interface_conductance requires a gap_profile with exactly "
+                    "one piecewise-constant step; without it the conductance "
+                    "would be silently unused."
+                )
+            step_faces = np.flatnonzero(
+                state.gap_profile[:-1] != state.gap_profile[1:]
+            )
+            if step_faces.size != 1:
+                raise ValueError(
+                    "interface_conductance requires a piecewise-constant "
+                    "gap_profile with exactly one step. A smooth or multi-step "
+                    "profile needs an explicit interface-face mask, which this "
+                    "backend does not yet expose; otherwise every unequal face "
+                    "would be misclassified as a KL interface."
+                )
 
 
 def _harmonic_face_weights(W_cell: np.ndarray) -> np.ndarray:

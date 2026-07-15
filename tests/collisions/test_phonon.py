@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from qpsim.collisions.phonon import (
     CoherenceAssignment,
+    _pair_breaking_quadrature_correction,
     apply_phonon_collision,
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -174,6 +175,74 @@ class TestPhononSidePairBreaking:
         first_idx = int(np.argmax(mask))
         assert 1.0 / -b_ph[first_idx] == pytest.approx(tau_0_pb, rel=2e-3)
 
+    def test_kaplan_correction_does_not_override_k_minus(self) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        omega, _, idx_sum, _ = build_phonon_frequency_map(ctx.E)
+        correction = _pair_breaking_quadrature_correction(
+            ctx, 7.0 * ctx.K_minus, idx_sum, omega.size
+        )
+
+        np.testing.assert_array_equal(correction, 1.0)
+
+    def test_kaplan_correction_does_not_override_dynes_kernel(self) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        dynes = SpectralContext(
+            E_bins=ctx.E,
+            dE_bins=ctx.dE,
+            gap=ctx.gap,
+            dynes_gamma=0.5,
+        )
+        omega, _, idx_sum, _ = build_phonon_frequency_map(dynes.E)
+        correction = _pair_breaking_quadrature_correction(
+            dynes, 3.0 * dynes.K_plus, idx_sum, omega.size
+        )
+
+        np.testing.assert_array_equal(correction, 1.0)
+
+    def test_kaplan_correction_does_not_invent_off_grid_pair_states(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.0,
+            energy_max_factor=10.0,
+            num_energy_bins=400,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        omega, _, idx_sum, _ = build_phonon_frequency_map(E)
+        K_ph = build_recombination_kernel_phonon_side(ctx, tau_0_pb_ns=0.255)
+
+        correction = _pair_breaking_quadrature_correction(
+            ctx, K_ph, idx_sum, omega.size
+        )
+        upper_edge = ctx.E[-1] + 0.5 * ctx.dE[-1]
+        truncated = omega > upper_edge + gap
+
+        assert np.any(truncated)
+        np.testing.assert_array_equal(correction[truncated], 1.0)
+        # The complete near-threshold interval still receives the intended
+        # analytic endpoint correction.
+        assert np.any(correction[(omega > 2.0 * gap) & ~truncated] != 1.0)
+
+    def test_kaplan_correction_requires_gap_edge_grid_coverage(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.01,
+            energy_max_factor=10.0,
+            num_energy_bins=400,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        omega, _, idx_sum, _ = build_phonon_frequency_map(E)
+        K_ph = build_recombination_kernel_phonon_side(ctx, tau_0_pb_ns=0.255)
+
+        correction = _pair_breaking_quadrature_correction(
+            ctx, K_ph, idx_sum, omega.size
+        )
+
+        np.testing.assert_array_equal(correction, 1.0)
+
 
 class TestCollisionRates:
     def test_zero_f_gives_zero_gain(self) -> None:
@@ -231,6 +300,38 @@ class TestFrequencyMap:
     def test_rejects_non_1d(self) -> None:
         with pytest.raises(ValueError, match="1D array"):
             build_phonon_frequency_map(np.array([[1.0, 2.0], [3.0, 4.0]]))
+
+    def test_non_binary_uniform_spacing_has_no_twin_frequency_bins(self) -> None:
+        E, _ = build_energy_grid(
+            gap=180.0,
+            energy_min_factor=1.0,
+            energy_max_factor=10.0,
+            num_energy_bins=401,
+        )
+        omega, idx_diff, idx_sum, _ = build_phonon_frequency_map(E)
+
+        # The former fixed-decimal deduplication produced 321 adjacent bins
+        # separated by about 1e-12 for this otherwise ordinary uniform grid.
+        assert float(np.min(np.diff(omega))) > 1e-9
+        np.testing.assert_allclose(
+            omega[idx_diff], np.abs(E[:, None] - E[None, :]), atol=1e-10, rtol=0.0
+        )
+        np.testing.assert_allclose(
+            omega[idx_sum], E[:, None] + E[None, :], atol=1e-10, rtol=0.0
+        )
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            np.array([]),
+            np.array([1.0, np.nan]),
+            np.array([-2.0, -1.0]),
+            np.array([2.0, 1.0]),
+        ],
+    )
+    def test_rejects_invalid_energy_bins(self, bad: np.ndarray) -> None:
+        with pytest.raises(ValueError):
+            build_phonon_frequency_map(bad)
 
 
 class TestOccupationMatricesFromState:
@@ -372,4 +473,10 @@ class TestKaplanRecombinationNormalization:
             enable_scattering=False, enable_recombination=True,
         )
         ratio = float(loss[0]) / inv_tau_r_exact
+        # The ±15% budget is the midpoint-vs-exact-cell discretization gap at the
+        # sqrt-singular gap edge (finding G1): the collision operator contracts
+        # with the midpoint measure ρ·dE, which converges only ~1/√NE against the
+        # exact continuum rate here. This is a TRACKED convergence budget, not an
+        # arbitrary tolerance — tighten it once the collision measure is unified
+        # with the exact observable weights (bcs_dos_cell_weights).
         assert 0.85 < ratio < 1.15

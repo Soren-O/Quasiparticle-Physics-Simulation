@@ -137,7 +137,9 @@ def compute_current_weighted_ac_response(
         * float(np.trapezoid(weights * local_loss_ratio, x))
         / full_current_integral_um
     )
-    qi_qp = 1.0 / inverse_qi if inverse_qi > 0.0 else float(np.inf)
+    # Negative inverse Q is active gain (negative damping), not the zero-loss
+    # limit. Preserve its sign just like the lumped quality-factor observable.
+    qi_qp = 1.0 / inverse_qi if inverse_qi != 0.0 else float(np.inf)
 
     return SpatialAcResponse(
         sigma1_current_weighted_norm=sigma1_eff,

@@ -25,6 +25,38 @@ from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.physics.spectral import coherence_factor_minus, coherence_factor_plus
 
 
+def _finite_energy_grid(E_bins: np.ndarray) -> np.ndarray:
+    """Return a flat floating energy grid, rejecting NaN and infinity."""
+    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    if np.any(~np.isfinite(E)):
+        raise ValueError("E_bins must contain only finite values.")
+    return E
+
+
+def _finite_scalar(name: str, value: float) -> float:
+    """Return ``value`` as a float, rejecting NaN and infinity."""
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite; got {result}.")
+    return result
+
+
+def _non_negative_scalar(name: str, value: float) -> float:
+    """Return a finite scalar satisfying a non-negative contract."""
+    result = _finite_scalar(name, value)
+    if result < 0.0:
+        raise ValueError(f"{name} must be non-negative; got {result}.")
+    return result
+
+
+def _positive_scalar(name: str, value: float) -> float:
+    """Return a finite scalar satisfying a strictly-positive contract."""
+    result = _finite_scalar(name, value)
+    if result <= 0.0:
+        raise ValueError(f"{name} must be positive; got {result}.")
+    return result
+
+
 def thermal_phonon_occupation(
     omega_bins: np.ndarray,
     temperature: float,
@@ -41,6 +73,7 @@ def thermal_phonon_occupation(
         raise ValueError("omega_bins must contain only finite values.")
     if np.any(omega < 0):
         raise ValueError("omega_bins must be non-negative.")
+    temperature = _finite_scalar("temperature", temperature)
     if temperature <= 0:
         return np.zeros_like(omega)
 
@@ -68,7 +101,10 @@ def recombination_kernel_base(
     ``ctx.K_plus`` for the phonon convention, or ``ctx.K_minus`` for
     the photon convention.
     """
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_energy_grid(E_bins)
+    gap = _non_negative_scalar("gap", gap)
+    tau_0 = _positive_scalar("tau_0", tau_0)
+    T_c = _positive_scalar("T_c", T_c)
     kBTc = _KB_UEV_PER_K * T_c
     E_sum = E[:, None] + E[None, :]
     coh = (
@@ -76,6 +112,8 @@ def recombination_kernel_base(
         if coherence_factor is None
         else np.asarray(coherence_factor, dtype=float)
     )
+    if np.any(~np.isfinite(coh)):
+        raise ValueError("coherence_factor must contain only finite values.")
     return (1.0 / tau_0) * (E_sum / kBTc) ** 2 / kBTc * coh
 
 
@@ -95,7 +133,10 @@ def scattering_kernel_base(
     ``coherence_factor`` to reuse a precomputed K matrix — e.g.
     ``ctx.K_minus`` for phonon convention, ``ctx.K_plus`` for photon.
     """
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_energy_grid(E_bins)
+    gap = _non_negative_scalar("gap", gap)
+    tau_0 = _positive_scalar("tau_0", tau_0)
+    T_c = _positive_scalar("T_c", T_c)
     kBTc = _KB_UEV_PER_K * T_c
     E_diff = E[:, None] - E[None, :]
     coh = (
@@ -103,6 +144,8 @@ def scattering_kernel_base(
         if coherence_factor is None
         else np.asarray(coherence_factor, dtype=float)
     )
+    if np.any(~np.isfinite(coh)):
+        raise ValueError("coherence_factor must contain only finite values.")
     K_s0 = (1.0 / tau_0) * (E_diff ** 2) / kBTc ** 3 * coh
     np.fill_diagonal(K_s0, 0.0)
     return K_s0
@@ -120,7 +163,9 @@ def recombination_kernel(
     N_p(ω, T) = 1 + n_BE(ω, T) = 1 + (exp(ω/kT) − 1)⁻¹ is the with-phonon
     factor for phonon emission into a thermal bath. At T = 0, N_p = 1.
     """
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_energy_grid(E_bins)
+    bath_temperature = _finite_scalar("bath_temperature", bath_temperature)
+    K_r0 = recombination_kernel_base(E, gap, tau_0, T_c)
     kBTp = _KB_UEV_PER_K * bath_temperature
     E_sum = E[:, None] + E[None, :]
     if kBTp > 0:
@@ -128,7 +173,7 @@ def recombination_kernel(
         N_p = 1.0 / (np.exp(exponent) - 1.0) + 1.0
     else:
         N_p = np.ones_like(E_sum, dtype=float)
-    return recombination_kernel_base(E, gap, tau_0, T_c) * N_p
+    return K_r0 * N_p
 
 
 def scattering_kernel(
@@ -147,7 +192,9 @@ def scattering_kernel(
 
     Diagonal is zero. At T = 0, absorption vanishes and emission is 1.
     """
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_energy_grid(E_bins)
+    bath_temperature = _finite_scalar("bath_temperature", bath_temperature)
+    K_s0 = scattering_kernel_base(E, gap, tau_0, T_c)
     E_diff = E[:, None] - E[None, :]
     kBTp = _KB_UEV_PER_K * bath_temperature
     N_p = np.zeros_like(E_diff)
@@ -161,4 +208,4 @@ def scattering_kernel(
     else:
         N_p[E_diff > 0] = 1.0
         N_p[E_diff < 0] = 0.0
-    return scattering_kernel_base(E, gap, tau_0, T_c) * N_p
+    return K_s0 * N_p

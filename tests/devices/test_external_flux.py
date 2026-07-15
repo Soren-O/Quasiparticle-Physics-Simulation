@@ -430,9 +430,11 @@ class TestForwardingThroughT3Backend:
         backend = T3DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
-        s_no = backend.steady_state(state, method="picard", anderson_depth=3)
+        # Exercise the minimum advertised accelerated depth: depth=1 must be a
+        # real secant update, not silently routed to plain Picard.
+        s_no = backend.steady_state(state, method="picard", anderson_depth=1)
         s_yes = backend.steady_state(
-            state, method="picard", anderson_depth=3, external_flux=ef,
+            state, method="picard", anderson_depth=1, external_flux=ef,
         )
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
 
@@ -481,12 +483,17 @@ class TestForwardingThroughT3Backend:
         s_yes = backend.apply_collisions(state, dt=0.5, external_flux=ef)
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
 
-    def test_step_one_substep(self) -> None:
+    def test_step_one_substep(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # backend.step is the symmetric-Strang (gap, transport, collisions).
-        # ExternalFlux flows through into the inner apply_collisions.
+        # Isolate forwarding into the inner collision step: moving-gap behavior
+        # has its own tests and requires a grid extending below every expected
+        # gap, which this compact fixed-gap fixture deliberately lacks.
         from qpsim.backends.t3_diffusion import T3DiffusionBackend
 
         backend = T3DiffusionBackend()
+        monkeypatch.setattr(
+            backend, "apply_gap_update", lambda state, _dt: state
+        )
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         s_no = backend.step(state, dt=0.5)
@@ -520,11 +527,11 @@ class TestServiceLayerPicardGuard:
         ef = _modest_external_flux(ctx.E.size)
         f_no = solve_steady_state(
             ctx, K_s0, K_r0, T_bath,
-            phonon_escape_time=0.5, anderson_depth=3,
+            phonon_escape_time=0.5, anderson_depth=1,
         )
         f_yes = solve_steady_state(
             ctx, K_s0, K_r0, T_bath, external_flux=ef,
-            phonon_escape_time=0.5, anderson_depth=3,
+            phonon_escape_time=0.5, anderson_depth=1,
         )
         assert np.max(np.abs(f_yes - f_no)) > 1e-6
 

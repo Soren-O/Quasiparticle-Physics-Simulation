@@ -90,6 +90,28 @@ def test_config_matches_baseline_metadata() -> None:
 
 
 @pytest.mark.slow
+def test_high_drive_does_not_false_converge_to_thermal_branch() -> None:
+    """A tiny above-gap phonon population must still drive the QP branch.
+
+    Uses just the two endpoints of the 0.10 K upper-panel sweep. The former
+    peak-scaled Picard denominator floor declared the high-drive point converged
+    at the thermal solution because unrelated low-energy phonon bins set a huge
+    global scale; the paper grid is required to expose that failure mode.
+    """
+    result = run(
+        upper_T_bath=(0.10,),
+        upper_nbar=(float(UPPER_NBAR_VALUES[0]), float(UPPER_NBAR_VALUES[-1])),
+        lower_nbar=(),
+        lower_T_bath=(),
+    )
+    low_drive, high_drive = result.upper_x_qp_num[0]
+
+    assert low_drive < 1e-8
+    assert high_drive > 1e-3
+    assert high_drive > 1e6 * low_drive
+
+
+@pytest.mark.slow
 def test_matches_pinned_baseline() -> None:
     path = baseline_path()
     if not path.exists():

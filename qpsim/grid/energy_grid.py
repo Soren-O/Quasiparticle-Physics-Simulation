@@ -35,23 +35,32 @@ def build_energy_grid(
     E_bins
         Shape ``(NE,)``. Cell centers.
     dE
-        Uniform bin width. For ``num_energy_bins == 1`` returns the
-        sentinel ``1.0`` (no well-defined spacing from a single bin).
+        Uniform bin width. For ``num_energy_bins == 1`` this is the full
+        requested interval width, so the sole cell still carries the correct
+        integration measure.
     """
-    if gap <= 0:
+    if not np.isfinite(gap) or gap <= 0:
         raise ValueError("gap must be positive.")
+    if not np.isfinite(energy_min_factor) or energy_min_factor < 0.0:
+        raise ValueError("energy_min_factor must be finite and non-negative.")
+    if not np.isfinite(energy_max_factor):
+        raise ValueError("energy_max_factor must be finite.")
+    if isinstance(num_energy_bins, (bool, np.bool_)) or not isinstance(
+        num_energy_bins, (int, np.integer)
+    ):
+        raise ValueError("num_energy_bins must be an integer >= 1.")
     if num_energy_bins <= 0:
         raise ValueError("num_energy_bins must be >= 1.")
 
     E_min = energy_min_factor * gap
     E_max = energy_max_factor * gap
-    if num_energy_bins == 1:
-        center = 0.5 * (E_min + E_max)
-        return np.array([center], dtype=float), 1.0
     if E_max <= E_min:
         raise ValueError(
-            "energy_max_factor must be > energy_min_factor for num_energy_bins > 1."
+            "energy_max_factor must be > energy_min_factor."
         )
+    if num_energy_bins == 1:
+        center = 0.5 * (E_min + E_max)
+        return np.array([center], dtype=float), float(E_max - E_min)
 
     dE = (E_max - E_min) / float(num_energy_bins)
     E_bins = E_min + (np.arange(num_energy_bins, dtype=float) + 0.5) * dE
@@ -72,10 +81,13 @@ def integration_widths_from_centers(
     bins = np.asarray(centers, dtype=float).reshape(-1)
     if bins.size == 0:
         raise ValueError("centers must be non-empty.")
-    if bins.size == 1:
-        return np.array([float(fallback_width)], dtype=float)
     if np.any(~np.isfinite(bins)):
         raise ValueError("centers must contain finite values.")
+    if bins.size == 1:
+        width = float(fallback_width)
+        if not np.isfinite(width) or width <= 0.0:
+            raise ValueError("fallback_width must be finite and positive.")
+        return np.array([width], dtype=float)
     if np.any(np.diff(bins) <= 0):
         raise ValueError("centers must be strictly increasing.")
     edges = np.empty(bins.size + 1, dtype=float)

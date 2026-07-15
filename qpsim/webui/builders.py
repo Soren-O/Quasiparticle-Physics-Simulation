@@ -123,6 +123,14 @@ def _validate_drives_and_probe(
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
 
+    if setup.material.dynes_gamma == 0.0 and setup.grid.min_factor > 1.0:
+        report.errors.append(
+            "Grid: pure-BCS x_qp and Mattis-Bardeen observables require "
+            "grid.min_factor <= 1 so the first finite-volume cell covers "
+            "the gap edge. Starting above Delta drops singular spectral "
+            "support that cannot be reconstructed from the sampled f(E)."
+        )
+
     subgap = getattr(setup, "subgap_drive", None)
     if subgap is not None and subgap.enabled:
         if subgap.omega_0 >= 2.0 * gap:
@@ -172,11 +180,24 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     if isinstance(setup, SteadyState0DSetup):
         _validate_drives_and_probe(report, setup)
+        if setup.solver.self_consistent_gap and setup.grid.min_factor >= 1.0:
+            report.warnings.append(
+                "Self-consistent gap: the energy grid does not extend below "
+                "Delta_0, so any suppressed-gap solution lacks occupation "
+                "samples near its new edge. Set grid.min_factor below the "
+                "smallest expected Delta/Delta_0 for quantitative results."
+            )
         if setup.solver.method == "coupled_newton" and setup.phonons.mode == "thermal_bath":
             report.errors.append(
                 "Solver: coupled-Newton solves (f, n_ph) jointly and cannot be combined "
                 "with the pinned thermal bath — pick a dynamic phonon sector or the "
                 "auto/picard route."
+            )
+        if setup.solver.method == "coupled_newton" and setup.phonons.mode == "dynamic_closed":
+            report.errors.append(
+                "Solver: coupled-Newton requires finite phonon escape; the dynamic_closed "
+                "sector has an unconstrained conserved-energy mode. Use Picard/auto or "
+                "select dynamic_escape."
             )
         if (
             setup.phonons.use_phonon_side_kernel
@@ -208,6 +229,23 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             )
         if setup.material.D_0 <= 0.0:
             report.errors.append("1D strip: the material needs a positive D₀ (μm²/ns).")
+        # Transport resolution: the Crank–Nicolson strip step clips any
+        # occupation over/undershoot back to [0, 1], and once that clip alters
+        # more than 0.1% of the conserved density in a step the backend raises
+        # rather than silently return corrupted mass. The clip grows with the
+        # diffusion number ν = D₀·dt/dx²; ν ≲ 5 is clip-free for the shipped
+        # source and ν ≳ 11 trips the raise. Warn before the run so the user
+        # lowers dt (or raises num_cells) instead of hitting a mid-run failure.
+        if setup.material.D_0 > 0.0 and setup.num_cells > 1:
+            dx_um = setup.length_um / (setup.num_cells - 1)
+            diffusion_number = setup.material.D_0 * setup.dt / (dx_um * dx_um)
+            if diffusion_number > 8.0:
+                report.warnings.append(
+                    f"1D strip: diffusion number D₀·dt/dx² ≈ {diffusion_number:.1f} "
+                    f"(dt = {setup.dt:g} ns, dx = {dx_um:.2g} µm). Above ≈11 the "
+                    "Crank–Nicolson transport clip corrupts conserved density and "
+                    "the run fails mid-step; reduce dt or increase num_cells."
+                )
         if setup.injection.enabled:
             e_center = setup.injection.center_over_delta
             if not (setup.grid.min_factor < e_center < setup.grid.max_factor):
@@ -217,10 +255,17 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 )
         if setup.gap_profile.kind == "step":
             e_max = setup.grid.max_factor * setup.material.Delta_0
+            e_min = setup.grid.min_factor * setup.material.Delta_0
             for side, val in (
                 ("gap_left", setup.gap_profile.gap_left),
                 ("gap_right", setup.gap_profile.gap_right),
             ):
+                if val < e_min:
+                    report.errors.append(
+                        f"Gap profile: {side} = {val:g} micro-eV lies below the "
+                        f"grid bottom {e_min:g} micro-eV. Lower grid.min_factor "
+                        "so the local BCS edge is represented."
+                    )
                 if val >= e_max:
                     report.errors.append(
                         f"Gap profile: {side} = {val:g} μeV is at or above the grid top "
@@ -234,6 +279,30 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             report.errors.append("M25: T_stop must be ≥ T_start.")
         if setup.omega_10_over_h_GHz >= 2.0 * setup.Delta_R_over_h_GHz:
             report.errors.append("M25: needs ω₁₀ < 2Δ_R (no direct pair-breaking by the qubit).")
+        # The photon drive must clear the junction pair-breaking threshold
+        # Δ_L + Δ_R (with Δ_L = Δ_R + ω_LR); below it S⁻ = 0 makes the Γ_ph
+        # calibration singular and every sweep point returns NaN. This is a
+        # deterministic, T-independent setup error — reject it up front here
+        # rather than running the whole sweep to an all-NaN "done".
+        drive_threshold_GHz = 2.0 * setup.Delta_R_over_h_GHz + setup.omega_LR_over_h_GHz
+        if setup.drive.omega_nu_GHz <= drive_threshold_GHz:
+            report.errors.append(
+                f"M25: drive ω_ν = {setup.drive.omega_nu_GHz:g} GHz is at or below the "
+                f"pair-breaking threshold Δ_L + Δ_R = {drive_threshold_GHz:g} GHz; the "
+                "Γ_ph calibration is singular (S⁻ = 0) and the sweep returns all-NaN."
+            )
+        if setup.branch_picker_mode == "max_x_L":
+            # The engine only emits a (default-suppressed) DeprecationWarning
+            # and the M25 executor captures no warnings, so a saved setup using
+            # this deprecated picker ran silently to "done" on pseudo-roots
+            # (~60x wrong x_L, ~600x parity rates on the default parameters).
+            # The schema keeps the value so old setups still validate-load;
+            # reject it here at run time.
+            report.errors.append(
+                "M25: branch_picker_mode 'max_x_L' is deprecated — it selects "
+                "sub-1-Hz slope pseudo-roots (≈60× wrong x_L). Use "
+                "'min_residual'."
+            )
 
     return report
 

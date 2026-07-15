@@ -11,6 +11,7 @@ from qpsim.services.rate_equation import (
     M25Coefficients,
     M25SteadyState,
     _rate_equation_residual,
+    _source_scaled_residual_tolerances,
     crossover_temperature_kelvin,
     solve_rate_equation_steady_state,
     solve_rate_equation_steady_state_multi_seed,
@@ -245,6 +246,24 @@ class TestCoefficientValidation:
         coefs = _make_trivial_coefs(gammas_Rlt=ok)
         assert coefs.gammas_Rlt[1, 0] == 1e-6
 
+    def test_array_inputs_are_defensively_copied_and_read_only(self) -> None:
+        gamma_ee = np.array([[0.0, 1e-6], [1e-5, 0.0]])
+        g_ph_L = np.array([1e-4, 2e-4])
+        coefs = replace(
+            _make_trivial_coefs(gamma_ee=gamma_ee),
+            g_ph_L_per_state=g_ph_L,
+        )
+
+        gamma_ee[0, 1] = 9.0
+        g_ph_L[0] = 8.0
+        assert coefs.gamma_ee[0, 1] == 1e-6
+        assert coefs.g_ph_L_per_state[0] == 1e-4
+
+        with pytest.raises(ValueError, match="read-only"):
+            coefs.gamma_ee[0, 1] = 7.0
+        with pytest.raises(ValueError, match="read-only"):
+            coefs.g_ph_L_per_state[0] = 6.0
+
 
 class TestResidualTrivialCases:
     """Sanity-check the residual on hand-computable inputs."""
@@ -426,6 +445,29 @@ class TestSolverLimitingCases:
         with pytest.raises(RuntimeError, match="maxfev"):
             solve_rate_equation_steady_state(legacy)
 
+    @pytest.mark.parametrize("T_kelvin", [0.080, 0.100, 0.110])
+    def test_fig3a_death_valley_uses_row_wise_source_gate(
+        self, T_kelvin: float,
+    ) -> None:
+        # In the old global-min calculation, an exponentially small thermal
+        # generation term crossed 1e-30 Hz and collapsed the tolerance to
+        # 1e-14 Hz. The qubit row then failed on a 4.5e-13--1.8e-12 Hz
+        # float64 cancellation quantum even though every density row was
+        # balanced to ~1e-21 Hz. Row-wise source/backward-error limits keep
+        # those independent numerical scales independent.
+        coefs = _fig3a_coefficients(T_kelvin=T_kelvin)
+        state = solve_rate_equation_steady_state(coefs)
+        y = np.array([state.p_1, state.x_L, state.x_Rgt, state.x_Rlt])
+        residual = np.abs(_rate_equation_residual(y, coefs))
+        tolerances = _source_scaled_residual_tolerances(y, coefs, 1e-3)
+
+        assert np.all(residual <= tolerances)
+        # Density gates remain tied to the 1e-9--1e-8 Hz generation rows;
+        # fixing the qubit cancellation floor must not create a broad scalar
+        # ceiling that could admit density pseudo-roots.
+        assert np.all(tolerances[1:] < 3e-11)
+        assert np.all(residual[1:] < 1e-18)
+
     def test_accept_lm_convergence_does_not_bypass_maxfev_failures(self) -> None:
         # The accept_lm_convergence escape hatch is meant for the
         # specific "no progress" stall at the cancellation floor —
@@ -464,57 +506,80 @@ class TestSolverLimitingCases:
             )
 
 
-class TestAcceptLmConvergenceEscapeHatch:
-    """Accept-path and ceiling semantics of ``accept_lm_convergence``.
-
-    Restores the guards dropped in the Γ̄-normalization commit
-    (3199378): the legacy Γ̄ = Γ̃ Fig 3a bundle still stalls hybr at
-    the float64 cancellation floor at 30 mK (verified: "iteration is
-    not making good progress" with ``||R||_∞ ≈ 7e-7 Hz``), so the
-    bypass path is exercised end-to-end, and the 1 Hz ceiling plus
-    the physical-branch positivity guard are pinned directly.
-    """
+class TestAcceptLmConvergenceStatusOverride:
+    """``accept_lm_convergence`` may relax status, never accuracy."""
 
     def _legacy_fig3a_coefs(self) -> M25Coefficients:
         # Legacy normalization: Γ̄ = Γ̃ (~1e10 Hz) in the density
         # equations, as in the neighboring regression tests.
         return replace(_fig3a_coefficients(), cooper_pair_number_R=1.0)
 
-    def test_accept_lm_convergence_bypasses_residual_check(self) -> None:
+    def test_accept_lm_convergence_never_bypasses_source_gate(self) -> None:
         legacy = self._legacy_fig3a_coefs()
-        # Strict path: the no-progress stall leaves the residual far
-        # above the source-scaled tolerance → raise.
+        # The legacy normalization stalls with density residuals
+        # ~6.6e-7 Hz, versus row limits of ~1.9e-10, ~1.9e-10, and
+        # 2.5e-12 Hz. A raw 1 Hz ceiling misclassified this as a fixed
+        # point; both flag values must now reject it.
         with pytest.raises(RuntimeError, match="high residual"):
             solve_rate_equation_steady_state(legacy)
-        # Bypass path: same stall is accepted (residual sits at the
-        # cancellation floor, well below the 1 Hz ceiling).
-        state = solve_rate_equation_steady_state(
-            legacy, accept_lm_convergence=True,
-        )
-        values = np.array([state.p_1, state.x_L, state.x_Rgt, state.x_Rlt])
-        assert np.all(np.isfinite(values))
-        assert state.x_L > 0.0 and state.x_Rgt > 0.0 and state.x_Rlt > 0.0
-        assert 0.0 <= state.p_1 <= 1.0
-        assert state.residual_inf_norm <= 1.0
+        with pytest.raises(RuntimeError, match="never bypasses"):
+            solve_rate_equation_steady_state(
+                legacy, accept_lm_convergence=True,
+            )
 
-    def test_multi_seed_accept_returns_state_for_legacy_bundle(self) -> None:
-        # The multi-seed helper with the bypass must return an
-        # accepted state for the legacy bundle (its historical
-        # purpose: candidate collection at the cancellation floor).
-        legacy = self._legacy_fig3a_coefs()
-        state = solve_rate_equation_steady_state_multi_seed(
-            legacy, accept_lm_convergence=True,
-        )
-        values = np.array([state.p_1, state.x_L, state.x_Rgt, state.x_Rlt])
-        assert np.all(np.isfinite(values))
-        assert state.x_L > 0.0 and state.x_Rgt > 0.0 and state.x_Rlt > 0.0
-        assert 0.0 <= state.p_1 <= 1.0
-
-    def test_stall_with_residual_above_ceiling_raises(
+    def test_multi_seed_recomputes_residual_at_final_gate(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # A no-progress stall with ||R||_∞ > 1.0 Hz is NOT the
-        # cancellation-floor regime; the bypass must refuse it.
+        from qpsim.services import rate_equation as rate_mod
+
+        # Simulate a wrapper that reports a stale zero diagnostic for a state
+        # whose density rows are very far from stationary. The common final
+        # gate must recompute R(y), not trust ``residual_inf_norm``.
+        stale = M25SteadyState(
+            p_0=0.5, p_1=0.5,
+            x_L=10.0, x_Rgt=10.0, x_Rlt=10.0,
+            residual_inf_norm=0.0, n_function_evaluations=1,
+        )
+        monkeypatch.setattr(
+            rate_mod, "solve_rate_equation_steady_state",
+            lambda *args, **kwargs: stale,
+        )
+        monkeypatch.setattr(rate_mod, "_default_seed_grid", lambda: [])
+
+        with pytest.raises(RuntimeError, match="row-wise source-scaled"):
+            rate_mod.solve_rate_equation_steady_state_multi_seed(
+                _make_trivial_coefs(g_L=1.0, g_Rgt=1.0, g_Rlt=1.0),
+            )
+
+    def test_no_progress_status_requires_opt_in_after_residual_passes(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        def fake_root(*args: object, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                success=False,
+                message="The iteration is not making good progress",
+                fun=np.zeros(4),
+                x=np.array([1.0 / 11.0, 0.0, 0.0, 0.0]),
+                nfev=12,
+            )
+
+        monkeypatch.setattr(rate_mod, "root", fake_root)
+        with pytest.raises(RuntimeError, match="solve stalled"):
+            rate_mod.solve_rate_equation_steady_state(
+                _make_trivial_coefs(), residual_tol=1e-6,
+            )
+        state = rate_mod.solve_rate_equation_steady_state(
+            _make_trivial_coefs(), residual_tol=1e-6,
+            accept_lm_convergence=True,
+        )
+        assert state.residual_inf_norm == 0.0
+
+    def test_stall_with_high_residual_raises(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # No-progress status cannot rescue a result that fails its row gate.
         from qpsim.services import rate_equation as rate_mod
 
         def fake_root(*args: object, **kwargs: object) -> SimpleNamespace:
@@ -531,7 +596,7 @@ class TestAcceptLmConvergenceEscapeHatch:
             )
 
         monkeypatch.setattr(rate_mod, "root", fake_root)
-        with pytest.raises(RuntimeError, match="cancellation floor"):
+        with pytest.raises(RuntimeError, match="high residual"):
             rate_mod.solve_rate_equation_steady_state(
                 _make_trivial_coefs(), accept_lm_convergence=True,
             )
@@ -563,25 +628,15 @@ class TestAcceptLmConvergenceEscapeHatch:
 class TestBranchPickerModesOnFig3a:
     """``max_x_L`` dispatch and the ``expected_ordering`` filter.
 
-    On the Γ̄-normalized Fig 3a system the *hybr* solves all land on
-    the unique physical root, but the lm/lsq candidate sources still
-    admit slope pseudo-roots under their 1 Hz residual ceiling — so
-    the legacy ``max_x_L`` mode remains hazardous even post-fix
-    (pinned below), which is exactly why ``min_residual`` is the
-    default. The ordering filter must keep the root (consistent
-    ordering) or fall back with a warning (inconsistent ordering).
+    Every candidate source is subject to the same row-wise physical gate.
+    On the normalized, unique-root Fig 3a system all picker modes therefore
+    agree. An explicit ordering hint is a constraint, not a warning that may
+    be silently ignored.
     """
 
     def test_max_x_L_mode_dispatches_and_picks_largest_candidate(self) -> None:
-        # End-to-end dispatch coverage of branch_picker_mode="max_x_L":
-        # no raise, and the documented (legacy, hazardous) selection
-        # rule — the largest-x_L candidate wins. Observed behavior on
-        # the Γ̄-normalized Fig 3a bundle at 30 mK: lm/lsq contribute a
-        # pseudo-root at x_L ≈ 3.2e-6 (residual ≈ 6e-5 Hz — below the
-        # 1 Hz candidate ceiling but ~17 orders above the true root's
-        # ~2e-22 Hz), and max_x_L picks it over the physical root at
-        # 5.28e-8. This pins the module docstring's warning that
-        # max_x_L is "kept for reproducing historical baselines only".
+        # The deprecated selector still dispatches, but the final gate keeps
+        # the old sub-1-Hz slope pseudo-roots out of its candidate pool.
         coefs = _fig3a_coefficients()
         direct = solve_rate_equation_steady_state(coefs)
         with pytest.warns(DeprecationWarning, match="max_x_L.*deprecated"):
@@ -590,18 +645,14 @@ class TestBranchPickerModesOnFig3a:
             )
         values = np.array([picked.p_1, picked.x_L, picked.x_Rgt, picked.x_Rlt])
         assert np.all(np.isfinite(values))
-        assert picked.x_L >= direct.x_L  # max over a pool containing the root
-        assert picked.residual_inf_norm <= 1.0  # candidate ceiling held
-        # The hazard, pinned: max_x_L does NOT return the physical
-        # root here — it selects a sub-ceiling pseudo-root far above
-        # it. If this ever starts matching min_residual, the candidate
-        # pool has changed and the mode's documentation needs a fresh
-        # look.
-        assert picked.x_L > 10.0 * direct.x_L
-        assert picked.residual_inf_norm > 1e3 * direct.residual_inf_norm
-        # The default mode returns the physical root on the same pool.
-        default = solve_rate_equation_steady_state_multi_seed(coefs)
-        assert default.x_L == pytest.approx(direct.x_L, rel=1e-6)
+        assert picked.x_L == pytest.approx(direct.x_L, rel=1e-6)
+        assert picked.x_Rgt == pytest.approx(direct.x_Rgt, rel=1e-6)
+        assert picked.x_Rlt == pytest.approx(direct.x_Rlt, rel=1e-6)
+        y = np.array([picked.p_1, picked.x_L, picked.x_Rgt, picked.x_Rlt])
+        assert np.all(
+            np.abs(_rate_equation_residual(y, coefs))
+            <= _source_scaled_residual_tolerances(y, coefs, 1e-3)
+        )
 
     def test_expected_ordering_consistent_keeps_root(self) -> None:
         # Fig 3a at 30 mK: x_L > x_R< > x_R> (baseline: 5.28e-8,
@@ -616,25 +667,15 @@ class TestBranchPickerModesOnFig3a:
         assert picked.x_Rgt == pytest.approx(direct.x_Rgt, rel=1e-6)
         assert picked.x_Rlt == pytest.approx(direct.x_Rlt, rel=1e-6)
 
-    def test_expected_ordering_inconsistent_falls_back_with_warning(
-        self, capsys: pytest.CaptureFixture[str],
-    ) -> None:
+    def test_expected_ordering_inconsistent_raises(self) -> None:
         # No candidate satisfies the (physically wrong) ordering
-        # x_R> ≥ x_R< ≥ x_L. Pinned behavior: a stderr warning and
-        # fallback to the unfiltered candidate set — the picker still
-        # returns the unique root rather than raising or returning
-        # nothing.
+        # x_R> ≥ x_R< ≥ x_L. Re-admitting the unfiltered candidate set would
+        # silently discard the caller's branch constraint.
         coefs = _fig3a_coefficients()
-        direct = solve_rate_equation_steady_state(coefs)
-        picked = solve_rate_equation_steady_state_multi_seed(
-            coefs, expected_ordering=("x_Rgt", "x_Rlt", "x_L"),
-        )
-        err = capsys.readouterr().err
-        assert "no candidate satisfies" in err
-        assert "falling back" in err
-        assert picked.x_L == pytest.approx(direct.x_L, rel=1e-6)
-        assert picked.x_Rgt == pytest.approx(direct.x_Rgt, rel=1e-6)
-        assert picked.x_Rlt == pytest.approx(direct.x_Rlt, rel=1e-6)
+        with pytest.raises(RuntimeError, match="refusing to fall back"):
+            solve_rate_equation_steady_state_multi_seed(
+                coefs, expected_ordering=("x_Rgt", "x_Rlt", "x_L"),
+            )
 
 
 class TestSolverReturnType:
@@ -644,6 +685,55 @@ class TestSolverReturnType:
         assert isinstance(state, M25SteadyState)
         assert state.n_function_evaluations >= 1
         assert state.residual_inf_norm >= 0.0
+
+
+class TestLmCandidateAcceptance:
+    def test_rejects_unsuccessful_result_with_small_residual(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        def fake_root(*args: object, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                success=False,
+                message="maximum iterations reached",
+                fun=np.zeros(4),
+                x=np.array([0.5, 1e-8, 1e-8, 1e-8]),
+                nfev=5000,
+            )
+
+        monkeypatch.setattr(rate_mod, "root", fake_root)
+        assert rate_mod._solve_with_lm(
+            _make_trivial_coefs(),
+            np.array([0.5, 1e-8, 1e-8, 1e-8]),
+            residual_ceiling_Hz=1.0,
+        ) is None
+
+    def test_row_gate_rejects_sub_hz_density_pseudo_root(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.services import rate_equation as rate_mod
+
+        def fake_root(*args: object, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                success=True,
+                message="fake converged",
+                # 0.1 Hz is below the historical 1 Hz ceiling but is a 10%
+                # error against this row's 1 Hz generation source.
+                fun=np.array([0.0, 0.1, 0.0, 0.0]),
+                x=np.array([0.5, 1.0, 1.0, 1.0]),
+                nfev=7,
+            )
+
+        monkeypatch.setattr(rate_mod, "root", fake_root)
+        coefs = _make_trivial_coefs(g_L=1.0, g_Rgt=1.0, g_Rlt=1.0)
+        seed = np.array([0.5, 1.0, 1.0, 1.0])
+        assert rate_mod._solve_with_lm(
+            coefs, seed, residual_ceiling_Hz=1.0,
+        ) is not None
+        assert rate_mod._solve_with_lm(
+            coefs, seed, residual_tol_relative=1e-3,
+        ) is None
 
 
 class TestLmDeterminism:

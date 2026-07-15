@@ -9,11 +9,12 @@ The paper establishes the two limits separately (verify_traces.py):
   - static  Delta(x):  undressed longitudinal spatial current, no grad-Delta
                        source, no L-T mixing (I7/I8)
 This script promotes Delta -> Delta(x,t), f_{L,T} -> f_{L,T}(E,x,t) and checks
-that the two reductions compose with LOCAL coefficients and produce no new
-terms: no Ddot-gradDelta cross terms in the longitudinal channel, no L<->T
-mixing from the drive, and the first Moyal (O(hbar)) correction to gK is
-sourced ONLY by f_T -- so it cannot feed the energy mode at the next order
-either. Above the local gap edge throughout (gA = -gR there).
+that the two reductions compose with LOCAL coefficients in the longitudinal
+channel: no Ddot-gradDelta source and no L<->T mixing.  At cross order it
+keeps both the inner Moyal correction to gK *and* the outer star products in
+the Usadel current.  A transverse O(hbar) correction can remain, but its
+plain trace vanishes and the f_L sector does not source the transverse mode.
+Above the local gap edge throughout (gA = -gR there).
 
 Conventions identical to verify_traces.py (corrected gA of
 verify_gA_convention.py):
@@ -21,7 +22,7 @@ verify_gA_convention.py):
   gauge:  L0 = E tau3 + i Delta tau2
   BCS:    gR = N1 tau3 + i N2 tau2,  gA = -gR (above gap),  N1=E/W, N2=Delta/W
   dist:   h  = f_L 1 + f_T tau3,    gK = gR h - h gA (leading SSLO ansatz)
-  space:  Usadel current JK = gR dx(gK) + gK dx(gA), plain trace = energy mode
+  space:  Usadel current JK = gR * dx(gK) + gK * dx(gA), plain trace = energy mode
 """
 import sympy as sp
 
@@ -39,6 +40,8 @@ def dt(M): return M.applyfunc(lambda e: sp.diff(e, t))
 def dx(M): return M.applyfunc(lambda e: sp.diff(e, x))
 def star(A, B): return A * B + (I_ * hbar / 2) * (dE(A) * dt(B) - dt(A) * dE(B))
 def scomm(A, B): return star(A, B) - star(B, A)
+def hbar_order(M, order=1):
+    return M.applyfunc(lambda e: hbar**order * sp.expand(e).coeff(hbar, order))
 
 
 def build_combined(Delta, fL, fT):
@@ -53,11 +56,18 @@ def build_combined(Delta, fL, fT):
     gK = gR * h - h * gA                                   # leading ansatz
     gK_L = gR * (fL * I2) - (fL * I2) * gA                 # f_L sector alone
     gK_T = gR * (fT * t3) - (fT * t3) * gA                 # f_T sector alone
-    dgK = (star(gR, h) - gR * h) - (star(h, gA) - h * gA)  # 1st Moyal corr.
+    gK_star = star(gR, h) - star(h, gA)
     dgK_L = (star(gR, fL * I2) - gR * fL) - (star(fL * I2, gA) - fL * gA)
 
     JK = gR * dx(gK) + gK * dx(gA)          # leading spatial current
-    JK1 = gR * dx(dgK) + dgK * dx(gA)       # O(hbar) cross-order current
+    # Full O(hbar) current: keeping only gR dx(dgK)+dgK dx(gA) misses the
+    # outer Moyal brackets star(gR,dx(gK)) and star(gK,dx(gA)).
+    JK_star = star(gR, dx(gK_star)) + star(gK_star, dx(gA))
+    JK1 = hbar_order(JK_star, 1)
+    hL = fL * I2
+    gK_star_L = star(gR, hL) - star(hL, gA)
+    JK_star_L = star(gR, dx(gK_star_L)) + star(gK_star_L, dx(gA))
+    JK1_L = hbar_order(JK_star_L, 1)
 
     M = sp.Matrix
     return {
@@ -87,10 +97,13 @@ def build_combined(Delta, fL, fT):
         # derivative commutators) ...
         'J5  dgK with f_T = 0 vanishes identically (no f_L at cross order)':
             (dgK_L, sp.zeros(2, 2)),
-        # ... and its spatial current cannot feed the energy mode: the would-be
-        # hbar * Ddot * dxDelta cross term traces to zero in the plain channel
-        'J5b plaintrace[gR dx(dgK) + dgK dx(gA)] = 0 (no cross term in energy mode)':
+        # ... and the complete starred spatial current cannot feed the energy
+        # mode. This includes the outer-star terms, not just the correction to
+        # gK; the would-be hbar*Ddot*dxDelta source cancels in the plain trace.
+        'J5b O(hbar) plaintrace of full starred current = 0 (no energy source)':
             (M([sp.Rational(1, 4) * JK1.trace()]), sp.zeros(1, 1)),
+        'J5c O(hbar) tau3 trace from f_L sector = 0 (no L-to-T mixing)':
+            (M([sp.Rational(1, 4) * (t3 * JK1_L).trace()]), sp.zeros(1, 1)),
         # assembled statement: conservative form == advective A1 form with
         # local Delta(x,t) (DOS continuity holds pointwise in x)
         'J6  dt(N1 fL)+dE(Dd N2 fL) = N1[dt + (Delta/E) Dd dE] fL, local Delta(x,t)':
@@ -137,4 +150,6 @@ if __name__ == "__main__":
                                      sp.sin(E) * sp.exp(-t) * sp.exp(-x)),
                       {E: 2, t: sp.Rational(1, 2), x: sp.Rational(1, 3), hbar: 1})
     print()
-    print("ALL PASS" if (a and b) else "SOME FAILED -- inspect above")
+    all_ok = a and b
+    print("ALL PASS" if all_ok else "SOME FAILED -- inspect above")
+    raise SystemExit(0 if all_ok else 1)

@@ -54,11 +54,12 @@
 
 \draw[arr] (keldysh) -- node[lab,right=2pt]{quasiclassical reduction} (eilen);
 
-% ---------------- the fork (termwise non-commuting, same end point) ----------------
+% ---------------- the fork (same average, distinct first-harmonic closures) ----------------
 \node[font=\scriptsize, text=slate, align=center] at (0,-3.30)
-  {$\bigl[\mathcal P_{\mathrm{qp}},\,
-    \langle\cdot\rangle_{\hat{\mathbf p}}\bigr]\neq 0$ termwise\\[-1pt]
-   (odd harmonics relabel; end points coincide)};
+  {$\langle R_sX\rangle_{\hat{\mathbf p}}
+    =\langle X\rangle_{\hat{\mathbf k}}$,\quad
+    $\hat{\mathbf k}=s\hat{\mathbf p}$\\[-1pt]
+   (bare average commutes; first-harmonic closure differs)};
 
 \node[matrixbox] (usadel) at (-4.3,-4.75)
   {Usadel equation\\[1pt]
@@ -71,10 +72,10 @@
 
 \draw[arr] (eilen.south west)
   -- node[lab, pos=0.60, left=3pt]
-     {angular average first\\(dirty, $\ell\ll\xi_0$)} (usadel.north);
+     {matrix moment closure\\(dirty, $\ell\ll\xi_0$)} (usadel.north);
 \draw[redarr] (eilen.south east)
   -- node[lab, pos=0.60, right=3pt]
-     {branch projection first} (branch.north);
+     {branch projection,\\then scalar moments} (branch.north);
 
 % ---------------- dirty route ----------------
 \node[matrixbox] (modes) at (-4.3,-7.35)

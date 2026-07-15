@@ -29,6 +29,7 @@ from enum import Enum
 
 import numpy as np
 
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.physics.kaplan_pair_breaking import kaplan_S_plus
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
@@ -211,13 +212,67 @@ def build_phonon_frequency_map(
     E = np.asarray(E_bins, dtype=float)
     if E.ndim != 1:
         raise ValueError("E_bins must be a 1D array.")
-    E_diff_abs = np.abs(E[:, None] - E[None, :])
-    E_sum = E[:, None] + E[None, :]
-    all_vals = np.concatenate([E_diff_abs.ravel(), E_sum.ravel()])
-    omega_bins, inverse = np.unique(np.round(all_vals, 12), return_inverse=True)
-    n_pairs = E.size * E.size
-    omega_idx_diff = inverse[:n_pairs].reshape((E.size, E.size))
-    omega_idx_sum = inverse[n_pairs:].reshape((E.size, E.size))
+    if E.size == 0:
+        raise ValueError("E_bins must be non-empty.")
+    if np.any(~np.isfinite(E)):
+        raise ValueError("E_bins must contain finite values.")
+    if np.any(E < 0.0):
+        raise ValueError("E_bins must be non-negative.")
+    if E.size > 1 and np.any(np.diff(E) <= 0.0):
+        raise ValueError("E_bins must be strictly increasing.")
+
+    # Frequencies obtained from the same mathematical energy difference or
+    # sum can differ by several ulps because their operands are O(E_max),
+    # especially when the nominally uniform spacing is not binary-exact.
+    # Decimal rounding at a fixed 1e-12 scale split hundreds of such physical
+    # frequencies into adjacent "twin" bins on ordinary grids (for example
+    # 321 twins for NE=401).  Merge at the arithmetic resolution set by the
+    # energy operands instead.  Distinct frequencies closer than this cannot
+    # be resolved reliably by the input float64 grid in the first place.
+    merge_tol = 64.0 * np.finfo(float).eps * max(1.0, float(np.max(np.abs(E))))
+
+    def clustered_unique(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        order = np.argsort(values, kind="stable")
+        sorted_values = values[order]
+        starts = np.empty(sorted_values.size, dtype=bool)
+        starts[0] = True
+        starts[1:] = np.diff(sorted_values) > merge_tol
+        sorted_inverse = np.cumsum(starts, dtype=np.int64) - 1
+        inverse = np.empty_like(sorted_inverse)
+        inverse[order] = sorted_inverse
+        counts = np.bincount(sorted_inverse)
+        unique = np.bincount(sorted_inverse, weights=sorted_values) / counts
+        unique[np.abs(unique) <= merge_tol] = 0.0
+        return unique, inverse
+
+    n = E.size
+    steps = np.diff(E)
+    uniform = n == 1
+    spacing = 0.0
+    if n > 1:
+        spacing = float((E[-1] - E[0]) / (n - 1))
+        uniform = bool(np.all(np.abs(steps - spacing) <= merge_tol))
+
+    if uniform:
+        # Production dynamic-phonon grids are uniform.  Build the O(NE)
+        # frequency lattice first, then index it algebraically, avoiding two
+        # O(NE^2) floating-point sum/difference arrays and their roundoff.
+        diff_values = spacing * np.arange(n, dtype=float)
+        sum_values = 2.0 * E[0] + spacing * np.arange(2 * n - 1, dtype=float)
+        omega_bins, lattice_inverse = clustered_unique(
+            np.concatenate([diff_values, sum_values])
+        )
+        levels = np.arange(n, dtype=np.int64)
+        omega_idx_diff = lattice_inverse[:n][np.abs(levels[:, None] - levels)]
+        omega_idx_sum = lattice_inverse[n:][levels[:, None] + levels]
+    else:
+        E_diff_abs = np.abs(E[:, None] - E[None, :])
+        E_sum = E[:, None] + E[None, :]
+        all_values = np.concatenate([E_diff_abs.ravel(), E_sum.ravel()])
+        omega_bins, inverse = clustered_unique(all_values)
+        n_pairs = n * n
+        omega_idx_diff = inverse[:n_pairs].reshape((n, n))
+        omega_idx_sum = inverse[n_pairs:].reshape((n, n))
     diff_sign = np.sign(E[:, None] - E[None, :]).astype(np.int8)
     return omega_bins, omega_idx_diff, omega_idx_sum, diff_sign
 
@@ -289,6 +344,13 @@ def compute_phonon_source_sink(
     """
     rho = ctx.rho
     dE = ctx.dE
+    # Each (i, j) emission/recombination pair below is weighted by dE[j] (dE
+    # broadcasts over the final-state/column axis). That is the correct
+    # integration measure only on a uniform grid; on a piecewise grid it
+    # breaks phonon-side detailed balance (a thermal f then drives n_ph off
+    # n_BE by ~O(1)). Reject nonuniform grids up front, matching the photon
+    # kernels' policy — the production dynamic-phonon path is uniform.
+    uniform_grid_spacing(ctx.E, dE, "compute_phonon_source_sink")
     n_qp = rho * f
     one_minus_f = np.maximum(1.0 - f, 0.0)
     partner = rho * one_minus_f
@@ -360,6 +422,11 @@ def _pair_breaking_quadrature_correction(
     QP-side behavior remains unchanged.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
+    # Kaplan S_+ is the analytic integral of the *pure-BCS K_plus* kernel.
+    # Applying it to a Dynes-broadened context or to a same-shaped K_minus /
+    # custom kernel silently replaces the caller's physics with BCS K_plus.
+    if ctx.dynes_gamma > 0.0:
+        return np.ones(n_omega)
     if K.shape != ctx.K_plus.shape:
         return np.ones(n_omega)
 
@@ -368,6 +435,10 @@ def _pair_breaking_quadrature_correction(
         return np.ones(n_omega)
     prefactor = float(np.median(K[valid] / ctx.K_plus[valid]))
     if prefactor <= 0.0 or not np.isfinite(prefactor):
+        return np.ones(n_omega)
+    if not np.allclose(
+        K[valid], prefactor * ctx.K_plus[valid], rtol=1e-10, atol=0.0
+    ):
         return np.ones(n_omega)
 
     tau_0_pb = 1.0 / (np.pi * ctx.gap * prefactor)
@@ -396,7 +467,26 @@ def _pair_breaking_quadrature_correction(
     )
 
     correction = np.ones(n_omega)
-    mask = (discrete > 0.0) & (exact > 0.0)
+    # Kaplan S_+ is the integral over the *complete* pair interval
+    # [Delta, omega-Delta].  Once omega exceeds the represented upper cell
+    # edge plus Delta, that interval extends beyond the QP grid.  Replacing
+    # the deliberately truncated discrete integral by the full-domain Kaplan
+    # value then invents off-grid final states and amplifies the highest bins
+    # without bound (O(10^3) on the Fischer grid).  Those truncated bins have
+    # no endpoint singularity inside the represented domain, so leave their
+    # ordinary quadrature unchanged.
+    lower_edge = float(ctx.E[0] - 0.5 * ctx.dE[0])
+    upper_edge = float(ctx.E[-1] + 0.5 * ctx.dE[-1])
+    support_tol = 64.0 * np.finfo(float).eps * max(
+        1.0, abs(lower_edge), upper_edge, ctx.gap
+    )
+    if lower_edge > ctx.gap + support_tol:
+        # The represented pair interval is also truncated at its lower BCS
+        # endpoint.  A full Kaplan integral would remove phonons for QP states
+        # the kinetic grid cannot create, so no analytic rescale is valid.
+        return correction
+    complete_pair_interval = omega <= upper_edge + ctx.gap + support_tol
+    mask = (discrete > 0.0) & (exact > 0.0) & complete_pair_interval
     correction[mask] = exact[mask] / discrete[mask]
     return correction
 
@@ -441,6 +531,7 @@ def phonon_source_sink_jacobian_f(
     NE = int(f.size)
     rho = ctx.rho
     dE = ctx.dE
+    uniform_grid_spacing(ctx.E, dE, "phonon_source_sink_jacobian_f")
     one_minus_f = np.maximum(1.0 - f, 0.0)
     pref = dE * (rho[:, None] * rho[None, :])  # dE ρ_i ρ_j, shape (NE, NE)
 
@@ -524,6 +615,18 @@ def phonon_collision_rates(
             else _thermal_phonon_scattering_occupation(E, T_bath)
         )
         K_s_eff = K_s0 * N_p
+        # DISCRETE-MEASURE INCONSISTENCY (finding G1, docs/AUDIT-2026-07-13-
+        # gpt-reconciliation.md): the collision integrals here contract with the
+        # midpoint measure ρ·dE, whereas the observables (observables/density.py)
+        # integrate the same singular BCS DOS with the EXACT per-cell weights
+        # (bcs_dos_cell_weights). The gap edge is sqrt-integrable, so the
+        # midpoint rule converges only ~1/√NE there: the collision-conserved
+        # number (Σ ρ f dE) and the reported x_qp (Σ f · exact_weights) disagree
+        # by ~10-15% at the default NE=400 low-T, shrinking with NE. A strictly
+        # number-conserving relaxation thus shows a spurious drift in reported
+        # x_qp. Exact weights are the physically correct value; unifying both
+        # onto one SpectralContext cell-weight vector is the fix — deferred
+        # because it is baseline-moving and needs paper-faithfulness review.
         n_qp = rho * f
         gain += one_minus_f * (K_s_eff.T @ (n_qp * dE))
         loss_rate += K_s_eff @ (rho * one_minus_f * dE)

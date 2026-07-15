@@ -1,15 +1,21 @@
 all: paper.pdf supplement.pdf
 
+# Figures: the four benchmark PDFs are COMMITTED submission assets
+# (regenerate with `make benchfigs`, which runs the qpsim validation
+# modules); the routes roadmap builds from its tracked TikZ source.
+BENCH_FIGS = figures/uniform_gap_packet.pdf figures/gap_gradient_drift.pdf \
+             figures/interface_trap.pdf figures/self_consistent_feedback.pdf
+
 # paper.tex and supplement.tex cross-reference each other via xr-hyper, so a
 # fresh build needs the other document's .aux first; the double latexmk below
 # handles the bootstrap.
-paper.pdf: paper.tex refs.bib supplement.aux
+paper.pdf: paper.tex refs.bib supplement.aux figures/routes_roadmap.pdf $(BENCH_FIGS)
 	latexmk -pdf -interaction=nonstopmode -halt-on-error paper.tex
 
 supplement.pdf supplement.aux: supplement.tex refs.bib
 	latexmk -pdf -interaction=nonstopmode -halt-on-error supplement.tex
 
-bootstrap: ## first build from a clean tree (generates both .aux, then links)
+bootstrap: figures/routes_roadmap.pdf ## first build from a clean tree (generates both .aux, then links)
 	-latexmk -pdf -interaction=nonstopmode supplement.tex
 	latexmk -pdf -interaction=nonstopmode -halt-on-error paper.tex
 	latexmk -pdf -interaction=nonstopmode -halt-on-error supplement.tex
@@ -21,14 +27,40 @@ normal-metal-review.pdf: normal-metal-review.tex refs.bib
 	latexmk -pdf -interaction=nonstopmode -halt-on-error normal-metal-review.tex
 
 # Standalone reduction-routes roadmap figure (pdflatex/TikZ).
-roadmap:
+figures/routes_roadmap.pdf: figures/routes_roadmap.tex
 	cd figures && pdflatex -interaction=nonstopmode -halt-on-error routes_roadmap.tex \
 	  && rm -f routes_roadmap.aux routes_roadmap.log routes_roadmap.out
 
-# Symbolic/numeric proof-checks. The scripts report [PASS]/[FAIL] lines but
-# always exit 0, so failure is detected by grepping the output for FAIL.
+roadmap: figures/routes_roadmap.pdf
+
+# Benchmark figures (committed): regenerated from the qpsim validation
+# modules at the repo root; needs the repo venv (Windows: Scripts/python.exe).
+# QPY is resolved AFTER the `cd ../..`, i.e. relative to the repo root.
+QPY ?= .venv/bin/python
+benchfigs:
+	cd ../.. && $(QPY) -m validation.diffusion_operators.uniform_gap_packet
+	cd ../.. && $(QPY) -m validation.diffusion_operators.gap_gradient_drift
+	cd ../.. && $(QPY) -m validation.diffusion_operators.interface_trap
+	cd ../.. && $(QPY) -m validation.diffusion_operators.self_consistent_feedback
+	cp ../../outputs/diffusion_operators/uniform_gap_packet.pdf \
+	   ../../outputs/diffusion_operators/gap_gradient_drift.pdf \
+	   ../../outputs/diffusion_operators/interface_trap.pdf \
+	   ../../outputs/diffusion_operators/self_consistent_feedback.pdf figures/
+
+# arXiv-safe label snapshots (arXiv/APS delete .aux, so live xr import
+# fails there). Run this as a PRE-SUBMISSION step after a final clean local
+# build; the guarded \IfFileExists blocks in both preambles then use the
+# snapshots. Snapshots are gitignored — delete them to restore live xr.
+arxiv-labels:
+	python gen_xr_labels.py supplement.aux SM- xr-labels-from-supplement.tex supplement.pdf
+	python gen_xr_labels.py paper.aux M- xr-labels-from-paper.tex paper.pdf
+
+# Symbolic/numeric proof-checks. The scripts exit nonzero on a failed claim;
+# the FAIL grep remains a second fail-closed check for future scripts.
 # Override the interpreter with e.g. `make verify PY=python3` (needs sympy).
-PY ?= ../.venv/bin/python
+# Default matches `make setup` (which creates .venv HERE); on the Windows
+# box use e.g. PY='A:/Einstein/Documents/qp-diffusion-paper/.venv/Scripts/python.exe'.
+PY ?= .venv/bin/python
 VERIFY_SCRIPTS = verify_traces.py verify_gA_convention.py verify_supercurrent.py \
                  verify_proximity.py verify_nonadiabatic.py verify_fT.py \
                  verify_tdep_inhomogeneous.py
@@ -56,4 +88,4 @@ clean:
 distclean:
 	latexmk -C
 
-.PHONY: all bootstrap review roadmap setup verify clean distclean
+.PHONY: all bootstrap review roadmap benchfigs arxiv-labels setup verify clean distclean

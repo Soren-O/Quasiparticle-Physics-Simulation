@@ -29,6 +29,14 @@ from qpsim.webui.schemas import SetupEnvelope
 from qpsim.webui.store import Workspace
 
 _ACTIVE = ("queued", "running")
+_TERMINAL = ("done", "failed", "cancelled")
+_STATUS_RANK = {
+    "queued": 0,
+    "running": 1,
+    "done": 2,
+    "failed": 2,
+    "cancelled": 2,
+}
 
 
 @dataclass
@@ -43,6 +51,13 @@ class JobState:
     started_monotonic: float | None = None
     # Terminal manifest whose disk write failed; overlay retries it.
     pending_manifest: dict[str, Any] | None = None
+    # Manifest retries happen in request threads while the worker may finish.
+    # Serialize them so an older active snapshot can never overwrite a newer
+    # terminal manifest.
+    manifest_lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        repr=False,
+    )
 
 
 class JobRunner:
@@ -79,9 +94,10 @@ class JobRunner:
         return run_id
 
     def _run(self, job: JobState, envelope: SetupEnvelope, manifest: dict[str, Any]) -> None:
-        job.status = "running"
-        job.started_monotonic = time.monotonic()
-        manifest["status"] = "running"
+        with job.manifest_lock:
+            job.status = "running"
+            job.started_monotonic = time.monotonic()
+            manifest["status"] = "running"
 
         def progress(fraction: float, message: str) -> None:
             job.progress = max(0.0, min(1.0, fraction))
@@ -92,25 +108,33 @@ class JobRunner:
             payload = execute_setup(
                 envelope.setup, progress, job.cancel_event.is_set
             )
-        except RunCancelledError:
-            job.status = "cancelled"
-            manifest["status"] = "cancelled"
-        except Exception as exc:  # a failed run must not kill the worker
-            job.status = "failed"
-            manifest["status"] = "failed"
-            manifest["error"] = f"{type(exc).__name__}: {exc}"
-            manifest["traceback"] = traceback.format_exc()
-        else:
+            # Result persistence is part of the worker transaction. Keeping it
+            # inside this try ensures an I/O failure becomes a durable failed
+            # run instead of escaping through the discarded Future and
+            # stranding both the live JobState and manifest at "running".
             self.workspace.write_arrays(job.run_id, payload.arrays)
-            job.status = "done"
-            job.progress = 1.0
-            manifest["status"] = "done"
-            manifest["summary"] = payload.summary
-            manifest["notes"] = list(manifest.get("notes", [])) + payload.notes
+        except RunCancelledError:
+            with job.manifest_lock:
+                job.status = "cancelled"
+                manifest["status"] = "cancelled"
+        except Exception as exc:  # a failed run must not kill the worker
+            with job.manifest_lock:
+                job.status = "failed"
+                manifest["status"] = "failed"
+                manifest["error"] = f"{type(exc).__name__}: {exc}"
+                manifest["traceback"] = traceback.format_exc()
+        else:
+            with job.manifest_lock:
+                job.status = "done"
+                job.progress = 1.0
+                manifest["status"] = "done"
+                manifest["summary"] = payload.summary
+                manifest["notes"] = list(manifest.get("notes", [])) + payload.notes
         finally:
-            manifest["elapsed_s"] = round(
-                time.monotonic() - (job.started_monotonic or 0.0), 3
-            )
+            with job.manifest_lock:
+                manifest["elapsed_s"] = round(
+                    time.monotonic() - (job.started_monotonic or 0.0), 3
+                )
             self._write_manifest_or_stash(job, manifest)
 
     def _write_manifest_or_stash(self, job: JobState, manifest: dict[str, Any]) -> None:
@@ -120,11 +144,38 @@ class JobRunner:
         would vanish into the discarded Future and strand the run's
         disk record at "running" with no recovery path.
         """
-        try:
-            self.workspace.write_manifest(job.run_id, manifest)
-            job.pending_manifest = None
-        except OSError:
-            job.pending_manifest = dict(manifest)
+        with job.manifest_lock:
+            manifest_status = str(manifest.get("status", ""))
+            current_status = job.status
+            stale = (
+                _STATUS_RANK.get(manifest_status, -1)
+                < _STATUS_RANK.get(current_status, -1)
+                or (
+                    current_status in _TERMINAL
+                    and manifest_status != current_status
+                )
+            )
+            if stale:
+                if (
+                    job.pending_manifest is not None
+                    and job.pending_manifest.get("status") == manifest_status
+                ):
+                    job.pending_manifest = None
+                return
+
+            try:
+                self.workspace.write_manifest(job.run_id, manifest)
+                job.pending_manifest = None
+                if (
+                    manifest_status in _TERMINAL
+                    and manifest_status == job.status
+                ):
+                    # Retire only after this exact terminal state is durable.
+                    with self._lock:
+                        if self._jobs.get(job.run_id) is job:
+                            self._jobs.pop(job.run_id, None)
+            except OSError:
+                job.pending_manifest = dict(manifest)
 
     def live_state(self, run_id: str) -> JobState | None:
         with self._lock:
@@ -157,13 +208,20 @@ class JobRunner:
                     "was active; its result was not recorded."
                 )
             return manifest
-        stashed = job.pending_manifest
+        with job.manifest_lock:
+            stashed = (
+                None
+                if job.pending_manifest is None
+                else dict(job.pending_manifest)
+            )
+            current_status = job.status
         if stashed is not None:
             self._write_manifest_or_stash(job, stashed)
-            manifest = dict(stashed)
-        if job.status in _ACTIVE:
+            if stashed.get("status") == current_status:
+                manifest = stashed
+        if current_status in _ACTIVE:
             manifest = dict(manifest)
-            manifest["status"] = job.status
+            manifest["status"] = current_status
             manifest["progress"] = job.progress
             manifest["progress_message"] = job.message
         # A live terminal job with a still-active disk manifest means

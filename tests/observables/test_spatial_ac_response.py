@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
@@ -12,7 +13,7 @@ def _ctx() -> SpectralContext:
     gap = 180.0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=5.0,
         num_energy_bins=32,
     )
@@ -43,14 +44,16 @@ def test_uniform_spatial_response_matches_lumped_observables() -> None:
         full_current_integral_um=10.0,
     )
 
-    assert response.frac_freq_shift == compute_frequency_shift(
+    assert response.frac_freq_shift == pytest.approx(compute_frequency_shift(
         f,
         f_ref,
         ctx,
         omega_0,
         alpha,
+    ))
+    assert response.qi_qp == pytest.approx(
+        compute_quality_factor(f, ctx, omega_0, alpha)
     )
-    assert response.qi_qp == compute_quality_factor(f, ctx, omega_0, alpha)
 
 
 def test_full_current_integral_dilutes_short_strip_response() -> None:

@@ -51,12 +51,18 @@ from qpsim.materials.database import load_material
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.observables.spatial_ac_response import compute_current_weighted_ac_response
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext
 
 
 LENGTH_UM = AL_STRIP_LENGTH_UM
 T_BATH_K = 0.1
 ENERGY_MAX_FACTOR = 5.0
+# Max transport diffusion number D0*dt/dx^2 per run; each config's dt_ns is a
+# cap that is reduced per D0 below. The spatial Crank-Nicolson step clips [0,1]
+# over/undershoot and the backend raises once a step alters >0.1% of the
+# conserved density (~diffusion number 11); 4 keeps a clip-free margin.
+CFL_TARGET = 4.0
 N_SUBGAP_QUAD = 120
 
 
@@ -132,7 +138,7 @@ def _build_state(config: SweepConfig, D0: float) -> T3Spatial1DState:
     gap = material.Delta_0
     E, _ = build_energy_grid(
         gap=gap,
-        energy_min_factor=1.01,
+        energy_min_factor=1.0,
         energy_max_factor=ENERGY_MAX_FACTOR,
         num_energy_bins=config.NE,
     )
@@ -164,9 +170,10 @@ def _source_flux(
     center = center_delta * state.gap
     sigma = sigma_delta * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
-    xqp_norm = float(
-        np.sum(state.spectral.rho * profile * state.spectral.dE) / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    xqp_norm = float(np.sum(spectral_weights * profile) / state.gap)
     if xqp_norm <= 0.0:
         raise RuntimeError("Could not normalize source spectrum.")
     gain_spectrum = local_xqp_generation_rate_per_ns * profile / xqp_norm
@@ -213,13 +220,10 @@ def _source_calibration(
 
 
 def _xqp_profile(state: T3Spatial1DState) -> np.ndarray:
-    return (
-        np.sum(
-            state.spectral.rho[:, None] * state.f * state.spectral.dE[:, None],
-            axis=0,
-        )
-        / state.gap
+    spectral_weights = bcs_dos_cell_weights(
+        state.spectral.E, state.spectral.dE, state.gap,
     )
+    return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
 def _mean_f(state: T3Spatial1DState) -> np.ndarray:
@@ -601,6 +605,11 @@ def main() -> None:
         profile_path = out_dir / f"profile_{run_id}.csv"
         source_calibration = _source_calibration(config, rate)
 
+        # Bound the transport diffusion number per D0 (see CFL_TARGET): the
+        # spatial Crank-Nicolson step clip-raises on an under-resolved dt.
+        dx_um = LENGTH_UM / (config.NX - 1)
+        dt_run = min(config.dt_ns, CFL_TARGET * dx_um * dx_um / D0)
+
         base_row: dict[str, object] = {
             "run_id": run_id,
             "D0_um2_per_ns": D0,
@@ -608,7 +617,7 @@ def main() -> None:
             **source_calibration,
             "source_center_delta": center_delta,
             "source_sigma_delta": sigma_delta,
-            "dt_ns": config.dt_ns,
+            "dt_ns": dt_run,
             "max_time_ns": config.max_time_ns,
             "trace_csv": trace_path.name,
             "profile_csv": profile_path.name,
@@ -626,7 +635,7 @@ def main() -> None:
             backend = T3Spatial1DBackend()
             result = backend.run_until_steady_state(
                 state,
-                dt=config.dt_ns,
+                dt=dt_run,
                 max_time=config.max_time_ns,
                 external_flux=flux,
                 stop_tol=config.stop_tol,

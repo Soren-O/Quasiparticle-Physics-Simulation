@@ -19,6 +19,8 @@ Port of the legacy ``extract_T_star_phonon`` from the old
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.constants import KB_UEV_PER_K
@@ -64,12 +66,18 @@ def effective_phonon_temperature(
         raise ValueError(
             f"n_ph shape {n_ph.shape} must match omega_bins shape {omega_bins.shape}."
         )
-    if gap <= 0:
+    if n_ph.ndim != 1:
+        raise ValueError("n_ph and omega_bins must be one-dimensional.")
+    if np.any(~np.isfinite(n_ph)) or np.any(n_ph < 0.0):
+        raise ValueError("n_ph must contain finite, non-negative occupations.")
+    if np.any(~np.isfinite(omega_bins)) or np.any(omega_bins < 0.0):
+        raise ValueError("omega_bins must contain finite, non-negative frequencies.")
+    if not np.isfinite(gap) or gap <= 0:
         raise ValueError("gap must be positive.")
-    if T_bath <= 0:
+    if not np.isfinite(T_bath) or T_bath <= 0:
         raise ValueError("T_bath must be positive.")
-    if T_max is not None and T_max <= T_bath:
-        raise ValueError("T_max, when supplied, must exceed T_bath.")
+    if T_max is not None and (not np.isfinite(T_max) or T_max <= T_bath):
+        raise ValueError("T_max, when supplied, must be finite and exceed T_bath.")
 
     mask = (omega_bins >= 2.0 * gap) & (n_ph > 1e-300)
     if not np.any(mask):
@@ -77,6 +85,15 @@ def effective_phonon_temperature(
 
     omega_fit = omega_bins[mask]
     n_fit = n_ph[mask]
+    if omega_fit.size == 1:
+        # The objective fits the *shape* of n_ph/n_BE while allowing an
+        # arbitrary constant amplitude.  With one mode its weighted variance
+        # is identically zero for every T, so returning the optimizer's upper
+        # bound is an arbitrary artifact rather than a temperature estimate.
+        raise ValueError(
+            "effective phonon temperature is underdetermined with only one "
+            "occupied pair-breaking mode; provide at least two frequencies."
+        )
     weights = n_fit / float(np.sum(n_fit))
 
     def _weighted_variance_of_log_ratio(T: float) -> float:
@@ -100,4 +117,17 @@ def effective_phonon_temperature(
         bounds=(T_bath, upper),
         method="bounded",
     )
-    return float(result.x)
+    T_star = float(result.x)
+    # A bounded optimizer parks the solution on the upper bound when the true
+    # T_* exceeds the fit window; the returned value is then a clamp, not a
+    # fit, and must not be read as a measured temperature. (The lower bound at
+    # T_bath is deliberate physics — n_ph ≥ BE(T_bath) — so it is not flagged.)
+    if T_star >= upper * (1.0 - 1e-3):
+        warnings.warn(
+            f"effective_phonon_temperature pinned to the upper fit bound "
+            f"{upper:g} K; the true effective temperature likely exceeds the fit "
+            f"window. Pass a larger T_max — this value is a clamp, not a fit.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return T_star

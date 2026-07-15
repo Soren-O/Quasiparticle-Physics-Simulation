@@ -25,19 +25,40 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qpsim.materials import load_material
+from qpsim.materials.database import validate_rho_F_eV
 
 # Default material values come straight from the YAML database so the
 # frontend never carries a second, drifting copy of Al's parameters.
 _AL = load_material("Al")
 
+# Upper bound on emitted snapshots. A ``snapshot_interval`` far below the
+# integration step would otherwise drain an unbounded inner cadence loop
+# before cancellation is ever polled (single-worker runner → memory blow-up
+# and an uninterruptible job). Reject such setups at validation time.
+_MAX_SNAPSHOTS = 100_000
+
+
+def _reject_dense_snapshots(snapshot_interval: float | None, run_time: float) -> None:
+    """Raise if ``snapshot_interval`` would emit more than ``_MAX_SNAPSHOTS``."""
+    if snapshot_interval is None:
+        return
+    n_snapshots = run_time / snapshot_interval
+    if n_snapshots > _MAX_SNAPSHOTS:
+        raise ValueError(
+            f"snapshot_interval={snapshot_interval:g} would emit ~{n_snapshots:.3g} "
+            f"snapshots over a run time of {run_time:g} (cap {_MAX_SNAPSHOTS}). "
+            f"Increase snapshot_interval to at least "
+            f"{run_time / _MAX_SNAPSHOTS:g}."
+        )
+
 
 class StrictModel(BaseModel):
     """Base: reject unknown keys so stale setup files fail loudly."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class MaterialParams(StrictModel):
@@ -49,16 +70,29 @@ class MaterialParams(StrictModel):
     tau_0: Annotated[float, Field(gt=0.0)] = _AL.tau_0  # e-ph characteristic time (ns)
     tau_0_pb_ns: Annotated[float, Field(gt=0.0)] | None = _AL.tau_0_pb_ns  # τ₀^PB (ns)
     D_0: Annotated[float, Field(ge=0.0)] = _AL.D_0  # normal-state diffusion (μm²/ns)
-    rho_F: Annotated[float, Field(ge=0.0)] = _AL.rho_F  # single-spin DOS (J⁻¹ m⁻³)
+    rho_F: Annotated[float, Field(ge=0.0, allow_inf_nan=False)] = _AL.rho_F  # eV⁻¹ m⁻³
     dynes_gamma: Annotated[float, Field(ge=0.0)] = 0.0  # Dynes broadening Γ (μeV)
+
+    @model_validator(mode="after")
+    def reject_legacy_rho_f_units(self) -> MaterialParams:
+        validate_rho_F_eV(self.rho_F, allow_zero=True)
+        return self
 
 
 class EnergyGrid(StrictModel):
     """Uniform cell-centered energy grid in units of the gap."""
 
-    min_factor: Annotated[float, Field(ge=1.0)] = 1.0
+    # Sub-gap cells are required when a self-consistent gap can fall below
+    # Delta_0. They are inert (rho=0) for the initial pure-BCS spectrum.
+    min_factor: Annotated[float, Field(ge=0.0)] = 1.0
     max_factor: Annotated[float, Field(gt=1.0)] = 10.0
     num_bins: Annotated[int, Field(ge=8, le=5000)] = 400
+
+    @model_validator(mode="after")
+    def max_must_exceed_min(self) -> EnergyGrid:
+        if self.max_factor <= self.min_factor:
+            raise ValueError("max_factor must be greater than min_factor")
+        return self
 
 
 class PhononSector(StrictModel):
@@ -160,6 +194,11 @@ class Transient0DSetup(StrictModel):
     stop_tol: Annotated[float, Field(ge=0.0)] | None = None  # early stop on max|df|/dt
     probe: ProbeConfig = ProbeConfig()
 
+    @model_validator(mode="after")
+    def snapshot_interval_not_pathological(self) -> Transient0DSetup:
+        _reject_dense_snapshots(self.snapshot_interval, self.total_time)
+        return self
+
 
 class GapStepProfile(StrictModel):
     """Optional two-gap step along the strip.
@@ -174,7 +213,7 @@ class GapStepProfile(StrictModel):
     gap_left: Annotated[float, Field(gt=0.0)] = 180.0  # (μeV)
     gap_right: Annotated[float, Field(gt=0.0)] = 200.0  # (μeV)
     step_position_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.5
-    interface_G_N: Annotated[float, Field(gt=0.0)] | None = None
+    interface_G_N: Annotated[float, Field(ge=0.0)] | None = None
 
 
 class InjectionConfig(StrictModel):
@@ -197,16 +236,24 @@ class Spatial1DSetup(StrictModel):
     mode: Literal["spatial_1d"] = "spatial_1d"
     material: MaterialParams = MaterialParams()
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1
-    grid: EnergyGrid = EnergyGrid(min_factor=1.02, max_factor=4.0, num_bins=64)
+    # Gap-edge x_qp and Mattis-Bardeen observables require the first physical
+    # cell edge at Delta; a grid starting above Delta silently drops the BCS
+    # singular spectral weight.
+    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=64)
     length_um: Annotated[float, Field(gt=0.0)] = 100.0
     num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
     gap_profile: GapStepProfile = GapStepProfile()
     injection: InjectionConfig = InjectionConfig()
-    dt: Annotated[float, Field(gt=0.0)] = 5.0  # split step (ns)
+    dt: Annotated[float, Field(gt=0.0)] = 1.0  # split step (ns); D0*dt/dx^2~5 at defaults
     max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
+
+    @model_validator(mode="after")
+    def snapshot_interval_not_pathological(self) -> Spatial1DSetup:
+        _reject_dense_snapshots(self.snapshot_interval, self.max_time)
+        return self
     # No probe here: strip-resonator response needs a current-weighted
     # treatment (observables.spatial_ac_response) this mode doesn't
     # drive yet — carrying a probe config would validate and render a

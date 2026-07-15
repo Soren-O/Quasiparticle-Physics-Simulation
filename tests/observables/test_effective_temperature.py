@@ -121,6 +121,24 @@ class TestEdgeCases:
                 np.zeros(10), np.zeros(11), 180.0, T_bath=0.1,
             )
 
+    def test_single_occupied_mode_is_reported_as_underdetermined(self) -> None:
+        omega = np.array([100.0, 400.0])
+        n_ph = np.array([0.0, 1e-3])
+        with pytest.raises(ValueError, match="underdetermined"):
+            effective_phonon_temperature(
+                n_ph, omega, 180.0, T_bath=0.1,
+            )
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0])
+    def test_invalid_occupations_rejected(self, bad: float) -> None:
+        omega = np.linspace(400.0, 1800.0, 50)
+        n_ph = np.ones_like(omega) * 1e-3
+        n_ph[3] = bad
+        with pytest.raises(ValueError, match="n_ph"):
+            effective_phonon_temperature(
+                n_ph, omega, 180.0, T_bath=0.1,
+            )
+
     def test_nonpositive_gap_rejected(self) -> None:
         omega = np.linspace(100.0, 1000.0, 20)
         n = np.zeros_like(omega)

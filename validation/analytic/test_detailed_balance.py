@@ -124,20 +124,18 @@ class TestPairBreakingPhotonDetailedBalance:
         residual = gain - loss * f
         active = ctx.active_mask
 
-        # PB channel has three physical processes (scattering, pair-gen,
-        # pair-rec) each with their own partner geometry. Detailed
-        # balance on the *bulk* is still 1e-8; the grid boundary at the
-        # PB partner E_j = ω_PB - E_i can drop detailed balance where
-        # one partner is off-grid. Exclude a guard margin on each side.
-        m = round(omega_PB / float(ctx.dE[0]))
-        # Also guard against the reflection partner going near the top
-        # of the grid: j_r = round((ω_PB − E_i − E_min) / dE).
-        bulk = np.zeros_like(ctx.E, dtype=bool)
-        bulk[m + 2 : -m - 2] = True
-        bulk &= active
-        rel = np.abs(residual) / np.maximum(np.abs(gain) + np.abs(loss * f), 1e-30)
-        max_rel = float(np.max(rel[bulk]))
-        assert max_rel < 1e-8, (
+        # Every implemented process obeys detailed balance wherever its
+        # partner lies on-grid; off-grid processes simply contribute zero to
+        # both directions.  The former m-bin guard removed the entire
+        # pair-generation/recombination window, so it only tested the safer
+        # scattering terms.  Exercise all active bins, including the reflected
+        # pair partner E_j = ω_PB - E_i.
+        scale = np.abs(gain) + np.abs(loss * f)
+        nonzero = active & (scale > np.finfo(float).tiny)
+        assert np.any(nonzero)
+        rel = np.abs(residual[nonzero]) / scale[nonzero]
+        max_rel = float(np.max(rel))
+        assert max_rel < 1e-12, (
             f"PB detailed balance failed: max relative residual = {max_rel:.2e}"
         )
 

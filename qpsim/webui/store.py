@@ -27,12 +27,38 @@ from typing import Any
 
 import numpy as np
 
+from qpsim.materials.database import _LEGACY_RHO_F_MAX
 from qpsim.webui.schemas import SetupEnvelope
+
+_SETUP_SCHEMA_VERSION = 2
+
+# Versionless (v1) setup files predate the schema_version key and are
+# ambiguous: the shipped webui always wrote rho_F in eV^-1 m^-3
+# (Al 1.74e28), while a short-lived intermediate build wrote µeV^-1 m^-3
+# (Al 1.74e22). Values below this cutoff get the x1e6 migration; values at
+# or above it are already on the eV contract and must pass through
+# untouched.
+_RHO_F_MIGRATION_CUTOFF_EV = _LEGACY_RHO_F_MAX
+_RUN_STATUSES = {"queued", "running", "done", "failed", "cancelled"}
 
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "setup"
+
+
+# A stored slug / run_id becomes a single path component. Anything with a
+# separator, drive letter, or ``..`` could escape its directory once joined —
+# on Windows a raw ``..\name`` segment survives Starlette's routing (only the
+# ``/`` form is rejected) and resolves outside the workspace. Constrain every
+# externally-supplied segment to this alphabet before it touches the filesystem.
+_SAFE_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _safe_segment(value: str, kind: str) -> str:
+    if value in {".", ".."} or not _SAFE_SEGMENT.fullmatch(value):
+        raise ValueError(f"unsafe {kind}: {value!r}")
+    return value
 
 
 def json_sanitize(value: Any) -> Any:
@@ -65,12 +91,38 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
     tmp.replace(path)
 
 
+def _unlink_with_retry(path: Path) -> None:
+    """Unlink a file despite brief Windows reader sharing violations."""
+    for _ in range(40):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.025)
+    path.unlink(missing_ok=True)
+
+
+def _rmdir_with_retry(path: Path) -> None:
+    """Remove an empty directory after transient Windows handles close."""
+    for _ in range(40):
+        try:
+            path.rmdir()
+            return
+        except PermissionError:
+            time.sleep(0.025)
+    path.rmdir()
+
+
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     # Atomic replace: run manifests are re-written by the worker thread
     # while request handlers read them; a plain write_text would let a
     # reader see a half-written file.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Per-writer unique tmp: two concurrent saves of the same slug would
+    # otherwise race on one fixed ``<name>.tmp`` and clobber each other
+    # (spurious PermissionError / FileNotFoundError). The final replace stays
+    # atomic, so this is last-writer-wins without spurious failures.
+    tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(json_sanitize(data), indent=2), encoding="utf-8")
     _replace_with_retry(tmp, path)
 
@@ -95,6 +147,42 @@ def _read_json(path: Path) -> dict[str, Any]:
     return loaded
 
 
+def _read_manifest(path: Path) -> dict[str, Any]:
+    """Read and structurally validate one run manifest.
+
+    Syntactically valid JSON is not necessarily a usable manifest. The API
+    indexes these fields directly and the UI relies on their types, so treating
+    ``{}`` as readable only moves the failure to a request-time ``KeyError``.
+    """
+    manifest = _read_json(path)
+    required_types: dict[str, type | tuple[type, ...]] = {
+        "id": str,
+        "name": str,
+        "mode": str,
+        "status": str,
+        "created": str,
+        "setup": dict,
+        "summary": dict,
+        "notes": list,
+    }
+    for key, expected_type in required_types.items():
+        if key not in manifest or not isinstance(manifest[key], expected_type):
+            raise ValueError(
+                f"{path} has an invalid or missing manifest field {key!r}."
+            )
+    if not manifest["id"] or manifest["id"] != path.parent.name:
+        raise ValueError(
+            f"{path} manifest id does not match its run directory."
+        )
+    if manifest["status"] not in _RUN_STATUSES:
+        raise ValueError(
+            f"{path} has unknown run status {manifest['status']!r}."
+        )
+    if not all(isinstance(note, str) for note in manifest["notes"]):
+        raise ValueError(f"{path} manifest notes must be strings.")
+    return manifest
+
+
 @dataclass
 class Workspace:
     """Filesystem-backed store for setups and runs."""
@@ -116,12 +204,13 @@ class Workspace:
 
     def save_setup(self, envelope: SetupEnvelope, *, slug: str | None = None) -> str:
         """Persist a named setup; returns the slug it was stored under."""
-        slug = slug or slugify(envelope.name)
+        slug = _safe_segment(slug or slugify(envelope.name), "slug")
         _write_json(
             self.setups_dir / f"{slug}.json",
             {
                 "name": envelope.name,
                 "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "schema_version": _SETUP_SCHEMA_VERSION,
                 "setup": envelope.setup.model_dump(),
             },
         )
@@ -146,12 +235,31 @@ class Workspace:
         return entries
 
     def load_setup(self, slug: str) -> SetupEnvelope:
+        slug = _safe_segment(slug, "slug")
         data = _read_json(self.setups_dir / f"{slug}.json")
+        version_raw = data.get("schema_version", 1)
+        if type(version_raw) is not int or not (1 <= version_raw <= _SETUP_SCHEMA_VERSION):
+            raise ValueError(
+                "unsupported setup schema_version "
+                f"{version_raw!r}; supported versions are 1..{_SETUP_SCHEMA_VERSION}"
+            )
+        version = version_raw
+        setup_data = data["setup"]
+        if version < 2:
+            # v1 files are ambiguous between the shipped eV^-1 m^-3 contract
+            # and the short-lived µeV^-1 m^-3 build — see
+            # _RHO_F_MIGRATION_CUTOFF_EV. Migrate by magnitude, not blindly.
+            material = setup_data.get("material")
+            if isinstance(material, dict) and "rho_F" in material:
+                rho_f = float(material["rho_F"])
+                if rho_f < _RHO_F_MIGRATION_CUTOFF_EV:
+                    material["rho_F"] = rho_f * 1.0e6
         return SetupEnvelope.model_validate(
-            {"name": data.get("name", slug), "setup": data["setup"]}
+            {"name": data.get("name", slug), "setup": setup_data}
         )
 
     def delete_setup(self, slug: str) -> None:
+        slug = _safe_segment(slug, "slug")
         (self.setups_dir / f"{slug}.json").unlink(missing_ok=True)
 
     # -- runs -----------------------------------------------------------
@@ -160,21 +268,25 @@ class Workspace:
         return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
     def run_dir(self, run_id: str) -> Path:
-        return self.runs_dir / run_id
+        # Single chokepoint for run_id -> path: every read/write/delete of a
+        # run's manifest and arrays routes through here, so validating once
+        # closes the traversal for all of them.
+        return self.runs_dir / _safe_segment(run_id, "run_id")
 
     def write_manifest(self, run_id: str, manifest: dict[str, Any]) -> None:
         _write_json(self.run_dir(run_id) / "manifest.json", manifest)
 
     def read_manifest(self, run_id: str) -> dict[str, Any]:
-        return _read_json(self.run_dir(run_id) / "manifest.json")
+        return _read_manifest(self.run_dir(run_id) / "manifest.json")
 
     def write_arrays(self, run_id: str, arrays: dict[str, np.ndarray]) -> None:
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         # Same atomic discipline as the manifests: a killed writer must
         # not leave a truncated result.npz at the final path. The tmp
-        # name must end in .npz or savez appends another extension.
-        tmp = directory / "result.tmp.npz"
+        # name must end in .npz or savez appends another extension; the
+        # uuid makes it unique so concurrent same-run writers don't collide.
+        tmp = directory / f"result.{uuid.uuid4().hex}.tmp.npz"
         # numpy's stub types the **kwds of savez_compressed as the
         # allow_pickle flag; the call itself is the documented form.
         np.savez_compressed(tmp, **arrays)  # type: ignore[arg-type]
@@ -204,7 +316,7 @@ class Workspace:
                 if not manifest_path.is_file():
                     continue
                 try:
-                    manifests.append(_read_json(manifest_path))
+                    manifests.append(_read_manifest(manifest_path))
                 except (OSError, ValueError):
                     manifests.append(
                         {
@@ -224,6 +336,14 @@ class Workspace:
     def delete_run(self, run_id: str) -> None:
         directory = self.run_dir(run_id)
         if directory.is_dir():
-            for child in directory.iterdir():
-                child.unlink(missing_ok=True)
-            directory.rmdir()
+            # Delete the manifest last. If a concurrent Windows download
+            # keeps result.npz open past the retry window, the run remains
+            # visible and retryable instead of becoming a half-deleted,
+            # orphaned directory that the UI cannot list.
+            children = list(directory.iterdir())
+            manifest = directory / "manifest.json"
+            for child in children:
+                if child != manifest:
+                    _unlink_with_retry(child)
+            _unlink_with_retry(manifest)
+            _rmdir_with_retry(directory)

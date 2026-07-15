@@ -157,6 +157,16 @@ class TestSpectralDensityAgainstNumericalIntegral:
 
 
 class TestPhotonDriveValidation:
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_rejects_nonfinite_drive_value(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="must be finite"):
+            M25PhotonDrive(
+                omega_nu_kelvin=5.0,
+                Gamma_nu_scale_Hz=bad,
+                nu_0_per_J_per_m3=1e47,
+                volume_m3=1e-18,
+            )
+
     def test_rejects_nonpositive_omega_nu(self) -> None:
         with pytest.raises(ValueError, match="omega_nu_kelvin must be positive"):
             M25PhotonDrive(

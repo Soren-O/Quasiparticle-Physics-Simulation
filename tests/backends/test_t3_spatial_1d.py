@@ -79,6 +79,60 @@ class TestT3Spatial1DTransport:
             atol=1e-13,
         )
 
+    def test_clip_warning_uses_absolute_mass_not_cancelable_signed_net(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.0, NE=2, NX=2)
+        state.f[:] = 0.5
+        backend = T3Spatial1DBackend()
+
+        class _FixedSolve:
+            def __init__(self, result: np.ndarray) -> None:
+                self.result = result
+
+            def solve(self, _rhs: np.ndarray) -> np.ndarray:
+                return self.result
+
+        # Opposite-sign, individually small clips cancel in the signed sum.
+        # The absolute diagnostic must still fire.
+        idx = np.array([0, 1])
+        rho_p = np.ones(2)
+        ops = [
+            (np.eye(2), _FixedSolve(np.array([1.000001, 0.5])), idx, rho_p),
+            (np.eye(2), _FixedSolve(np.array([-0.000001, 0.5])), idx, rho_p),
+        ]
+        monkeypatch.setattr(
+            backend, "_build_transport_operators", lambda _state, _dt: ops,
+        )
+
+        with pytest.warns(UserWarning, match="absolute conserved density"):
+            out = backend.apply_transport(state, dt=1.0)
+        np.testing.assert_array_equal(out.f[0], np.array([1.0, 0.5]))
+        np.testing.assert_array_equal(out.f[1], np.array([0.0, 0.5]))
+
+    def test_large_clip_corruption_fails_instead_of_converging(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.0, NE=1, NX=2)
+        state.f[:] = 0.5
+        backend = T3Spatial1DBackend()
+
+        class _FixedSolve:
+            @staticmethod
+            def solve(_rhs: np.ndarray) -> np.ndarray:
+                return np.array([1.1, 0.5])
+
+        monkeypatch.setattr(
+            backend,
+            "_build_transport_operators",
+            lambda _state, _dt: [
+                (np.eye(2), _FixedSolve(), np.array([0, 1]), np.ones(2)),
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="absolute conserved density"):
+            backend.apply_transport(state, dt=1.0)
+
     def test_dynes_context_rejected_by_transport_not_collisions(self) -> None:
         # The transport dressings are clean-BCS traces (D_L indicator,
         # KL weight from real N_1/N_2, identity N_1^2 - N_2^2 = 1); a
@@ -247,6 +301,88 @@ class TestT3Spatial1DVaryingGap:
         )
         with pytest.raises(ValueError, match="gap_profile"):
             T3Spatial1DBackend().apply_transport(bad, 1.0)
+
+    def test_degenerate_and_descending_mesh_rejected(self) -> None:
+        # A constant mesh (dx=0) and a descending mesh (dx<0) both pass an
+        # equal-diffs test yet corrupt every dx-divided flux downstream.
+        state = _build_state()
+        backend = T3Spatial1DBackend()
+        for bad_x in (np.zeros(state.x.size), state.x[::-1].copy()):
+            state.x = bad_x
+            with pytest.raises(ValueError, match="strictly increasing"):
+                backend.apply_transport(state, 1.0)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_nonfinite_mesh_or_bath_is_rejected(self, bad: float) -> None:
+        state = _build_state()
+        state.x[0] = bad
+        with pytest.raises(ValueError, match=r"state\.x"):
+            T3Spatial1DBackend().apply_transport(state, 1.0)
+
+        state = _build_state()
+        state.T_bath = bad
+        with pytest.raises(ValueError, match="T_bath"):
+            T3Spatial1DBackend().apply_collisions(state, 1.0)
+
+    def test_state_and_spectral_gap_must_match(self) -> None:
+        state = _build_state()
+        state.gap *= 0.9
+        with pytest.raises(ValueError, match="must match"):
+            T3Spatial1DBackend().apply_transport(state, 1.0)
+
+    def test_negative_interface_conductance_rejected(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        for bad in (-1.0, -np.inf, np.inf, np.nan):
+            state = T3Spatial1DState(
+                f=np.zeros((NE, NX)), x=x, gap=gap_max, spectral=spectral,
+                material=material, T_bath=0.1, gap_profile=profile,
+                interface_conductance=bad,
+            )
+            with pytest.raises(ValueError, match="interface_conductance"):
+                T3Spatial1DBackend().apply_transport(state, 0.5)
+
+    def test_interface_conductance_rejects_smooth_gap_profile(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup()
+        state = T3Spatial1DState(
+            f=np.zeros((spectral.E.size, x.size)),
+            x=x,
+            gap=gap_max,
+            spectral=spectral,
+            material=material,
+            T_bath=0.1,
+            gap_profile=profile,
+            interface_conductance=2.0,
+        )
+
+        with pytest.raises(ValueError, match="exactly one step"):
+            T3Spatial1DBackend().apply_transport(state, 0.5)
+
+    def test_interface_conductance_without_profile_is_rejected(self) -> None:
+        state = _build_state()
+        state.interface_conductance = 2.0
+
+        with pytest.raises(ValueError, match="requires a gap_profile"):
+            T3Spatial1DBackend().apply_transport(state, 0.5)
+
+    def test_zero_interface_conductance_is_an_opaque_interface(self) -> None:
+        material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
+        NE, NX = spectral.E.size, x.size
+        f0 = np.zeros((NE, NX))
+        face = NX // 2 - 1
+        f0[:, : face + 1] = 0.4
+        state = T3Spatial1DState(
+            f=f0.copy(), x=x, gap=gap_max, spectral=spectral,
+            material=material, T_bath=0.1, diffusion_model=DiffusionModel.A1,
+            gap_profile=profile, interface_conductance=0.0,
+        )
+
+        out = T3Spatial1DBackend().apply_transport(state, 0.5)
+
+        # G_N = 0 is the physical opaque-interface limit.  It is distinct
+        # from None, which leaves the step face on the bulk-diffusion path.
+        np.testing.assert_array_equal(out.f[:, face + 1 :], 0.0)
+        np.testing.assert_allclose(out.f[:, : face + 1], f0[:, : face + 1])
 
     def test_varying_gap_conserves_weighted_density(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup()
@@ -550,3 +686,46 @@ class TestRunUntilSteadyStateProgressHook:
         assert result.total_time == pytest.approx(3.0)
         assert not result.converged
         assert result.snapshots[-1].t == pytest.approx(3.0)
+
+    def test_dt_larger_than_interval_emits_every_snapshot(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        backend = T3Spatial1DBackend()
+        monkeypatch.setattr(
+            backend,
+            "step",
+            lambda state, _dt, **_kwargs: state,
+        )
+
+        result = backend.run_until_steady_state(
+            self._perturbed_state(),
+            dt=5.0,
+            max_time=10.0,
+            stop_tol=0.0,
+            snapshot_interval=2.0,
+        )
+
+        np.testing.assert_allclose(
+            [snapshot.t for snapshot in result.snapshots],
+            [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
+        )
+
+    @pytest.mark.parametrize(
+        ("field", "kwargs"),
+        [
+            ("dt", {"dt": float("nan")}),
+            ("max_time", {"max_time": float("inf")}),
+            ("stop_tol", {"stop_tol": float("nan")}),
+            ("snapshot_interval", {"snapshot_interval": float("inf")}),
+        ],
+    )
+    def test_nonfinite_driver_controls_are_rejected(
+        self, field: str, kwargs: dict[str, float],
+    ) -> None:
+        values = {"dt": 1.0, "max_time": 2.0, "stop_tol": 0.0}
+        values.update(kwargs)
+        with pytest.raises(ValueError, match=field):
+            T3Spatial1DBackend().run_until_steady_state(
+                self._perturbed_state(),
+                **values,
+            )

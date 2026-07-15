@@ -42,7 +42,7 @@ for the transcribed equation-by-equation reference.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 from scipy.integrate import quad
@@ -148,6 +148,10 @@ class M25PhysicalParameters:
     Gamma_ee_10_Hz: float = 0.0
 
     def __post_init__(self) -> None:
+        for item in fields(self):
+            value = float(getattr(self, item.name))
+            if not np.isfinite(value):
+                raise ValueError(f"{item.name} must be finite; got {value}")
         if not (self.Delta_L_kelvin > self.Delta_R_kelvin > 0.0):
             raise ValueError(
                 f"Require Delta_L_kelvin > Delta_R_kelvin > 0 (gap-asymmetric "
@@ -721,6 +725,8 @@ class M25PhotonDrive:
     def __post_init__(self) -> None:
         for name in ("omega_nu_kelvin", "Gamma_nu_scale_Hz", "nu_0_per_J_per_m3", "volume_m3"):
             val = float(getattr(self, name))
+            if not np.isfinite(val):
+                raise ValueError(f"{name} must be finite; got {val}")
             if val <= 0.0:
                 raise ValueError(f"{name} must be positive; got {val}")
 

@@ -66,6 +66,7 @@ SOLVER_KWARGS: dict[str, Any] = {
     "method": "picard",
     "use_phonon_side_kernel": True,
     "picard_tol": 1e-7,
+    "picard_atol": 1e-11,
     "picard_max_iter": 500,
     "picard_mixing": 0.2,
     "anderson_depth": 3,

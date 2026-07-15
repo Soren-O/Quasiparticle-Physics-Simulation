@@ -29,13 +29,19 @@ pass `database_dir=` to point at a user-curated directory.
 | `tau_0_phonon` | ns |  | Kaplan 1976 Table II `τ₀^ph`. Required by `kaplan_pair_breaking.tau_PB_inverse_Hz`. |
 | `D_0` | μm²/ns |  | Normal-state diffusion. |
 | `v_F` | m/s |  | Fermi velocity. |
-| `rho_F` | J⁻¹ m⁻³ |  | Single-spin DOS at Fermi level. |
+| `rho_F` | eV⁻¹ m⁻³ |  | Conventional single-spin DOS at the Fermi level; density observables convert qpsim's µeV integration measure to eV explicitly. |
 | `sound_velocity_longitudinal` | m/s |  | `s_L`. |
 | `sound_velocity_transverse` | m/s |  | `s_T`. |
 | `sound_velocity_debye` | m/s |  | `s_D`. Derived from `s_L` and `s_T` if both supplied via `s_D⁻³ = ⅓(s_L⁻³ + 2 s_T⁻³)`; otherwise must be provided explicitly. |
 | `film_thickness` | nm |  | Film thickness. |
 | `substrate` | `Substrate` |  | Nested mapping in YAML. |
 | `substrate_transmission_eta` | — |  | `η` for `acoustic_escape_tau_l`. |
+
+`rho_F` used to be stored per µeV (for example Al `1.74e22`). Custom
+material files and direct density-observable callers must migrate those values
+by multiplying by `1e6` (Al `1.74e28`). Values in the legacy material-scale
+band fail loudly instead of producing a density that is silently `1e6` low;
+version-1 Web UI setup files are migrated automatically when loaded.
 
 ## BCS calibration caveat
 

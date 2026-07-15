@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from qpsim.physics.spectral import (
     SpectralContext,
+    bcs_anomalous_weight,
     bcs_density_of_states,
     coherence_factor_minus,
     coherence_factor_plus,
@@ -94,6 +95,59 @@ class TestThermalQpWeights:
         assert np.all(thermal_qp_weights(E, gap=1.0, temperature=1.0) == 0.0)
 
 
+class TestFiniteInputs:
+    @pytest.mark.parametrize(
+        "function",
+        [
+            bcs_density_of_states,
+            bcs_anomalous_weight,
+            coherence_factor_plus,
+            coherence_factor_minus,
+        ],
+    )
+    def test_bcs_primitives_reject_non_finite_energy(self, function) -> None:
+        with pytest.raises(ValueError, match="E must contain only finite"):
+            function(np.array([1.0, float("nan")]), gap=1.0)
+
+    @pytest.mark.parametrize(
+        "function",
+        [
+            bcs_density_of_states,
+            bcs_anomalous_weight,
+            coherence_factor_plus,
+            coherence_factor_minus,
+        ],
+    )
+    def test_bcs_primitives_reject_non_finite_gap(self, function) -> None:
+        with pytest.raises(ValueError, match="gap must be finite"):
+            function(np.array([2.0]), gap=float("nan"))
+
+    @pytest.mark.parametrize(
+        "function",
+        [
+            bcs_density_of_states,
+            bcs_anomalous_weight,
+            coherence_factor_plus,
+            coherence_factor_minus,
+        ],
+    )
+    def test_bcs_primitives_reject_negative_gap(self, function) -> None:
+        with pytest.raises(ValueError, match="gap must be non-negative"):
+            function(np.array([2.0]), gap=-1.0)
+
+    def test_dynes_rejects_non_finite_gamma(self) -> None:
+        with pytest.raises(ValueError, match="gamma must be finite"):
+            dynes_density_of_states(np.array([2.0]), gap=1.0, gamma=float("nan"))
+
+    def test_dynes_rejects_negative_gamma(self) -> None:
+        with pytest.raises(ValueError, match="gamma must be non-negative"):
+            dynes_density_of_states(np.array([2.0]), gap=1.0, gamma=-0.1)
+
+    def test_thermal_weights_reject_non_finite_temperature(self) -> None:
+        with pytest.raises(ValueError, match="temperature must be finite"):
+            thermal_qp_weights(np.array([2.0]), gap=1.0, temperature=float("nan"))
+
+
 class TestSpectralContext:
     def test_build_and_query(self) -> None:
         E = np.linspace(1.01, 5.0, 20)
@@ -172,3 +226,68 @@ class TestSpectralContext:
     def test_rejects_mismatched_grid_sizes(self) -> None:
         with pytest.raises(ValueError, match="same length"):
             SpectralContext(E_bins=np.array([1.0, 2.0]), dE_bins=np.array([1.0]), gap=1.0)
+
+    @pytest.mark.parametrize(
+        ("E", "dE", "message"),
+        [
+            (np.array([float("nan")]), np.array([1.0]), "E_bins"),
+            (np.array([2.0]), np.array([float("inf")]), "dE_bins"),
+        ],
+    )
+    def test_rejects_non_finite_grids(
+        self, E: np.ndarray, dE: np.ndarray, message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            SpectralContext(E_bins=E, dE_bins=dE, gap=1.0)
+
+    def test_rejects_non_finite_gap_rebuild(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([2.0]), dE_bins=np.array([1.0]), gap=1.0,
+        )
+
+        with pytest.raises(ValueError, match="new_gap must be finite"):
+            ctx.maybe_rebuild(float("nan"))
+        assert ctx.gap == 1.0
+
+    @pytest.mark.parametrize(
+        ("E", "dE", "message"),
+        [
+            (np.array([2.0, 1.0]), np.ones(2), "strictly increasing"),
+            (np.array([1.0, 1.0]), np.ones(2), "strictly increasing"),
+            (np.array([1.0, 2.0]), np.array([1.0, 0.0]), "must be positive"),
+            (np.array([1.0, 2.0]), np.array([1.0, -1.0]), "must be positive"),
+        ],
+    )
+    def test_rejects_non_physical_grids(
+        self, E: np.ndarray, dE: np.ndarray, message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            SpectralContext(E_bins=E, dE_bins=dE, gap=0.5)
+
+    def test_rejects_grid_without_above_gap_support(self) -> None:
+        with pytest.raises(ValueError, match="at least one energy bin above gap"):
+            SpectralContext(
+                E_bins=np.array([1.0, 2.0]),
+                dE_bins=np.ones(2),
+                gap=2.0,
+            )
+
+    @pytest.mark.parametrize(
+        ("name", "kwargs"),
+        [
+            ("dynes_gamma", {"dynes_gamma": -0.1}),
+            ("diffusion_coefficient", {"diffusion_coefficient": -1.0}),
+            ("rebuild_tolerance", {"rebuild_tolerance": -1.0}),
+            ("active_margin_factor", {"active_margin_factor": -1.0}),
+        ],
+    )
+    def test_rejects_negative_configuration(
+        self, name: str, kwargs: dict[str, float],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{name} must be non-negative"):
+            SpectralContext(
+                E_bins=np.array([1.0, 2.0]),
+                dE_bins=np.ones(2),
+                gap=0.5,
+                **kwargs,
+            )

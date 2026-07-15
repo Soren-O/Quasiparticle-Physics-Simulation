@@ -11,7 +11,19 @@ class TestAndersonExtrapolate:
         x = np.array([1.0, 2.0])
         gx = np.array([1.1, 2.1])
         assert anderson_extrapolate(x, gx, [], [], depth=5) is None
-        assert anderson_extrapolate(x, gx, [x], [gx], depth=5) is None
+
+    def test_depth_one_is_a_working_secant_update(self) -> None:
+        def g(x: np.ndarray) -> np.ndarray:
+            return 0.5 * x + 1.0  # fixed point at x = 2
+
+        x0 = np.zeros(1)
+        x1 = g(x0)
+        result = anderson_extrapolate(
+            x1, g(x1), [x0], [g(x0)], depth=1,
+        )
+
+        assert result is not None
+        np.testing.assert_allclose(result, np.array([2.0]), atol=1e-14)
 
     def test_output_shape(self) -> None:
         rng = np.random.default_rng(0)
