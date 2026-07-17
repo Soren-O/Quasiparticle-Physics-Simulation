@@ -84,8 +84,9 @@
 \date{\today}
 
 \begin{abstract}
-To understand quasiparticle dynamics in non-equilibrium superconductivity, we need to know how quasiparticles transport through the metal. In the dirty limit we expect some type of diffusion equation for the quasiparticles.  The ordinary diffusion equation reads \( \partial_t n = \bnabla\cdot(D\,\bnabla n) \). In the limit where quasiparticle density can be treated as a classical scalar, which energy-resolved diffusion operator governs a nonequilibrium
-quasiparticle occupation when the superconducting gap may vary in space and time? Various operators have been used inconsistently in the literature. 
+To understand quasiparticle dynamics in nonequilibrium superconductivity, we need to know how quasiparticles move through the material. 
+In the dirty limit we expect a diffusion equation for the quasiparticles.  
+The ordinary diffusion equation reads \( \partial_t \chi = \bnabla\cdot(D\,\bnabla \chi) \). In the limit where the quasiparticles can be described by a classical scalar occupation \(f(E,\br,t)\), which energy-resolved diffusion operator governs that occupation when the superconducting gap may vary in space and time? Various operators have been used inconsistently in the literature. 
 For a homogeneous normal-state material in the dirty limit, with a
 slowly varying local BCS gap, nonmagnetic Born disorder, and negligible
 charge imbalance, we show that two microscopic constructions, a
@@ -94,14 +95,14 @@ reduction, are related by an exact change of variables and, up to
 collision and spectral-flow terms, yield the same diffusion equation:
 \(\partial_t(\DOS f)=\bnabla\cdot(\DN\,\bnabla f)\), with \(\DOS(E)\)
 the BCS density-of-states factor, \(f\) the quasiparticle occupation,
-and \(\DN\) the normal-state diffusion coefficient. Two examples of alternative diffusion operator that have been used in published gap-engineered-trap
-analysis are \(\bnabla\cdot[(\DN/\DOS)\bnabla f]\) and \(\partial_t\chi_{\qp}=(\DN/\DOS)\nabla_{\br}^{2}\chi_{\qp}\), with
+and \(\DN\) the normal-state diffusion coefficient. Two examples of alternative diffusion operators that have been used in
+published device analyses are \(\bnabla\cdot[(\DN/\DOS)\bnabla f]\) and \(\partial_t\chi_{\qp}=(\DN/\DOS)\nabla_{\br}^{2}\chi_{\qp}\), with
 \(\chi_{\qp} \propto\DOS f\) the density carried by quasiparticles near a given
-energy.  Neither of these are selected by either reduction and
+energy.  Neither of these is selected by either reduction, and
 both produce a spurious density-of-states-gradient drift for smoothly
 varying local-BCS gaps.
-In addition to deriving the diffusion equation, we also derive the common-phase, above-gap scalar Kupriyanov--Lukichev
-boundary law, and we derive the time-dependent spectral flow required when the gap varies in time.
+We additionally obtain the common-phase, above-gap scalar Kupriyanov--Lukichev
+boundary law and the time-dependent spectral flow required when the gap varies in time.
 \end{abstract}
 
 \maketitle
@@ -110,7 +111,7 @@ boundary law, and we derive the time-dependent spectral flow required when the g
 
 \section{Introduction}
 
-Modeling energy-resolved nonequilibrium quasiparticles with spatial resolution in a
+Modeling nonequilibrium quasiparticles resolved in both energy and space in a
 superconducting device raises the question:
 which energy-resolved spatial operator \(\LD\) moves the quasiparticle
 occupation \(f(E,\br,t)\) through the device? The answer matters
@@ -123,8 +124,8 @@ diffusion out of the absorption site, which sets pulse shape and
 position-dependent energy resolution \cite{kozorezov2002,segall2004}.
 In superconducting qubits, quasiparticles that reach a Josephson
 junction produce relaxation and parity errors, and normal-metal or
-gap-engineered traps are transport-engineering responses to them
-\cite{martinis2009,riwar2016,hosseinkhani2018,riwar2019,dong2022}. In
+gap-engineered traps are transport-engineering responses to these
+quasiparticles \cite{martinis2009,riwar2016,hosseinkhani2018,riwar2019,dong2022}. In
 all of these devices the gap can vary in space either by designed gap steps and films of differing thickness, or
 self-consistently, through suppression by the quasiparticle population
 itself.
@@ -133,8 +134,8 @@ Recent resonator and
 qubit treatments are usually spatially homogeneous or zero-dimensional
 in their kinetics
 \cite{goldie2013,catelani2019,fischer2023,fischer2024,marchegiani2025}.
-The prototypical examples of spatial treatments which are exceptions to this are superconducting tunnel-junction photon
-spectrometers \cite{kozorezov2002,segall2004} and normal-metal or
+The prototypical exceptions are the spatial treatments of superconducting tunnel-junction photon
+spectrometers \cite{kozorezov2002,segall2004} and of normal-metal or
 gap-engineered quasiparticle traps
 \cite{riwar2016,hosseinkhani2018,riwar2019}. But across the literature the published equations differ
 in form. Spectrometer models and normal-metal-trap analyses diffuse
@@ -147,16 +148,19 @@ gap-engineered-trap analysis of Ref.~\onlinecite{riwar2019} starts
 instead from an energy-resolved coefficient \(\DN/\DOS(E)\), where
 \(\DN\) is the normal-state diffusion constant and \(\DOS\) is the BCS
 density-of-states factor. This coefficient is placed inside the
-divergence, \(\bnabla_{\br}\cdot[(\DN/\DOS)\bnabla_{\br}f]\), and the
-resulting ansatz is a type of ``Fick's Law'' for the occupation. A
-transmon quasiparticle-diffusion measurement \cite{dong2022} writes
-the same energy-resolved coefficient (quoted for aluminum) without an
-accompanying transport operator. And in Ref.~\onlinecite{martinis2009} the same coefficient is used for a Fick's law for the quasiparticle \emph{density} instead of the occupation,
+divergence, \(\bnabla_{\br}\cdot[(\DN/\DOS)\bnabla_{\br}f]\) [their
+Eq.~(A1)], and the
+resulting ansatz is a type of ``Fick's Law'' for the occupation. An
+earlier qubit quasiparticle analysis \cite{martinis2009} quotes the
+same energy-resolved coefficient for aluminum without an accompanying
+transport operator, and a transmon quasiparticle-diffusion measurement
+\cite{dong2022} uses it in a Fick's law for the quasiparticle
+\emph{density} instead of the occupation,
 \(\partial_t\chi_{\qp}=(\DN/\DOS)\nabla_{\br}^{2}\chi_{\qp}\), with
-\(\chi_{\qp} \propto\DOS f\) the density carried by quasiparticles near a given
+\(\chi_{\qp}\propto\DOS f\) the density carried by quasiparticles near a given
 energy.
 
-For a spatially uniform gap these differing choices may reduce to the same result. This is partially why the literature has been able to use different operators inconsistently for so long. 
+For a spatially uniform gap these differing choices may reduce to the same result, which is partly why the inconsistency has persisted. 
 Meanwhile, the coefficient \(\DN/\DOS(E)\) of
 Refs.~\onlinecite{riwar2019} and \onlinecite{dong2022} is itself
 genuine: the Bardeen--Rickayzen--Tewordt (BRT) coherence-factor
@@ -165,18 +169,18 @@ cancellation produces exactly this coefficient
 microscopically credible. The issue is that the BRT cancellation is only a
 uniform-gap result. It constrains the coefficient, but not where
 the spectral weight \(1/\DOS\) stands relative to the divergence; once \(\Delta\) varies in space, the placements separate already at
-leading order in \(\bnabla\Delta\). The net
-transport effect of differing diffusion operators may compete with the ordinary diffusion depending on profile and amplitude.
+leading order in \(\bnabla\Delta\). The drift introduced by a misplaced spectral weight can compete with
+ordinary diffusive spreading, depending on the gap profile and its amplitude.
 
-This paper settles the correct choice of diffusion operator (i.e., the placement of the coefficient from the microscopic theory) by both
+This paper settles the correct choice of diffusion operator (the placement of the spectral weight relative to the divergence) by both
 routes the literature uses to reach an energy-resolved kinetic
 equation: projecting the quasiclassical theory onto a positive-energy
 quasiparticle occupation and adding elastic impurity scattering to the
 resulting Boltzmann-like equation, or angular averaging the matrix
 theory into the Usadel equation and reducing its Keldysh block. Within
-a common, explicitly delimited sector---homogeneous material, local
-BCS spectra, isotropic \(s\)-wave gap, nonmagnetic Born impurities,
-negligible charge imbalance---the two routes select the \emph{same}
+a common, explicitly delimited sector---homogeneous material in the
+dirty limit, local BCS spectra, isotropic \(s\)-wave gap, nonmagnetic
+Born impurities, negligible charge imbalance---the two routes select the \emph{same}
 operator: the density-of-states factor enters as the weight of the
 conserved spectral density \(\DOS f\), while the spatial current
 \((-1)\DN\bnabla_{\br}f\) carries no coherence-factor dressing. The
@@ -191,18 +195,22 @@ charge-imbalance channel.)
 
 The paper proceeds as follows. \Cref{sec:quasiclassical} assembles
 the quasiclassical machinery from which both routes start, closing
-with the sector statement under which the operator selection is
-claimed; \cref{sec:scalar_diffusion,sec:usadel_route} carry out the
-scalar-Boltzmann and matrix-Usadel derivations; and
+with the sector statement under which the operator selection holds;
+\cref{sec:scalar_diffusion,sec:usadel_route} carry out the
+scalar-Boltzmann and matrix-Usadel derivations, including the
+time-dependent spectral flow required when the gap varies in time
+(\cref{sec:tdep_spectral_flow}); and
 \cref{sec:conserved_currents} projects the Kupriyanov--Lukichev
 interface condition onto the scalar current.
 
-Before we proceed we end on a closing note about a useful taxonomy for organizing the various different operators. 
-Let \(L_{p,q}[f]=\DOS^{-p}\bnabla_{\br}\cdot(\DN\DOS^{q}\bnabla_{\br}f)\), be the two-exponent family
-that organizes the candidate placements. The operator we will end up deriving is then the 
-\(L_{1,0}[f]\) one, and we will show other choices of \((p,q)\) have a spurious
-drift carried by the spectral weight inside the
-divergence (\(q\neq0\)).
+Finally, we fix a compact taxonomy for the candidate operators. 
+Let \(L_{p,q}[f]=\DOS^{-p}\bnabla_{\br}\cdot(\DN\DOS^{q}\bnabla_{\br}f)\) be the two-exponent family
+that organizes the candidate placements. The operator derived below is 
+\(L_{1,0}\), and any placement with \(q\neq0\) will be shown to carry
+a spurious drift sourced by the spectral weight inside the divergence;
+the full taxonomy and the numerical benchmarks that exhibit this drift
+are collected in the Supplemental Material
+(SM~\cref{SM-sec:taxonomy,SM-sec:program}).
 
 \section{Quasiclassical kinetic framework}
 \label{sec:quasiclassical}
@@ -281,23 +289,12 @@ self-energy---broadening, shifting, or damping the density of states
 and coherence factors independently of \(\Delta\). What remains to be determined then is the evolution of the nonequilibrium distribution at a fixed,
 gap-determined spectrum.
 \subsection{Quasiparticle Kinetic Equations}
-Throughout, we reserve \(f\)-type symbols for quasiparticle
-distribution functions (with \(f\) an occupation probability but
-\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations.
-One further distinction is worth posting in advance, because readers
-coming from branch-resolved treatments often elide it. Kopnin's
-transverse amplitude is the spectrally \emph{weighted} branch-odd
-combination \(\fT=\lambda_{\bk}\phi_T\), with \(\lambda_{\bk}\) the
-spectral weight of \cref{eq:beta_sigma_lambda}---not the bare branch
-difference \(\phi_T\). The identity holds for the \emph{even} angular
-harmonics only (the odd harmonics swap sectors,
-\cref{eq:intro_parity_dictionary}), and the two objects are kept
-carefully distinct from \cref{eq:intro_branch_traj} onward.
-
-The quasiparticle content is carried by two scalar modes, the
+We start by defining the \(\fL\) and \(\fT\) quasiparticle distribution amplitudes. Throughout, we reserve \(f\)-type symbols for quasiparticle
+(with \(f\) an occupation probability but
+\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations. The
 longitudinal (energy) mode \(\fL\) and the transverse (charge-imbalance)
-mode \(\fT\). In the electron--hole (Nambu) basis, with
-\(\tau_3=\operatorname{diag}(+1,-1)\), the diagonal distribution matrix is
+mode \(\fT\) are defined by the diagonal distribution matrix in the electron--hole (Nambu) basis, with
+\(\tau_3=\operatorname{diag}(+1,-1)\):
 \begin{equation}
   \hat h
   = \fL\,\openone + \fT\,\tau_3
@@ -318,16 +315,17 @@ inverting \cref{eq:intro_h_matrix},
 \end{equation}
 which fixes the sign of \(\fT\) (even in \(E\)). A positive \(\fT\)
 counts an excess of hole-like over electron-like quasiparticles---the
-charge imbalance \cite{tinkham2004}---and enters the electron density
-through \(\delta N=-N_0\!\int_{-\infty}^{\infty}\!\langle\DOS\,\fT\rangle_{\hat\bp}\,\dd E\)
-[Kopnin's Eqs.~(10.69)--(10.71)], with
-\(N_0=m p_{\mathrm F}/2\pi^2\hbar^3\) the single-spin normal-state
-density of states at the Fermi level---Kopnin's \(\nu(0)\), whose
-definition fixes the same single-spin normalization (his own symbol
-\(N_0\) in those equations denotes instead the equilibrium electron
-density) \cite{kopnin2001}---used for this quantity throughout, fixing the sign
-independent of the branch labelling. When both branches share a common quasiparticle
-occupation \(f\), then \(\fT=0\) and \(\fL=1-2f\).
+charge imbalance \cite{tinkham2004}. It enters the electron density
+through
+\(\delta N=-N_0\!\int_{-\infty}^{\infty}\!\langle\DOS\,\fT\rangle_{\hat\bp}\,\dd E\)
+[Kopnin's Eqs.~(10.69)--(10.71)], a relation that anchors the sign
+convention independently of the branch labelling. Here
+\(N_0=m p_{\mathrm F}/2\pi^2\hbar^3\) is the single-spin normal-state
+density of states at the Fermi level, used throughout; it is Kopnin's
+\(\nu(0)\) (in the equations just cited his own symbol \(N_0\)
+denotes instead the equilibrium electron density) \cite{kopnin2001}.
+When both branches share a common quasiparticle occupation \(f\),
+then \(\fT=0\) and \(\fL=1-2f\).
 
 Kopnin has shown \cite[\S10.2]{kopnin2001} that, after parametrizing
 the Keldysh propagator with the two-mode distribution matrix
@@ -337,12 +335,11 @@ the Keldysh propagator with the two-mode distribution matrix
 reduces to a coupled pair of \emph{two-mode} scalar kinetic equations
 for \(\fL\) and \(\fT\) [his Eqs.~(10.41) and~(10.44)]. Standard
 Eilenberger ordering drops the so-called augmented forces---
-momentum-derivative terms of next order in \((k_F\xi_0)^{-1}\); because one of the questions below is how the
+momentum-derivative terms of next order in \((k_F\xi_0)^{-1}\). But because one of the questions below is how the
 ballistic and dirty reductions compare when such gradient terms are
 retained, we keep the leading pair-potential-gradient contribution
-explicitly as \(\mathcal{R}[\fL]\). Specialized to the sector of interest
-here---real gap, no superflow, no electric field, continuum energies
-\(E>\Delta\), and before any angular averaging---this parent pair reads
+explicitly as \(\mathcal{R}[\fL]\). To be explicit here, we are now in the sector with a real gap, no superflow, no electric field, continuum energies
+\(E>\Delta\), and before any angular averaging. The two mode scalar kinetic equations then read:
 \begin{align}
   \DOS\,\partial_t\fL
   + N_2\,\dot\Delta\,\partial_E\fL^{(0)}

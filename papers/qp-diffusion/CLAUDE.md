@@ -60,6 +60,15 @@ is at `G:\My Drive\qp-diffusion-handoff\kopnin\`. Chapters 10 and 15 are the
 most relevant; Ch. 1 (the \(\nu(0)\) single-spin DOS definition) is in the
 book PDF.
 
+Cited-paper PDFs live in `G:\My Drive\Academic Texts\`
+(Articles/Textbooks/Theses subfolders, "Author et al., Title (Year).pdf"
+naming). As of 2026-07-17 this includes martinis2009 (plus its P(E)
+supplement), segall2004, bardeen1959, catelani2019, fischer2023,
+fischer2024, marchegiani2025, and freshly added copies of dong2022
+(CC-BY, from MDPI), riwar2019 (arXiv v1), and kozorezov2002 (journal
+PDF, obtained via institutional access). Still absent: riwar2016,
+hosseinkhani2018, and goldie2013.
+
 ---
 
 ## Notation conventions (deliberate — not typos)
@@ -522,15 +531,18 @@ existing benchmark omits that).
 - **Abstract**: current version is Soren's own text (simplified directly by
   the author after the gated review rounds above concluded). Not an open
   item.
-- **riwar2019 Appendix-A evidence** (re-verified against arXiv:1907.04781
-  via ar5iv): their Eq. (46) [arXiv numbering; PRB appendix (A-)number
-  still to be read off the journal PDF] is
+- **riwar2019 Appendix-A evidence** (verified 2026-07-17 against both the
+  ar5iv HTML and the compiled arXiv v1 PDF of arXiv:1907.04781): their
+  Eq. (A1) is
   \(\dot f_{\rm qp}(\epsilon,y)=\partial_y[D_{\rm qp}(\epsilon,y)\,
   \partial_y f_{\rm qp}]\) with \(D_{\rm qp}=D_0/\nu_{\rm BCS}(\epsilon)\),
   \(\nu_{\rm BCS}=\epsilon/\sqrt{\epsilon^2-\Delta^2(y)}\), attributed by
   them to Belzig et al. 1999 — exactly placement C at a varying gap.
-  Referee-risk pre-emption: those authors are plausible referees; if
-  desired, add the (A-)equation pinpoint at the citation once checked.
+  The arXiv v1 PDF (the sole arXiv version, REVTeX/PRB layout) prints
+  per-appendix numbers (A1)–(A7); the "(46)" recorded earlier exists only
+  in ar5iv's LaTeXML continuous renumbering, so do not cite it as "arXiv
+  numbering." The (A1) pinpoint now appears at the intro citation and in
+  the SM taxonomy discussion (referee-risk pre-emption satisfied).
 - Intro ¶1's evidence base spans three distinct forms of the same BRT
   coefficient, all verified against their own papers/arXiv/PDFs and none
   claimed to be in error for the uniform-gap case their own analyses use:
@@ -542,7 +554,26 @@ existing benchmark omits that).
   12, 8461 (2022), their Eq. 3, with \(\chi_{qp}\propto N_1f\) at fixed
   energy). martinis2009 (PRL 103, 097002) is cited as the source quoting
   \(D=60\,v_{qp}\)cm²/s for aluminum with no accompanying transport
-  operator.
+  operator (confirmed 2026-07-17 from the local PDF: no spatial operator
+  anywhere in the letter or its P(E) supplement; the D quote is uncited
+  prose on p. 097002-3, and dong2022 cite martinis2009 for the
+  coefficient). A 2026-07-17 re-verification sweep (local PDFs, ar5iv,
+  MDPI, plus the kozorezov2002 journal PDF obtained the same day)
+  confirmed every entry above from primary sources. The kozorezov2002
+  pinpoint: their Eq. (7) is the generalized Rothwarf–Taylor pair with
+  constant-coefficient area-density diffusion terms \(D_i\triangle n_i\),
+  and the freezing assumption is stated verbatim at the end of
+  Sec. II A, directly below Eqs. (7)–(8) (p. 094510-3): "In Eq. (7) we
+  implicitly assume that once diffusion has started, the diffusion
+  constants \(D_i\) remain constant. Since the diffusion constant
+  depends on the quasiparticle energy distribution, we therefore assume
+  that the latter does not change significantly after the generation of
+  quasiparticles has completed." New data
+  point from the sweep: riwar2016 Appendix B (arXiv Eqs. (54)–(56))
+  contains an energy-resolved density-Fick equation
+  \(\dot p_S=D_S(\epsilon)\nabla^2 p_S\) with
+  \(D_S(\epsilon)=D_S/\nu_S(\epsilon)\), \(p_S=\nu_S f_{qp}\) — a
+  further published legacy-family placement citable alongside dong2022.
 - All former paper3 gaps are closed in the merge: `sec:sc_scalar_equations`
   references were remapped to `eq:beta_f_from_modes`, the supplement is now
   local (SM- refs resolve), and Data/code availability carries the paper1
@@ -574,18 +605,20 @@ Soren-directed); this describes the *current* layout, not a change log:
   `\section{Conserved currents and boundary conditions}`
   (`sec:conserved_currents`), because the abstract still headlines that
   derivation.
-- The spurious-drift exhibit lives in `sec:quasiclassical` right after
-  `eq:Lpq_expanded`: `eq:Lpq_first_moment` gives the exact
-  center-of-mass drift law
+- The spurious-drift exhibit moved to the SM along with the taxonomy
+  (this bullet corrected 2026-07-17; an earlier version placed it in
+  `sec:quasiclassical`): `eq:Lpq_expanded`, `eq:Lpq_first_moment` (the
+  exact center-of-mass drift law
   \(d\langle r\rangle/dt=\langle qD_NN_1^{q-p-1}\nabla N_1\rangle\) for
-  the whole \(L_{p,q}\) family (sympy-verified total-derivative
-  identity), and `eq:legacy_drift_velocity` gives \(v_C\). The condensed
-  Péclet passage in Sec. IV cross-references `eq:legacy_drift_velocity`
-  instead of redisplaying \(|v_C|\); the \(\mathrm{Pe}_E\) formula and its
-  numeric triples are unchanged.
-- The \(L_{p,q}\) family definition appears inline in intro ¶3 so the
-  body's (p,q) labels stay defined even though the taxonomy table moved to
-  the SM.
+  the whole \(L_{p,q}\) family, sympy-verified total-derivative
+  identity), `eq:legacy_drift_velocity` (\(v_C\)), and the fixed-energy
+  Péclet diagnostic `eq:legacy_local_peclet` with its numeric triples
+  all live in supplement.tex. The main text reaches the drift term via
+  SM~\cref{SM-eq:Lpq_expanded} (Sec. IV), and the intro's closing
+  paragraph points to SM~\cref{SM-sec:taxonomy,SM-sec:program}.
+- The \(L_{p,q}\) family definition appears inline in the introduction's
+  closing paragraph so the body's (p,q) labels stay defined even though
+  the taxonomy table moved to the SM.
 - Acknowledgments thank Thomas Stevenson (advisor feedback).
 
 ---
