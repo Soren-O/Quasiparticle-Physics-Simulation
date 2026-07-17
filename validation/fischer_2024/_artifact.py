@@ -44,6 +44,32 @@ from validation.source_provenance import source_sha256
 QP_CERTIFICATE_METRIC_VERSION = "qp-gain-loss-l1-maxabs-thermal-pb-v1"
 TARGET_QP_BACKWARD_ERROR_LIMIT = 1.0e-6
 TARGET_QP_RESIDUAL_INF_LIMIT = 1.0e-10
+THERMAL_OCCUPATION_RTOL = 8.0 * np.finfo(np.float64).eps
+
+
+def thermal_occupations_match(values: np.ndarray, expected: np.ndarray) -> bool:
+    """Return whether two thermal seeds agree up to cross-libm roundoff.
+
+    Fermi-Dirac seeds contain ``exp`` evaluations whose final bits may differ
+    between otherwise equivalent math libraries.  Artifact checksums remain
+    exact; this semantic live-state check admits only a small multiple of
+    machine epsilon and no absolute floor.
+    """
+    actual = np.asarray(values, dtype=float)
+    reference = np.asarray(expected, dtype=float)
+    return (
+        actual.shape == reference.shape
+        and bool(np.all(np.isfinite(actual)))
+        and bool(np.all(np.isfinite(reference)))
+        and bool(
+            np.allclose(
+                actual,
+                reference,
+                rtol=THERMAL_OCCUPATION_RTOL,
+                atol=0.0,
+            )
+        )
+    )
 
 
 def source_hashes(

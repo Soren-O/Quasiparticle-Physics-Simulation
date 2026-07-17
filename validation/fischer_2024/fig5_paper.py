@@ -108,6 +108,7 @@ from validation.fischer_2024._artifact import (
     qp_certificate,
     read_artifact,
     source_hashes,
+    thermal_occupations_match,
     validated_numeric_array,
     write_artifact,
 )
@@ -533,7 +534,7 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
         lower=0.0,
         upper=1.0,
     )
-    if not np.array_equal(f_thermal, base_state.f):
+    if not thermal_occupations_match(f_thermal, base_state.f):
         raise ArtifactValidationError(
             "Fig. 5 thermal occupation does not match the live Fermi-Dirac state."
         )
@@ -633,7 +634,10 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
         lower=0.0,
         upper=1.0,
     )
-    if not np.array_equal(data[:, 1], _build_state(_material(), spectral).f):
+    if not thermal_occupations_match(
+        data[:, 1],
+        _build_state(_material(), spectral).f,
+    ):
         raise ArtifactValidationError(
             f"Artifact at {path} thermal occupation is not the live Fermi-Dirac state."
         )

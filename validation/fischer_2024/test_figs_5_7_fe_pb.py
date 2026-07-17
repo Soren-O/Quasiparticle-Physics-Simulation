@@ -84,6 +84,23 @@ def test_current_artifact_round_trips(
         assert decoded.qp_backward_error_by_power[power] == 1.0e-8
 
 
+def test_thermal_seed_accepts_ulp_roundoff_but_rejects_drift(
+    tmp_path: Path,
+    _synthetic_certificate: None,
+) -> None:
+    rounded = _synthetic_result()
+    np.nextafter(rounded.f_thermal, np.inf, out=rounded.f_thermal)
+    decoded = target.read_baseline(
+        target.write_baseline(rounded, tmp_path / "rounded-thermal.csv")
+    )
+    np.testing.assert_array_equal(decoded.f_thermal, rounded.f_thermal)
+
+    drifted = _synthetic_result()
+    drifted.f_thermal[0] *= 1.0 + 1.0e-9
+    with pytest.raises(ArtifactValidationError, match="thermal occupation"):
+        target.write_baseline(drifted, tmp_path / "drifted-thermal.csv")
+
+
 def test_writer_rejects_residual_at_newton_tolerance(
     tmp_path: Path,
     _synthetic_certificate: None,
