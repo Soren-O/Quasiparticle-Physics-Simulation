@@ -39,6 +39,8 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.physics.kernels import thermal_phonon_occupation
 
+from validation.source_provenance import source_sha256
+
 QP_CERTIFICATE_METRIC_VERSION = "qp-gain-loss-l1-maxabs-thermal-pb-v1"
 TARGET_QP_BACKWARD_ERROR_LIMIT = 1.0e-6
 TARGET_QP_RESIDUAL_INF_LIMIT = 1.0e-10
@@ -54,7 +56,8 @@ def source_hashes(
     Keep this list explicit: it is provenance for the persisted numerical
     contract, not a package-version surrogate.  In particular it includes the
     low-level quadrature, validation, constants, material, and state modules
-    that the public collision/backend modules import.
+    that the public collision/backend modules import. Source newlines are
+    normalized so LF and CRLF checkouts have the same identity.
     """
     root = Path(__file__).resolve().parents[2]
     sources = {
@@ -76,6 +79,7 @@ def source_hashes(
         "qpsim/physics/spectral.py": root / "qpsim/physics/spectral.py",
         "qpsim/services/steady_state.py": root / "qpsim/services/steady_state.py",
         "qpsim/solvers/newton_steady_state.py": (root / "qpsim/solvers/newton_steady_state.py"),
+        "validation/source_provenance.py": root / "validation/source_provenance.py",
         "validation/fischer_2024/_artifact.py": Path(__file__).resolve(),
     }
     for module in (validation_module, *extra_validation_modules):
@@ -87,7 +91,7 @@ def source_hashes(
                 f"Validation fingerprint source {resolved} is outside {root}."
             ) from exc
         sources[name] = resolved
-    return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()}
+    return {name: source_sha256(path) for name, path in sources.items()}
 
 
 class ArtifactValidationError(RuntimeError):

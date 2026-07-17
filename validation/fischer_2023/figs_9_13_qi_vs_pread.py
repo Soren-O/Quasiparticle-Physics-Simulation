@@ -70,6 +70,8 @@ from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.nbar_loop import dbm_to_uev_per_ns, solve_nbar_loop
 
+from validation.source_provenance import canonical_source_bytes
+
 # ── Fischer 2023 Table I parameters ──────────────────────────────────
 
 DELTA_0 = 180.0
@@ -93,6 +95,7 @@ NBAR_FIXED_POINT_RESIDUAL_LIMIT = 1.0e-4
 
 _SOURCE_FINGERPRINT_FILES: tuple[str, ...] = (
     "validation/fischer_2023/figs_9_13_qi_vs_pread.py",
+    "validation/source_provenance.py",
     "qpsim/backends/t3_diffusion.py",
     "qpsim/collisions/_uniform_grid.py",
     "qpsim/collisions/_validation.py",
@@ -168,14 +171,14 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
 
 
 def source_fingerprint_sha256() -> str:
-    """Hash every source file that defines this validation's solve contract."""
+    """Hash every logical source defining this validation's solve contract."""
     root = Path(__file__).resolve().parents[2]
     digest = hashlib.sha256()
     for relative in _SOURCE_FINGERPRINT_FILES:
         path = root / relative
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(canonical_source_bytes(path))
         digest.update(b"\0")
     return digest.hexdigest()
 

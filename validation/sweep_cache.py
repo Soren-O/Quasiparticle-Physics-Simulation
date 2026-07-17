@@ -58,8 +58,10 @@ from typing import Any
 
 import numpy as np
 
+from validation.source_provenance import canonical_source_bytes, canonical_source_text
+
 # Bump to invalidate every existing entry on a key-schema / codec change.
-_FORMAT_VERSION = 1
+_FORMAT_VERSION = 2
 
 _ENV_ENABLE = "QPSIM_SWEEP_CACHE"
 _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
@@ -115,9 +117,10 @@ def default_cache_dir() -> Path:
 def solve_source_digest(qpsim_root: Path | None = None) -> str:
     """SHA-256 over all ``qpsim/**/*.py`` except the ``observables`` subpackage.
 
-    The relative path is folded in alongside each file's bytes so that moving or
-    renaming a module also changes the digest. Conservative by design: it hashes
-    the entire solver subtree rather than a per-figure import closure, trading a
+    The relative path is folded in alongside each file's newline-normalized
+    bytes so that moving or renaming a module also changes the digest while LF
+    versus CRLF checkout policy does not. Conservative by design: it hashes the
+    entire solver subtree rather than a per-figure import closure, trading a
     little over-invalidation for the guarantee that no solve-relevant edit is
     ever missed.
     """
@@ -133,7 +136,7 @@ def solve_source_digest(qpsim_root: Path | None = None) -> str:
         rel = p.relative_to(qpsim_root).as_posix()
         h.update(rel.encode())
         h.update(b"\0")
-        h.update(p.read_bytes())
+        h.update(canonical_source_bytes(p))
         h.update(b"\0")
     return h.hexdigest()
 
@@ -189,7 +192,8 @@ def cache_key(
     extra_source
         The figure's own solve-path source (e.g. ``inspect.getsource(solve)``
         joined with its helpers), so figure-side solver edits invalidate too —
-        while its plotting / observable code, omitted here, does not.
+        while its plotting / observable code, omitted here, does not. Source
+        newlines are normalized so checkout policy cannot change the key.
     qpsim_root
         Override the library root (tests point this at a temp tree).
     """
@@ -199,7 +203,9 @@ def cache_key(
         "fingerprint": _canonical(fingerprint),
         "kwargs": _canonical(kwargs),
         "solve_source": solve_source_digest(qpsim_root),
-        "extra_source": hashlib.sha256(extra_source.encode()).hexdigest(),
+        "extra_source": hashlib.sha256(
+            canonical_source_text(extra_source).encode()
+        ).hexdigest(),
         "versions": _lib_versions(),
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))

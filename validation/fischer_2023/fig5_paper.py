@@ -74,6 +74,7 @@ from validation.fischer_2023.fig5_solve import (
     solve,
     solver_fingerprint,
 )
+from validation.source_provenance import source_sha256
 
 
 @dataclass(frozen=True)
@@ -686,6 +687,7 @@ _SOURCE_FINGERPRINT_FILES: tuple[str, ...] = (
     "validation/fischer_2023/fig5_solve.py",
     "validation/fischer_2023/steady_state_certificate.py",
     "validation/sweep_cache.py",
+    "validation/source_provenance.py",
     "qpsim/backends/base.py",
     "qpsim/backends/t3_diffusion.py",
     "qpsim/collisions/_uniform_grid.py",
@@ -722,10 +724,10 @@ class ArtifactValidationError(RuntimeError):
 
 
 def source_hashes() -> dict[str, str]:
-    """Hash the validation and numerical sources defining the artifact."""
+    """Hash logical validation and numerical sources defining the artifact."""
     root = Path(__file__).resolve().parents[2]
     return {
-        relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        relative: source_sha256(root / relative)
         for relative in _SOURCE_FINGERPRINT_FILES
     }
 

@@ -39,7 +39,7 @@ import numpy as np
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.observables.ac_conductivity import compute_ac_conductivity
 
-from validation import sweep_cache
+from validation import source_provenance, sweep_cache
 from validation.fischer_2023 import fig7_solve
 from validation.fischer_2023 import steady_state_certificate as certificate_module
 from validation.fischer_2023.fig7_solve import (
@@ -123,6 +123,11 @@ def solve_contract_digest() -> str:
     digest = hashlib.sha256()
     ingredients = (
         ("qpsim", sweep_cache.solve_source_digest()),
+        ("solve_source_digest", inspect.getsource(sweep_cache.solve_source_digest)),
+        (
+            "canonical_source_bytes",
+            inspect.getsource(source_provenance.canonical_source_bytes),
+        ),
         ("fig7_solve", inspect.getsource(fig7_solve)),
         ("certificate", inspect.getsource(certificate_module)),
     )

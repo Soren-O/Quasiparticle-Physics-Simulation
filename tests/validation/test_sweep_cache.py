@@ -68,10 +68,29 @@ class TestCacheKey:
         k_py = sc.cache_key("f", {"x": 1.5}, {}, qpsim_root=q)
         assert k_np == k_py
 
+    def test_extra_source_is_newline_independent(self, tmp_path):
+        q = _make_qpsim_tree(tmp_path)
+        kwargs = {"qpsim_root": q}
+        lf = sc.cache_key("f", {}, {}, extra_source="a\nb\n", **kwargs)
+        crlf = sc.cache_key("f", {}, {}, extra_source="a\r\nb\r\n", **kwargs)
+        cr = sc.cache_key("f", {}, {}, extra_source="a\rb\r", **kwargs)
+        assert lf == crlf == cr
+
 
 # ── solve-source digest ─────────────────────────────────────────────────
 
 class TestSolveSourceDigest:
+    def test_equivalent_for_lf_crlf_and_cr_checkouts(self, tmp_path):
+        q = _make_qpsim_tree(tmp_path)
+        source = q / "solvers" / "newton.py"
+
+        source.write_bytes(b"def solve():\n    return 1\n")
+        lf_digest = sc.solve_source_digest(q)
+        source.write_bytes(b"def solve():\r\n    return 1\r\n")
+        assert sc.solve_source_digest(q) == lf_digest
+        source.write_bytes(b"def solve():\r    return 1\r")
+        assert sc.solve_source_digest(q) == lf_digest
+
     def test_ignores_observables_subpackage(self, tmp_path):
         q = _make_qpsim_tree(tmp_path)
         d0 = sc.solve_source_digest(q)
