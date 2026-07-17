@@ -2,15 +2,16 @@
 
 Two superconducting regions of unequal gap are joined at one face by a
 finite interface conductance carrying the energy-channel current
-``F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R)`` (dx-independent) -- the
-coherence-factor (Maki-Griffin) weight -- matched to the bulk flux
+``F = G_N <N_1^L N_1^R - N_2^L N_2^R>_cell (f_L - f_R)``
+(dx-independent) -- the cell-averaged coherence-factor (Maki-Griffin) weight
+-- matched to the bulk flux
 ``-D_N N_1^q d_x f`` of the selected operator.
 
 * Driven steady state (source on the high-gap end, sink on the low-gap
   end): the spatial current is continuous across the interface, while the
   bare occupation ``f`` is *discontinuous* there, with the jump fixed by
-  ``f_L - f_R = F / (G_N [N_1^L N_1^R - N_2^L N_2^R])`` -- a resistive
-  interface. Because the steady state depends only on ``q``, the
+  ``f_L - f_R = F / (G_N <N_1^L N_1^R - N_2^L N_2^R>_cell)`` -- a
+  resistive interface. Because the steady state depends only on ``q``, the
   equal-``q`` diagnostics A1P and A2 coincide here while A1 and C differ.
 * Closed relaxation (inject the high-gap side, reflective ends): A1
   (conserves ``N_1 f``) and A2 (conserves ``N_1^2 f``) relax to *distinct*
@@ -28,8 +29,10 @@ import numpy as np
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
+from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 from qpsim.physics.spectral import SpectralContext
 from qpsim.transport.diffusion.base import DiffusionModel, flux_weight
+from scipy.integrate import quad
 
 from validation.diffusion_operators import D0_DEFAULT, results_dir, write_csv
 
@@ -103,14 +106,14 @@ def run(
         np.zeros((NE, NX)), x, gap_hi, spectral, material, DiffusionModel.A1, gap_profile
     )
     n1_full = backend._n1_per_cell(probe)
-    n2_full = backend._n2_per_cell(probe)
     n1_cell = n1_full[ed]
     n1_left = float(n1_cell[interface_face])
     n1_right = float(n1_cell[interface_face + 1])
-    n2_left = float(n2_full[ed][interface_face])
-    n2_right = float(n2_full[ed][interface_face + 1])
-    # Kupriyanov-Lukichev energy-channel interface weight (coherence factor).
-    w_kl = n1_left * n1_right - n2_left * n2_right
+    # Finite-volume Kupriyanov-Lukichev energy-channel weight.  The face
+    # coefficient is the cell average of the coherence-factor *product*;
+    # multiplying separately averaged N1/N2 values is not the same
+    # quadrature and leaves an O(dE^2) current mismatch.
+    w_kl = _kl_cell_average_reference(E, dE, ed, gap_hi, gap_lo)
 
     driven_profiles: dict[str, np.ndarray] = {}
     interface_jump: dict[str, float] = {}
@@ -133,6 +136,17 @@ def run(
         f_int = G_N * w_kl * (f[k] - f[k + 1])
         f_right = w_face[k + 1] * (f[k + 1] - f[k + 2]) / dx
         currents[model.name] = (float(f_left), float(f_int), float(f_right))
+        current_scale = max(abs(float(f_int)), np.finfo(float).tiny)
+        relative_imbalance = max(
+            abs(float(f_left - f_int)),
+            abs(float(f_right - f_int)),
+        ) / current_scale
+        if relative_imbalance >= 1e-8:
+            raise RuntimeError(
+                f"Driven {model.name} interface state failed the raw-flux "
+                f"continuity certificate: relative imbalance "
+                f"{relative_imbalance:.3e} >= 1e-8."
+            )
         interface_jump[model.name] = float(f[k] - f[k + 1])
         bulk_drop[model.name] = float(abs(f[k - 1] - f[k]))
         # K-L cross-check: the observed jump should equal the *bulk* current
@@ -215,7 +229,10 @@ def _drive_to_steady(
         if float(np.max(np.abs(nxt.f[ed] - current.f[ed]))) < tol:
             return nxt
         current = nxt
-    return current
+    raise RuntimeError(
+        "Driven interface relaxation did not reach its update tolerance "
+        f"{tol:.3e} within {max_iter} iterations."
+    )
 
 
 def _harmonic(w_cell: np.ndarray) -> np.ndarray:
@@ -226,6 +243,39 @@ def _harmonic(w_cell: np.ndarray) -> np.ndarray:
     nz = denom > 0.0
     out[nz] = 2.0 * w_left[nz] * w_right[nz] / denom[nz]
     return out
+
+
+def _kl_cell_average_reference(
+    E: np.ndarray,
+    dE: np.ndarray,
+    index: int,
+    gap_left: float,
+    gap_right: float,
+) -> float:
+    """Independent direct-energy quadrature of one KL finite volume."""
+    edges = cell_edges_from_widths(E, dE)
+    lo = max(float(edges[index]), gap_left, gap_right)
+    hi = float(edges[index + 1])
+    if hi <= lo:
+        return 0.0
+    if gap_left == gap_right:
+        return float((hi - lo) / dE[index])
+
+    def integrand(energy: float) -> float:
+        return (energy * energy - gap_left * gap_right) / np.sqrt(
+            (energy * energy - gap_left * gap_left)
+            * (energy * energy - gap_right * gap_right)
+        )
+
+    value, _error = quad(
+        integrand,
+        lo,
+        hi,
+        points=[lo],
+        epsabs=1e-11,
+        epsrel=1e-11,
+    )
+    return float(value / dE[index])
 
 
 def main() -> None:

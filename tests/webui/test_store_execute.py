@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from qpsim.physics.gap_equation import calibrate_gap
 from qpsim.webui.execute import RunCancelledError, execute_setup
 from qpsim.webui.schemas import (
     M25JunctionSetup,
@@ -132,23 +133,39 @@ def _tiny_steady_state() -> SteadyState0DSetup:
 
 class TestSteadyState0DExecutor:
     def test_undriven_thermal_solve_recovers_fermi_dirac(self) -> None:
-        payload = execute_setup(_tiny_steady_state(), _noop_progress, _never)
+        setup = _tiny_steady_state()
+        payload = execute_setup(setup, _noop_progress, _never)
         f = payload.arrays["f"]
         f_thermal = payload.arrays["f_thermal"]
         np.testing.assert_allclose(f, f_thermal, atol=1e-10)
         summary = payload.summary
         assert summary["x_qp"] == pytest.approx(summary["x_qp_thermal"], rel=1e-6)
+        assert summary["x_qp_paper"] == pytest.approx(2.0 * summary["x_qp"])
+        assert summary["x_qp_thermal_paper"] == pytest.approx(
+            2.0 * summary["x_qp_thermal"]
+        )
         # Probe enabled by default with ω₀ = 22 μeV < Δ.
         assert summary["Q_i"] > 0.0
         assert summary["sigma2_over_sigmaN"] > 0.0
-        assert "delta_eq_ueV" in summary
+        calibration = calibrate_gap(
+            T_c=setup.material.T_c,
+            T_bath=setup.T_bath,
+        )
+        assert summary["delta_eq_ueV"] == pytest.approx(calibration.delta_eq)
+        # The default fixed-gap grid begins at Delta_0.  Its independently
+        # calibrated equilibrium gap lies just below that edge, so N31's
+        # fail-closed support contract correctly withholds only the
+        # occupation-derived suppression fields.
+        assert "delta_suppression_ueV" not in summary
+        assert "rel_gap_suppression" not in summary
+        assert any("below the reconstructed" in note for note in payload.notes)
 
-    def test_dynes_skips_mb_observables_with_note(self) -> None:
+    def test_dynes_collision_setup_is_rejected(self) -> None:
         setup = _tiny_steady_state()
         setup.material.dynes_gamma = 0.5
-        payload = execute_setup(setup, _noop_progress, _never)
-        assert "Q_i" not in payload.summary
-        assert any("Dynes" in n for n in payload.notes)
+
+        with pytest.raises(ValueError, match="Dynes-broadened collision solves"):
+            execute_setup(setup, _noop_progress, _never)
 
     def test_negative_sigma1_is_reported_as_active_gain(
         self, monkeypatch: pytest.MonkeyPatch
@@ -189,7 +206,12 @@ class TestTransient0DExecutor:
             setup, lambda fr, _m: fractions.append(fr), _never
         )
         assert payload.arrays["f_snapshots"].shape[0] == payload.arrays["t_ns"].size
+        np.testing.assert_allclose(
+            payload.arrays["obs_x_qp_paper"],
+            2.0 * payload.arrays["obs_x_qp"],
+        )
         assert payload.summary["n_steps"] == 5
+        assert payload.summary["n_etd_substeps"] >= payload.summary["n_steps"]
         assert fractions and fractions[-1] == 1.0
 
     def test_cancel_mid_run(self) -> None:
@@ -219,6 +241,10 @@ class TestSpatial1DExecutor:
         payload = execute_setup(setup, _noop_progress, _never)
         assert payload.arrays["f_final"].shape == (12, 7)
         assert payload.arrays["xqp_profile"].shape == (7,)
+        np.testing.assert_allclose(
+            payload.arrays["xqp_profile_paper"],
+            2.0 * payload.arrays["xqp_profile"],
+        )
         # Left-end injection: the source end carries more QPs.
         profile = payload.arrays["xqp_profile"]
         assert profile[0] > profile[-1]

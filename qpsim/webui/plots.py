@@ -170,7 +170,11 @@ def _plot_time_series(
 
 
 def _plot_xqp_profile(arrays: dict[str, np.ndarray]) -> bytes:
-    fig, ax = _new_axes("x (μm)", "x_qp", "Quasiparticle fraction along the strip")
+    fig, ax = _new_axes(
+        "x (μm)",
+        "x_qp [n_qp/(4 rho_F Delta_0)]",
+        "Quasiparticle fraction along the strip",
+    )
     ax.plot(arrays["x_um"], arrays["xqp_profile"], color=SERIES[0], linewidth=2)
     return _finish(fig)
 
@@ -269,7 +273,11 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
         "occupation_evolution": _PlotSpec(lambda a, s: _plot_occupation_evolution(a, _gap(s))),
         "x_qp_vs_t": _PlotSpec(
             lambda a, s: _plot_time_series(
-                a, [("obs_x_qp", "x_qp")], "x_qp", "Quasiparticle fraction", logy=True
+                a,
+                [("obs_x_qp", "x_qp (qpsim)")],
+                "x_qp [n_qp/(4 rho_F Delta_0)]",
+                "Quasiparticle fraction",
+                logy=True,
             )
         ),
         "Q_i_vs_t": _PlotSpec(
@@ -287,7 +295,7 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             lambda a, s: _plot_time_series(
                 a,
                 [("obs_x_qp_mean", "x_qp mean"), ("obs_x_qp_max", "x_qp max")],
-                "x_qp",
+                "x_qp [n_qp/(4 rho_F Delta_0)]",
                 "Strip observables",
                 logy=True,
             )
@@ -361,8 +369,15 @@ def _csv_transient_snapshots(arrays: dict[str, np.ndarray]) -> str:
 
 
 def _csv_spatial_profile(arrays: dict[str, np.ndarray]) -> str:
-    header = ["x_um", "x_qp"]
-    cols = [arrays["x_um"], arrays["xqp_profile"]]
+    # Keep the historical ``x_qp`` column for saved-workflow compatibility;
+    # its qpsim normalization is now paired with an explicit paper column.
+    header = ["x_um", "x_qp", "x_qp_paper"]
+    paper_profile = arrays.get("xqp_profile_paper", 2.0 * arrays["xqp_profile"])
+    cols = [
+        arrays["x_um"],
+        arrays["xqp_profile"],
+        paper_profile,
+    ]
     if "gap_profile" in arrays:
         header.append("gap_ueV")
         cols.append(arrays["gap_profile"])

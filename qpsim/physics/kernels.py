@@ -26,8 +26,12 @@ from qpsim.physics.spectral import coherence_factor_minus, coherence_factor_plus
 
 
 def _finite_energy_grid(E_bins: np.ndarray) -> np.ndarray:
-    """Return a flat floating energy grid, rejecting NaN and infinity."""
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    """Return a one-dimensional, non-empty, finite floating energy grid."""
+    E = np.asarray(E_bins, dtype=float)
+    if E.ndim != 1:
+        raise ValueError("E_bins must be a 1D array.")
+    if E.size == 0:
+        raise ValueError("E_bins must be non-empty.")
     if np.any(~np.isfinite(E)):
         raise ValueError("E_bins must contain only finite values.")
     return E
@@ -57,14 +61,67 @@ def _positive_scalar(name: str, value: float) -> float:
     return result
 
 
+def _bose_occupation_from_exponent(exponent: np.ndarray) -> np.ndarray:
+    """Evaluate ``1 / (exp(x) - 1)`` stably for non-negative ``x``.
+
+    The exact zero-frequency mode is assigned zero occupation because it is a
+    decoupled, zero-transfer bookkeeping bin in qpsim's discrete phonon grid.
+    Positive exponents use ``expm1`` so that energy spacings below machine
+    epsilon do not collapse to a false zero denominator.  If the mathematical
+    occupation exceeds binary64 range, the result saturates at the largest
+    finite float rather than introducing an infinity into downstream products.
+    """
+    x = np.asarray(exponent, dtype=float)
+    if np.any(~np.isfinite(x)) or np.any(x < 0.0):
+        raise ValueError("Bose exponents must be finite and non-negative.")
+
+    occupation = np.zeros_like(x)
+    positive = x > 0.0
+    if not np.any(positive):
+        return occupation
+
+    denominator = np.expm1(np.minimum(x[positive], 500.0))
+    with np.errstate(divide="ignore", over="ignore"):
+        values = 1.0 / denominator
+    occupation[positive] = np.minimum(values, np.finfo(float).max)
+    return occupation
+
+
+def _thermal_bose_occupation(
+    energy_transfer: np.ndarray,
+    temperature: float,
+) -> np.ndarray:
+    """Return a stable Bose occupation for non-negative energy transfers."""
+    energy = np.asarray(energy_transfer, dtype=float)
+    if np.any(~np.isfinite(energy)) or np.any(energy < 0.0):
+        raise ValueError("Bose energy transfers must be finite and non-negative.")
+    temperature_value = _positive_scalar("temperature", temperature)
+
+    # Divide in two stages instead of forming k_B*T, which can overflow for a
+    # finite extreme temperature. A positive ratio that underflows to zero
+    # represents an occupation beyond binary64 range, so feed the smallest
+    # positive exponent to the saturating evaluator rather than confusing it
+    # with the exact zero-transfer bookkeeping mode.
+    with np.errstate(divide="ignore", over="ignore", under="ignore"):
+        exponent = (energy / _KB_UEV_PER_K) / temperature_value
+    exponent = np.minimum(exponent, 500.0)
+    underflowed = (energy > 0.0) & (exponent == 0.0)
+    if np.any(underflowed):
+        exponent = exponent.copy()
+        exponent[underflowed] = np.nextafter(0.0, 1.0)
+    return _bose_occupation_from_exponent(exponent)
+
+
 def thermal_phonon_occupation(
     omega_bins: np.ndarray,
     temperature: float,
 ) -> np.ndarray:
     """Bose–Einstein thermal phonon occupation n_BE(ω, T) = 1/(exp(ω/kT) − 1).
 
-    Returns zeros at ``temperature <= 0``. Finite positive values elsewhere;
-    the exponent is clipped at 500 for numerical safety.
+    Returns zeros at ``temperature == 0``. The exact ``omega == 0`` bookkeeping
+    mode is also zero because it carries no energy transfer. Finite positive
+    values are returned for positive frequencies and temperatures; the
+    exponent is clipped at 500 for numerical safety.
     """
     omega = np.asarray(omega_bins, dtype=float)
     if omega.ndim != 1:
@@ -73,16 +130,11 @@ def thermal_phonon_occupation(
         raise ValueError("omega_bins must contain only finite values.")
     if np.any(omega < 0):
         raise ValueError("omega_bins must be non-negative.")
-    temperature = _finite_scalar("temperature", temperature)
-    if temperature <= 0:
+    temperature = _non_negative_scalar("temperature", temperature)
+    if temperature == 0:
         return np.zeros_like(omega)
 
-    kT = _KB_UEV_PER_K * float(temperature)
-    exponent = np.minimum(omega / max(kT, 1e-30), 500.0)
-    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-        occ = 1.0 / (np.exp(exponent) - 1.0)
-    occ[~np.isfinite(occ)] = 0.0
-    return np.maximum(occ, 0.0)
+    return _thermal_bose_occupation(omega, temperature)
 
 
 def recombination_kernel_base(
@@ -112,6 +164,12 @@ def recombination_kernel_base(
         if coherence_factor is None
         else np.asarray(coherence_factor, dtype=float)
     )
+    expected_shape = (E.size, E.size)
+    if coh.shape != expected_shape:
+        raise ValueError(
+            "coherence_factor must have shape "
+            f"{expected_shape}; got {coh.shape}."
+        )
     if np.any(~np.isfinite(coh)):
         raise ValueError("coherence_factor must contain only finite values.")
     return (1.0 / tau_0) * (E_sum / kBTc) ** 2 / kBTc * coh
@@ -144,6 +202,12 @@ def scattering_kernel_base(
         if coherence_factor is None
         else np.asarray(coherence_factor, dtype=float)
     )
+    expected_shape = (E.size, E.size)
+    if coh.shape != expected_shape:
+        raise ValueError(
+            "coherence_factor must have shape "
+            f"{expected_shape}; got {coh.shape}."
+        )
     if np.any(~np.isfinite(coh)):
         raise ValueError("coherence_factor must contain only finite values.")
     K_s0 = (1.0 / tau_0) * (E_diff ** 2) / kBTc ** 3 * coh
@@ -164,13 +228,11 @@ def recombination_kernel(
     factor for phonon emission into a thermal bath. At T = 0, N_p = 1.
     """
     E = _finite_energy_grid(E_bins)
-    bath_temperature = _finite_scalar("bath_temperature", bath_temperature)
+    bath_temperature = _non_negative_scalar("bath_temperature", bath_temperature)
     K_r0 = recombination_kernel_base(E, gap, tau_0, T_c)
-    kBTp = _KB_UEV_PER_K * bath_temperature
     E_sum = E[:, None] + E[None, :]
-    if kBTp > 0:
-        exponent = np.minimum(E_sum / kBTp, 500.0)
-        N_p = 1.0 / (np.exp(exponent) - 1.0) + 1.0
+    if bath_temperature > 0:
+        N_p = _thermal_bose_occupation(E_sum, bath_temperature) + 1.0
     else:
         N_p = np.ones_like(E_sum, dtype=float)
     return K_r0 * N_p
@@ -193,18 +255,19 @@ def scattering_kernel(
     Diagonal is zero. At T = 0, absorption vanishes and emission is 1.
     """
     E = _finite_energy_grid(E_bins)
-    bath_temperature = _finite_scalar("bath_temperature", bath_temperature)
+    bath_temperature = _non_negative_scalar("bath_temperature", bath_temperature)
     K_s0 = scattering_kernel_base(E, gap, tau_0, T_c)
     E_diff = E[:, None] - E[None, :]
-    kBTp = _KB_UEV_PER_K * bath_temperature
     N_p = np.zeros_like(E_diff)
-    if kBTp > 0:
+    if bath_temperature > 0:
         emission = E_diff > 0
         absorption = E_diff < 0
-        exponent_em = np.minimum(E_diff[emission] / kBTp, 500.0)
-        exponent_abs = np.minimum((-E_diff[absorption]) / kBTp, 500.0)
-        N_p[emission] = 1.0 + 1.0 / (np.exp(exponent_em) - 1.0)
-        N_p[absorption] = 1.0 / (np.exp(exponent_abs) - 1.0)
+        N_p[emission] = 1.0 + _thermal_bose_occupation(
+            E_diff[emission], bath_temperature
+        )
+        N_p[absorption] = _thermal_bose_occupation(
+            -E_diff[absorption], bath_temperature
+        )
     else:
         N_p[E_diff > 0] = 1.0
         N_p[E_diff < 0] = 0.0

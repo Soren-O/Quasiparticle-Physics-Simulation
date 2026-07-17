@@ -8,22 +8,12 @@ Workspace resolution: ``--workspace`` flag, else the
 from __future__ import annotations
 
 import argparse
-import ipaddress
 import os
-import sys
 import threading
 import webbrowser
 from pathlib import Path
 
-
-def _is_loopback(host: str) -> bool:
-    """True for localhost / 127.0.0.0/8 / ::1 binds."""
-    if host.lower() in ("localhost", ""):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+from qpsim.webui.hosts import is_loopback_host
 
 
 def default_workspace() -> Path:
@@ -36,7 +26,11 @@ def main(argv: list[str] | None = None) -> None:
         prog="qpsim-ui",
         description="Local web frontend for the qpsim superconductor kinetics framework.",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="bind address (default: %(default)s)")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="loopback bind address only (default: %(default)s)",
+    )
     parser.add_argument("--port", type=int, default=8756, help="port (default: %(default)s)")
     parser.add_argument(
         "--workspace",
@@ -49,6 +43,12 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    if not is_loopback_host(args.host):
+        parser.error(
+            "--host must be localhost or a loopback IP address. The qpsim UI "
+            "has no authentication and cannot be bound to a network interface."
+        )
+
     import uvicorn
 
     from qpsim.webui.server import create_app
@@ -56,15 +56,8 @@ def main(argv: list[str] | None = None) -> None:
     workspace = args.workspace if args.workspace is not None else default_workspace()
     app = create_app(workspace)
 
-    if not _is_loopback(args.host):
-        print(
-            f"WARNING: binding to {args.host} exposes the qpsim UI on the network with "
-            "NO authentication — the setup/run read, write, delete and compute-submit "
-            "endpoints are reachable by anyone who can connect to this address. Bind "
-            "127.0.0.1 (the default) unless you intend to expose it.",
-            file=sys.stderr,
-        )
-    url = f"http://{args.host}:{args.port}/"
+    browser_host = f"[{args.host}]" if ":" in args.host else args.host
+    url = f"http://{browser_host}:{args.port}/"
     print(f"qpsim frontend — workspace: {workspace}")
     if not args.no_browser:
         threading.Timer(1.2, webbrowser.open, args=(url,)).start()

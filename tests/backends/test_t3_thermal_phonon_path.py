@@ -121,3 +121,57 @@ class TestThermalPhononPath:
         )
 
         assert observed == [3e-13]
+
+    def test_threads_picard_balance_tol(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.backends.t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        original = backend_module.solve_steady_state
+        observed: list[float] = []
+
+        def capture_picard_balance_tol(*args, **kwargs):
+            observed.append(float(kwargs["picard_balance_tol"]))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            backend_module, "solve_steady_state", capture_picard_balance_tol,
+        )
+        T3DiffusionBackend().steady_state(
+            state,
+            method="picard",
+            picard_balance_tol=4e-7,
+        )
+
+        assert observed == [4e-7]
+
+    @pytest.mark.parametrize("use_thermal_phonons", [False, True])
+    def test_threads_newton_backward_error_tol(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        use_thermal_phonons: bool,
+    ) -> None:
+        import qpsim.backends.t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        original = backend_module.solve_steady_state
+        observed: list[float] = []
+
+        def capture_newton_balance(*args, **kwargs):
+            observed.append(float(kwargs["newton_backward_error_tol"]))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            backend_module,
+            "solve_steady_state",
+            capture_newton_balance,
+        )
+        T3DiffusionBackend().steady_state(
+            state,
+            method="picard",
+            use_thermal_phonons=use_thermal_phonons,
+            newton_backward_error_tol=3e-7,
+        )
+
+        assert observed == [3e-7]

@@ -24,9 +24,9 @@ Usage::
 
 from __future__ import annotations
 
-import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
@@ -38,6 +38,17 @@ from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
+
+from validation.fischer_2024._artifact import (
+    ArtifactValidationError,
+    QPCertificate,
+    bind_certificate,
+    qp_certificate,
+    read_artifact,
+    source_hashes,
+    validated_numeric_array,
+    write_artifact,
+)
 
 # ── F24 Sec. IV parameters ───────────────────────────────────────────
 
@@ -56,13 +67,53 @@ NUM_BINS = 810  # ω_PB/dE = 252 exactly at this grid
 
 T_BATH_VALUES: tuple[float, ...] = tuple(np.linspace(0.05, 0.22, 8).tolist())
 
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v2"
+NEWTON_TOL = 1.0e-14
+NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
+NEWTON_MAX_ITER = 500
+
 
 @dataclass(frozen=True)
 class Fig8Result:
     T_bath: np.ndarray
     powers: tuple[float, ...]
-    x_qp_thermal: np.ndarray                 # shape (NT,)
-    x_qp_by_power: dict[float, np.ndarray]   # power → shape (NT,)
+    x_qp_thermal: np.ndarray  # shape (NT,)
+    x_qp_by_power: dict[float, np.ndarray]  # power → shape (NT,)
+    qp_backward_error_by_power: dict[float, np.ndarray]
+    qp_residual_inf_by_power: dict[float, np.ndarray]
+    # Full returned states are retained in memory so baseline generation can
+    # bind scalar x_qp values and certificate stamps to the solved f(E).
+    # Summary artifacts intentionally omit them; read_baseline returns None.
+    f_by_power: dict[float, np.ndarray] | None = None
+
+
+def solver_fingerprint() -> dict[str, Any]:
+    """Resolved physics, axes, and solver knobs stamped into the CSV."""
+    return {
+        "delta_0_uev": DELTA_0,
+        "e_max_factor": E_MAX_FACTOR,
+        "e_min_factor": E_MIN_FACTOR,
+        "n_bar_pb": N_BAR_PB,
+        "newton_backward_error_tol": NEWTON_BACKWARD_ERROR_TOL,
+        "newton_max_iter": NEWTON_MAX_ITER,
+        "newton_tol": NEWTON_TOL,
+        "num_bins": NUM_BINS,
+        "omega_pb_uev": OMEGA_PB,
+        "source_sha256": source_hashes(Path(__file__)),
+        "powers_ns_inv": list(POWER_LEVELS),
+        "t_bath_k": list(T_BATH_VALUES),
+        "t_c_k": T_C,
+        "tau_0_ns": TAU_0,
+        "use_thermal_phonons": True,
+    }
+
+
+def _point_id(T_bath: float, power: float) -> str:
+    return f"T_bath_K={T_bath:.17e}|power_ns_inv={power:.17e}"
+
+
+def _columns() -> list[str]:
+    return ["T_bath_K", "x_qp_thermal"] + [f"x_qp_power_{power:.17e}" for power in POWER_LEVELS]
 
 
 def _material() -> Material:
@@ -109,15 +160,18 @@ def run() -> Fig8Result:
     T_values = np.array(T_BATH_VALUES)
     x_thermal = np.zeros_like(T_values)
     x_by_power: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
+    qp_backward: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
+    qp_residual: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
+    f_by_power: dict[float, np.ndarray] = {
+        p: np.zeros((T_values.size, NUM_BINS)) for p in POWER_LEVELS
+    }
 
     # Verify commensurability once (all T_bath use the same grid).
     probe_state = _build_state(material, float(T_values[0]))
     dE_scalar = float(probe_state.spectral.dE[0])
     frac_err = abs(OMEGA_PB - round(OMEGA_PB / dE_scalar) * dE_scalar) / OMEGA_PB
     if frac_err > 1e-10:
-        raise RuntimeError(
-            f"ω_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}"
-        )
+        raise RuntimeError(f"ω_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}")
 
     for i, T in enumerate(T_values):
         state = _build_state(material, T)
@@ -134,18 +188,32 @@ def run() -> Fig8Result:
                 state,
                 use_thermal_phonons=True,
                 pb_photon_params=pb_params,
-                newton_tol=1e-14,
-                newton_max_iter=500,
+                newton_tol=NEWTON_TOL,
+                newton_backward_error_tol=NEWTON_BACKWARD_ERROR_TOL,
+                newton_max_iter=NEWTON_MAX_ITER,
             )
             x_by_power[power][i] = qp_fraction(
-                driven.f, driven.spectral, delta_0=DELTA_0,
+                driven.f,
+                driven.spectral,
+                delta_0=DELTA_0,
             )
+            f_by_power[power][i] = driven.f
+            certificate = qp_certificate(
+                driven,
+                pb_photon_params=pb_params,
+                residual_inf_limit=NEWTON_TOL,
+            )
+            qp_backward[power][i] = certificate.backward_error
+            qp_residual[power][i] = certificate.residual_inf
 
     return Fig8Result(
         T_bath=T_values,
         powers=POWER_LEVELS,
         x_qp_thermal=x_thermal,
         x_qp_by_power=x_by_power,
+        qp_backward_error_by_power=qp_backward,
+        qp_residual_inf_by_power=qp_residual,
+        f_by_power=f_by_power,
     )
 
 
@@ -161,51 +229,148 @@ def plot_path() -> Path:
 def write_baseline(result: Fig8Result, path: Path | None = None) -> Path:
     if path is None:
         path = baseline_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
-        writer.writerow(["# Fischer & Catelani 2024 Fig 8 — x_qp(T_B) with PB-photon drive; pinned by qpsim"])
-        writer.writerow([
-            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_PB={OMEGA_PB} "
-            f"n_bar_PB={N_BAR_PB}"
-        ])
-        writer.writerow([f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"])
-        powers_csv = ",".join(f"{p:g}" for p in result.powers)
-        writer.writerow([f"# powers_ns_inv={powers_csv}"])
-        header = ["T_bath_K", "x_qp_thermal"] + [f"x_qp_power_{p:g}" for p in result.powers]
-        writer.writerow(header)
-        for i in range(result.T_bath.size):
-            row = [f"{result.T_bath[i]:.17e}", f"{result.x_qp_thermal[i]:.17e}"]
-            row.extend(f"{result.x_qp_by_power[p][i]:.17e}" for p in result.powers)
-            writer.writerow(row)
-    return path
+    expected_T = np.asarray(T_BATH_VALUES, dtype=float)
+    if not np.array_equal(result.T_bath, expected_T):
+        raise ValueError("Fig. 8 T_bath axis must exactly match T_BATH_VALUES.")
+    if result.powers != POWER_LEVELS:
+        raise ValueError("Fig. 8 power axis must exactly match POWER_LEVELS.")
+    if result.f_by_power is None:
+        raise ArtifactValidationError(
+            "Fig. 8 baseline generation requires full returned f(E) states; "
+            "a summary readback cannot be re-certified."
+        )
+    mappings = {
+        "x_qp_by_power": result.x_qp_by_power,
+        "qp_backward_error_by_power": result.qp_backward_error_by_power,
+        "qp_residual_inf_by_power": result.qp_residual_inf_by_power,
+        "f_by_power": result.f_by_power,
+    }
+    for name, mapping in mappings.items():
+        if set(mapping) != set(POWER_LEVELS):
+            raise ArtifactValidationError(f"Fig. 8 {name} keys must exactly match POWER_LEVELS.")
+    validated_numeric_array(
+        result.x_qp_thermal,
+        context="Fig. 8 thermal x_qp",
+        expected_shape=(len(T_BATH_VALUES),),
+        lower=0.0,
+    )
+    certificates: dict[str, QPCertificate] = {}
+    for i, T_bath in enumerate(T_BATH_VALUES):
+        base_state = _build_state(_material(), T_bath)
+        expected_thermal = float(qp_fraction(base_state.f, base_state.spectral, delta_0=DELTA_0))
+        if not np.isclose(
+            float(result.x_qp_thermal[i]),
+            expected_thermal,
+            rtol=1.0e-12,
+            atol=0.0,
+        ):
+            raise ArtifactValidationError(
+                f"Fig. 8 thermal x_qp at T_bath={T_bath:g} K is inconsistent."
+            )
+        for power in POWER_LEVELS:
+            f_states = validated_numeric_array(
+                result.f_by_power[power],
+                context=f"Fig. 8 f(E) states at power={power:g}",
+                expected_shape=(len(T_BATH_VALUES), NUM_BINS),
+                lower=0.0,
+                upper=1.0,
+            )
+            x_values = validated_numeric_array(
+                result.x_qp_by_power[power],
+                context=f"Fig. 8 x_qp at power={power:g}",
+                expected_shape=(len(T_BATH_VALUES),),
+                lower=0.0,
+            )
+            expected_x_qp = float(qp_fraction(f_states[i], base_state.spectral, delta_0=DELTA_0))
+            if not np.isclose(
+                float(x_values[i]),
+                expected_x_qp,
+                rtol=1.0e-12,
+                atol=0.0,
+            ):
+                raise ArtifactValidationError(
+                    f"Fig. 8 x_qp at T_bath={T_bath:g} K, power={power:g} "
+                    "is inconsistent with f(E)."
+                )
+            pb_params = {
+                "omega_PB": OMEGA_PB,
+                "n_bar_PB": N_BAR_PB,
+                "c_phot_PB": power / N_BAR_PB,
+            }
+            reassembled = qp_certificate(
+                replace(base_state, f=f_states[i].copy()),
+                pb_photon_params=pb_params,
+                residual_inf_limit=NEWTON_TOL,
+            )
+            stamped = QPCertificate(
+                backward_error=float(result.qp_backward_error_by_power[power][i]),
+                residual_inf=float(result.qp_residual_inf_by_power[power][i]),
+            )
+            certificates[_point_id(T_bath, power)] = bind_certificate(
+                stamped,
+                reassembled,
+                context=f"Fig. 8 T_bath={T_bath:g} K, power={power:g}",
+                residual_inf_limit=NEWTON_TOL,
+            )
+    rows: list[list[float]] = []
+    for i, T_bath in enumerate(result.T_bath):
+        rows.append(
+            [float(T_bath), float(result.x_qp_thermal[i])]
+            + [float(result.x_qp_by_power[p][i]) for p in result.powers]
+        )
+    return write_artifact(
+        path,
+        schema=ARTIFACT_SCHEMA,
+        fingerprint=solver_fingerprint(),
+        columns=_columns(),
+        rows=rows,
+        certificates=certificates,
+        target_qp_residual_inf=NEWTON_TOL,
+    )
 
 
 def read_baseline(path: Path | None = None) -> Fig8Result:
     if path is None:
         path = baseline_path()
-    rows: list[list[float]] = []
-    powers: tuple[float, ...] = ()
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line:
-                continue
-            first = line[0]
-            if first.startswith("# powers_ns_inv"):
-                powers = tuple(float(x) for x in first.split("=", 1)[1].split(","))
-                continue
-            if first.startswith("#") or first == "T_bath_K":
-                continue
-            rows.append([float(x) for x in line])
-    if not powers:
-        raise RuntimeError(f"Baseline at {path} missing '# powers_ns_inv=' metadata.")
-    data = np.array(rows, dtype=float)
+    expected_ids = [_point_id(T_bath, power) for T_bath in T_BATH_VALUES for power in POWER_LEVELS]
+    artifact = read_artifact(
+        path,
+        schema=ARTIFACT_SCHEMA,
+        fingerprint=solver_fingerprint(),
+        columns=_columns(),
+        expected_row_count=len(T_BATH_VALUES),
+        expected_certificate_ids=expected_ids,
+        target_qp_residual_inf=NEWTON_TOL,
+    )
+    data = artifact.data
+    expected_T = np.asarray(T_BATH_VALUES, dtype=float)
+    if not np.array_equal(data[:, 0], expected_T):
+        raise ArtifactValidationError(f"Artifact at {path} has a stale T_bath axis.")
+    if np.any(np.diff(data[:, 0]) <= 0.0):
+        raise ArtifactValidationError(f"Artifact at {path} T_bath axis is not strictly increasing.")
+    validated_numeric_array(
+        data[:, 1:],
+        context=f"Artifact at {path} x_qp values",
+        expected_shape=(len(T_BATH_VALUES), 1 + len(POWER_LEVELS)),
+        lower=0.0,
+    )
+    qp_backward: dict[float, np.ndarray] = {}
+    qp_residual: dict[float, np.ndarray] = {}
+    for power in POWER_LEVELS:
+        qp_backward[power] = np.asarray(
+            [artifact.certificates[_point_id(T, power)].backward_error for T in T_BATH_VALUES]
+        )
+        qp_residual[power] = np.asarray(
+            [artifact.certificates[_point_id(T, power)].residual_inf for T in T_BATH_VALUES]
+        )
     return Fig8Result(
         T_bath=data[:, 0],
-        powers=powers,
+        powers=POWER_LEVELS,
         x_qp_thermal=data[:, 1],
-        x_qp_by_power={p: data[:, i + 2] for i, p in enumerate(powers)},
+        x_qp_by_power={p: data[:, i + 2] for i, p in enumerate(POWER_LEVELS)},
+        qp_backward_error_by_power=qp_backward,
+        qp_residual_inf_by_power=qp_residual,
+        f_by_power=None,
     )
 
 
@@ -220,12 +385,16 @@ def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.loglog(result.T_bath, result.x_qp_thermal, "k--", lw=1.5,
-              label=r"thermal (no PB drive)")
-    colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(result.powers)))
+    ax.loglog(result.T_bath, result.x_qp_thermal, "k--", lw=1.5, label=r"thermal (no PB drive)")
+    colors = plt.get_cmap("viridis")(np.linspace(0.15, 0.85, len(result.powers)))
     for power, color in zip(result.powers, colors, strict=True):
-        ax.loglog(result.T_bath, result.x_qp_by_power[power], lw=2.0, color=color,
-                  label=rf"$c \cdot \bar n = {power:g}$ ns$^{{-1}}$")
+        ax.loglog(
+            result.T_bath,
+            result.x_qp_by_power[power],
+            lw=2.0,
+            color=color,
+            label=rf"$c \cdot \bar n = {power:g}$ ns$^{{-1}}$",
+        )
     ax.set_xlabel(r"$T_B$ [K]", fontsize=14)
     ax.set_ylabel(r"$x_{qp}$", fontsize=14)
     ax.set_title(
@@ -244,10 +413,7 @@ def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
 
 def generate_baseline() -> tuple[Path, Path]:
     print("Fischer & Catelani 2024 Fig 8 — x_qp(T_B) with PB-photon drive ...")
-    print(
-        f"  Δ₀={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, "
-        f"n̄_PB={N_BAR_PB:.0e}"
-    )
+    print(f"  Δ₀={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, n̄_PB={N_BAR_PB:.0e}")
     print(f"  Powers (c·n̄, ns⁻¹): {list(POWER_LEVELS)}")
     print(f"  Grid: NE={NUM_BINS}")
     print(

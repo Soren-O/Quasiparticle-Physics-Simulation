@@ -52,11 +52,32 @@ All three channels are validated at thermal equilibrium under
 - `solve_gap(calibration, f, E_bins)` — runtime gap from an arbitrary
   `f(E)` via Brent's method on the reference-subtracted residual.
 
+The reconstructed first energy-cell face must lie at or below the selected
+gap. Otherwise the sampled occupation does not cover the newly available
+gap-edge states, and `solve_gap` fails closed. The historical constant-left
+occupation extrapolation is available only through the explicit
+`allow_gap_edge_extrapolation=True` opt-in and always warns; state-backed
+quantitative paths do not enable it.
+
+For a non-equilibrium occupation the residual need not be monotone and can have
+several physical roots. Continuation callers pass
+`reference_gap=<previous/current Δ>`; `solve_gap` performs a bounded adaptive
+sign-change scan around that value and selects the nearest detected
+sign-changing root, independent of the legacy `bracket_factor`. Tangent
+(even-multiplicity) roots do not change sign and are outside this continuation
+contract. The solver still emits a runtime warning listing detected branches
+because deterministic continuation does not remove the underlying physical
+ambiguity. The T3 self-consistent and moving-gap loops provide this reference
+automatically.
+
 The cosh substitution `E = Δ cosh u` removes the `1/√(E²−Δ²)`
-singularity at the gap edge. Hard-coded BCS weak-coupling ratio
-`Δ₀/(k_B T_c) = 1.764`. Materials that depart from weak coupling
-(notably Nb at ~1.88) need explicit `Δ_0` rather than relying on
-`calibrate_gap` to derive it from `T_c`.
+singularity at the gap edge. The coupling is fixed by the finite-cutoff gap
+equation linearized at the declared `T_c`, so `Δ_eq` closes continuously there.
+The default cutoff implies `Δ₀^BCS/(k_B T_c) = 1.76374`. An optional measured
+`Delta_0` is retained in the calibration as diagnostic metadata only; it cannot
+serve as a second independent anchor. Materials that depart from weak coupling
+(notably Nb at ~1.88) need an explicit strong-coupling or phenomenological gap
+model to reproduce both measured `Delta_0` and `T_c` quantitatively.
 
 ## Phonon sector
 

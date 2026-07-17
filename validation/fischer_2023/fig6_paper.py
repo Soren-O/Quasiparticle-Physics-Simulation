@@ -10,12 +10,13 @@ ordinate
 
 against the Eq. 35 drive-equivalent temperature ratio $T_*/\\Delta$, swept
 over $\\bar n$ at three bath temperatures $T_B \\in \\{0.10, 0.15, 0.20\\}$ K
-on the paper grid (1620 bins, $dE = 1\\,\\mu$eV). Solid lines: numerical
+on a paper-resolution grid (1640 bins: the original 1620 above-gap cells plus
+20 sub-gap guard cells, $dE = 1\\,\\mu$eV). Solid lines: numerical
 joint kinetic-equation + self-consistent gap solve. Dashed lines:
 analytical Eq. 53.
 
 The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)/\\delta\\Delta_T$,
-which goes negative on the strong-drive side; the 1620-bin grid resolves
+which goes negative on the strong-drive side; the 1640-bin grid resolves
 the sign change cleanly.
 
 $\\tau_\\ell$ model
@@ -61,10 +62,13 @@ from __future__ import annotations
 
 import csv
 import inspect
+import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import numpy as np
 import qpsim.observables.density as _density_mod
@@ -72,13 +76,22 @@ import qpsim.observables.gap_suppression as _gap_suppression_mod
 from qpsim.constants import KB_UEV_PER_K
 
 from validation import sweep_cache
-from validation.fischer_2023 import fig5_paper, fig5_solve, fig6_solve
+from validation.fischer_2023 import (
+    fig5_paper,
+    fig5_solve,
+    fig6_solve,
+)
+from validation.fischer_2023 import (
+    steady_state_certificate as certificate_module,
+)
 from validation.fischer_2023.fig6_solve import (
     C_PHOT,
     DELTA_0,
     E_MAX_FACTOR,
     E_MIN_FACTOR,
     FILM_THICKNESS_NM,
+    FINITE_CUTOFF_DELTA0_OVER_KBTC,
+    GAP_FIXED_POINT_ABS_TOL_UEV,
     OMEGA_0,
     SUBSTRATE_ETA,
     T_BATH_VALUES,
@@ -117,6 +130,12 @@ class Fig6PaperResult:
     paper_observable_eq53: np.ndarray       # shape (n_T, n_n) — dashed lines
     x_qp_num: np.ndarray                    # shape (n_T, n_n) — diagnostic
     x_qp_eq47: np.ndarray                   # shape (n_T, n_n) — Eq. 47 diagnostic
+    qp_residual_inf: np.ndarray             # shape (n_T, n_n) — raw balance
+    qp_backward_error: np.ndarray           # shape (n_T, n_n) — normwise
+    phonon_residual_inf: np.ndarray         # shape (n_T, n_n) — raw balance
+    phonon_raw_backward_error: np.ndarray   # shape (n_T, n_n) — raw normwise
+    phonon_backward_error: np.ndarray       # shape (n_T, n_n) — certified normwise
+    gap_fixed_point_abs_error_uev: np.ndarray  # shape (n_T, n_n) — gap map
 
 
 def observables(raw: Mapping[str, np.ndarray]) -> Fig6PaperResult:
@@ -145,6 +164,16 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig6PaperResult:
         paper_observable_eq53=np.asarray(raw["paper_observable_eq53"], dtype=float),
         x_qp_num=np.asarray(raw["x_qp_num"], dtype=float),
         x_qp_eq47=np.asarray(raw["x_qp_eq47"], dtype=float),
+        qp_residual_inf=np.asarray(raw["qp_residual_inf"], dtype=float),
+        qp_backward_error=np.asarray(raw["qp_backward_error"], dtype=float),
+        phonon_residual_inf=np.asarray(raw["phonon_residual_inf"], dtype=float),
+        phonon_raw_backward_error=np.asarray(
+            raw["phonon_raw_backward_error"], dtype=float
+        ),
+        phonon_backward_error=np.asarray(raw["phonon_backward_error"], dtype=float),
+        gap_fixed_point_abs_error_uev=np.asarray(
+            raw["gap_fixed_point_abs_error_uev"], dtype=float
+        ),
     )
 
 
@@ -194,6 +223,7 @@ def run_cached(
         # else run_cached() could serve a stale overlay after a fig5 edit.
         + inspect.getsource(fig5_paper)
         + inspect.getsource(fig5_solve)
+        + inspect.getsource(certificate_module)
     )
     kwargs = {
         "direct_gap_observable": bool(direct_gap_observable),
@@ -237,6 +267,15 @@ _TAU_L_MODEL_RE = re.compile(r"TAU_L_MODEL='([^']*)'")
 _GRID_NE_RE = re.compile(r"NE=(\d+)")
 _E_MIN_RE = re.compile(r"E_min=([\deE.+-]+)\*Delta")
 _E_MAX_RE = re.compile(r"E_max=([\deE.+-]+)\*Delta")
+_FINITE_CUTOFF_RATIO_RE = re.compile(
+    r"finite_cutoff_delta0_over_kBTc=([\deE.+-]+)"
+)
+_GAP_FIXED_POINT_ABS_TOL_RE = re.compile(
+    r"gap_fixed_point_abs_tol_ueV=([\deE.+-]+)"
+)
+_CERTIFICATE_METRIC_VERSION_RE = re.compile(
+    r"certificate_metric_version=([^\s]+)"
+)
 _HEADER_PARAM_RE = {
     "delta_0": re.compile(r"Delta_0=([\deE.+-]+)"),
     "tau_0": re.compile(r"tau_0=([\deE.+-]+)"),
@@ -247,34 +286,80 @@ _HEADER_PARAM_RE = {
     "eta": re.compile(r"eta=([\deE.+-]+)"),
 }
 
+FIG6_BASELINE_COLUMNS: tuple[str, ...] = (
+    "T_bath_K",
+    "n_bar",
+    "T_star_over_delta",
+    "delta_eq_T_bath_ueV",
+    "delta_driven_ueV",
+    "x_qp_num",
+    "x_qp_eq47",
+    "paper_observable_num",
+    "paper_observable_eq53",
+    "qp_residual_inf",
+    "qp_backward_error",
+    "phonon_residual_inf",
+    "phonon_raw_backward_error",
+    "phonon_backward_error",
+    "gap_fixed_point_abs_error_uev",
+)
+_LEGACY_BASELINE_COLUMNS = FIG6_BASELINE_COLUMNS[:9]
+_OLD_CERTIFIED_BASELINE_COLUMNS = (
+    *_LEGACY_BASELINE_COLUMNS,
+    "qp_residual_inf",
+    "qp_backward_error",
+    "phonon_residual_inf",
+    "phonon_backward_error",
+)
+_SUPPORTED_BASELINE_COLUMNS = {
+    _LEGACY_BASELINE_COLUMNS,
+    _OLD_CERTIFIED_BASELINE_COLUMNS,
+    FIG6_BASELINE_COLUMNS,
+}
+
+
+@contextmanager
+def _atomic_text_file(path: Path) -> Iterator[TextIO]:
+    """Yield a UTF-8/LF-ready sibling temp and replace ``path`` on success."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as stream:
+            yield stream
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
 
 def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
     """Write a flat row-per-(T_bath, n_bar) CSV with all observables."""
     if path is None:
         path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+    with _atomic_text_file(path) as fp:
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow([
             "# Fischer 2023 Fig. 6 — paper-topology gap-suppression reproduction"
         ])
         writer.writerow([
-            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_0={OMEGA_0} "
-            f"c_phot={C_PHOT} film_thickness_nm={FILM_THICKNESS_NM} eta={SUBSTRATE_ETA}"
+            f"# Delta_0={DELTA_0:.17g} tau_0={TAU_0:.17g} "
+            f"T_c={T_C:.17g} "
+            "finite_cutoff_delta0_over_kBTc="
+            f"{FINITE_CUTOFF_DELTA0_OVER_KBTC:.17g} "
+            f"omega_0={OMEGA_0:.17g} c_phot={C_PHOT:.17g} "
+            f"film_thickness_nm={FILM_THICKNESS_NM:.17g} "
+            f"eta={SUBSTRATE_ETA:.17g}"
         ])
         writer.writerow([
             f"# Grid: NE={fig6_solve.NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"
         ])
         writer.writerow([
             f"# tau_0_pb_ns={result.tau_0_pb_ns}  "
-            f"tau_l_ns={result.tau_l_ns}  (TAU_L_MODEL={TAU_L_MODEL!r})"
+            f"tau_l_ns={result.tau_l_ns}  (TAU_L_MODEL={TAU_L_MODEL!r}) "
+            f"gap_fixed_point_abs_tol_ueV={GAP_FIXED_POINT_ABS_TOL_UEV:.17g} "
+            "certificate_metric_version="
+            f"{certificate_module.CERTIFICATE_METRIC_VERSION}"
         ])
-        writer.writerow([
-            "T_bath_K", "n_bar", "T_star_over_delta",
-            "delta_eq_T_bath_ueV", "delta_driven_ueV",
-            "x_qp_num", "x_qp_eq47",
-            "paper_observable_num", "paper_observable_eq53",
-        ])
+        writer.writerow(FIG6_BASELINE_COLUMNS)
         for i, T_bath in enumerate(result.T_bath):
             for j, n_bar in enumerate(result.n_bar):
                 writer.writerow([
@@ -287,6 +372,12 @@ def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
                     f"{result.x_qp_eq47[i, j]:.17e}",
                     f"{result.paper_observable_num[i, j]:.17e}",
                     f"{result.paper_observable_eq53[i, j]:.17e}",
+                    f"{result.qp_residual_inf[i, j]:.17e}",
+                    f"{result.qp_backward_error[i, j]:.17e}",
+                    f"{result.phonon_residual_inf[i, j]:.17e}",
+                    f"{result.phonon_raw_backward_error[i, j]:.17e}",
+                    f"{result.phonon_backward_error[i, j]:.17e}",
+                    f"{result.gap_fixed_point_abs_error_uev[i, j]:.17e}",
                 ])
     return path
 
@@ -297,10 +388,9 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
         path = baseline_path()
     tau_0_pb: float | None = None
     tau_l: float | None = None
-    rows: list[
-        tuple[float, float, float, float, float, float, float, float, float]
-    ] = []
-    with path.open() as fp:
+    rows: list[tuple[float, ...]] = []
+    data_columns: tuple[str, ...] | None = None
+    with path.open(encoding="utf-8", newline="") as fp:
         reader = csv.reader(fp)
         for line in reader:
             if not line:
@@ -314,21 +404,74 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
                 if m_l:
                     tau_l = float(m_l.group(1))
                 continue
-            if first.startswith("#") or first == "T_bath_K":
+            if first.startswith("#"):
                 continue
-            rows.append((
-                float(line[0]), float(line[1]),
-                float(line[2]), float(line[3]),
-                float(line[4]), float(line[5]),
-                float(line[6]), float(line[7]),
-                float(line[8]),
-            ))
+            if first == "T_bath_K":
+                candidate_columns = tuple(line)
+                if candidate_columns not in _SUPPORTED_BASELINE_COLUMNS:
+                    raise RuntimeError(
+                        "Fig. 6 baseline has an unsupported data header: "
+                        f"{candidate_columns!r}."
+                    )
+                if data_columns is not None:
+                    raise RuntimeError("Fig. 6 baseline contains multiple data headers.")
+                data_columns = candidate_columns
+                continue
+            if data_columns is None:
+                raise RuntimeError(
+                    "Fig. 6 baseline data appeared before a supported header."
+                )
+            if len(line) != len(data_columns):
+                raise RuntimeError(
+                    f"Fig. 6 baseline row has {len(line)} columns but its "
+                    f"header declares {len(data_columns)}."
+                )
+            values = tuple(float(value) for value in line)
+            if len(values) == 9:
+                # Backward compatibility with pre-certificate baselines.
+                values += (float("nan"),) * 6
+            elif len(values) == 13:
+                # Old certified schema: the four appended columns were
+                # qp residual/BE and phonon residual/certified BE. Insert the
+                # later raw-phonon and gap-map fields without reinterpreting
+                # that final phonon value.
+                values = (
+                    *values[:12],
+                    float("nan"),
+                    values[12],
+                    float("nan"),
+                )
+            elif len(values) != 15:
+                raise RuntimeError(
+                    f"Fig. 6 baseline row has {len(values)} columns; expected "
+                    "the legacy 9-column, old-certified 13-column, or "
+                    "current 15-column schema."
+                )
+            rows.append(values)
     if tau_0_pb is None or tau_l is None:
         raise RuntimeError(
             f"Baseline header at {path} missing tau_0_pb_ns / tau_l_ns metadata."
         )
+    if data_columns is None or not rows:
+        raise RuntimeError(f"Fig. 6 baseline at {path} has no data rows.")
+    coordinates = [(row[0], row[1]) for row in rows]
+    if any(not np.all(np.isfinite(coordinate)) for coordinate in coordinates):
+        raise RuntimeError("Fig. 6 baseline coordinates must be finite.")
+    if len(set(coordinates)) != len(coordinates):
+        raise RuntimeError("Fig. 6 baseline contains duplicate (T_bath, n_bar) rows.")
     T_bath_unique = sorted({r[0] for r in rows})
     n_bar_unique = sorted({r[1] for r in rows})
+    expected_coordinates = {
+        (T_bath, n_bar)
+        for T_bath in T_bath_unique
+        for n_bar in n_bar_unique
+    }
+    missing_coordinates = expected_coordinates - set(coordinates)
+    if missing_coordinates:
+        raise RuntimeError(
+            "Fig. 6 baseline is missing Cartesian (T_bath, n_bar) rows: "
+            f"{sorted(missing_coordinates)!r}."
+        )
     n_T = len(T_bath_unique)
     n_n = len(n_bar_unique)
     T_idx = {t: i for i, t in enumerate(T_bath_unique)}
@@ -339,8 +482,30 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
     x_qp_eq47 = np.full((n_T, n_n), np.nan)
     obs_num = np.full((n_T, n_n), np.nan)
     obs_eq53 = np.full((n_T, n_n), np.nan)
+    qp_residual_inf = np.full((n_T, n_n), np.nan)
+    qp_backward_error = np.full((n_T, n_n), np.nan)
+    phonon_residual_inf = np.full((n_T, n_n), np.nan)
+    phonon_raw_backward_error = np.full((n_T, n_n), np.nan)
+    phonon_backward_error = np.full((n_T, n_n), np.nan)
+    gap_fixed_point_abs_error_uev = np.full((n_T, n_n), np.nan)
     delta_eq_per_T = np.full(n_T, np.nan)
-    for T_bath, n_bar, ts, deq, ddr, xq, xq47, on, oe in rows:
+    for (
+        T_bath,
+        n_bar,
+        ts,
+        deq,
+        ddr,
+        xq,
+        xq47,
+        on,
+        oe,
+        qp_inf,
+        qp_be,
+        ph_inf,
+        ph_raw_be,
+        ph_be,
+        gap_abs_error,
+    ) in rows:
         i, j = T_idx[T_bath], n_idx[n_bar]
         T_star[i, j] = ts
         delta_driven[i, j] = ddr
@@ -348,6 +513,12 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
         x_qp_eq47[i, j] = xq47
         obs_num[i, j] = on
         obs_eq53[i, j] = oe
+        qp_residual_inf[i, j] = qp_inf
+        qp_backward_error[i, j] = qp_be
+        phonon_residual_inf[i, j] = ph_inf
+        phonon_raw_backward_error[i, j] = ph_raw_be
+        phonon_backward_error[i, j] = ph_be
+        gap_fixed_point_abs_error_uev[i, j] = gap_abs_error
         delta_eq_per_T[i] = deq
 
     return Fig6PaperResult(
@@ -363,6 +534,12 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
         paper_observable_eq53=obs_eq53,
         x_qp_num=x_qp_num,
         x_qp_eq47=x_qp_eq47,
+        qp_residual_inf=qp_residual_inf,
+        qp_backward_error=qp_backward_error,
+        phonon_residual_inf=phonon_residual_inf,
+        phonon_raw_backward_error=phonon_raw_backward_error,
+        phonon_backward_error=phonon_backward_error,
+        gap_fixed_point_abs_error_uev=gap_fixed_point_abs_error_uev,
     )
 
 
@@ -381,6 +558,7 @@ class BaselineMetadata:
     """
 
     delta_0: float
+    finite_cutoff_delta0_over_kbtc: float
     tau_0: float
     t_c: float
     omega_0: float
@@ -393,6 +571,8 @@ class BaselineMetadata:
     tau_0_pb_ns: float
     tau_l_ns: float
     tau_l_model: str
+    gap_fixed_point_abs_tol_uev: float
+    certificate_metric_version: str
 
 
 def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
@@ -405,7 +585,7 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     """
     if path is None:
         path = baseline_path()
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
 
     def _num(rx: re.Pattern[str], field: str) -> float:
         m = rx.search(text)
@@ -415,6 +595,11 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
             )
         return float(m.group(1))
 
+    def _optional_num(rx: re.Pattern[str]) -> float:
+        """Read post-legacy metadata while retaining old-header readability."""
+        match = rx.search(text)
+        return float("nan") if match is None else float(match.group(1))
+
     ne_m = _GRID_NE_RE.search(text)
     model_m = _TAU_L_MODEL_RE.search(text)
     if ne_m is None or model_m is None:
@@ -423,6 +608,7 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         )
     return BaselineMetadata(
         delta_0=_num(_HEADER_PARAM_RE["delta_0"], "Delta_0"),
+        finite_cutoff_delta0_over_kbtc=_optional_num(_FINITE_CUTOFF_RATIO_RE),
         tau_0=_num(_HEADER_PARAM_RE["tau_0"], "tau_0"),
         t_c=_num(_HEADER_PARAM_RE["t_c"], "T_c"),
         omega_0=_num(_HEADER_PARAM_RE["omega_0"], "omega_0"),
@@ -435,6 +621,14 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         tau_0_pb_ns=_num(_TAU_0_PB_RE, "tau_0_pb_ns"),
         tau_l_ns=_num(_TAU_L_RE, "tau_l_ns"),
         tau_l_model=model_m.group(1),
+        gap_fixed_point_abs_tol_uev=_optional_num(
+            _GAP_FIXED_POINT_ABS_TOL_RE
+        ),
+        certificate_metric_version=(
+            ""
+            if (metric_match := _CERTIFICATE_METRIC_VERSION_RE.search(text)) is None
+            else metric_match.group(1)
+        ),
     )
 
 
@@ -455,6 +649,7 @@ def config_metadata() -> BaselineMetadata:
     )
     return BaselineMetadata(
         delta_0=DELTA_0,
+        finite_cutoff_delta0_over_kbtc=FINITE_CUTOFF_DELTA0_OVER_KBTC,
         tau_0=TAU_0,
         t_c=T_C,
         omega_0=OMEGA_0,
@@ -467,6 +662,8 @@ def config_metadata() -> BaselineMetadata:
         tau_0_pb_ns=tau_0_pb,
         tau_l_ns=tau_l,
         tau_l_model=TAU_L_MODEL,
+        gap_fixed_point_abs_tol_uev=GAP_FIXED_POINT_ABS_TOL_UEV,
+        certificate_metric_version=certificate_module.CERTIFICATE_METRIC_VERSION,
     )
 
 
@@ -619,7 +816,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
             "Fischer 2023 Fig. 6 paper-target reproduction. "
-            "Default settings are paper-faithful (1620-bin grid, 22 n̄ pts, "
+            "Default settings use a 1640-bin paper-resolution grid "
+            "(dE=1 micro-eV plus sub-gap guard cells), 22 n̄ pts, "
             "picard_tol=1e-12) and take ~14 h. Pass --fast for a dev-speed "
             "knob (~30 min/run)."
         )
@@ -628,7 +826,7 @@ if __name__ == "__main__":
         "--fast",
         action="store_true",
         help=(
-            "Dev mode: 405-bin grid, 8 n̄ pts, picard_tol=1e-9. Output "
+            "Dev mode: 410-bin grid, 8 n̄ pts, picard_tol=1e-9. Output "
             "paths gain a '_fast' suffix so the paper-faithful baseline "
             "is not clobbered. Use during iteration; switch back to the "
             "default for the final ship run."
@@ -652,14 +850,16 @@ if __name__ == "__main__":
     if args.fast:
         # Mutate fig6_solve's solve-affecting globals (read by solve() and
         # solver_fingerprint(), so the cache key reflects --fast) before
-        # generate_baseline() runs. NUM_BINS=405 keeps OMEGA_0/dE = 5
-        # commensurate (dE = 4 μeV). Tighter tolerances stay paper-faithful —
+        # generate_baseline() runs. NUM_BINS=410 keeps OMEGA_0/dE = 5
+        # commensurate (dE = 4 micro-eV) while retaining the same 20-micro-eV
+        # sub-gap guard as the full-resolution grid. Tighter tolerances stay
+        # paper-faithful —
         # the gap-precision fix for the low-T_B observable is not the bottleneck.
-        fig6_solve.NUM_BINS = 405
+        fig6_solve.NUM_BINS = 410
         fig6_solve.N_BAR_VALUES = np.logspace(4.0, 8.2, 8)
         fig6_solve.PICARD_TOL = 1e-9
         _FAST_SUFFIX = "_fast"
-        print("--fast mode: 405-bin grid, 8 n̄ pts, picard_tol=1e-9, "
+        print("--fast mode: 410-bin grid, 8 n̄ pts, picard_tol=1e-9, "
               "output suffix '_fast'.")
 
     generate_baseline(

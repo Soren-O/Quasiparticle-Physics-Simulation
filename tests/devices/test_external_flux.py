@@ -26,6 +26,7 @@ from qpsim.collisions.phonon import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
 from qpsim.solvers.coupled_newton import coupled_newton_solve
@@ -92,7 +93,9 @@ def _make_ctx(NE: int = 30, gap: float = 175.0, dE: float = 5.0) -> SpectralCont
 
     Energy grid spans [gap, gap + (NE-1)*dE] in μeV.
     """
-    E = gap + dE * np.arange(NE, dtype=float)
+    # Keep this general closed-form fixture entirely on represented BCS rows.
+    # Zero-capacity source behavior has dedicated tests below.
+    E = gap + dE * (np.arange(NE, dtype=float) + 1.0)
     dE_arr = np.full_like(E, dE)
     return SpectralContext(E_bins=E, dE_bins=dE_arr, gap=gap)
 
@@ -151,6 +154,116 @@ class TestGridShapeValidation:
         bad = ExternalFlux(gain=np.zeros(1), loss_rate=np.zeros(1))
         with pytest.raises(ValueError, match="sized for 1 energy bins"):
             solve_steady_state(ctx, K_s0, K_r0, T_bath=0.3, external_flux=bad)
+
+    def test_gain_on_zero_spectral_capacity_is_rejected_in_newton(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([0.8, 1.2]),
+            dE_bins=np.array([0.4, 0.4]),
+            gap=1.0,
+        )
+        flux = ExternalFlux(
+            gain=np.array([0.1, 0.0]),
+            loss_rate=np.zeros(2),
+        )
+
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            newton_solve_f(ctx, np.zeros(2), external_flux=flux)
+
+    def test_loss_only_on_zero_capacity_row_is_inert(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([0.8, 1.2]),
+            dE_bins=np.array([0.4, 0.4]),
+            gap=1.0,
+        )
+        initial = np.array([0.7, 0.2])
+        flux = ExternalFlux(
+            gain=np.zeros(2),
+            loss_rate=np.array([3.0, 0.0]),
+        )
+
+        solved = newton_solve_f(ctx, initial, external_flux=flux)
+
+        np.testing.assert_array_equal(solved, initial)
+
+    def test_gain_on_zero_capacity_is_rejected_in_coupled_newton(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([0.8, 1.2]),
+            dE_bins=np.array([0.4, 0.4]),
+            gap=1.0,
+        )
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+        flux = ExternalFlux(
+            gain=np.array([0.1, 0.0]),
+            loss_rate=np.zeros(2),
+        )
+
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            coupled_newton_solve(
+                ctx,
+                np.zeros(2),
+                np.zeros(omega.size),
+                omega_bins=omega,
+                omega_idx_diff=idx_diff,
+                omega_idx_sum=idx_sum,
+                diff_sign=diff_sign,
+                tau_l=0.5,
+                external_flux=flux,
+            )
+
+    def test_coupled_newton_solves_only_supported_f_rows(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([0.8, 1.2]),
+            dE_bins=np.array([0.4, 0.4]),
+            gap=1.0,
+        )
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+        flux = ExternalFlux(
+            gain=np.array([0.0, 0.1]),
+            loss_rate=np.array([0.0, 1.0]),
+        )
+
+        solved, _ = coupled_newton_solve(
+            ctx,
+            np.array([0.7, 0.2]),
+            np.zeros(omega.size),
+            omega_bins=omega,
+            omega_idx_diff=idx_diff,
+            omega_idx_sum=idx_sum,
+            diff_sign=diff_sign,
+            tau_l=0.5,
+            external_flux=flux,
+            tol=1e-14,
+        )
+
+        np.testing.assert_allclose(solved, [0.7, 0.1], atol=1e-14)
+
+    def test_coupled_newton_rejects_all_zero_dos_context(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([0.8, 1.2]),
+            dE_bins=np.array([0.4, 0.4]),
+            gap=1.0,
+        )
+        # SpectralContext normally guarantees positive represented capacity. This
+        # defensive synthetic context pins the solver boundary if a future
+        # spectral model legitimately supplies no quasiparticle capacity.
+        ctx._rho = np.zeros(2)  # type: ignore[attr-defined]
+        ctx._cell_weights = np.zeros(2)  # type: ignore[attr-defined]
+        ctx._cell_density = np.zeros(2)  # type: ignore[attr-defined]
+        ctx._active_mask = np.zeros(2, dtype=bool)  # type: ignore[attr-defined]
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+
+        with pytest.raises(ValueError, match="at least one quasiparticle energy row"):
+            coupled_newton_solve(
+                ctx,
+                np.zeros(2),
+                np.zeros(omega.size),
+                omega_bins=omega,
+                omega_idx_diff=idx_diff,
+                omega_idx_sum=idx_sum,
+                diff_sign=diff_sign,
+                T_bath=0.2,
+                tau_l=0.5,
+            )
 
 
 class TestLinearODEClosedForm:
@@ -377,10 +490,11 @@ class TestForwardingThroughT3Backend:
         ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
         material = Material(
             name="test", Delta_0=gap, T_c=T_c, tau_0=1.0,
+            tau_0_pb_ns=0.255,
         )
         omega_bins, _, _, _ = build_phonon_frequency_map(ctx.E)
         phonon = PhononState(
-            n_ph=np.zeros((1, omega_bins.size, 1)),
+            n_ph=thermal_phonon_occupation(omega_bins, 0.3).reshape(1, -1, 1),
             omega_bins=omega_bins.reshape(1, -1),
             tau_l=np.full((1, omega_bins.size), 0.5),
             model=PhononModel.PH0_LOCAL,
@@ -483,21 +597,17 @@ class TestForwardingThroughT3Backend:
         s_yes = backend.apply_collisions(state, dt=0.5, external_flux=ef)
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
 
-    def test_step_one_substep(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # backend.step is the symmetric-Strang (gap, transport, collisions).
-        # Isolate forwarding into the inner collision step: moving-gap behavior
-        # has its own tests and requires a grid extending below every expected
-        # gap, which this compact fixed-gap fixture deliberately lacks.
+    def test_fixed_gap_collision_substep(self) -> None:
+        # This compact fixture intentionally starts above the BCS edge, so it
+        # exercises ExternalFlux forwarding through the fixed-gap collision
+        # API. Moving-gap ``step`` has separate tests on a supporting grid.
         from qpsim.backends.t3_diffusion import T3DiffusionBackend
 
         backend = T3DiffusionBackend()
-        monkeypatch.setattr(
-            backend, "apply_gap_update", lambda state, _dt: state
-        )
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
-        s_no = backend.step(state, dt=0.5)
-        s_yes = backend.step(state, dt=0.5, external_flux=ef)
+        s_no = backend.apply_collisions(state, dt=0.5)
+        s_yes = backend.apply_collisions(state, dt=0.5, external_flux=ef)
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-9
 
 
@@ -515,7 +625,10 @@ class TestServiceLayerPicardGuard:
         ef = _modest_external_flux(ctx.E.size)
         with pytest.raises(ValueError, match=r"anderson_depth >= 1"):
             solve_steady_state(
-                ctx, K_s0, K_r0, T_bath,
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
                 external_flux=ef,
                 phonon_escape_time=0.5,
             )

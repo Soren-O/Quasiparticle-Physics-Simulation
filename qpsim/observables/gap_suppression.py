@@ -46,7 +46,13 @@ def compute_gap_suppression(
     T_c: float,
     T_bath: float,
 ) -> GapSuppressionResult:
-    """Solve the gap equation on ``f(E)`` and compare against ``Δ_eq(T_bath)``."""
+    """Solve the gap equation on ``f(E)`` and compare against ``Δ_eq(T_bath)``.
+
+    The finite-volume cells reconstructed from ``E_bins`` must extend below
+    every physically possible driven gap.  A distribution that can collapse
+    to the normal state therefore needs support down to zero; missing low-edge
+    occupation data is rejected rather than extrapolated.
+    """
     from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 
     calibration = calibrate_gap(T_c=T_c, T_bath=T_bath)

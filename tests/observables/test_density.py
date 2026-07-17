@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.observables.density import qp_fraction, qp_number_density
+from qpsim.observables.density import (
+    qp_fraction,
+    qp_fraction_paper,
+    qp_number_density,
+)
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -20,6 +24,15 @@ def _ctx(T_c: float = 1.2, num: int = 100) -> SpectralContext:
 
 
 class TestQpNumberDensity:
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -1e-12, 1.0 + 1e-12])
+    def test_rejects_nonphysical_occupation(self, bad: float) -> None:
+        ctx = _ctx()
+        f = np.zeros(ctx.E.size)
+        f[0] = bad
+
+        with pytest.raises(ValueError, match=r"occupations in \[0, 1\]"):
+            qp_number_density(f, ctx, rho_F=1.0e28)
+
     def test_zero_f_gives_zero(self) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
@@ -118,6 +131,19 @@ class TestQpFraction:
         ctx = _ctx()
         assert qp_fraction(np.zeros(ctx.E.size), ctx, delta_0=ctx.gap) == 0.0
 
+    def test_paper_convention_is_explicit_factor_two(self) -> None:
+        ctx = _ctx()
+        f = np.full(ctx.E.size, 0.01)
+        x_qpsim = qp_fraction(f, ctx, delta_0=ctx.gap)
+        x_paper = qp_fraction_paper(f, ctx, delta_0=ctx.gap)
+
+        assert x_paper == pytest.approx(2.0 * x_qpsim)
+        rho_F = 1.74e28
+        delta_0_eV = ctx.gap / 1.0e6
+        assert x_paper == pytest.approx(
+            qp_number_density(f, ctx, rho_F) / (2.0 * rho_F * delta_0_eV)
+        )
+
     def test_constant_occupation_matches_exact_bcs_primitive(self) -> None:
         gap = 180.0
         E, _ = build_energy_grid(gap, 1.0, 3.0, 40)
@@ -130,11 +156,12 @@ class TestQpFraction:
             expected, rel=1e-14,
         )
 
-    def test_rejects_non_positive_delta_0(self) -> None:
+    @pytest.mark.parametrize("delta_0", [0.0, -1.0, np.nan, np.inf])
+    def test_rejects_non_positive_delta_0(self, delta_0: float) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
         with pytest.raises(ValueError, match="delta_0"):
-            qp_fraction(f, ctx, delta_0=0.0)
+            qp_fraction(f, ctx, delta_0=delta_0)
 
     def test_dimensionless_and_small_in_thermal_regime(self) -> None:
         # A cold Al-like film has x_qp ≪ 1 (literally Boltzmann-suppressed).

@@ -2,7 +2,7 @@
 
 Ported/written (Gate 2):
 - base.py — Tier enum
-- t3_diffusion.py — T3DiffusionState + T3DiffusionBackend (steady-state only)
+- t3_diffusion.py — homogeneous T3 steady-state and transient collision/gap backend
 - t3_spatial_1d.py — T3Spatial1DState + T3Spatial1DBackend (1D strip preview)
 
 Planned (New Framework Plan §5):

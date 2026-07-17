@@ -36,6 +36,12 @@ from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
+from validation.fischer_2023.steady_state_certificate import (
+    CERTIFICATE_FIELDS,
+    CERTIFICATE_METRIC_VERSION,
+    steady_state_certificate,
+)
+
 # ── Fischer 2023 Table I parameters (shared with fig3) ───────────────
 
 DELTA_0 = 180.0
@@ -81,6 +87,22 @@ LOWER_T_BATH_K: np.ndarray = np.linspace(0.10, 0.40, 13)
 PAPER_TAU_0_PB_PS = 255.0
 TAU_0_PB_WARN_FACTOR = 1.05
 """Warn if the numerical tau_0^PB diverges from the paper-quoted 255 ps."""
+
+TARGET_BACKWARD_ERROR_LIMIT = 1.0e-5
+"""Maximum independently reassembled QP and phonon balance error."""
+
+SOLVER_KWARGS: dict[str, Any] = {
+    "method": "picard",
+    "use_phonon_side_kernel": True,
+    "picard_tol": 1.0e-8,
+    "picard_atol": 1.0e-12,
+    "picard_balance_tol": 1.0e-6,
+    "picard_max_iter": 10000,
+    "anderson_depth": 0,
+    "newton_tol": 1.0e-12,
+    "newton_backward_error_tol": 1.0e-6,
+    "newton_max_iter": 500,
+}
 
 
 def _fischer_material() -> Material:
@@ -178,18 +200,12 @@ def _solve_picard(
     *,
     mixing: float = 0.30,
 ) -> T3DiffusionState:
+    kwargs = dict(SOLVER_KWARGS)
+    kwargs["picard_mixing"] = mixing
     return backend.steady_state(
         state,
-        method="picard",
         photon_params=photon_params,
-        use_phonon_side_kernel=True,
-        picard_tol=1e-8,
-        picard_atol=1e-12,
-        picard_max_iter=10000,
-        picard_mixing=mixing,
-        anderson_depth=0,
-        newton_tol=1e-12,
-        newton_max_iter=500,
+        **kwargs,
     )
 
 
@@ -239,6 +255,17 @@ def solve(
 
     upper_f = np.zeros((up_T.size, up_N.size, NE))
     lower_f = np.zeros((lo_N.size, lo_T.size, NE))
+    omega_bins, _, _, _ = build_phonon_frequency_map(spectral.E)
+    upper_n_ph = np.zeros((up_T.size, up_N.size, omega_bins.size))
+    lower_n_ph = np.zeros((lo_N.size, lo_T.size, omega_bins.size))
+    upper_certificates = {
+        field: np.zeros((up_T.size, up_N.size), dtype=float)
+        for field in CERTIFICATE_FIELDS
+    }
+    lower_certificates = {
+        field: np.zeros((lo_N.size, lo_T.size), dtype=float)
+        for field in CERTIFICATE_FIELDS
+    }
 
     print("Upper panel — sweep n̄ at three T_B:")
     for i, T_bath in enumerate(up_T):
@@ -254,6 +281,18 @@ def solve(
             }
             converged = _solve_picard(backend, state, photon_params)
             upper_f[i, j] = converged.f
+            upper_n_ph[i, j] = converged.phonon.n_ph[0, :, 0]
+            certificate = steady_state_certificate(
+                converged,
+                photon_params=photon_params,
+                tau_l=tau_l,
+            )
+            for field in CERTIFICATE_FIELDS:
+                upper_certificates[field][i, j] = certificate[field]
+            _require_certified_point(
+                certificate,
+                context=f"upper T_B={float(T_bath):g} K, n_bar={float(n_bar):.6e}",
+            )
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
             print(f"  upper  T_B={float(T_bath):.2f} K  n̄={float(n_bar):.2e}", flush=True)
@@ -272,6 +311,18 @@ def solve(
             }
             converged = _solve_picard(backend, state, photon_params)
             lower_f[i, j] = converged.f
+            lower_n_ph[i, j] = converged.phonon.n_ph[0, :, 0]
+            certificate = steady_state_certificate(
+                converged,
+                photon_params=photon_params,
+                tau_l=tau_l,
+            )
+            for field in CERTIFICATE_FIELDS:
+                lower_certificates[field][i, j] = certificate[field]
+            _require_certified_point(
+                certificate,
+                context=f"lower n_bar={float(n_bar):.6e}, T_B={float(T_bath):g} K",
+            )
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
             print(f"  lower  n̄={float(n_bar):.2e}  T_B={float(T_bath):.3f} K", flush=True)
@@ -279,6 +330,8 @@ def solve(
     return {
         "upper_f": upper_f,
         "lower_f": lower_f,
+        "upper_n_ph": upper_n_ph,
+        "lower_n_ph": lower_n_ph,
         "upper_T_bath": up_T,
         "upper_nbar": up_N,
         "lower_nbar": lo_N,
@@ -286,7 +339,30 @@ def solve(
         "tau_0_pb_ns": np.asarray([tau_0_pb], dtype=float),
         "tau_l_ns": np.asarray([tau_l], dtype=float),
         "num_bins": np.asarray([int(num_bins)]),
+        **{f"upper_{field}": values for field, values in upper_certificates.items()},
+        **{f"lower_{field}": values for field, values in lower_certificates.items()},
     }
+
+
+def _require_certified_point(
+    certificate: dict[str, float],
+    *,
+    context: str,
+) -> None:
+    """Fail a solve point whose independently rebuilt balances are not roots."""
+    qp_backward = float(certificate["qp_backward_error"])
+    phonon_backward = float(certificate["phonon_backward_error"])
+    if (
+        not np.isfinite(qp_backward)
+        or not np.isfinite(phonon_backward)
+        or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
+        or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
+    ):
+        raise RuntimeError(
+            "Fischer Fig. 5 independent steady-state certificate failed at "
+            f"{context} (limit={TARGET_BACKWARD_ERROR_LIMIT:g}): "
+            f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+        )
 
 
 def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
@@ -307,4 +383,10 @@ def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
         "num_bins": int(num_bins),
         "a_eq35": _A_EQ35,
         "paper_tau_0_pb_ps": PAPER_TAU_0_PB_PS,
+        "gap_mode": "fixed",
+        "solver": dict(SOLVER_KWARGS),
+        "picard_mixing": 0.30,
+        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
+        "certificate_fields": list(CERTIFICATE_FIELDS),
+        "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
     }

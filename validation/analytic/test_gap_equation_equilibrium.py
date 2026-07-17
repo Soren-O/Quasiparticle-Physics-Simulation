@@ -7,12 +7,12 @@ Fischer-scale version (1620 bins / Fischer Table I).
 
 Tolerance note
 --------------
-``solve_gap`` linearly interpolates ``f`` onto the cosh-substitution
-quadrature nodes (see :func:`qpsim.physics.gap_equation._gap_integral_f`).
-This introduces an ``O((dE/Δ)²)`` round-trip error at finite T where
-``f'' ≠ 0``. At very low T where ``f ≈ 0`` on the active window the
-interpolation error vanishes and the round-trip is accurate to the
-Brent-solver ``xtol``.
+``solve_gap`` treats the kinetic occupation as a finite-volume,
+cell-constant field and integrates the singular gap kernel exactly in each
+cell. At finite temperature the remaining round-trip error is therefore the
+cell-constant representation error relative to the continuous calibration,
+not an off-grid interpolation error. At very low temperature, where
+``f ≈ 0`` on the active window, even that contribution vanishes.
 """
 
 from __future__ import annotations
@@ -48,13 +48,13 @@ class TestGapEquilibriumFischerScale:
         f_FD = _fermi_dirac(E, T_bath)
         delta_recovered = solve_gap(cal, f_FD, E)
         rel_err = abs(delta_recovered - cal.delta_eq) / cal.delta_eq
-        # At T=0.1 K, f ≈ 0 on the active window so the interp-error
-        # contribution vanishes; Brent xtol (1e-6 · Δ_eq) sets the floor.
+        # At T=0.1 K, f ≈ 0 on the active window so the finite-volume
+        # representation error vanishes; Brent xtol sets the floor.
         assert rel_err < 1e-8
 
     def test_round_trip_at_half_Tc(self) -> None:
-        # Closer to T_c, where Δ_eq is suppressed below Δ(0). Grid-
-        # interpolation error in solve_gap dominates.
+        # Closer to T_c, where Δ_eq is suppressed below Δ(0), the
+        # cell-constant representation error in solve_gap dominates.
         delta_0 = 180.0
         T_c = delta_0 / (1.764 * KB_UEV_PER_K)
         T_bath = 0.5 * T_c  # ≈ 0.59 K
@@ -68,6 +68,6 @@ class TestGapEquilibriumFischerScale:
         f_FD = _fermi_dirac(E, T_bath)
         delta_recovered = solve_gap(cal, f_FD, E)
         rel_err = abs(delta_recovered - cal.delta_eq) / cal.delta_eq
-        # O((dE/Δ)²) from linear interp of f on E_bins; at T=T_c/2 and
-        # 1620 bins this is ~2-3e-5 (grid-refinement verified).
-        assert rel_err < 1e-4
+        # At T=T_c/2 and 1620 bins this is approximately 3e-5
+        # (grid-refinement verified).
+        assert rel_err < 9e-5

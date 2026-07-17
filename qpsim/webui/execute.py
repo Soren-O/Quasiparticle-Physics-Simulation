@@ -34,9 +34,11 @@ from qpsim.observables import (
     effective_phonon_temperature,
     fermi_dirac_distribution,
     qp_fraction,
+    qp_fraction_paper,
     qp_number_density,
 )
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
+from qpsim.physics.gap_equation import calibrate_gap
 from qpsim.services.rate_equation import (
     chemical_potentials_kelvin,
     solve_rate_equation_steady_state_multi_seed,
@@ -185,24 +187,44 @@ def run_steady_state_0d(
     summary["gap_ueV"] = solved.gap
     summary["x_qp"] = qp_fraction(solved.f, ctx, delta_0=gap0)
     summary["x_qp_thermal"] = qp_fraction(f_ref, ctx, delta_0=gap0)
+    summary["x_qp_paper"] = qp_fraction_paper(solved.f, ctx, delta_0=gap0)
+    summary["x_qp_thermal_paper"] = qp_fraction_paper(
+        f_ref, ctx, delta_0=gap0
+    )
+    summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
     if setup.material.rho_F > 0.0:
         summary["n_qp_per_m3"] = qp_number_density(solved.f, ctx, setup.material.rho_F)
 
     _mb_observables(summary, payload.notes, solved.f, f_ref, ctx, setup.probe)
 
     # Secondary diagnostics: a converged kinetic solve must never be
-    # discarded because one of these post-solve fits fails.
+    # discarded because one of these post-solve fits fails.  The equilibrium
+    # reference is calibration metadata and does not depend on the sampled
+    # occupation.  Persist it independently: on a fixed-gap grid the
+    # occupation-derived gap can legitimately lie below the represented
+    # support and fail closed, while Delta_eq remains well defined.
     if setup.material.dynes_gamma == 0.0:
         try:
-            gs = compute_gap_suppression(
-                solved.f, ctx.E, T_c=setup.material.T_c, T_bath=setup.T_bath
+            calibration = calibrate_gap(
+                T_c=setup.material.T_c,
+                T_bath=setup.T_bath,
             )
         except (ValueError, RuntimeError) as exc:
-            payload.notes.append(f"Gap-suppression diagnostic failed: {exc}")
+            payload.notes.append(f"Equilibrium-gap calibration failed: {exc}")
         else:
-            summary["delta_eq_ueV"] = gs.delta_eq
-            summary["delta_suppression_ueV"] = gs.delta_suppression
-            summary["rel_gap_suppression"] = gs.rel_suppression
+            summary["delta_eq_ueV"] = calibration.delta_eq
+            try:
+                gs = compute_gap_suppression(
+                    solved.f,
+                    ctx.E,
+                    T_c=setup.material.T_c,
+                    T_bath=setup.T_bath,
+                )
+            except (ValueError, RuntimeError) as exc:
+                payload.notes.append(f"Gap-suppression diagnostic failed: {exc}")
+            else:
+                summary["delta_suppression_ueV"] = gs.delta_suppression
+                summary["rel_gap_suppression"] = gs.rel_suppression
 
     if setup.phonons.mode != "thermal_bath":
         try:
@@ -229,6 +251,9 @@ def _transient_observables(
     gap = setup.material.Delta_0
     obs: dict[str, Callable[[Any], float]] = {
         "x_qp": lambda s: qp_fraction(s.f, s.spectral, delta_0=gap),
+        "x_qp_paper": lambda s: qp_fraction_paper(
+            s.f, s.spectral, delta_0=gap
+        ),
     }
     notes: list[str] = []
     if setup.probe.enabled:
@@ -280,9 +305,14 @@ def run_transient_0d(
         )
 
     payload.summary["n_steps"] = result.n_steps
+    payload.summary["n_etd_substeps"] = result.n_etd_substeps
     payload.summary["total_time_ns"] = result.total_time
     payload.summary["converged"] = result.converged
     payload.summary["x_qp_final"] = float(payload.arrays["obs_x_qp"][-1])
+    payload.summary["x_qp_paper_final"] = float(
+        payload.arrays["obs_x_qp_paper"][-1]
+    )
+    payload.summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
     payload.summary["gap_ueV"] = setup.material.Delta_0
     progress(1.0, "done")
     return payload
@@ -385,6 +415,7 @@ def run_spatial_1d(
     payload.arrays["f_final"] = final.f
     payload.arrays["f_thermal"] = fermi_dirac_distribution(final.spectral.E, setup.T_bath)
     payload.arrays["xqp_profile"] = _xqp_profile(final, gap)
+    payload.arrays["xqp_profile_paper"] = 2.0 * payload.arrays["xqp_profile"]
     if final.gap_profile is not None:
         payload.arrays["gap_profile"] = np.asarray(final.gap_profile)
     payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])
@@ -399,6 +430,9 @@ def run_spatial_1d(
     payload.summary["total_time_ns"] = result.total_time
     payload.summary["x_qp_mean"] = float(np.mean(payload.arrays["xqp_profile"]))
     payload.summary["x_qp_max"] = float(np.max(payload.arrays["xqp_profile"]))
+    payload.summary["x_qp_mean_paper"] = 2.0 * payload.summary["x_qp_mean"]
+    payload.summary["x_qp_max_paper"] = 2.0 * payload.summary["x_qp_max"]
+    payload.summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
     payload.summary["gap_ueV"] = gap
     if not result.converged:
         payload.notes.append(

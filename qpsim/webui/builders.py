@@ -108,11 +108,36 @@ def _check_photon_commensurate(
         return
     frac_err = abs(omega - m * dE) / dE
     if frac_err > COMMENSURATE_TOL:
-        report.warnings.append(
+        report.errors.append(
             f"{label}: {omega:g} μeV is not grid-commensurate (dE = {dE:.4g} μeV, "
-            f"fractional error {frac_err:.3f}); the engine will snap it to "
-            f"{m * dE:.4g} μeV. Nearest commensurate choices: ω = {m * dE:.4g} μeV, "
+            f"fractional error {frac_err:.3f}); nearest commensurate choice: "
+            f"ω = {m * dE:.4g} μeV, "
             f"or adjust the bin count."
+        )
+
+
+def _check_pb_partner_alignment(
+    report: ValidationReport,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup,
+    omega: float,
+    dE: float,
+) -> None:
+    """Validate the reflected partner lattice used by the PB pair terms."""
+    if omega <= 2.0 * setup.material.Delta_0:
+        return
+    m = round(omega / dE)
+    if m <= 0:
+        return
+    snapped = m * dE
+    E0 = setup.grid.min_factor * setup.material.Delta_0 + 0.5 * dE
+    partner_steps = (snapped - 2.0 * E0) / dE
+    partner_err = abs(partner_steps - round(partner_steps))
+    if partner_err > COMMENSURATE_TOL:
+        report.errors.append(
+            "Pair-breaking drive: reflected partners are not grid-aligned; "
+            f"(omega_PB - 2*E_min)/dE is {partner_err:.3f} bins from an "
+            "integer. Adjust grid.min_factor or the bin count so pair "
+            "generation/recombination satisfies detailed balance."
         )
 
 
@@ -147,6 +172,7 @@ def _validate_drives_and_probe(
                 f"Pair-breaking drive: ω_PB = {pb.omega_PB:g} μeV must be > 2Δ = {2 * gap:g} μeV."
             )
         _check_photon_commensurate(report, "Pair-breaking drive", pb.omega_PB, dE)
+        _check_pb_partner_alignment(report, setup, pb.omega_PB, dE)
 
     probe = getattr(setup, "probe", None)
     if probe is not None and probe.enabled:
@@ -229,22 +255,21 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             )
         if setup.material.D_0 <= 0.0:
             report.errors.append("1D strip: the material needs a positive D₀ (μm²/ns).")
-        # Transport resolution: the Crank–Nicolson strip step clips any
-        # occupation over/undershoot back to [0, 1], and once that clip alters
-        # more than 0.1% of the conserved density in a step the backend raises
-        # rather than silently return corrupted mass. The clip grows with the
-        # diffusion number ν = D₀·dt/dx²; ν ≲ 5 is clip-free for the shipped
-        # source and ν ≳ 11 trips the raise. Warn before the run so the user
-        # lowers dt (or raises num_cells) instead of hitting a mid-run failure.
+        # A large diffusion number is safe because the backend subcycles CN
+        # below its non-negative-amplification stiffness bound, but it can make
+        # one visible driver step substantially more expensive. Warn about the
+        # hidden work rather than claiming the old full-step ringing/clip
+        # failure.
         if setup.material.D_0 > 0.0 and setup.num_cells > 1:
             dx_um = setup.length_um / (setup.num_cells - 1)
             diffusion_number = setup.material.D_0 * setup.dt / (dx_um * dx_um)
             if diffusion_number > 8.0:
                 report.warnings.append(
                     f"1D strip: diffusion number D₀·dt/dx² ≈ {diffusion_number:.1f} "
-                    f"(dt = {setup.dt:g} ns, dx = {dx_um:.2g} µm). Above ≈11 the "
-                    "Crank–Nicolson transport clip corrupts conserved density and "
-                    "the run fails mid-step; reduce dt or increase num_cells."
+                    f"(dt = {setup.dt:g} ns, dx = {dx_um:.2g} µm). The "
+                    "Crank–Nicolson transport step will be internally subcycled "
+                    "to prevent stiff ringing; reduce dt or increase dx if the "
+                    "run is too slow."
                 )
         if setup.injection.enabled:
             e_center = setup.injection.center_over_delta
@@ -256,6 +281,14 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         if setup.gap_profile.kind == "step":
             e_max = setup.grid.max_factor * setup.material.Delta_0
             e_min = setup.grid.min_factor * setup.material.Delta_0
+            if (
+                setup.gap_profile.interface_G_N is not None
+                and setup.gap_profile.gap_left == setup.gap_profile.gap_right
+            ):
+                report.errors.append(
+                    "Gap profile: interface_G_N requires distinct gap_left and "
+                    "gap_right values; equal gaps do not define a step face."
+                )
             for side, val in (
                 ("gap_left", setup.gap_profile.gap_left),
                 ("gap_right", setup.gap_profile.gap_right),
@@ -396,6 +429,12 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
 
     method = "picard" if s.method == "auto" else s.method
     kwargs["method"] = method
+    if method == "coupled_newton":
+        # The UI exposes one pair of Newton controls. The backend's monolithic
+        # path deliberately has distinct keyword names, so map the displayed
+        # values rather than silently falling back to its 1e-10 / 50 defaults.
+        kwargs["coupled_newton_tol"] = s.newton_tol
+        kwargs["coupled_newton_max_iter"] = s.newton_max_iter
     kwargs["picard_tol"] = s.picard_tol
     kwargs["picard_max_iter"] = s.picard_max_iter
     kwargs["picard_mixing"] = s.picard_mixing

@@ -5,10 +5,14 @@ Two observables:
 * :func:`qp_number_density` — returns ``n_qp = 4 ρ_F ∫_Δ^∞ ρ(E) f(E) dE``,
   the QP number density per volume (the factor-of-4 absorbs spin × 2 and
   particle/hole × 2, matching Fischer 2023 Eq. 4 normalization).
-* :func:`qp_fraction` — returns the dimensionless ``x_qp = n_qp / (4 ρ_F Δ_0)``,
+* :func:`qp_fraction` — returns the historical qpsim dimensionless fraction
+  ``x_qp = n_qp / (4 ρ_F Δ_0)``,
   which is **half** the Fischer/Catelani paper convention ``n_qp / (2 ρ_F Δ_0)``
-  (see that function's docstring). The ``ρ_F`` factor cancels, so it isn't an
-  argument.
+  (see that function's docstring).
+* :func:`qp_fraction_paper` — returns the Fischer/Catelani convention
+  explicitly, avoiding a silent factor-of-two conversion at call sites.
+
+The ``ρ_F`` factor cancels from both fractions, so it is not an argument.
 
 Both take a :class:`SpectralContext` for ``ρ(E)`` (BCS or Dynes). Pure-BCS
 contexts use analytic cell weights for the integrable DOS singularity; Dynes
@@ -38,18 +42,15 @@ def _qp_integral_uev(f: np.ndarray, ctx: SpectralContext) -> float:
         raise ValueError(
             f"f must have shape {ctx.E.shape}; got {f_arr.shape}."
         )
-    if ctx.dynes_gamma > 0.0:
-        # The analytic weights below are specific to the pure-BCS DOS. Dynes
-        # broadening removes the ideal square-root singularity, so retain the
-        # context's ordinary cell-centered quadrature there.
-        return float(np.sum(ctx.rho * f_arr * ctx.dE))
-    # EXACT singular-cell weights for the pure-BCS DOS (integrate E/√(E²−Δ²)
-    # analytically per cell). NOTE (finding G1): the collision operators in
-    # collisions/phonon.py use the coarser midpoint measure ρ·dE, so the number
-    # reported here and the number the collisions conserve differ by ~1/√NE at
-    # the gap edge. Unifying the two measures is the deferred fix.
-    weights = bcs_dos_cell_weights(ctx.E, ctx.dE, ctx.gap)
-    return float(np.sum(f_arr * weights))
+    if np.any(~np.isfinite(f_arr)) or np.any((f_arr < 0.0) | (f_arr > 1.0)):
+        raise ValueError("f must contain finite occupations in [0, 1].")
+    if ctx.dynes_gamma <= 0.0:
+        # Observable density retains the stricter full-gap coverage contract:
+        # a context may evolve only its represented domain, but it cannot call
+        # that truncated quantity the physical total from Delta to infinity.
+        # The helper raises when the first grid edge lies above the gap.
+        bcs_dos_cell_weights(ctx.E, ctx.dE, ctx.gap)
+    return float(np.sum(f_arr * ctx.cell_weights))
 
 
 def qp_number_density(
@@ -92,6 +93,21 @@ def qp_fraction(f: np.ndarray, ctx: SpectralContext, delta_0: float) -> float:
 
     ``ρ_F`` cancels in the ratio, so it isn't an argument.
     """
-    if delta_0 <= 0:
-        raise ValueError("delta_0 must be positive.")
+    if not np.isfinite(delta_0) or delta_0 <= 0:
+        raise ValueError("delta_0 must be finite and positive.")
     return _qp_integral_uev(f, ctx) / delta_0
+
+
+def qp_fraction_paper(
+    f: np.ndarray,
+    ctx: SpectralContext,
+    delta_0: float,
+) -> float:
+    """Fischer/Catelani quasiparticle fraction ``n_qp/(2 ρ_F Δ_0)``.
+
+    With :func:`qp_number_density`'s single-spin-DOS convention this is
+    ``2 / Δ_0 * ∫ ρ(E) f(E) dE``, exactly twice the historical
+    :func:`qp_fraction` result. The explicit name keeps existing callers
+    source-compatible while making paper comparisons unambiguous.
+    """
+    return 2.0 * qp_fraction(f, ctx, delta_0)

@@ -16,7 +16,6 @@ with the Jacobian and residual helpers co-located here.
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -56,6 +55,7 @@ def newton_solve_f(
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
     tol: float = 1e-14,
+    backward_error_tol: float = 1e-6,
     max_iter: int = 200,
 ) -> np.ndarray:
     """Newton-solve ``f(E)`` against the collision residual.
@@ -92,7 +92,10 @@ def newton_solve_f(
         ``docs/Device_Architecture.md``). When ``None`` (default),
         the solver path is bit-for-bit identical to pre-Phase-2 behavior.
     tol
-        Absolute/relative convergence tolerance on the residual.
+        Absolute convergence tolerance on the dimensional residual.
+    backward_error_tol
+        Scale-independent L1 gain/loss backward-error limit. Both this physical
+        certificate and the dimensional ``tol`` must pass on every return path.
     max_iter
         Hard cap on Newton iterations.
 
@@ -120,13 +123,37 @@ def newton_solve_f(
         raise ValueError("initial occupation f must contain only finite values")
     if np.any((f_cur < 0.0) | (f_cur > 1.0)):
         raise ValueError("initial occupation f must lie in [0, 1]")
+    if not np.isfinite(tol) or tol <= 0.0:
+        raise ValueError(f"tol must be finite and positive; got {tol}.")
+    if not np.isfinite(T_bath) or T_bath < 0.0:
+        raise ValueError(f"T_bath must be finite and non-negative; got {T_bath}.")
+    if not np.isfinite(backward_error_tol) or backward_error_tol <= 0.0:
+        raise ValueError(
+            "backward_error_tol must be finite and positive; "
+            f"got {backward_error_tol}."
+        )
+    if (
+        isinstance(max_iter, (bool, np.bool_))
+        or not isinstance(max_iter, (int, np.integer))
+        or max_iter <= 0
+    ):
+        raise ValueError(f"max_iter must be a positive integer; got {max_iter}.")
     NE = f_cur.size
 
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
+        external_flux._validate_gain_support(ctx.active_mask)
 
     if active is None:
         active = ctx.active_mask
+    else:
+        active = np.asarray(active)
+        if active.dtype != np.bool_ or active.ndim != 1 or active.shape != ctx.E.shape:
+            raise ValueError(
+                "active must be a one-dimensional bool mask with shape "
+                f"{ctx.E.shape}; got dtype={active.dtype}, shape={active.shape}."
+            )
+        active = active.copy()
     n_active = int(np.sum(active))
     if n_active == 0:
         return f_cur
@@ -143,6 +170,7 @@ def newton_solve_f(
 
     max_residual = np.inf
     rate_scale = 0.0
+    backward_error = float("inf")
     for iteration in range(max_iter):
         gain, loss_rate = _gain_loss_sum(
             f_cur, ctx, K_s0, K_r0, T_bath,
@@ -164,9 +192,16 @@ def newton_solve_f(
             )
         )
 
+        backward_error = _gain_loss_backward_error(
+            gain,
+            loss_rate,
+            f_cur,
+            active,
+        )
+
         converged_abs = max_residual < tol
-        converged_rel = rate_scale > 0 and max_residual / rate_scale < tol
-        if converged_abs and (converged_rel or rate_scale == 0):
+        converged_balance = backward_error <= backward_error_tol
+        if converged_abs and converged_balance:
             # Return exactly the feasible vector whose residual was certified.
             # The initial state is validated and accepted trials are projected
             # before their residual is evaluated, so no post-hoc clip is needed.
@@ -208,35 +243,13 @@ def newton_solve_f(
             alpha *= 0.5
 
         if not accepted:
-            # Line-search failure near the roundoff floor just means the Newton
-            # step is below machine precision. Accept on the absolute residual:
-            # for a negligibly weak drive every rate sits at the roundoff floor,
-            # so the relative residual is O(1) noise while f_cur is the correct
-            # near-thermal seed. Finding G6 (an infeasible root f>1 clipped to a
-            # SATURATED f≈1) is surfaced with a WARNING rather than a raise —
-            # raising here would abort the legitimate weak-drive / near-thermal
-            # case (e.g. fischer_2024 fig8 at a sub-1e-13 rate scale), where
-            # returning the seed is the physically correct answer.
-            if converged_abs:
-                if (
-                    not converged_rel
-                    and rate_scale > 0.0
-                    and float(np.max(f_cur[active])) >= 1.0 - 1e-9
-                ):
-                    warnings.warn(
-                        "newton_solve_f: accepted a saturated (f≈1) state whose "
-                        "relative residual did not converge (max|residual|="
-                        f"{max_residual:.2e}, rate scale={rate_scale:.2e}); the "
-                        "requested steady state may be infeasible (root f>1). "
-                        "Treat the result with care.",
-                        RuntimeWarning,
-                        stacklevel=2,
-                    )
-                return f_cur.copy()
             raise RuntimeError(
                 f"Newton line search failed at iteration {iteration}. "
                 f"max |residual| = {max_residual:.2e}, "
-                f"relative = {max_residual / max(rate_scale, 1e-30):.2e}"
+                f"max-relative = "
+                f"{max_residual / max(rate_scale, 1e-300):.2e}, "
+                f"gain/loss backward error = {backward_error:.2e} "
+                f"(limit {backward_error_tol:.2e})"
             )
 
         f_cur = np.clip(f_cur + alpha * delta_f, 0.0, 1.0)
@@ -244,8 +257,52 @@ def newton_solve_f(
     raise RuntimeError(
         f"Newton iteration did not converge in {max_iter} iterations. "
         f"Final max |residual| = {max_residual:.2e}, "
-        f"relative = {max_residual / max(rate_scale, 1e-30):.2e}"
+        f"max-relative = {max_residual / max(rate_scale, 1e-300):.2e}, "
+        f"gain/loss backward error = {backward_error:.2e} "
+        f"(limit {backward_error_tol:.2e})"
     )
+
+
+def _gain_loss_backward_error(
+    gain: np.ndarray,
+    loss_rate: np.ndarray,
+    f: np.ndarray,
+    active: np.ndarray,
+) -> float:
+    """L1 normwise backward error of ``gain - loss_rate*f = 0``."""
+    gain_arr = np.asarray(gain, dtype=float)
+    loss_arr = np.asarray(loss_rate, dtype=float)
+    f_arr = np.asarray(f, dtype=float)
+    active_arr = np.asarray(active)
+    if not (gain_arr.shape == loss_arr.shape == f_arr.shape == active_arr.shape):
+        raise ValueError("gain, loss_rate, f, and active must have the same shape.")
+    if active_arr.dtype != np.bool_:
+        raise ValueError("active must be a bool mask.")
+    if np.any(
+        ~np.isfinite(np.stack((gain_arr, loss_arr, f_arr), axis=0))
+    ):
+        raise ValueError("gain, loss_rate, and f must contain only finite values.")
+    with np.errstate(over="ignore", invalid="ignore"):
+        loss_term = loss_arr[active_arr] * f_arr[active_arr]
+    residual = gain_arr[active_arr] - loss_term
+    if np.any(~np.isfinite(loss_term)) or np.any(~np.isfinite(residual)):
+        raise ValueError("Assembled gain/loss balance terms must be finite.")
+    gain_active = gain_arr[active_arr]
+    common = float(
+        max(
+            np.max(np.abs(gain_active), initial=0.0),
+            np.max(np.abs(loss_term), initial=0.0),
+            np.max(np.abs(residual), initial=0.0),
+        )
+    )
+    if common == 0.0:
+        return 0.0
+    denominator = float(
+        np.sum(np.abs(gain_active) / common)
+        + np.sum(np.abs(loss_term) / common)
+    )
+    numerator = float(np.sum(np.abs(residual) / common))
+    return numerator / denominator if denominator > 0.0 else float("inf")
 
 
 def _gain_loss_sum(
@@ -293,6 +350,14 @@ def _gain_loss_sum(
         gain = gain + external_flux.gain
         loss_rate = loss_rate + external_flux.loss_rate
 
+    # Zero-capacity rows are storage placeholders, not dynamical states.
+    # Public solver entry points reject positive ExternalFlux gain on these
+    # rows; mask every channel here so harmless loss-only terms cannot make a
+    # custom active set or the coupled residual depend on placeholder f.
+    unsupported = ~ctx.active_mask
+    gain[unsupported] = 0.0
+    loss_rate[unsupported] = 0.0
+
     return gain, loss_rate
 
 
@@ -339,9 +404,10 @@ def _jacobian_analytical(
     and the occupation-bilinear kernel matmuls.
     """
     NE = len(f)
-    rho = ctx.rho
     dE = ctx.dE
-    w = rho * dE
+    w = ctx.cell_weights
+    rho_bar = ctx.cell_density
+    supported = ctx.active_mask
     omf = np.maximum(1.0 - f, 0.0)
     diag_idx = np.arange(NE)
 
@@ -353,8 +419,8 @@ def _jacobian_analytical(
         # Off-diagonal: ∂R_i/∂f_j = (1 − f_i) K_s[j, i] w_j + f_i K_s[i, j] w_j
         J += (omf[:, None] * K_s_eff.T + f[:, None] * K_s_eff) * w[None, :]
         # Diagonal correction: subtract the bulk in/out rates at i.
-        A = K_s_eff.T @ (rho * f * dE)
-        B = K_s_eff @ (rho * omf * dE)
+        A = K_s_eff.T @ (w * f)
+        B = K_s_eff @ (w * omf)
         J[diag_idx, diag_idx] -= A + B
 
     # Recombination (Kaplan Eq. (8) per-QP normalization, matching
@@ -362,8 +428,8 @@ def _jacobian_analytical(
     if K_r0 is not None and N_emit is not None and N_abs is not None:
         mixed = omf[:, None] * N_abs + f[:, None] * N_emit
         J -= K_r0 * mixed * w[None, :]
-        C = (K_r0 * N_abs) @ (rho * omf * dE)
-        D = (K_r0 * N_emit) @ (rho * f * dE)
+        C = (K_r0 * N_abs) @ (w * omf)
+        D = (K_r0 * N_emit) @ (w * f)
         J[diag_idx, diag_idx] -= C + D
 
     # Sub-gap photon (K+, partners at i ± m)
@@ -377,17 +443,18 @@ def _jacobian_analytical(
         m = round(omega_0 / dE_scalar)
         if m > 0:
             K_plus = ctx.K_plus
-            gap = ctx.gap
             for i in range(NE):
+                if not supported[i]:
+                    continue
                 j_up = i + m
-                if j_up < NE:
-                    U = rho[j_up] * K_plus[i, j_up]
+                if j_up < NE and supported[j_up]:
+                    U = rho_bar[j_up] * K_plus[i, j_up]
                     J[i, i] -= c_phot * U * (f[j_up] + n_bar)
                     J[i, j_up] += c_phot * U * (n_bar + 1.0 - f[i])
 
                 j_dn = i - m
-                if j_dn >= 0 and ctx.E[j_dn] >= gap:
-                    U = rho[j_dn] * K_plus[i, j_dn]
+                if j_dn >= 0 and supported[j_dn]:
+                    U = rho_bar[j_dn] * K_plus[i, j_dn]
                     J[i, i] -= c_phot * U * (n_bar + 1.0 - f[j_dn])
                     J[i, j_dn] += c_phot * U * (n_bar + f[i])
 
@@ -403,30 +470,29 @@ def _jacobian_analytical(
         omega_PB_snapped = m_pb * dE_scalar
         K_plus = ctx.K_plus
         K_minus = ctx.K_minus
-        gap = ctx.gap
         E = ctx.E
 
         for i in range(NE):
+            if not supported[i]:
+                continue
             if m_pb > 0:
                 j_up = i + m_pb
-                if j_up < NE:
-                    U = rho[j_up] * K_plus[i, j_up]
+                if j_up < NE and supported[j_up]:
+                    U = rho_bar[j_up] * K_plus[i, j_up]
                     J[i, i] -= c_pb * U * (f[j_up] + n_bar_pb)
                     J[i, j_up] += c_pb * U * (n_bar_pb + 1.0 - f[i])
 
                 j_dn = i - m_pb
-                if j_dn >= 0 and E[j_dn] >= gap:
-                    U = rho[j_dn] * K_plus[i, j_dn]
+                if j_dn >= 0 and supported[j_dn]:
+                    U = rho_bar[j_dn] * K_plus[i, j_dn]
                     J[i, i] -= c_pb * U * (n_bar_pb + 1.0 - f[j_dn])
                     J[i, j_dn] += c_pb * U * (n_bar_pb + f[i])
 
             E_partner = omega_PB_snapped - E[i]
-            if E_partner < gap:
-                continue
             j_r = round((E_partner - E[0]) / dE_scalar)
-            if j_r < 0 or j_r >= NE:
+            if j_r < 0 or j_r >= NE or not supported[j_r]:
                 continue
-            U_m = rho[j_r] * K_minus[i, j_r]
+            U_m = rho_bar[j_r] * K_minus[i, j_r]
             # Generation: R_gen_i = c · U⁻ · n_bar · (1 − f_i)(1 − f_j)
             # Recombination: R_rec_i = −c · U⁻ · (1 + n_bar) · f_j · f_i
             # ∂R_i/∂f_i = −c · U⁻ · (n_bar + f_j)
@@ -440,4 +506,8 @@ def _jacobian_analytical(
     if external_flux is not None:
         J[diag_idx, diag_idx] -= external_flux.loss_rate
 
+    # Match the collision-rate support contract exactly.  This is mostly
+    # defensive for callers supplying a custom active set; the default Newton
+    # set is the same finite-volume support.
+    J[~ctx.active_mask, :] = 0.0
     return J

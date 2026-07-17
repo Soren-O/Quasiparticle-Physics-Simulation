@@ -48,11 +48,12 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import numpy as np
@@ -68,6 +69,26 @@ _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
 _OBSERVABLES_PKG = "observables"
 
 _DISABLED_VALUES = {"0", "false", "no", "off", ""}
+
+# Figure ids are logical namespaces (for example ``fischer_2023/fig7``), not
+# filesystem paths. Each namespace component and every content-addressed key
+# must therefore use a deliberately small, portable filename alphabet.
+_SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _is_safe_component(value: str) -> bool:
+    """Whether ``value`` is one portable, non-aliasing path component."""
+    stem = value.split(".", 1)[0].upper()
+    return bool(
+        _SAFE_COMPONENT.fullmatch(value)
+        and not value.endswith(".")
+        and stem not in _WINDOWS_RESERVED_NAMES
+    )
 
 
 def _repo_root() -> Path:
@@ -185,10 +206,62 @@ def cache_key(
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def _validate_figure_id(figure: str) -> str:
+    """Return a safe directory name for a logical figure identifier.
+
+    Forward slashes are supported only as the documented logical namespace
+    delimiter; they are encoded as ``__`` before any path is constructed.
+    That token is consequently reserved inside components so the encoding is
+    injective (``a/b`` must not alias a literal ``a__b`` namespace). Native
+    or foreign path syntax, empty components, and traversal are rejected.
+    """
+    if not figure or "\\" in figure:
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    if PurePosixPath(figure).is_absolute() or PureWindowsPath(figure).is_absolute():
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    parts = figure.split("/")
+    if any(not _is_safe_component(part) or "__" in part for part in parts):
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    return "__".join(parts)
+
+
+def _validate_key(key: str) -> str:
+    """Validate a cache key as one portable filename component."""
+    if not _is_safe_component(key):
+        raise ValueError(f"Unsafe sweep-cache key: {key!r}")
+    return key
+
+
+def _cache_root(cache_dir: Path) -> Path:
+    """Resolve the cache root without requiring it to exist yet."""
+    return cache_dir.expanduser().resolve(strict=False)
+
+
+def _contained_path(root: Path, candidate: Path) -> Path:
+    """Resolve ``candidate`` and prove that it is below ``root``."""
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Sweep-cache path escapes cache root: {candidate}") from exc
+    if resolved == root:
+        raise ValueError("Sweep-cache entry may not be the cache root itself")
+    return resolved
+
+
+def _figure_dir(cache_dir: Path, figure: str) -> Path:
+    root = _cache_root(cache_dir)
+    return _contained_path(root, root / _validate_figure_id(figure))
+
+
 def _entry_paths(cache_dir: Path, figure: str, key: str) -> tuple[Path, Path]:
-    safe_figure = figure.replace("/", "__")
-    d = cache_dir / safe_figure
-    return d / f"{key}.npz", d / f"{key}.meta.json"
+    root = _cache_root(cache_dir)
+    d = _figure_dir(root, figure)
+    safe_key = _validate_key(key)
+    return (
+        _contained_path(root, d / f"{safe_key}.npz"),
+        _contained_path(root, d / f"{safe_key}.meta.json"),
+    )
 
 
 def load(
@@ -227,6 +300,9 @@ def store(
     cache_dir = cache_dir or default_cache_dir()
     npz_path, meta_path = _entry_paths(cache_dir, figure, key)
     npz_path.parent.mkdir(parents=True, exist_ok=True)
+    # Re-resolve after mkdir so a pre-existing figure-directory symlink cannot
+    # redirect either file outside the configured cache root.
+    npz_path, meta_path = _entry_paths(cache_dir, figure, key)
 
     fd, tmp_name = tempfile.mkstemp(dir=npz_path.parent, suffix=".npz.tmp")
     try:
@@ -288,7 +364,7 @@ def cached_solve(
 def clear(*, figure: str | None = None, cache_dir: Path | None = None) -> None:
     """Remove cached entries — one figure's subdir, or the whole cache."""
     cache_dir = cache_dir or default_cache_dir()
-    target = cache_dir / figure.replace("/", "__") if figure is not None else cache_dir
+    target = _figure_dir(cache_dir, figure) if figure is not None else _cache_root(cache_dir)
     if target.exists():
         shutil.rmtree(target)
 

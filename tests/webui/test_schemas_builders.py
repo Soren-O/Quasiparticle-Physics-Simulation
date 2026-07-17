@@ -54,6 +54,10 @@ class TestSchemas:
         grid = EnergyGrid(min_factor=0.8, max_factor=4.0, num_bins=64)
         assert grid.min_factor == pytest.approx(0.8)
 
+    def test_dynamic_phonons_default_to_phonon_side_kernel(self) -> None:
+        setup = SteadyState0DSetup()
+        assert setup.phonons.use_phonon_side_kernel is True
+
 
 class TestValidateSetup:
     def test_defaults_validate_clean(self) -> None:
@@ -75,14 +79,44 @@ class TestValidateSetup:
         report = validate_setup(setup)
         assert any("ω_PB" in e for e in report.errors)
 
-    def test_incommensurate_photon_warns_with_snap_value(self) -> None:
+    def test_pb_reflection_partner_misalignment_is_rejected(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.pb_drive.enabled = True
+        dE = (
+            (setup.grid.max_factor - setup.grid.min_factor)
+            * setup.material.Delta_0
+            / setup.grid.num_bins
+        )
+        setup.pb_drive.omega_PB = 131.0 * dE
+
+        report = validate_setup(setup)
+
+        assert any("reflected partners are not grid-aligned" in e for e in report.errors)
+
+    def test_pb_aligned_frequency_and_origin_are_accepted(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.pb_drive.enabled = True
+        setup.grid.num_bins = 405
+        dE = (
+            (setup.grid.max_factor - setup.grid.min_factor)
+            * setup.material.Delta_0
+            / setup.grid.num_bins
+        )
+        setup.pb_drive.omega_PB = 132.0 * dE
+
+        report = validate_setup(setup)
+
+        assert not any("Pair-breaking drive" in error for error in report.errors)
+
+    def test_incommensurate_photon_is_rejected_with_nearest_value(self) -> None:
         setup = SteadyState0DSetup()
         setup.subgap_drive.enabled = True
         # dE = 9Δ/400 = 4.05 μeV; ω₀ = 6.0 μeV → frac err 0.48.
         setup.subgap_drive.omega_0 = 6.0
         report = validate_setup(setup)
-        assert report.ok
-        assert any("commensurate" in w for w in report.warnings)
+        assert not report.ok
+        assert any("commensurate" in error for error in report.errors)
+        assert any("nearest commensurate" in error for error in report.errors)
 
     def test_probe_at_or_above_gap_rejected(self) -> None:
         setup = SteadyState0DSetup()
@@ -115,6 +149,15 @@ class TestValidateSetup:
         setup.phonons.mode = "dynamic_closed"
         report = validate_setup(setup)
         assert any("conserved-energy mode" in e for e in report.errors)
+
+    def test_dynamic_default_requires_pair_breaking_time(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.phonons.mode = "dynamic_escape"
+        setup.material.tau_0_pb_ns = None
+
+        report = validate_setup(setup)
+
+        assert any("tau_0_pb_ns" in error for error in report.errors)
 
     def test_self_consistent_gap_warns_without_subgap_support(self) -> None:
         setup = SteadyState0DSetup()
@@ -154,6 +197,18 @@ class TestValidateSetup:
         report = validate_setup(setup)
         assert any("below the grid bottom" in error for error in report.errors)
 
+    def test_spatial_interface_requires_distinct_step_gaps(self) -> None:
+        setup = Spatial1DSetup()
+        setup.gap_profile.kind = "step"
+        setup.gap_profile.gap_left = 180.0
+        setup.gap_profile.gap_right = 180.0
+        setup.gap_profile.interface_G_N = 1.0
+
+        report = validate_setup(setup)
+
+        assert not report.ok
+        assert any("interface_G_N requires distinct" in error for error in report.errors)
+
     def test_m25_ej_below_ec_rejected(self) -> None:
         setup = M25JunctionSetup()
         setup.E_C_over_h_GHz = setup.E_J_over_h_GHz + 1.0
@@ -188,6 +243,18 @@ class TestBuilders:
         kwargs = steady_state_solver_kwargs(setup)
         assert kwargs["method"] == "picard"
         assert kwargs["anderson_depth"] == setup.solver.anderson_depth
+
+    def test_solver_kwargs_map_controls_to_coupled_newton(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.phonons.mode = "dynamic_escape"
+        setup.solver.method = "coupled_newton"
+        setup.solver.newton_tol = 2.5e-7
+        setup.solver.newton_max_iter = 73
+
+        kwargs = steady_state_solver_kwargs(setup)
+
+        assert kwargs["coupled_newton_tol"] == 2.5e-7
+        assert kwargs["coupled_newton_max_iter"] == 73
 
     def test_drive_dicts_match_backend_keys(self) -> None:
         setup = Transient0DSetup()

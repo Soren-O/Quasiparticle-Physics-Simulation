@@ -10,12 +10,13 @@ ordinate
 
 against the Eq. 35 drive-equivalent temperature ratio $T_*/\\Delta$, swept
 over $\\bar n$ at three bath temperatures $T_B \\in \\{0.10, 0.15, 0.20\\}$ K
-on the paper grid (1620 bins, $dE = 1\\,\\mu$eV). Solid lines: numerical
+on a paper-resolution grid (1640 bins: the original 1620 above-gap cells plus
+20 sub-gap guard cells, $dE = 1\\,\\mu$eV). Solid lines: numerical
 joint kinetic-equation + self-consistent gap solve. Dashed lines:
 analytical Eq. 53.
 
 The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)/\\delta\\Delta_T$,
-which goes negative on the strong-drive side; the 1620-bin grid resolves
+which goes negative on the strong-drive side; the 1640-bin grid resolves
 the sign change cleanly.
 
 $\\tau_\\ell$ model
@@ -81,17 +82,30 @@ from qpsim.observables.gap_suppression import (
     thermal_gap_integral_direct,
 )
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
-from qpsim.physics import build_tau_l, calibrate_gap
+from qpsim.physics import build_tau_l, calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
 from validation.fischer_2023.fig5_paper import _xqp_analytic_eq47
+from validation.fischer_2023.steady_state_certificate import (
+    CERTIFICATE_FIELDS,
+    CERTIFICATE_METRIC_VERSION,
+    steady_state_certificate,
+)
 
 # ── Fischer 2023 Table I parameters (shared with fig3_paper, fig5_paper) ──
 
 DELTA_0 = 180.0            # μeV (zero-T gap; also Eq. 53 normalization)
 TAU_0 = 438.0              # ns
-T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
+# The finite-cutoff calibrator, rather than the infinite-cutoff rounded 1.764
+# ratio, is the single pairing-scale anchor.  This makes the model's T=0 gap
+# equal DELTA_0 while preserving continuous closure at the declared T_C.
+GAP_SOLVE_XTOL_UEV = 1e-12
+FINITE_CUTOFF_DELTA0_OVER_KBTC = (
+    calibrate_gap(T_c=1.0, T_bath=0.0, xtol=GAP_SOLVE_XTOL_UEV).delta_0_bcs
+    / KB_UEV_PER_K
+)
+T_C = DELTA_0 / (FINITE_CUTOFF_DELTA0_OVER_KBTC * KB_UEV_PER_K)
 OMEGA_0 = DELTA_0 / 9.0    # 20 μeV
 C_PHOT = 1e-9              # ns^-1 (1 Hz)
 
@@ -106,10 +120,15 @@ SUBSTRATE_ETA = 0.2
 # override with FISCHER2023_FIG6_TAU_L_MODEL to compare.
 TAU_L_MODEL = os.environ.get("FISCHER2023_FIG6_TAU_L_MODEL", "tau_0_pb").lower()
 
-# Paper grid: 1620 bins, dE = 1 μeV (same as fig3_paper.py and fig5_paper.py).
-E_MIN_FACTOR = 1.0
+# Paper-resolution grid: retain dE = 1 micro-eV while adding one drive-photon
+# quantum of sub-gap headroom. A self-consistent solution necessarily has
+# Delta < Delta_0; starting the first cell edge at Delta_0 used to extrapolate
+# across missing square-root-singular support and now correctly fails the
+# finite-volume density contract. The 20 prepended cells are inactive until
+# the solved gap moves below Delta_0; every original above-gap center remains.
+E_MIN_FACTOR = (DELTA_0 - OMEGA_0) / DELTA_0
 E_MAX_FACTOR = 10.0
-NUM_BINS = 1620
+NUM_BINS = 1640
 
 # Paper sweep — three bath temperatures, swept over n̄.
 T_BATH_VALUES: tuple[float, ...] = (0.10, 0.15, 0.20)
@@ -130,6 +149,21 @@ N_BAR_VALUES: np.ndarray = np.logspace(4.0, 8.2, 22)
 # dev iteration (~30× speedup at the cost of ~1 sig fig).
 PICARD_TOL: float = 1e-12
 PICARD_ATOL: float = 1e-14
+TARGET_BACKWARD_ERROR_LIMIT = 1e-5
+"""Maximum independently reassembled balance error at a converged target."""
+
+NEWTON_BACKWARD_ERROR_TOL = 1e-6
+"""Inner Newton balance gate used by the Picard kinetic solve."""
+
+GAP_FIXED_POINT_ABS_TOL_UEV = 1e-10
+"""Absolute independently reassembled gap-map target for accepted points."""
+
+GAP_FIXED_POINT_REL_TOL = GAP_FIXED_POINT_ABS_TOL_UEV / DELTA_0
+"""Backend relative tolerance implying the absolute target for gap <= DELTA_0."""
+
+GAP_FIXED_POINT_CERTIFICATE_FIELD = "gap_fixed_point_abs_error_uev"
+FIG6_CERTIFICATE_FIELDS = (*CERTIFICATE_FIELDS, GAP_FIXED_POINT_CERTIFICATE_FIELD)
+"""Certificate fields stored in the Fig. 6 raw payload and current CSV."""
 
 # τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
 PAPER_TAU_0_PB_PS = 255.0
@@ -279,8 +313,52 @@ def _build_state(
     *,
     f_seed: np.ndarray | None = None,
     n_ph_seed: np.ndarray | None = None,
+    continuation_seed: T3DiffusionState | None = None,
 ) -> T3DiffusionState:
-    """Build a T3 state with the ``TAU_L_MODEL`` $\\tau_\\ell$ and (f, n_ph) seeds."""
+    """Build a state, optionally cloning a complete same-temperature seed.
+
+    A self-consistent continuation seed carries its gap and matching
+    :class:`SpectralContext` as well as ``f`` and ``n_ph``. Rebuilding it on
+    the original ``DELTA_0`` context would discard outer-gap continuation
+    between adjacent ``n_bar`` targets.
+    """
+    if continuation_seed is not None:
+        if f_seed is not None or n_ph_seed is not None:
+            raise ValueError(
+                "continuation_seed is mutually exclusive with f_seed/n_ph_seed."
+            )
+        if continuation_seed.T_bath != T_bath:
+            raise ValueError(
+                "Fig. 6 continuation seeds cannot cross temperature rows: "
+                f"seed T_bath={continuation_seed.T_bath}, requested {T_bath}."
+            )
+        seeded_spectral = continuation_seed.spectral
+        if not (
+            np.array_equal(seeded_spectral.E, spectral.E)
+            and np.array_equal(seeded_spectral.dE, spectral.dE)
+            and seeded_spectral.dynes_gamma == spectral.dynes_gamma
+        ):
+            raise ValueError(
+                "Fig. 6 continuation seed must use the configured energy grid."
+            )
+        if continuation_seed.gap != seeded_spectral.gap:
+            raise ValueError(
+                "Fig. 6 continuation seed gap must match its SpectralContext."
+            )
+        return replace(
+            continuation_seed,
+            f=continuation_seed.f.copy(),
+            phonon=replace(
+                continuation_seed.phonon,
+                n_ph=continuation_seed.phonon.n_ph.copy(),
+                omega_bins=continuation_seed.phonon.omega_bins.copy(),
+                tau_l=continuation_seed.phonon.tau_l.copy(),
+            ),
+            material=material,
+            T_bath=T_bath,
+            _moving_gap_coordinates=None,
+        )
+
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
     omega_2d = omega.reshape(1, -1)
     if n_ph_seed is None:
@@ -315,7 +393,13 @@ def _solve_picard_sc_gap(
     Inner Picard iterates (f, n_ph); outer iteration re-solves the BCS
     gap equation against the converged $f$.
     """
-    # gap_tol/picard_tol tightened from 1e-6/1e-8 to 1e-10/1e-12 because the
+    # The backend accepts a relative outer-gap tolerance. Since every
+    # superconducting target satisfies gap <= DELTA_0, dividing the absolute
+    # certificate target by DELTA_0 makes backend acceptance at least as tight
+    # as GAP_FIXED_POINT_ABS_TOL_UEV. The independent branch-anchored check in
+    # _solve_and_measure remains authoritative.
+    #
+    # gap_tol/picard_tol were tightened because the
     # paper observable (Δ_driven - Δ_eq)/(Δ_0 - Δ_eq) divides by the
     # exponentially small thermal suppression δΔ_T ≈ √(2π Δ T_B) e^{-Δ/T_B}:
     # δΔ_T ≈ 8e-8 μeV at T_B=0.10 K, ~1e-4 at T_B=0.15 K. With the loose
@@ -328,16 +412,22 @@ def _solve_picard_sc_gap(
         photon_params=photon_params,
         use_phonon_side_kernel=True,
         self_consistent_gap=True,
-        gap_tol=1e-10,
+        gap_tol=GAP_FIXED_POINT_REL_TOL,
         gap_max_iter=50,
         gap_under_relaxation=0.5,
-        gap_solve_xtol=1e-12,
+        gap_solve_xtol=GAP_SOLVE_XTOL_UEV,
         picard_tol=PICARD_TOL,
         picard_atol=PICARD_ATOL,
+        # Fig. 6 independently reassembles and hard-gates the same balance
+        # below. Align Picard termination eligibility with that validated
+        # target; a stricter hidden inner gate can stall on roundoff without
+        # improving the accepted paper observable.
+        picard_balance_tol=TARGET_BACKWARD_ERROR_LIMIT,
         picard_max_iter=2000,
         picard_mixing=0.3,
         anderson_depth=0,
         newton_tol=1e-14,
+        newton_backward_error_tol=NEWTON_BACKWARD_ERROR_TOL,
         newton_max_iter=500,
     )
 
@@ -364,7 +454,7 @@ def _solve_coupled_newton_fixed_gap(
         coupled_newton_max_iter=80,
         coupled_newton_fd_step=1e-8,
         # Analytical cross-Jacobians (J_fn, J_nf): exact and O(NE²), where the
-        # finite-difference secant is both ~30 min/point at 1620 bins and
+        # finite-difference secant is both ~30 min/point at 1640 bins and
         # unreliable at strong drive (f, n_ph ≪ 1), branch-hopping / NaN-ing the
         # post-peak tail. Closed form fills the tail and cuts runtime to seconds.
         coupled_newton_analytic_cross=True,
@@ -416,37 +506,91 @@ def _acceptable_ratio(obs: float, *, direct_gap_observable: bool) -> bool:
     return obs > -1e-3
 
 
+def _require_target_certificate(
+    certificate: dict[str, float],
+    *,
+    T_bath: float,
+    n_bar: float,
+    require_gap_fixed_point: bool,
+) -> None:
+    """Hard-fail a returned kinetic state that is not a certified root."""
+    qp_backward = certificate["qp_backward_error"]
+    phonon_backward = certificate["phonon_backward_error"]
+    if (
+        not np.isfinite(qp_backward)
+        or not np.isfinite(phonon_backward)
+        or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
+        or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
+    ):
+        raise RuntimeError(
+            "Fischer Fig. 6 converged target failed the independent "
+            f"steady-state certificate at T_B={T_bath:g} K, "
+            f"n_bar={n_bar:.6e} (limit={TARGET_BACKWARD_ERROR_LIMIT:g}): "
+            f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+        )
+
+    gap_error = certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD]
+    if require_gap_fixed_point and (
+        not np.isfinite(gap_error)
+        or gap_error > GAP_FIXED_POINT_ABS_TOL_UEV
+    ):
+        raise RuntimeError(
+            "Fischer Fig. 6 converged target failed the independent "
+            f"gap-map certificate at T_B={T_bath:g} K, "
+            f"n_bar={n_bar:.6e}: abs_error={gap_error:.3e} micro-eV, "
+            f"limit={GAP_FIXED_POINT_ABS_TOL_UEV:.3e} micro-eV."
+        )
+
+
+class _PointSolveError(RuntimeError):
+    """Expected backend non-convergence at a continuation fold."""
+
+
 def _solve_and_measure(
     backend: T3DiffusionBackend,
     material: Material,
     spectral: SpectralContext,
     T_bath: float,
     n_bar_val: float,
-    f_seed: np.ndarray | None,
-    n_ph_seed: np.ndarray | None,
+    continuation_seed: T3DiffusionState | None,
     *,
     fixed_gap_kinetics: bool,
     direct_gap_observable: bool,
     thermal_integral: float | None,
     delta_eq: float,
     delta_T: float,
-) -> tuple[T3DiffusionState, float, float, float]:
+) -> tuple[T3DiffusionState, float, float, float, dict[str, float]]:
     """Build a seeded state, solve, and measure the gap-suppression observable.
 
-    Returns ``(converged, obs, delta_driven, x_qp)``; raises ``RuntimeError``
-    on solver non-convergence.
+    Returns ``(converged, obs, delta_driven, x_qp, certificate)``; raises
+    ``RuntimeError`` on solver non-convergence. The certificate independently
+    reassembles the fixed-gap balance represented by the returned state, even
+    when the state came from the outer self-consistent-gap loop.
     """
     state = _build_state(
-        material, spectral, T_bath, f_seed=f_seed, n_ph_seed=n_ph_seed,
+        material,
+        spectral,
+        T_bath,
+        continuation_seed=continuation_seed,
     )
     photon_params = {
         "omega_0": OMEGA_0, "n_bar": float(n_bar_val), "c_phot": C_PHOT,
     }
-    converged = (
-        _solve_coupled_newton_fixed_gap(backend, state, photon_params)
-        if fixed_gap_kinetics
-        else _solve_picard_sc_gap(backend, state, photon_params)
-    )
+    try:
+        converged = (
+            _solve_coupled_newton_fixed_gap(backend, state, photon_params)
+            if fixed_gap_kinetics
+            else _solve_picard_sc_gap(backend, state, photon_params)
+        )
+    except RuntimeError as exc:
+        # A nonlinear point solve may legitimately terminate at the documented
+        # continuation fold. Only that backend failure is fold-to-NaN eligible.
+        # Observable, independent kinetic-certificate, and gap-map errors below
+        # must propagate so a broken certification path cannot masquerade as a
+        # physical fold.
+        raise _PointSolveError(
+            "Fischer Fig. 6 backend point solve did not converge."
+        ) from exc
     if direct_gap_observable:
         # _solve_sweep always supplies thermal_integral in direct-gap mode.
         assert thermal_integral is not None
@@ -461,7 +605,32 @@ def _solve_and_measure(
         delta_driven = float(converged.gap)
         obs = (converged.gap - delta_eq) / delta_T
     x_qp = qp_fraction(converged.f, converged.spectral, delta_0=DELTA_0)
-    return converged, obs, delta_driven, x_qp
+    tau_l = float(converged.phonon.tau_l[0, 0])
+    certificate = steady_state_certificate(
+        converged,
+        photon_params=photon_params,
+        tau_l=tau_l,
+    )
+    certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD] = float("nan")
+    if not direct_gap_observable and not fixed_gap_kinetics:
+        calibration = calibrate_gap(
+            T_c=T_C,
+            T_bath=T_bath,
+            Delta_0=DELTA_0,
+            xtol=GAP_SOLVE_XTOL_UEV,
+        )
+        mapped_gap = solve_gap(
+            calibration,
+            converged.f,
+            converged.spectral.E,
+            dE_bins=converged.spectral.dE,
+            reference_gap=converged.gap,
+            xtol=GAP_SOLVE_XTOL_UEV,
+        )
+        certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD] = abs(
+            mapped_gap - converged.gap
+        )
+    return converged, obs, delta_driven, x_qp, certificate
 
 
 def _solve_sweep(
@@ -475,12 +644,13 @@ def _solve_sweep(
 ) -> tuple[
     np.ndarray, np.ndarray, np.ndarray, np.ndarray,
     np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+    dict[str, np.ndarray],
 ]:
     """For each $T_B$, sweep n̄ low → high with (f, n_ph) continuation.
 
     Returns (T_star_over_delta, delta_eq, delta_driven, x_qp_num,
              x_qp_eq47, paper_observable_num, paper_observable_eq53,
-             tau_l_used).
+             tau_l_used, certificates).
     All shaped ``(len(T_BATH_VALUES), N_BAR_VALUES.size)`` except
     ``delta_eq`` (per-T_B) and ``tau_l_used`` (scalar).
     """
@@ -494,12 +664,15 @@ def _solve_sweep(
     obs_eq53 = np.zeros((n_T, n_n))
     delta_eq_per_T = np.zeros(n_T)
     tau_l_used: float | None = None
+    certificates = {
+        field: np.full((n_T, n_n), np.nan, dtype=float)
+        for field in FIG6_CERTIFICATE_FIELDS
+    }
 
     # δΔ_T = Δ_0 − Δ_eq(T_B) is exponentially small at low T_B (≈ 8e-8 μeV
     # at T_B=0.10 K, ≈ 1e-4 at T_B=0.15 K). Default brentq xtol of
     # 1e-6 * kBTc ≈ 1e-4 μeV would round δΔ_T to zero at T_B ≤ 0.15 K and
     # collapse the paper observable. Tighten to ~1e-12 μeV.
-    _GAP_XTOL_UEV = 1e-12
     for i, T_bath in enumerate(T_BATH_VALUES):
         thermal_integral: float | None = None  # set below only in direct-gap mode
         if direct_gap_observable:
@@ -513,7 +686,12 @@ def _solve_sweep(
             # δΔ_T / Δ_0 from -expm1(-I_T), avoiding root-find cancellation.
             delta_T = DELTA_0 * float(-np.expm1(-thermal_integral))
         else:
-            calibration = calibrate_gap(T_c=T_C, T_bath=T_bath, xtol=_GAP_XTOL_UEV)
+            calibration = calibrate_gap(
+                T_c=T_C,
+                T_bath=T_bath,
+                Delta_0=DELTA_0,
+                xtol=GAP_SOLVE_XTOL_UEV,
+            )
             delta_eq_per_T[i] = calibration.delta_eq
             # δΔ_T  = Δ_0 - Δ_eq(T_B), the thermal-equilibrium suppression
             # at this T_B (independent of drive). Used as the denominator of
@@ -525,8 +703,7 @@ def _solve_sweep(
             obs_eq53[i, :] = np.nan
             continue
 
-        f_seed: np.ndarray | None = None
-        n_ph_seed: np.ndarray | None = None
+        continuation_seed: T3DiffusionState | None = None
         tau_l_val: float | None = None
         for j, n_bar in enumerate(N_BAR_VALUES):
             if tau_l_val is None:
@@ -557,11 +734,19 @@ def _solve_sweep(
             # points degrade to NaN. (n̄ substepping was tried and removed —
             # 0 recoveries at ~8× runtime; continuation cannot cross a fold.)
             converged: T3DiffusionState | None = None
+            certificate: dict[str, float] | None = None
             obs = delta_driven_pt = x_qp_pt = float("nan")
             ok = False
             try:
-                converged, obs, delta_driven_pt, x_qp_pt = _solve_and_measure(
-                    backend, material, spectral, T_bath, n_bar, f_seed, n_ph_seed,
+                (
+                    converged,
+                    obs,
+                    delta_driven_pt,
+                    x_qp_pt,
+                    certificate,
+                ) = _solve_and_measure(
+                    backend, material, spectral, T_bath, n_bar,
+                    continuation_seed,
                     fixed_gap_kinetics=fixed_gap_kinetics,
                     direct_gap_observable=direct_gap_observable,
                     thermal_integral=thermal_integral,
@@ -570,8 +755,24 @@ def _solve_sweep(
                 ok = _acceptable_ratio(
                     obs, direct_gap_observable=direct_gap_observable,
                 )
-            except RuntimeError:
+            except _PointSolveError:
                 ok = False
+
+            if certificate is not None:
+                for field in FIG6_CERTIFICATE_FIELDS:
+                    certificates[field][i, j] = certificate[field]
+                # This is not the physical gap-collapse fold: the solver
+                # returned a state, but that state must actually be a root of
+                # the kinetic equations before any observable is accepted or
+                # folded to NaN.
+                _require_target_certificate(
+                    certificate,
+                    T_bath=T_bath,
+                    n_bar=float(n_bar),
+                    require_gap_fixed_point=(
+                        not direct_gap_observable and not fixed_gap_kinetics
+                    ),
+                )
 
             if not ok or converged is None:
                 obs_num[i, j] = np.nan
@@ -587,8 +788,10 @@ def _solve_sweep(
             obs_num[i, j] = obs
             delta_driven[i, j] = delta_driven_pt
             x_qp_num[i, j] = x_qp_pt
-            f_seed = converged.f.copy()
-            n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
+            # Carry the complete converged state within this temperature row.
+            # In particular, preserve the self-consistent gap and its matching
+            # SpectralContext instead of silently resetting both to DELTA_0.
+            continuation_seed = converged
             print(
                 f"  T_B={T_bath:.2f} K  n̄={n_bar:.2e}  T_*/Δ={T_star[i, j]:.3f}  "
                 f"Δ_driven={delta_driven[i, j]:.4f} μeV  (Δ_T-Δ)/(Δ_0-Δ_eq)="
@@ -602,7 +805,7 @@ def _solve_sweep(
         )
     return (
         T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
-        obs_num, obs_eq53, np.array([tau_l_used]),
+        obs_num, obs_eq53, np.array([tau_l_used]), certificates,
     )
 
 
@@ -640,7 +843,7 @@ def solve(
         print(f"Sweep n̄ at three T_B with self-consistent gap + τ_ℓ (model={TAU_L_MODEL!r}):")
     (
         T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
-        obs_num, obs_eq53, tau_l_arr,
+        obs_num, obs_eq53, tau_l_arr, certificates,
     ) = _solve_sweep(
         backend,
         material,
@@ -665,6 +868,7 @@ def solve(
         "paper_observable_eq53": obs_eq53,
         "x_qp_num": x_qp_num,
         "x_qp_eq47": x_qp_eq47,
+        **certificates,
     }
 
 
@@ -679,6 +883,7 @@ def solver_fingerprint() -> dict[str, Any]:
     """
     return {
         "delta_0": DELTA_0,
+        "finite_cutoff_delta0_over_kbtc": FINITE_CUTOFF_DELTA0_OVER_KBTC,
         "tau_0": TAU_0,
         "t_c": T_C,
         "omega_0": OMEGA_0,
@@ -690,6 +895,14 @@ def solver_fingerprint() -> dict[str, Any]:
         "e_max_factor": E_MAX_FACTOR,
         "picard_tol": PICARD_TOL,
         "picard_atol": PICARD_ATOL,
+        "picard_balance_tol": TARGET_BACKWARD_ERROR_LIMIT,
+        "newton_backward_error_tol": NEWTON_BACKWARD_ERROR_TOL,
+        "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
+        "gap_solve_xtol_uev": GAP_SOLVE_XTOL_UEV,
+        "gap_fixed_point_abs_tol_uev": GAP_FIXED_POINT_ABS_TOL_UEV,
+        "gap_fixed_point_rel_tol": GAP_FIXED_POINT_REL_TOL,
+        "certificate_fields": list(FIG6_CERTIFICATE_FIELDS),
+        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
         "tau_l_model": TAU_L_MODEL,
         "t_bath_values": [float(x) for x in T_BATH_VALUES],
         "n_bar_values": [float(x) for x in N_BAR_VALUES],

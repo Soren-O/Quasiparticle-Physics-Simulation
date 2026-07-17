@@ -29,7 +29,9 @@ def _thermal_f(
     delta_0 = 1.764 * KB_UEV_PER_K * T_c
     E, _ = build_energy_grid(
         gap=delta_0,
-        energy_min_factor=1.001,
+        # ``compute_gap_suppression`` may find any gap down to the normal
+        # state, so the input occupation must cover that entire interval.
+        energy_min_factor=0.0,
         energy_max_factor=10.0,
         num_energy_bins=num,
     )
@@ -79,6 +81,22 @@ class TestComputeGapSuppression:
 
         assert result.delta_final <= result.delta_eq
         assert result.delta_suppression >= 0.0
+
+    def test_rejects_missing_low_energy_support(self) -> None:
+        T_c, T_bath = 1.2, 0.3
+        delta_0 = 1.764 * KB_UEV_PER_K * T_c
+        E, _ = build_energy_grid(
+            gap=delta_0,
+            energy_min_factor=1.001,
+            energy_max_factor=10.0,
+            num_energy_bins=300,
+        )
+        f = 1.0 / (
+            np.exp(np.minimum(E / (KB_UEV_PER_K * T_bath), 500.0)) + 1.0
+        )
+
+        with pytest.raises(ValueError, match="below the reconstructed"):
+            compute_gap_suppression(f, E, T_c=T_c, T_bath=T_bath)
 
 
 class TestDirectGapSuppression:

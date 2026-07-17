@@ -57,7 +57,11 @@ from qpsim.observables.gap_suppression import (
     gap_from_distribution_direct,
     gap_integral_from_distribution_direct,
 )
-from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
+from qpsim.physics.spectral import SpectralContext
 from qpsim.transport.diffusion.base import DiffusionModel
 
 from validation.diffusion_operators import (
@@ -88,10 +92,30 @@ class FeedbackResult:
     fit_steps: int
 
 
-def _n1_columns(E: np.ndarray, gap_profile: np.ndarray) -> np.ndarray:
-    """Per-cell BCS DOS ``N_1(E_i, x_j)``, shape ``(NE, NX)``."""
+def _n1_columns(
+    E: np.ndarray,
+    dE: np.ndarray,
+    gap_profile: np.ndarray,
+) -> np.ndarray:
+    """Represented cell-average BCS DOS, shape ``(NE, NX)``.
+
+    The transport state stores a cell-constant occupation against the exact
+    finite-volume BCS measure. Using point DOS values here would define a
+    different conserved density and manufacture center-of-mass motion even
+    for the undressed ``q = 0`` flux.
+    """
+    first_edge = float(cell_edges_from_widths(E, dE)[0])
     return np.column_stack(
-        [bcs_density_of_states(E, float(g)) for g in gap_profile]
+        [
+            bcs_dos_cell_weights(
+                E,
+                dE,
+                float(g),
+                lower_bound=max(float(g), first_edge),
+            )
+            / dE
+            for g in gap_profile
+        ]
     )
 
 
@@ -216,7 +240,7 @@ def run(
         gap_profile = well0.copy()
         gap_initial[model.name] = gap_profile.copy()
 
-        N1_x = _n1_columns(E, gap_profile)
+        N1_x = _n1_columns(E, dE, gap_profile)
         # Analytic drift on the realized initial profile, averaged over the
         # probe's conserved density (finite-packet prediction).
         dN1_dx = np.gradient(N1_x, x, axis=1)
@@ -248,7 +272,7 @@ def run(
         probe = make_state(f_probe0)
 
         def conserved_total(state: T3Spatial1DState, p: int = p) -> float:
-            N1 = _n1_columns(E, state.gap_profile)
+            N1 = _n1_columns(E, dE, state.gap_profile)
             return float(np.sum(dE[:, None] * np.power(N1, p) * state.f))
 
         total0 = conserved_total(heavy)
@@ -270,7 +294,7 @@ def run(
                 )
                 heavy = replace(heavy, gap_profile=gap_profile)
                 probe = replace(probe, gap_profile=gap_profile)
-                N1_now = _n1_columns(E, gap_profile)
+                N1_now = _n1_columns(E, dE, gap_profile)
             com_t[step + 1] = _com_per_energy(N1_now, p, probe.f, x)
 
         gap_final[model.name] = gap_profile.copy()

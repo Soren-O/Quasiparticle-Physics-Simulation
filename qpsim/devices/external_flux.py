@@ -145,3 +145,33 @@ class ExternalFlux:
                 f"but the solver grid has {NE}. Pass an ExternalFlux of "
                 f"shape ({NE},) or use ExternalFlux.zero({NE})."
             )
+
+    def _validate_gain_support(self, supported: np.ndarray) -> None:
+        """Reject injection into bins with no represented spectral state.
+
+        ``supported`` is the finite-volume spectral-capacity mask used by the
+        collision solver. A loss rate on
+        an unsupported storage row is harmless and may be ignored by the
+        solver, but a positive gain there would create an occupation where the
+        represented density of states is exactly zero. Rejecting it at the API
+        boundary avoids the previous backend-dependent add/drop behavior.
+        """
+        support = np.asarray(supported, dtype=bool)
+        if support.ndim != 1 or support.shape != self.gain.shape:
+            raise ValueError(
+                "ExternalFlux support mask must have shape "
+                f"{self.gain.shape}; got {support.shape}."
+            )
+        unsupported_gain = (~support) & (self.gain > 0.0)
+        if np.any(unsupported_gain):
+            indices = np.flatnonzero(unsupported_gain)
+            preview = ", ".join(str(int(i)) for i in indices[:5])
+            suffix = "" if indices.size <= 5 else ", ..."
+            raise ValueError(
+                "ExternalFlux.gain is positive on "
+                f"{indices.size} zero-spectral-capacity energy bin(s) "
+                f"(indices {preview}{suffix}). Injection into an "
+                "unrepresented state is undefined; move the source onto "
+                "positive-capacity bins or use a consistently broadened "
+                "spectral model."
+            )

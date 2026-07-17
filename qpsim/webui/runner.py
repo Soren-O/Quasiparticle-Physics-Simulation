@@ -51,6 +51,16 @@ class JobState:
     started_monotonic: float | None = None
     # Terminal manifest whose disk write failed; overlay retries it.
     pending_manifest: dict[str, Any] | None = None
+    # Set when the worker has completed its final persistence attempt. A
+    # terminal job is not safe to delete before this point because the worker
+    # could otherwise recreate its directory after deletion.
+    worker_finished: threading.Event = field(
+        default_factory=threading.Event,
+        repr=False,
+    )
+    # Once a terminal manifest is durable or the user explicitly deletes a
+    # failed-persistence run, stale overlay retries must become no-ops.
+    manifest_writes_closed: bool = False
     # Manifest retries happen in request threads while the worker may finish.
     # Serialize them so an older active snapshot can never overwrite a newer
     # terminal manifest.
@@ -135,7 +145,10 @@ class JobRunner:
                 manifest["elapsed_s"] = round(
                     time.monotonic() - (job.started_monotonic or 0.0), 3
                 )
-            self._write_manifest_or_stash(job, manifest)
+            try:
+                self._write_manifest_or_stash(job, manifest)
+            finally:
+                job.worker_finished.set()
 
     def _write_manifest_or_stash(self, job: JobState, manifest: dict[str, Any]) -> None:
         """Persist the manifest; on failure stash it so overlay can retry.
@@ -145,6 +158,8 @@ class JobRunner:
         disk record at "running" with no recovery path.
         """
         with job.manifest_lock:
+            if job.manifest_writes_closed:
+                return
             manifest_status = str(manifest.get("status", ""))
             current_status = job.status
             stale = (
@@ -171,6 +186,7 @@ class JobRunner:
                     and manifest_status == job.status
                 ):
                     # Retire only after this exact terminal state is durable.
+                    job.manifest_writes_closed = True
                     with self._lock:
                         if self._jobs.get(job.run_id) is job:
                             self._jobs.pop(job.run_id, None)
@@ -180,6 +196,31 @@ class JobRunner:
     def live_state(self, run_id: str) -> JobState | None:
         with self._lock:
             return self._jobs.get(run_id)
+
+    def release_terminal_for_delete(self, run_id: str) -> bool:
+        """Stop retries for a finished terminal job so it can be deleted.
+
+        A terminal job remains registered only when its final manifest could
+        not be persisted. Once the worker's final attempt has returned, an
+        explicit delete may discard that pending snapshot. Closing writes
+        under the per-job lock also makes already-captured overlay retries
+        harmless, so none can recreate the run directory after deletion.
+
+        Returns ``True`` when no writer can remain, or ``False`` while the job
+        is active/finalizing and deletion must still be refused.
+        """
+        job = self.live_state(run_id)
+        if job is None:
+            return True
+        with job.manifest_lock:
+            if job.status not in _TERMINAL or not job.worker_finished.is_set():
+                return False
+            job.manifest_writes_closed = True
+            job.pending_manifest = None
+            with self._lock:
+                if self._jobs.get(run_id) is job:
+                    self._jobs.pop(run_id, None)
+            return True
 
     def cancel(self, run_id: str) -> bool:
         with self._lock:

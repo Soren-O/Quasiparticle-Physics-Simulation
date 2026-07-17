@@ -73,6 +73,12 @@ class PhononState:
         omega_bins = np.asarray(self.omega_bins, dtype=float)
         tau_l = np.asarray(self.tau_l, dtype=float)
 
+        if not isinstance(self.model, PhononModel):
+            raise ValueError(
+                "model must be a PhononModel enum value; got "
+                f"{self.model!r}."
+            )
+
         if n_ph.ndim != 3:
             raise ValueError(
                 f"n_ph must be 3D (N_branch, N_omega, N_spatial); got shape {n_ph.shape}."

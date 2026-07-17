@@ -2,7 +2,8 @@
 
 Iterative-mode tolerance per NFP §6.4.1 (1e-6). Slow-marked --- this
 sweep does $|T_B|\\times|\\bar n|$ joint Picard + self-consistent BCS gap
-solves on the 1620-bin paper grid; total wall-time is on the order of an
+solves on the 1640-bin paper-resolution grid (including sub-gap guard cells);
+total wall-time is on the order of an
 hour. Opt in with ``pytest -m slow``.
 
 The expensive sweep range (``N_BAR_VALUES``) is tunable in
@@ -17,10 +18,18 @@ First-time generation::
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
+from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.constants import KB_UEV_PER_K
+from qpsim.physics import calibrate_gap
+from qpsim.physics.spectral import SpectralContext
 
+import validation.fischer_2023.fig6_solve as fig6_solve
 from validation.fischer_2023.fig6_paper import (
+    FIG6_BASELINE_COLUMNS,
     T_BATH_VALUES,
     baseline_path,
     config_metadata,
@@ -28,7 +37,118 @@ from validation.fischer_2023.fig6_paper import (
     read_baseline_metadata,
     run,
 )
-from validation.fischer_2023.fig6_solve import N_BAR_VALUES
+from validation.fischer_2023.fig6_solve import (
+    DELTA_0,
+    FIG6_CERTIFICATE_FIELDS,
+    FINITE_CUTOFF_DELTA0_OVER_KBTC,
+    GAP_FIXED_POINT_ABS_TOL_UEV,
+    N_BAR_VALUES,
+    OMEGA_0,
+    T_C,
+    TARGET_BACKWARD_ERROR_LIMIT,
+    _build_grid_and_spectral,
+    _require_target_certificate,
+)
+
+
+def test_grid_covers_self_consistent_gap_support() -> None:
+    """The kinetic grid must not begin at the gap it is allowed to suppress."""
+    E, dE, spectral = _build_grid_and_spectral()
+    first_edge = float(E[0] - 0.5 * dE[0])
+    spacing = float(dE[0])
+
+    assert first_edge <= DELTA_0 - OMEGA_0
+    assert OMEGA_0 / spacing == pytest.approx(round(OMEGA_0 / spacing))
+    assert not np.any(spectral.active_mask[DELTA_0 > E])
+
+
+def test_finite_cutoff_calibration_anchors_delta0_and_tc() -> None:
+    assert pytest.approx(
+        1.7637398024450115,
+        rel=0.0,
+        abs=1e-15,
+    ) == FINITE_CUTOFF_DELTA0_OVER_KBTC
+    assert pytest.approx(1.184309192877208, rel=0.0, abs=1e-15) == T_C
+
+    calibration = calibrate_gap(T_c=T_C, T_bath=0.0, xtol=1e-12)
+    assert calibration.delta_0_bcs == pytest.approx(
+        DELTA_0,
+        rel=0.0,
+        abs=5e-14,
+    )
+    assert calibration.delta_0_bcs / (KB_UEV_PER_K * T_C) == pytest.approx(
+        FINITE_CUTOFF_DELTA0_OVER_KBTC,
+        rel=0.0,
+        abs=1e-15,
+    )
+
+    fingerprint = fig6_solve.solver_fingerprint()
+    assert fingerprint["finite_cutoff_delta0_over_kbtc"] == pytest.approx(
+        FINITE_CUTOFF_DELTA0_OVER_KBTC,
+        rel=0.0,
+        abs=0.0,
+    )
+    assert fingerprint["t_c"] == pytest.approx(T_C, rel=0.0, abs=0.0)
+    assert fingerprint["gap_fixed_point_abs_tol_uev"] == pytest.approx(
+        GAP_FIXED_POINT_ABS_TOL_UEV,
+        rel=0.0,
+        abs=0.0,
+    )
+    assert fingerprint["certificate_fields"] == list(FIG6_CERTIFICATE_FIELDS)
+
+
+@pytest.mark.parametrize(
+    ("T_bath", "expected_suppression_uev"),
+    [
+        (0.10, 8.321535460709129e-8),
+        (0.15, 1.0737232068436242e-4),
+        (0.20, 4.019584551002708e-3),
+    ],
+)
+def test_finite_cutoff_thermal_suppressions_are_resolved(
+    T_bath: float,
+    expected_suppression_uev: float,
+) -> None:
+    calibration = calibrate_gap(
+        T_c=T_C,
+        T_bath=T_bath,
+        Delta_0=DELTA_0,
+        xtol=1e-12,
+    )
+    assert DELTA_0 - calibration.delta_eq == pytest.approx(
+        expected_suppression_uev,
+        rel=1e-6,
+        abs=2e-12,
+    )
+
+
+def _assert_certified_baseline_balances(path, axes) -> None:
+    """Require the current schema and gate every accepted certificate field."""
+    text = path.read_text(encoding="utf-8")
+    header = next(
+        (line for line in text.splitlines() if line.startswith("T_bath_K,")),
+        "",
+    )
+    assert tuple(header.split(",")) == FIG6_BASELINE_COLUMNS, (
+        "certified Fig. 6 preflight requires the current 15-column schema"
+    )
+    accepted = np.isfinite(axes.x_qp_num)
+    for field in FIG6_CERTIFICATE_FIELDS:
+        values = getattr(axes, field)[accepted]
+        assert np.all(np.isfinite(values)), (
+            f"certified baseline has non-finite {field} at an accepted point"
+        )
+    for field in ("qp_backward_error", "phonon_backward_error"):
+        values = getattr(axes, field)[accepted]
+        assert np.all(values <= TARGET_BACKWARD_ERROR_LIMIT), (
+            f"certified baseline {field} exceeds "
+            f"{TARGET_BACKWARD_ERROR_LIMIT:g}: {values.tolist()}"
+        )
+    gap_errors = axes.gap_fixed_point_abs_error_uev[accepted]
+    assert np.all(gap_errors <= GAP_FIXED_POINT_ABS_TOL_UEV), (
+        "certified baseline gap-map error exceeds "
+        f"{GAP_FIXED_POINT_ABS_TOL_UEV:g}: {gap_errors.tolist()}"
+    )
 
 
 def _assert_config_matches_baseline(path) -> None:
@@ -55,14 +175,25 @@ def _assert_config_matches_baseline(path) -> None:
     assert cfg.e_min_factor == pytest.approx(meta.e_min_factor)
     assert cfg.e_max_factor == pytest.approx(meta.e_max_factor)
     assert cfg.delta_0 == pytest.approx(meta.delta_0)
+    assert cfg.finite_cutoff_delta0_over_kbtc == pytest.approx(
+        meta.finite_cutoff_delta0_over_kbtc,
+        rel=0.0,
+        abs=1e-15,
+    )
     assert cfg.tau_0 == pytest.approx(meta.tau_0)
-    assert cfg.t_c == pytest.approx(meta.t_c, rel=1e-6)  # header stores 6 dp
+    assert cfg.t_c == pytest.approx(meta.t_c, rel=0.0, abs=1e-15)
     assert cfg.omega_0 == pytest.approx(meta.omega_0)
     assert cfg.c_phot == pytest.approx(meta.c_phot)
     assert cfg.film_thickness_nm == pytest.approx(meta.film_thickness_nm)
     assert cfg.eta == pytest.approx(meta.eta)
     assert cfg.tau_0_pb_ns == pytest.approx(meta.tau_0_pb_ns, rel=1e-8)
     assert cfg.tau_l_ns == pytest.approx(meta.tau_l_ns, rel=1e-8)
+    assert cfg.gap_fixed_point_abs_tol_uev == pytest.approx(
+        meta.gap_fixed_point_abs_tol_uev,
+        rel=0.0,
+        abs=0.0,
+    )
+    assert cfg.certificate_metric_version == meta.certificate_metric_version
     np.testing.assert_allclose(
         np.asarray(T_BATH_VALUES, dtype=float), axes.T_bath,
         rtol=0.0, atol=1e-14,
@@ -72,6 +203,7 @@ def _assert_config_matches_baseline(path) -> None:
         N_BAR_VALUES, axes.n_bar, rtol=1e-12, atol=0.0,
         err_msg="n_bar sweep axis (range/count) differs from baseline",
     )
+    _assert_certified_baseline_balances(path, axes)
 
 
 def test_config_matches_baseline_metadata() -> None:
@@ -89,10 +221,399 @@ def test_config_matches_baseline_metadata() -> None:
     _assert_config_matches_baseline(path)
 
 
+def test_converged_target_with_bad_certificate_hard_fails() -> None:
+    certificate = {
+        "qp_residual_inf": 1e-20,
+        "qp_backward_error": 2e-5,
+        "phonon_residual_inf": 1e-20,
+        "phonon_raw_backward_error": 1e-8,
+        "phonon_backward_error": 1e-8,
+        "gap_fixed_point_abs_error_uev": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="converged target failed"):
+        _require_target_certificate(
+            certificate,
+            T_bath=0.1,
+            n_bar=1e6,
+            require_gap_fixed_point=True,
+        )
+
+
+def test_converged_target_with_bad_gap_map_certificate_hard_fails() -> None:
+    certificate = {
+        "qp_residual_inf": 1e-20,
+        "qp_backward_error": 1e-8,
+        "phonon_residual_inf": 1e-20,
+        "phonon_raw_backward_error": 1e-8,
+        "phonon_backward_error": 1e-8,
+        "gap_fixed_point_abs_error_uev": 1.01 * GAP_FIXED_POINT_ABS_TOL_UEV,
+    }
+    with pytest.raises(RuntimeError, match="gap-map certificate"):
+        _require_target_certificate(
+            certificate,
+            T_bath=0.1,
+            n_bar=1e6,
+            require_gap_fixed_point=True,
+        )
+
+
+def test_fixed_gap_certificate_allows_nan_gap_map_metric() -> None:
+    certificate = {
+        "qp_residual_inf": 1e-20,
+        "qp_backward_error": 1e-8,
+        "phonon_residual_inf": 1e-20,
+        "phonon_raw_backward_error": 1e-8,
+        "phonon_backward_error": 1e-8,
+        "gap_fixed_point_abs_error_uev": float("nan"),
+    }
+    _require_target_certificate(
+        certificate,
+        T_bath=0.1,
+        n_bar=1e6,
+        require_gap_fixed_point=False,
+    )
+
+
+def test_legacy_nine_column_baseline_reads_with_nan_certificates(tmp_path) -> None:
+    path = tmp_path / "legacy_fig6.csv"
+    path.write_text(
+        "# legacy Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        "T_bath_K,n_bar,T_star_over_delta,delta_eq_T_bath_ueV,"
+        "delta_driven_ueV,x_qp_num,x_qp_eq47,paper_observable_num,"
+        "paper_observable_eq53\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2\n",
+        encoding="utf-8",
+    )
+
+    result = read_baseline(path)
+    for field in (
+        "qp_residual_inf",
+        "qp_backward_error",
+        "phonon_residual_inf",
+        "phonon_raw_backward_error",
+        "phonon_backward_error",
+        "gap_fixed_point_abs_error_uev",
+    ):
+        assert np.all(np.isnan(getattr(result, field)))
+
+
+def test_baseline_reader_rejects_duplicate_coordinates(tmp_path) -> None:
+    path = tmp_path / "duplicate_fig6.csv"
+    row = "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2\n"
+    path.write_text(
+        "# legacy Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        + ",".join(FIG6_BASELINE_COLUMNS[:9])
+        + "\n"
+        + row
+        + row,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=r"duplicate \(T_bath, n_bar\)"):
+        read_baseline(path)
+
+
+def test_baseline_reader_rejects_missing_cartesian_coordinate(tmp_path) -> None:
+    path = tmp_path / "missing_coordinate_fig6.csv"
+    path.write_text(
+        "# legacy Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        + ",".join(FIG6_BASELINE_COLUMNS[:9])
+        + "\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2\n"
+        "0.1,20000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2\n"
+        "0.2,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="missing Cartesian"):
+        read_baseline(path)
+
+
+def test_old_thirteen_column_certificate_maps_without_reinterpretation(
+    tmp_path,
+) -> None:
+    path = tmp_path / "old_certified_fig6.csv"
+    path.write_text(
+        "# certified Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        "T_bath_K,n_bar,T_star_over_delta,delta_eq_T_bath_ueV,"
+        "delta_driven_ueV,x_qp_num,x_qp_eq47,paper_observable_num,"
+        "paper_observable_eq53,qp_residual_inf,qp_backward_error,"
+        "phonon_residual_inf,phonon_backward_error\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2,1e-20,"
+        "2e-5,1e-20,1e-8\n",
+        encoding="utf-8",
+    )
+    result = read_baseline(path)
+
+    assert result.phonon_backward_error[0, 0] == pytest.approx(1e-8)
+    assert np.isnan(result.phonon_raw_backward_error[0, 0])
+    assert np.isnan(result.gap_fixed_point_abs_error_uev[0, 0])
+
+    with pytest.raises(AssertionError, match="current 15-column schema"):
+        _assert_certified_baseline_balances(path, result)
+
+
+def test_current_baseline_preflight_rejects_bad_balance(tmp_path) -> None:
+    path = tmp_path / "bad_certified_fig6.csv"
+    path.write_text(
+        "# certified Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        + ",".join(FIG6_BASELINE_COLUMNS)
+        + "\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2,1e-20,"
+        "2e-5,1e-20,1e-8,1e-8,1e-12\n",
+        encoding="utf-8",
+    )
+    result = read_baseline(path)
+
+    with pytest.raises(AssertionError, match="qp_backward_error exceeds"):
+        _assert_certified_baseline_balances(path, result)
+
+
+def test_current_baseline_preflight_rejects_bad_gap_map_error(tmp_path) -> None:
+    path = tmp_path / "bad_gap_certified_fig6.csv"
+    path.write_text(
+        "# certified Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        "T_bath_K,n_bar,T_star_over_delta,delta_eq_T_bath_ueV,"
+        "delta_driven_ueV,x_qp_num,x_qp_eq47,paper_observable_num,"
+        "paper_observable_eq53,qp_residual_inf,qp_backward_error,"
+        "phonon_residual_inf,phonon_raw_backward_error,"
+        "phonon_backward_error,gap_fixed_point_abs_error_uev\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2,1e-20,"
+        f"1e-8,1e-20,1e-8,1e-8,{1.01 * GAP_FIXED_POINT_ABS_TOL_UEV}\n",
+        encoding="utf-8",
+    )
+    result = read_baseline(path)
+
+    with pytest.raises(AssertionError, match="gap-map error exceeds"):
+        _assert_certified_baseline_balances(path, result)
+
+
+def test_current_baseline_preflight_requires_finite_certificate_fields(
+    tmp_path,
+) -> None:
+    path = tmp_path / "nonfinite_certified_fig6.csv"
+    path.write_text(
+        "# certified Fig. 6 baseline\n"
+        "# tau_0_pb_ns=0.255 tau_l_ns=0.255\n"
+        + ",".join(FIG6_BASELINE_COLUMNS)
+        + "\n"
+        "0.1,10000,0.1,179.9,179.8,1e-9,2e-9,0.1,0.2,1e-20,"
+        "1e-8,1e-20,nan,1e-8,1e-12\n",
+        encoding="utf-8",
+    )
+    result = read_baseline(path)
+
+    with pytest.raises(AssertionError, match="non-finite phonon_raw_backward_error"):
+        _assert_certified_baseline_balances(path, result)
+
+
+def test_sweep_carries_full_state_within_row_and_resets_between_rows(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.10, 0.20))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4, 2.0e4]))
+
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    calls: list[tuple[float, float | None, float | None]] = []
+    row_counts = {0.10: 0, 0.20: 0}
+
+    def fake_solve_and_measure(
+        _backend,
+        material_arg,
+        spectral_arg,
+        T_bath,
+        _n_bar,
+        continuation_seed,
+        **_kwargs,
+    ):
+        seed_gap = None if continuation_seed is None else continuation_seed.gap
+        seed_spectral_gap = (
+            None if continuation_seed is None else continuation_seed.spectral.gap
+        )
+        calls.append((T_bath, seed_gap, seed_spectral_gap))
+        state = fig6_solve._build_state(
+            material_arg,
+            spectral_arg,
+            T_bath,
+            continuation_seed=continuation_seed,
+        )
+
+        row_counts[T_bath] += 1
+        target_gap = DELTA_0 - 0.25 * (1 + int(T_bath > 0.15)) - 0.01 * row_counts[
+            T_bath
+        ]
+        converged = replace(
+            state,
+            gap=target_gap,
+            spectral=SpectralContext(
+                E_bins=state.spectral.E,
+                dE_bins=state.spectral.dE,
+                gap=target_gap,
+            ),
+        )
+        certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        return converged, 0.1, target_gap, 1e-8, certificate
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_and_measure",
+        fake_solve_and_measure,
+    )
+    result = fig6_solve._solve_sweep(
+        T3DiffusionBackend(),
+        material,
+        spectral,
+        tau_0_pb=0.255,
+    )
+
+    assert calls[0] == (0.10, None, None)
+    assert calls[1][0] == 0.10
+    assert calls[1][1] == calls[1][2] == DELTA_0 - 0.26
+    assert calls[2] == (0.20, None, None)
+    assert calls[3][0] == 0.20
+    assert calls[3][1] == calls[3][2] == DELTA_0 - 0.51
+
+    certificates = result[-1]
+    for field in FIG6_CERTIFICATE_FIELDS:
+        np.testing.assert_array_equal(certificates[field], np.zeros((2, 2)))
+
+
+def test_independent_certificate_runtime_error_propagates(monkeypatch) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_picard_sc_gap",
+        lambda _backend, state, _photon_params: state,
+    )
+
+    def fail_certificate(*_args, **_kwargs):
+        raise RuntimeError("independent certificate assembly failed")
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "steady_state_certificate",
+        fail_certificate,
+    )
+
+    with pytest.raises(RuntimeError, match="independent certificate assembly failed"):
+        fig6_solve._solve_sweep(
+            T3DiffusionBackend(),
+            material,
+            spectral,
+            tau_0_pb=0.255,
+        )
+
+
+@pytest.mark.slow
+def test_reduced_full_state_continuation_is_certified_and_repeatable(
+    monkeypatch,
+) -> None:
+    """A real reduced full-state continuation is deterministic and certified."""
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "PICARD_TOL", 1e-9)
+
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    calibration = calibrate_gap(
+        T_c=T_C,
+        T_bath=0.20,
+        Delta_0=DELTA_0,
+        xtol=fig6_solve.GAP_SOLVE_XTOL_UEV,
+    )
+    delta_eq = calibration.delta_eq
+    delta_T = DELTA_0 - delta_eq
+    solve_kwargs = {
+        "fixed_gap_kinetics": False,
+        "direct_gap_observable": False,
+        "thermal_integral": None,
+        "delta_eq": delta_eq,
+        "delta_T": delta_T,
+    }
+    backend = T3DiffusionBackend()
+    first = fig6_solve._solve_and_measure(
+        backend,
+        material,
+        spectral,
+        0.20,
+        1.0e4,
+        None,
+        **solve_kwargs,
+    )
+    continued = fig6_solve._solve_and_measure(
+        backend,
+        material,
+        spectral,
+        0.20,
+        1.0e5,
+        first[0],
+        **solve_kwargs,
+    )
+    repeated_first = fig6_solve._solve_and_measure(
+        backend,
+        material,
+        spectral,
+        0.20,
+        1.0e4,
+        None,
+        **solve_kwargs,
+    )
+    repeated = fig6_solve._solve_and_measure(
+        backend,
+        material,
+        spectral,
+        0.20,
+        1.0e5,
+        repeated_first[0],
+        **solve_kwargs,
+    )
+
+    assert first[0].gap == first[0].spectral.gap
+    assert first[0].gap < DELTA_0
+    assert continued[0].gap == pytest.approx(
+        179.9969259818,
+        rel=0.0,
+        abs=2e-9,
+    )
+    assert continued[1] == pytest.approx(0.23523982, rel=0.0, abs=1e-6)
+    assert continued[0].gap == pytest.approx(
+        repeated[0].gap,
+        rel=0.0,
+        abs=1e-12,
+    )
+    np.testing.assert_allclose(
+        continued[0].f,
+        repeated[0].f,
+        rtol=0.0,
+        atol=1e-14,
+    )
+    assert continued[1] == pytest.approx(repeated[1], rel=0.0, abs=1e-10)
+    for result in (continued, repeated):
+        certificate = result[4]
+        assert certificate["qp_backward_error"] <= TARGET_BACKWARD_ERROR_LIMIT
+        assert certificate["phonon_backward_error"] <= TARGET_BACKWARD_ERROR_LIMIT
+        assert (
+            certificate["gap_fixed_point_abs_error_uev"]
+            <= GAP_FIXED_POINT_ABS_TOL_UEV
+        )
+
+
 @pytest.mark.slow
 @pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
-    """Run the full 1620-bin paper sweep (manual/scheduled validation only).
+    """Run the full 1640-bin paper-resolution sweep (manual validation only).
 
     The source itself documents a roughly 14-hour runtime, which is not a
     bounded pull-request check. Keep this test executable with
@@ -143,7 +664,7 @@ def test_matches_pinned_baseline() -> None:
         err_msg="Δ_driven (self-consistent BCS) drift",
     )
     np.testing.assert_allclose(
-        result.x_qp_num, baseline.x_qp_num, rtol=0.0, atol=1e-6,
+        result.x_qp_num, baseline.x_qp_num, rtol=1e-3, atol=1e-14,
         err_msg="numerical x_qp drift",
     )
     np.testing.assert_allclose(
@@ -191,6 +712,12 @@ class TestFig6CacheIntegration:
             "paper_observable_eq53": np.array([[0.11, 0.21]]),
             "x_qp_num": np.array([[1.0e-5, 2.0e-5]]),
             "x_qp_eq47": np.array([[1.1e-5, 2.1e-5]]),
+            "qp_residual_inf": np.array([[1.0e-15, 2.0e-15]]),
+            "qp_backward_error": np.array([[1.0e-8, 2.0e-8]]),
+            "phonon_residual_inf": np.array([[3.0e-15, 4.0e-15]]),
+            "phonon_raw_backward_error": np.array([[3.1e-8, 4.1e-8]]),
+            "phonon_backward_error": np.array([[3.0e-8, 4.0e-8]]),
+            "gap_fixed_point_abs_error_uev": np.array([[1.0e-12, 2.0e-12]]),
         }
 
     def test_run_cached_hits_disk_on_second_call(self, tmp_path, monkeypatch) -> None:
@@ -217,8 +744,70 @@ class TestFig6CacheIntegration:
         ref = fp.observables(payload)
         for res in (r1, r2):
             for fld in ("paper_observable_num", "paper_observable_eq53",
-                        "delta_driven", "x_qp_num", "x_qp_eq47"):
+                        "delta_driven", "x_qp_num", "x_qp_eq47",
+                         "qp_residual_inf", "qp_backward_error",
+                         "phonon_residual_inf", "phonon_raw_backward_error",
+                         "phonon_backward_error",
+                         "gap_fixed_point_abs_error_uev"):
                 np.testing.assert_array_equal(getattr(res, fld), getattr(ref, fld))
+
+    def test_certified_payload_csv_round_trip(self, tmp_path) -> None:
+        import validation.fischer_2023.fig6_paper as fp
+
+        reference = fp.observables(self._stub_payload())
+        path = fp.write_baseline(reference, tmp_path / "certified_fig6.csv")
+        restored = fp.read_baseline(path)
+
+        payload = path.read_bytes()
+        assert b"\r\n" not in payload
+        assert payload.endswith(b"\n")
+
+        for field in (
+            "qp_residual_inf",
+            "qp_backward_error",
+            "phonon_residual_inf",
+            "phonon_raw_backward_error",
+            "phonon_backward_error",
+            "gap_fixed_point_abs_error_uev",
+        ):
+            np.testing.assert_array_equal(
+                getattr(restored, field),
+                getattr(reference, field),
+            )
+
+        metadata = fp.read_baseline_metadata(path)
+        assert metadata.finite_cutoff_delta0_over_kbtc == pytest.approx(
+            FINITE_CUTOFF_DELTA0_OVER_KBTC,
+            rel=0.0,
+            abs=1e-15,
+        )
+        assert metadata.t_c == pytest.approx(T_C, rel=0.0, abs=1e-15)
+        assert metadata.gap_fixed_point_abs_tol_uev == pytest.approx(
+            GAP_FIXED_POINT_ABS_TOL_UEV,
+            rel=0.0,
+            abs=0.0,
+        )
+        assert (
+            metadata.certificate_metric_version
+            == fp.certificate_module.CERTIFICATE_METRIC_VERSION
+        )
+
+    def test_baseline_write_is_atomic_on_failure(self, tmp_path) -> None:
+        import validation.fischer_2023.fig6_paper as fp
+
+        path = tmp_path / "certified_fig6.csv"
+        path.write_text("previous-good-baseline\n", encoding="utf-8")
+        reference = fp.observables(self._stub_payload())
+        malformed = replace(
+            reference,
+            T_star_over_delta=np.empty((0, 0)),
+        )
+
+        with pytest.raises(IndexError):
+            fp.write_baseline(malformed, path)
+
+        assert path.read_text(encoding="utf-8") == "previous-good-baseline\n"
+        assert not path.with_name(f".{path.name}.{fp.os.getpid()}.tmp").exists()
 
     def test_run_cached_disabled_always_recomputes(self, tmp_path, monkeypatch) -> None:
         import validation.fischer_2023.fig6_paper as fp

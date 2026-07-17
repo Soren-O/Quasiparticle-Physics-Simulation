@@ -9,11 +9,18 @@ from qpsim.backends.t3_spatial_1d import (
     T3Spatial1DState,
     T3SpatialFlux1D,
 )
+from qpsim.collisions.phonon import (
+    apply_phonon_collision,
+    build_recombination_kernel_base,
+    build_scattering_kernel_base,
+)
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
+from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
 from qpsim.transport.diffusion.base import DiffusionModel
+from scipy.integrate import quad
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
@@ -98,8 +105,8 @@ class TestT3Spatial1DTransport:
         idx = np.array([0, 1])
         rho_p = np.ones(2)
         ops = [
-            (np.eye(2), _FixedSolve(np.array([1.000001, 0.5])), idx, rho_p),
-            (np.eye(2), _FixedSolve(np.array([-0.000001, 0.5])), idx, rho_p),
+            (np.eye(2), _FixedSolve(np.array([1.000001, 0.5])), idx, rho_p, 1),
+            (np.eye(2), _FixedSolve(np.array([-0.000001, 0.5])), idx, rho_p, 1),
         ]
         monkeypatch.setattr(
             backend, "_build_transport_operators", lambda _state, _dt: ops,
@@ -126,19 +133,53 @@ class TestT3Spatial1DTransport:
             backend,
             "_build_transport_operators",
             lambda _state, _dt: [
-                (np.eye(2), _FixedSolve(), np.array([0, 1]), np.ones(2)),
+                (np.eye(2), _FixedSolve(), np.array([0, 1]), np.ones(2), 1),
             ],
         )
 
         with pytest.raises(RuntimeError, match="absolute conserved density"):
             backend.apply_transport(state, dt=1.0)
 
-    def test_dynes_context_rejected_by_transport_not_collisions(self) -> None:
+    def test_huge_dt_subcycles_before_cn_can_swap_two_cell_pulse(self) -> None:
+        state = _build_state(T_bath=0.0, NE=2, NX=2)
+        state.x = np.array([0.0, 1.0])
+        state.f[:] = 0.0
+        state.f[-1, 0] = 0.2
+        backend = T3Spatial1DBackend()
+
+        ops = backend._build_transport_operators(state, dt=100.0)
+        assert ops[-1] is not None
+        assert ops[-1][-1] > 1
+
+        out = backend.apply_transport(state, dt=100.0)
+        pulse = out.f[-1]
+        # Diffusion damps the antisymmetric mode without changing its sign:
+        # the initially occupied cell cannot become less occupied than its
+        # neighbour (the phase-flipped, nearly swapped full-step CN result).
+        assert pulse[0] >= pulse[1] - 1.0e-14
+        assert abs(pulse[0] - pulse[1]) < 1.0e-12
+        np.testing.assert_allclose(np.sum(pulse), 0.2, atol=2.0e-13)
+
+    def test_cn_subcycle_work_guard_fails_loudly(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.backends.t3_spatial_1d as spatial_module
+
+        state = _build_state(T_bath=0.0, NE=1, NX=2)
+        state.x = np.array([0.0, 1.0])
+        monkeypatch.setattr(spatial_module, "_MAX_CN_SUBSTEPS", 2)
+
+        with pytest.raises(RuntimeError, match="monotonicity would require"):
+            T3Spatial1DBackend().apply_transport(state, dt=100.0)
+
+    def test_dynes_context_rejected_by_transport_and_collisions(self) -> None:
         # The transport dressings are clean-BCS traces (D_L indicator,
         # KL weight from real N_1/N_2, identity N_1^2 - N_2^2 = 1); a
         # Dynes-broadened context invalidates them (paper's Dynes
-        # footnote) and must fail loudly. Collisions with a Dynes DOS
-        # remain a legitimate modeling choice.
+        # footnote) and must fail loudly. The collision kernels likewise use
+        # ideal-BCS coherence functions, so swapping only the DOS is not a
+        # self-consistent broadened model.
         state = _build_state()
         dynes = SpectralContext(
             E_bins=state.spectral.E,
@@ -152,8 +193,8 @@ class TestT3Spatial1DTransport:
         backend = T3Spatial1DBackend()
         with pytest.raises(ValueError, match="pure-BCS"):
             backend.apply_transport(state, dt=1.0)
-        out = backend.apply_collisions(state, dt=1.0)
-        assert np.all(np.isfinite(out.f))
+        with pytest.raises(ValueError, match="pure-BCS"):
+            backend.apply_collisions(state, dt=1.0)
 
 
 class TestT3Spatial1DCollisions:
@@ -177,6 +218,342 @@ class TestT3Spatial1DCollisions:
 
         assert out.f[target, 0] > out.f[target, -1]
         assert out.f[target, 0] > state.f[target, 0]
+
+    def test_gap_profile_uses_local_collision_contexts(self) -> None:
+        material = load_material("Al")
+        gap_left, gap_right = material.Delta_0, 200.0
+        E, _ = build_energy_grid(gap_left, 1.0, 4.0, 96)
+        dE = integration_widths_from_centers(E)
+        spectral_left = SpectralContext(E, dE, gap_left)
+        spectral_right = SpectralContext(E, dE, gap_right)
+        f_column = 0.1 * np.exp(-((E - 2.0 * gap_left) / 20.0) ** 2)
+        f = np.repeat(f_column[:, None], 2, axis=1)
+        f[gap_right >= E, 1] = 0.0
+        state = T3Spatial1DState(
+            f=f,
+            x=np.array([0.0, 1.0]),
+            gap=gap_left,
+            spectral=spectral_left,
+            material=material,
+            T_bath=0.1,
+            gap_profile=np.array([gap_left, gap_right]),
+        )
+
+        dt = 0.1
+        out = T3Spatial1DBackend().apply_collisions(state, dt)
+
+        expected = []
+        for column, ctx in enumerate((spectral_left, spectral_right)):
+            K_s0 = build_scattering_kernel_base(
+                ctx, tau_0=material.tau_0, T_c=material.T_c,
+            )
+            K_r0 = build_recombination_kernel_base(
+                ctx, tau_0=material.tau_0, T_c=material.T_c,
+            )
+            expected.append(
+                apply_phonon_collision(
+                    state.f[:, column], ctx, K_s0, K_r0, state.T_bath, dt,
+                )
+            )
+
+        np.testing.assert_allclose(out.f[:, 0], expected[0], rtol=1e-13, atol=1e-15)
+        np.testing.assert_allclose(out.f[:, 1], expected[1], rtol=1e-13, atol=1e-15)
+        assert np.max(np.abs(out.f[:, 0] - out.f[:, 1])) > 1e-8
+        np.testing.assert_array_equal(out.f[~spectral_right.active_mask, 1], 0.0)
+        cut = (gap_right >= E) & spectral_right.active_mask
+        assert np.any(cut)
+        assert np.any(out.f[cut, 1] > 0.0)
+
+    def test_repeated_two_gap_call_hits_cache_before_context_build(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.0, NE=14, NX=2)
+        state.gap_profile = np.array([state.gap, 1.2 * state.gap])
+        backend = T3Spatial1DBackend()
+
+        first = backend.apply_collisions(state, 0.05)
+        assert len(backend._collision_cache) == 2
+
+        def unexpected_context(*_args: object, **_kwargs: object) -> SpectralContext:
+            raise AssertionError("cache hit eagerly rebuilt a SpectralContext")
+
+        monkeypatch.setattr(backend, "_local_spectral_context", unexpected_context)
+        second = backend.apply_collisions(state, 0.05)
+
+        np.testing.assert_allclose(second.f, first.f, rtol=0.0, atol=0.0)
+        assert len(backend._collision_cache) == 2
+
+    def test_collision_cache_is_lru_bounded_across_many_gaps(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        material = load_material("Al")
+        E = np.linspace(150.0, 400.0, 10)
+        dE = integration_widths_from_centers(E)
+        backend = T3Spatial1DBackend()
+
+        def state_at_gap(gap: float) -> T3Spatial1DState:
+            spectral = SpectralContext(E, dE, gap)
+            return T3Spatial1DState(
+                f=np.zeros((E.size, 1)),
+                x=np.array([0.0]),
+                gap=gap,
+                spectral=spectral,
+                material=material,
+                T_bath=0.0,
+            )
+
+        for gap in (120.0, 125.0, 130.0, 135.0, 140.0):
+            backend.apply_collisions(state_at_gap(gap), 0.01)
+            assert len(backend._collision_cache) <= 2
+
+        assert len(backend._collision_cache) == 2
+        assert [key[0][2] for key in backend._collision_cache] == [135.0, 140.0]
+
+        # Refresh 135, then miss on 145. True LRU order evicts 140, and the
+        # eviction happens before the local context/new matrices are built.
+        backend.apply_collisions(state_at_gap(135.0), 0.01)
+        cache_sizes_at_build: list[int] = []
+        original = backend._local_spectral_context
+
+        def capture_prebuild_size(
+            base: SpectralContext, local_gap: float,
+        ) -> SpectralContext:
+            cache_sizes_at_build.append(len(backend._collision_cache))
+            return original(base, local_gap)
+
+        monkeypatch.setattr(backend, "_local_spectral_context", capture_prebuild_size)
+        backend.apply_collisions(state_at_gap(145.0), 0.01)
+
+        assert cache_sizes_at_build == [1]
+        assert [key[0][2] for key in backend._collision_cache] == [135.0, 145.0]
+
+    def test_collision_cache_invalidates_physics_inputs(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.0, NE=10, NX=1)
+        backend = T3Spatial1DBackend()
+        original = backend._local_spectral_context
+        misses: list[tuple[float, float]] = []
+
+        def record_miss(
+            base: SpectralContext, local_gap: float,
+        ) -> SpectralContext:
+            misses.append((float(base.dE[0]), float(state.T_bath)))
+            return original(base, local_gap)
+
+        monkeypatch.setattr(backend, "_local_spectral_context", record_miss)
+        backend.apply_collisions(state, 0.01)
+        backend.apply_collisions(state, 0.01)
+        assert len(misses) == 1
+
+        state.T_bath = 0.2
+        backend.apply_collisions(state, 0.01)
+        state.material.tau_0 *= 1.1
+        backend.apply_collisions(state, 0.01)
+        state.material.T_c *= 1.01
+        backend.apply_collisions(state, 0.01)
+        state.spectral = SpectralContext(
+            E_bins=state.spectral.E,
+            dE_bins=1.01 * state.spectral.dE,
+            gap=state.gap,
+            diffusion_coefficient=state.spectral.diffusion_coefficient,
+        )
+        backend.apply_collisions(state, 0.01)
+
+        assert len(misses) == 5
+
+    def test_many_distinct_local_gaps_stream_exactly_with_bounded_cache(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.18, NE=14, NX=3)
+        gaps = state.gap * np.array([1.0, 1.05, 1.1])
+        state.gap_profile = gaps
+        # Give each column a distinct, represented non-equilibrium profile.
+        for column, gap in enumerate(gaps):
+            local = SpectralContext(state.spectral.E, state.spectral.dE, gap)
+            state.f[:, column] = np.where(
+                local.active_mask,
+                (column + 1.0) * 1e-3 * np.exp(-state.spectral.E / (4.0 * gap)),
+                0.0,
+            )
+
+        backend = T3Spatial1DBackend()
+
+        def unexpected_batched_path(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("three-gap profile entered batched assembly")
+
+        monkeypatch.setattr(backend, "_collision_system", unexpected_batched_path)
+        dt = 0.03
+        out = backend.apply_collisions(state, dt)
+
+        expected = []
+        for column, gap in enumerate(gaps):
+            local = SpectralContext(state.spectral.E, state.spectral.dE, gap)
+            K_s0 = build_scattering_kernel_base(
+                local,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            K_r0 = build_recombination_kernel_base(
+                local,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            expected.append(
+                apply_phonon_collision(
+                    state.f[:, column],
+                    local,
+                    K_s0,
+                    K_r0,
+                    state.T_bath,
+                    dt,
+                )
+            )
+
+        np.testing.assert_allclose(
+            out.f,
+            np.column_stack(expected),
+            rtol=2e-13,
+            atol=1e-15,
+        )
+        assert len(backend._collision_cache) == 2
+        assert [key[0][2] for key in backend._collision_cache] == pytest.approx(
+            gaps[-2:]
+        )
+
+        context_builds: list[float] = []
+        original_context = backend._local_spectral_context
+
+        def record_context_build(
+            base: SpectralContext,
+            local_gap: float,
+        ) -> SpectralContext:
+            context_builds.append(local_gap)
+            return original_context(base, local_gap)
+
+        monkeypatch.setattr(backend, "_local_spectral_context", record_context_build)
+        repeated = backend.apply_collisions(state, dt)
+        np.testing.assert_array_equal(repeated.f, out.f)
+        assert context_builds == pytest.approx([gaps[0]])
+        assert len(backend._collision_cache) == 2
+
+    def test_streamed_collision_rate_matches_independent_gap_columns(self) -> None:
+        state = _build_state(T_bath=0.12, NE=12, NX=4)
+        gaps = state.gap * np.array([1.0, 1.03, 1.07, 1.11])
+        state.gap_profile = gaps
+        backend = T3Spatial1DBackend()
+
+        rate = backend._collision_rate(state, None)
+        expected = np.empty_like(rate)
+        for column, gap in enumerate(gaps):
+            one = _build_state(T_bath=state.T_bath, NE=12, NX=1)
+            one.gap_profile = np.array([gap])
+            one.f[:, 0] = state.f[:, column]
+            expected[:, column] = T3Spatial1DBackend()._collision_rate(one, None)[:, 0]
+
+        np.testing.assert_allclose(rate, expected, rtol=2e-13, atol=1e-15)
+        assert len(backend._collision_cache) == 2
+
+    def test_repeated_streamed_collision_rate_uses_resident_lru_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.12, NE=12, NX=4)
+        gaps = state.gap * np.array([1.0, 1.03, 1.07, 1.11])
+        state.gap_profile = gaps
+        backend = T3Spatial1DBackend()
+
+        first = backend._collision_rate(state, None)
+        assert [key[0][2] for key in backend._collision_cache] == pytest.approx(
+            gaps[-2:]
+        )
+
+        context_builds: list[float] = []
+        original_context = backend._local_spectral_context
+
+        def record_context_build(
+            base: SpectralContext,
+            local_gap: float,
+        ) -> SpectralContext:
+            context_builds.append(local_gap)
+            return original_context(base, local_gap)
+
+        monkeypatch.setattr(backend, "_local_spectral_context", record_context_build)
+        second = backend._collision_rate(state, None)
+
+        np.testing.assert_array_equal(second, first)
+        # The two resident operators are consumed before either can be
+        # evicted. Only the two missing gaps should be rebuilt; sorted-order
+        # traversal instead caused four misses on every diagnostic call.
+        assert context_builds == pytest.approx(gaps[:2])
+        assert len(backend._collision_cache) == 2
+
+    def test_streamed_profile_rejects_gain_on_late_zero_capacity_row(self) -> None:
+        state = _build_state(T_bath=0.0, NE=16, NX=3)
+        gaps = state.gap * np.array([1.0, 1.2, 1.5])
+        state.gap_profile = gaps
+        high = SpectralContext(state.spectral.E, state.spectral.dE, gaps[-1])
+        target = int(np.flatnonzero(~high.active_mask)[0])
+        gain = np.zeros_like(state.f)
+        gain[target, -1] = 1e-4
+        flux = T3SpatialFlux1D(gain=gain, loss_rate=np.zeros_like(gain))
+
+        with pytest.raises(
+            ValueError,
+            match=rf"zero-spectral-capacity.*\({target}, 2\)",
+        ):
+            T3Spatial1DBackend().apply_collisions(state, 0.01, external_flux=flux)
+
+    def test_gain_on_local_zero_capacity_row_is_rejected(self) -> None:
+        state = _build_state(T_bath=0.0, NE=16, NX=2)
+        high_gap = 1.5 * state.gap
+        state.gap_profile = np.array([state.gap, high_gap])
+        high_ctx = SpectralContext(
+            state.spectral.E, state.spectral.dE, high_gap,
+        )
+        target = int(np.flatnonzero(~high_ctx.active_mask)[0])
+        gain = np.zeros_like(state.f)
+        gain[target, 1] = 1e-4
+        flux = T3SpatialFlux1D(gain=gain, loss_rate=np.zeros_like(gain))
+
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            T3Spatial1DBackend().apply_collisions(
+                state, 0.01, external_flux=flux,
+            )
+
+        state.f[target, 1] = 0.7
+        loss_rate = np.zeros_like(state.f)
+        loss_rate[target, 1] = 3.0
+        loss_only = T3SpatialFlux1D(
+            gain=np.zeros_like(state.f),
+            loss_rate=loss_rate,
+        )
+        updated = T3Spatial1DBackend().apply_collisions(
+            state, 0.01, external_flux=loss_only,
+        )
+        assert updated.f[target, 1] == state.f[target, 1]
+
+    def test_gain_on_gap_cut_cell_is_evolved(self) -> None:
+        state = _build_state(T_bath=0.0, NE=16, NX=2)
+        high_gap = 1.2 * state.gap
+        state.gap_profile = np.array([state.gap, high_gap])
+        high_ctx = SpectralContext(
+            state.spectral.E, state.spectral.dE, high_gap,
+        )
+        cut = (high_gap >= state.spectral.E) & high_ctx.active_mask
+        target = int(np.flatnonzero(cut)[0])
+        assert high_ctx.rho[target] == 0.0
+        assert high_ctx.cell_weights[target] > 0.0
+
+        state.f[target, 1] = 0.0
+        gain = np.zeros_like(state.f)
+        gain[target, 1] = 1e-4
+        flux = T3SpatialFlux1D(gain=gain, loss_rate=np.zeros_like(gain))
+        updated = T3Spatial1DBackend().apply_collisions(
+            state, 0.01, external_flux=flux,
+        )
+
+        assert updated.f[target, 1] > 0.0
 
 
 def _model_state(base: T3Spatial1DState, f: np.ndarray, model: DiffusionModel) -> T3Spatial1DState:
@@ -202,7 +579,7 @@ class TestT3Spatial1DDiffusionModels:
         packet = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
         for model in DiffusionModel:
             state = _model_state(base, packet.copy(), model)
-            weight = base.spectral.rho[:, None] ** model.p
+            weight = backend._n1_per_cell(state) ** model.p
             before = float(np.sum(weight * state.f))
             evolving = state
             for _ in range(30):
@@ -210,14 +587,15 @@ class TestT3Spatial1DDiffusionModels:
             after = float(np.sum(weight * evolving.f))
             assert abs(after - before) / abs(before) < 1e-12, model
 
-    def test_c_path_matches_legacy_modal_step(self) -> None:
+    def test_c_path_matches_finite_volume_modal_step(self) -> None:
         base = _build_state(T_bath=0.0)
         NE, NX = base.f.shape
         f0 = np.tile(0.3 * np.exp(-((base.x - 50.0) / 15.0) ** 2), (NE, 1))
         state = _model_state(base, f0.copy(), DiffusionModel.C)
         new = T3Spatial1DBackend().apply_transport(state, dt=2.0).f
 
-        # Legacy modal Crank-Nicolson step with the D_E = D0/N1 closure.
+        # Modal Crank-Nicolson step with the mass-lumped finite-volume
+        # D_E = D0/N1_bar closure.
         dx = state.dx
         main = -2.0 * np.ones(NX)
         main[0] = -1.0
@@ -228,7 +606,10 @@ class TestT3Spatial1DDiffusionModels:
             + np.diag(np.ones(NX - 1), -1)
         ) / dx**2
         w, V = np.linalg.eigh(lap)
-        alpha = 0.5 * 2.0 * state.spectral.D_E[:, None] * w[None, :]
+        D_E_fv = (
+            state.spectral.diffusion_coefficient / state.spectral.cell_density
+        )
+        alpha = 0.5 * 2.0 * D_E_fv[:, None] * w[None, :]
         old = np.clip(((f0 @ V) * (1.0 + alpha) / (1.0 - alpha)) @ V.T, 0.0, 1.0)
         np.testing.assert_allclose(new, old, atol=1e-12)
 
@@ -387,12 +768,12 @@ class TestT3Spatial1DVaryingGap:
     def test_varying_gap_conserves_weighted_density(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup()
         NE = spectral.E.size
-        N1 = np.column_stack([bcs_density_of_states(spectral.E, float(g)) for g in profile])
         f0 = np.tile(0.2 * np.exp(-((x - 30.0) / 18.0) ** 2), (NE, 1))
         state = T3Spatial1DState(
             f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
             T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
         )
+        N1 = T3Spatial1DBackend()._n1_per_cell(state)
         before = float(np.sum(N1 * state.f))  # p = 1 for A1
         backend = T3Spatial1DBackend()
         evolving = state
@@ -426,7 +807,6 @@ class TestT3Spatial1DVaryingGap:
     def test_interface_conserves_and_jumps(self) -> None:
         material, spectral, x, gap_max, profile = _varying_gap_setup(interface=True)
         NE, NX = spectral.E.size, x.size
-        N1 = np.column_stack([bcs_density_of_states(spectral.E, float(g)) for g in profile])
         f0 = np.zeros((NE, NX))
         f0[:, : NX // 2] = 0.4
         state = T3Spatial1DState(
@@ -434,6 +814,7 @@ class TestT3Spatial1DVaryingGap:
             T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
             interface_conductance=2.0,
         )
+        N1 = T3Spatial1DBackend()._n1_per_cell(state)
         before = float(np.sum(N1 * state.f))
         out = T3Spatial1DBackend().apply_transport(state, 0.5)
         after = float(np.sum(N1 * out.f))
@@ -488,6 +869,39 @@ def _kl_weight(E: np.ndarray, gap_L: float, gap_R: float) -> np.ndarray:
     )
 
 
+def _kl_cell_average_reference(
+    E: np.ndarray,
+    dE: np.ndarray,
+    index: int,
+    gap_L: float,
+    gap_R: float,
+) -> float:
+    """Independent direct-energy quadrature of one KL finite volume."""
+    edges = cell_edges_from_widths(E, dE)
+    lo = max(float(edges[index]), gap_L, gap_R)
+    hi = float(edges[index + 1])
+    if hi <= lo:
+        return 0.0
+    if gap_L == gap_R:
+        return (hi - lo) / dE[index]
+
+    def integrand(energy: float) -> float:
+        return (energy * energy - gap_L * gap_R) / np.sqrt(
+            (energy * energy - gap_L * gap_L)
+            * (energy * energy - gap_R * gap_R)
+        )
+
+    value, _error = quad(
+        integrand,
+        lo,
+        hi,
+        points=[lo],
+        epsabs=1e-11,
+        epsrel=1e-11,
+    )
+    return value / dE[index]
+
+
 class TestKupriyanovLukichevWeightFixtures:
     """Paper fixtures for the KL energy-channel weight (eq:scalar_BC_energy).
 
@@ -533,15 +947,23 @@ class TestKupriyanovLukichevWeightFixtures:
         gap_L, gap_R = float(profile[face]), float(profile[face + 1])
         checked = 0
         for i, op in enumerate(ops):
-            E_i = float(spectral.E[i])
-            if op is None or E_i <= max(gap_L, gap_R):
+            if op is None:
                 continue
-            b_mat, _, idx, rho_p = op
-            assert idx[0] == 0 and idx[-1] == NX - 1  # fully active energy
+            b_mat, _, idx, rho_p, n_substeps = op
+            if idx[0] != 0 or idx[-1] != NX - 1:
+                continue
             m = face
-            W_expected = float(_kl_weight(np.array([E_i]), gap_L, gap_R)[0])
+            W_expected = _kl_cell_average_reference(
+                spectral.E, spectral.dE, i, gap_L, gap_R,
+            )
             B = b_mat.toarray()
-            W_measured = B[m, m + 1] * rho_p[m + 1] * dx / (0.5 * dt * G_N)
+            sub_dt = dt / n_substeps
+            W_measured = (
+                B[m, m + 1]
+                * rho_p[m + 1]
+                * dx
+                / (0.5 * sub_dt * G_N)
+            )
             np.testing.assert_allclose(W_measured, W_expected, rtol=1e-10)
             checked += 1
         assert checked > 0
@@ -572,20 +994,18 @@ class TestGapEdgePacketFixture:
         )
         x = np.linspace(0.0, 100.0, NX)
         profile = np.linspace(base_gap, gap_max, NX)
-        N1 = np.column_stack(
-            [bcs_density_of_states(spectral.E, float(g)) for g in profile]
-        )
         # Packet near the low-gap end; diffusion pushes it up the ramp
         # into each energy's local edge.
         f0 = np.tile(0.3 * np.exp(-(((x - 15.0) / 8.0) ** 2)), (NE, 1))
-        f0[N1 == 0.0] = 0.0  # no occupation below the local edge
         state = T3Spatial1DState(
             f=f0.copy(), x=x, gap=gap_max, spectral=spectral, material=material,
             T_bath=0.1, diffusion_model=DiffusionModel.A1, gap_profile=profile,
         )
+        backend = T3Spatial1DBackend()
+        N1 = backend._n1_per_cell(state)
+        state.f[N1 == 0.0] = 0.0  # no occupation below the local edge
         before = (N1 * state.f).sum(axis=1)  # per-energy conserved density
 
-        backend = T3Spatial1DBackend()
         evolving = state
         for _ in range(200):
             evolving = backend.apply_transport(evolving, 1.0)
@@ -635,6 +1055,75 @@ class TestTransportCacheKeying:
                 f"NE={NE}: some energy rows did not diffuse "
                 f"(stale transport-operator cache reused across grids)"
             )
+
+
+class TestRunUntilSteadyStateResidual:
+    def test_transport_and_source_rates_cancel_before_norm(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        state = _build_state(T_bath=0.0, NE=4, NX=3)
+        backend = T3Spatial1DBackend()
+        monkeypatch.setattr(
+            backend, "step", lambda state_arg, _dt, **_kwargs: state_arg,
+        )
+        monkeypatch.setattr(
+            backend,
+            "_transport_rate",
+            lambda state_arg, _dt: np.ones_like(state_arg.f),
+        )
+        monkeypatch.setattr(
+            backend,
+            "_collision_rate",
+            lambda state_arg, _flux: -np.ones_like(state_arg.f),
+        )
+
+        result = backend.run_until_steady_state(
+            state,
+            dt=1.0,
+            max_time=2.0,
+            stop_tol=1.0e-12,
+            snapshot_interval=2.0,
+        )
+
+        assert result.converged
+        assert result.n_steps == 1
+        assert result.snapshots[-1].max_rate == 0.0
+
+    def test_constant_thermal_state_stops_on_raw_operator_residual(self) -> None:
+        state = _build_state(T_bath=0.1, NE=12, NX=5)
+        result = T3Spatial1DBackend().run_until_steady_state(
+            state,
+            dt=1.0,
+            max_time=10.0,
+            stop_tol=1.0e-6,
+            snapshot_interval=10.0,
+        )
+
+        assert result.converged
+        assert result.n_steps == 1
+        assert result.snapshots[-1].max_rate < 1.0e-6
+
+    def test_saturated_positive_source_does_not_claim_convergence(self) -> None:
+        state = _build_state(T_bath=0.0, NE=8, NX=3)
+        state.f[:] = 1.0
+        source = T3SpatialFlux1D(
+            gain=np.full_like(state.f, 1.0e6),
+            loss_rate=np.zeros_like(state.f),
+        )
+
+        result = T3Spatial1DBackend().run_until_steady_state(
+            state,
+            dt=0.1,
+            max_time=0.3,
+            stop_tol=1.0,
+            snapshot_interval=0.3,
+            external_flux=source,
+        )
+
+        assert not result.converged
+        assert result.n_steps == 3
+        np.testing.assert_allclose(result.state.f, 1.0, rtol=0.0, atol=1.0e-15)
+        assert result.snapshots[-1].max_rate > 1.0
 
 
 class TestRunUntilSteadyStateProgressHook:

@@ -80,7 +80,9 @@ class Material:
     # scattering ``2K⁻/(π Δ τ_0^PB)`` and pair-breaking/recombination
     # ``K⁺/(π Δ τ_0^PB)``. Distinct from ``tau_0`` (QP-side e-ph
     # characteristic time): F&C Eq. 13 relates the two via a
-    # material-specific ratio (≈ 1.7×10³ for Al).
+    # material-specific ratio (≈ 1.7×10³ for Al). Dynamic Ph0 backend
+    # solves use these phonon-side kernels by default; callers can explicitly
+    # opt into the pre-fix QP-side-kernel behavior for legacy reproduction.
     tau_0_pb_ns: float | None = None  # τ_0^PB (ns)
 
     # Normal-state transport.

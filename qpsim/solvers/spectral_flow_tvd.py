@@ -80,10 +80,70 @@ def advect_spectral_flow(
         post-step DOS and applies ``f ∈ [0, 1]`` clipping there.
     """
     u_arr = np.asarray(u, dtype=float)
-    E = np.asarray(E_bins, dtype=float).ravel()
-    dE = np.asarray(dE_bins, dtype=float).ravel()
+    E = np.asarray(E_bins, dtype=float)
+    dE = np.asarray(dE_bins, dtype=float)
 
-    if abs(gap_dot) < 1e-30 or gap <= 0:
+    if u_arr.ndim not in (1, 2) or (u_arr.ndim == 2 and u_arr.shape[0] != 2):
+        raise ValueError(f"u must be shape (NE,) or (2, NE), got {u_arr.shape}")
+    if E.ndim != 1 or dE.ndim != 1:
+        raise ValueError("E_bins and dE_bins must be one-dimensional.")
+    if E.size == 0:
+        raise ValueError("E_bins must be non-empty.")
+    if E.shape != dE.shape:
+        raise ValueError(
+            "E_bins and dE_bins must have the same shape; got "
+            f"{E.shape} and {dE.shape}."
+        )
+    if u_arr.shape[-1] != E.size:
+        raise ValueError(
+            "u's energy dimension must match E_bins; got "
+            f"{u_arr.shape[-1]} and {E.size}."
+        )
+    if np.any(~np.isfinite(u_arr)):
+        raise ValueError("u must contain only finite values.")
+    if np.any(~np.isfinite(E)) or np.any(~np.isfinite(dE)):
+        raise ValueError("E_bins and dE_bins must contain only finite values.")
+    if np.any(E <= 0.0):
+        raise ValueError("E_bins must be positive.")
+    if np.any(np.diff(E) <= 0.0):
+        raise ValueError("E_bins must be strictly increasing.")
+    if np.any(dE <= 0.0):
+        raise ValueError("dE_bins must be positive.")
+
+    gap_value = float(gap)
+    gap_dot_value = float(gap_dot)
+    dt_value = float(dt)
+    if not np.isfinite(gap_value) or gap_value <= 0.0:
+        raise ValueError(f"gap must be finite and positive; got {gap}.")
+    if not np.isfinite(gap_dot_value):
+        raise ValueError(f"gap_dot must be finite; got {gap_dot}.")
+    if not np.isfinite(dt_value) or dt_value < 0.0:
+        raise ValueError(f"dt must be finite and non-negative; got {dt}.")
+
+    gap_displacement = gap_dot_value * dt_value
+    gap_end = gap_value + gap_displacement
+    if not np.isfinite(gap_end) or gap_end <= 0.0:
+        raise ValueError(
+            "The gap at the end of the step must be finite and positive; "
+            f"got {gap_end}."
+        )
+
+    mask: np.ndarray | None = None
+    if active_mask is not None:
+        mask = np.asarray(active_mask)
+        if mask.shape != E.shape:
+            raise ValueError(
+                "active_mask must have the same shape as E_bins; got "
+                f"{mask.shape} and {E.shape}."
+            )
+        if mask.dtype != np.dtype(bool):
+            raise ValueError(
+                "active_mask must have boolean dtype; integer or floating "
+                "arrays are not coerced because non-binary values can silently "
+                "change spectral support."
+            )
+
+    if abs(gap_dot_value) < 1e-30 or dt_value == 0.0:
         return u_arr.copy()
 
     # The stability parameter is the *gap displacement* |gap_dot| dt, not
@@ -92,12 +152,12 @@ def advect_spectral_flow(
     # it locally (important on non-uniform grids), then split the requested
     # displacement into genuinely smaller, stable advances.  The midpoint
     # gap in each substep follows the linearly moving spectrum.
-    gap_displacement = float(gap_dot) * float(dt)
-    gap_end = float(gap) + gap_displacement
-    max_gap_magnitude = max(abs(float(gap)), abs(gap_end))
+    max_gap_magnitude = max(abs(gap_value), abs(gap_end))
     raw_cfl = float(
         np.max(max_gap_magnitude * abs(gap_displacement) / (np.abs(E) * dE))
     )
+    if not np.isfinite(raw_cfl):
+        raise ValueError("The spectral-flow displacement CFL must be finite.")
     n_substeps = max(1, int(np.ceil(raw_cfl / _MAX_SPECTRAL_FLOW_CFL)))
     if raw_cfl > 1.0:
         warnings.warn(
@@ -110,10 +170,7 @@ def advect_spectral_flow(
             stacklevel=2,
         )
 
-    if u_arr.ndim not in (1, 2) or (u_arr.ndim == 2 and u_arr.shape[0] != 2):
-        raise ValueError(f"u must be shape (NE,) or (2, NE), got {u_arr.shape}")
-
-    dt_sub = float(dt) / n_substeps
+    dt_sub = dt_value / n_substeps
     gap_step = gap_displacement / n_substeps
     u_new = u_arr.copy()
 
@@ -130,11 +187,11 @@ def advect_spectral_flow(
         # midpoint gap is needed only when a large requested displacement is
         # actually split into multiple stable advances.
         gap_mid = (
-            float(gap)
+            gap_value
             if n_substeps == 1
-            else float(gap) + (substep + 0.5) * gap_step
+            else gap_value + (substep + 0.5) * gap_step
         )
-        v = (gap_mid / E) * gap_dot
+        v = (gap_mid / E) * gap_dot_value
         rhs = _rhs_for_velocity(v)
 
         if u_new.ndim == 1:
@@ -145,8 +202,7 @@ def advect_spectral_flow(
             advanced[1] = ssprk22_step(u_new[1], rhs, dt_sub)
             u_new = advanced
 
-    if active_mask is not None:
-        mask = np.asarray(active_mask, dtype=bool)
+    if mask is not None:
         if u_new.ndim == 1:
             u_new[~mask] = 0.0
         else:
@@ -179,8 +235,14 @@ def _interface_fluxes(
 
     for i in range(1, NE):
         v_face = 0.5 * (v[i - 1] + v[i])
-        left_state = f[i - 1] + 0.5 * dE[i - 1] * slopes[i - 1]
-        right_state = f[i] - 0.5 * dE[i] * slopes[i]
+        # The finite-volume face is the midpoint between adjacent centers.
+        # On a non-uniform midpoint-edge grid, dE[cell]/2 is generally *not*
+        # the center-to-face distance (a wide cell next to a narrow cell is
+        # the counterexample). Reconstruct with the actual geometry so the MC
+        # limiter cannot be undone by an over-long extrapolation.
+        face = 0.5 * (E[i - 1] + E[i])
+        left_state = f[i - 1] + (face - E[i - 1]) * slopes[i - 1]
+        right_state = f[i] + (face - E[i]) * slopes[i]
         flux[i] = v_face * (left_state if v_face >= 0.0 else right_state)
 
     return flux

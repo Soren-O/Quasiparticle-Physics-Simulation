@@ -104,11 +104,15 @@ class PhononSector(StrictModel):
       time ``tau_l_ns`` (Picard/Anderson or coupled-Newton).
     * ``dynamic_closed`` — dynamic n_ph with no substrate escape
       (τ_l → ∞; the engine's ``tau_l = 0.0`` sentinel).
+
+    Dynamic modes use the F&C Eq. 12 phonon-side kernel by default.
+    ``use_phonon_side_kernel=False`` is retained only for reproducing legacy
+    runs that reused the quasiparticle-side kernel in the phonon equation.
     """
 
     mode: Literal["thermal_bath", "dynamic_escape", "dynamic_closed"] = "thermal_bath"
     tau_l_ns: Annotated[float, Field(gt=0.0)] = 0.170
-    use_phonon_side_kernel: bool = False
+    use_phonon_side_kernel: bool = True
 
 
 class SubGapDrive(StrictModel):

@@ -236,7 +236,7 @@ class ExternalFlux:
 | ``solve_steady_state(..., external_flux=...)`` | New kwarg, propagates to Newton and coupled-Newton paths. |
 | ``newton_solve_f(..., external_flux=...)`` | Adds ``+ gain − loss_rate * f`` to the residual and ``-loss_rate`` to the Jacobian diagonal. |
 | ``coupled_newton_solve(..., external_flux=...)`` | Same; the ``(f, n_ph)`` coupled Newton sees the extra terms on f only. |
-| ``run_time_dependent(..., external_flux_fn=callable)`` | Callable returning ``ExternalFlux`` at the current t; added inside the collision substep. |
+| ``run_time_dependent(..., external_flux=callable)`` | Callable returning ``ExternalFlux`` at each substep midpoint. This time-varying path requires ``stop_tol=None`` because an instantaneous residual cannot certify future convergence of a non-autonomous drive. |
 
 When ``external_flux=None`` (the default), the code path is bit-
 for-bit identical to today. All 360+ Gate-3 tests remain green.
@@ -417,6 +417,15 @@ f_L(E), f_R(E') at paired energies.
 3. **Steady-state matched-T limit**: two-region Device at
    ``T_L = T_R``, no drive: both regions land on ``f = f_FD(T)``,
    junction flux ``I_J → 0`` as convergence proceeds.
+
+For the shipped `SymmetricGapTunnelingJunction`, the scalar
+`capacity_ratio_a_to_b` represents only a global material/volume factor. It is
+valid only when both regions share the same per-bin finite-volume spectral
+measure. Runtime evaluation therefore requires each state's public gap to
+match its spectral gap and requires identical energy centers, cell widths,
+spectral gaps, Dynes broadening, and `cell_weights` across the junction. A
+different energy-dependent capacity vector needs an energy-resolved asymmetric
+junction model; it is not approximated by the scalar ratio.
 
 #### 3.2.2 Unit convention summary
 

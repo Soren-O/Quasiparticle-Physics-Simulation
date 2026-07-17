@@ -5,8 +5,9 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
+from qpsim.solvers.spectral_flow_tvd import _interface_fluxes, advect_spectral_flow
 
 
 class TestAdvectSpectralFlow:
@@ -17,6 +18,53 @@ class TestAdvectSpectralFlow:
         u_new = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=0.0, dt=0.01)
         np.testing.assert_array_equal(u_new, u)
         assert u_new is not u  # returns a copy
+
+    @pytest.mark.parametrize("bad_gap", [0.0, -1.0, float("nan"), float("inf")])
+    def test_zero_motion_still_rejects_invalid_old_gap(self, bad_gap: float) -> None:
+        E = np.linspace(1.1, 2.0, 8)
+        dE = integration_widths_from_centers(E)
+
+        with pytest.raises(ValueError, match="gap must be finite and positive"):
+            advect_spectral_flow(
+                np.ones(E.size), E, dE, gap=bad_gap, gap_dot=0.0, dt=0.0
+            )
+
+    def test_rejects_gap_motion_that_crosses_zero(self) -> None:
+        E = np.linspace(1.1, 2.0, 8)
+        dE = integration_widths_from_centers(E)
+
+        with pytest.raises(ValueError, match="end of the step"):
+            advect_spectral_flow(
+                np.ones(E.size), E, dE, gap=1.0, gap_dot=-2.0, dt=1.0
+            )
+
+    def test_zero_motion_still_validates_state_shape(self) -> None:
+        E = np.linspace(1.1, 2.0, 8)
+        dE = integration_widths_from_centers(E)
+
+        with pytest.raises(ValueError, match="energy dimension must match"):
+            advect_spectral_flow(
+                np.ones(E.size - 1), E, dE, gap=1.0, gap_dot=0.0, dt=0.0
+            )
+
+    def test_zero_dt_still_validates_grid(self) -> None:
+        E = np.array([1.1, 1.3, 1.2])
+        dE = np.ones_like(E)
+
+        with pytest.raises(ValueError, match="strictly increasing"):
+            advect_spectral_flow(
+                np.ones(E.size), E, dE, gap=1.0, gap_dot=0.1, dt=0.0
+            )
+
+    @pytest.mark.parametrize("bad_dt", [-1.0, float("nan"), float("inf")])
+    def test_rejects_invalid_dt(self, bad_dt: float) -> None:
+        E = np.linspace(1.1, 2.0, 8)
+        dE = integration_widths_from_centers(E)
+
+        with pytest.raises(ValueError, match="dt must be finite and non-negative"):
+            advect_spectral_flow(
+                np.ones(E.size), E, dE, gap=1.0, gap_dot=0.0, dt=bad_dt
+            )
 
     def test_handles_two_component_shape(self) -> None:
         E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)
@@ -67,6 +115,20 @@ class TestAdvectSpectralFlow:
         assert after == pytest.approx(before, rel=1e-12, abs=1e-15)
         assert float(np.min(out)) >= -1e-14
 
+    def test_nonuniform_reconstruction_uses_actual_face_distance(self) -> None:
+        E = np.array([1.0, 11.0, 12.0, 13.0])
+        dE = integration_widths_from_centers(E)
+        u = np.array([0.0, 30.0, 31.0, 32.0]) / 32.0
+        v = np.ones_like(E)
+
+        flux = _interface_fluxes(u, E, v, dE)
+
+        # Interface 2 is halfway between E=11 and E=12, only 0.5 from
+        # either center. The old dE[1]/2 extrapolation used 2.75 and
+        # reconstructed 1.109375, outside both adjacent values.
+        assert flux[2] == pytest.approx(31.0 / 32.0)
+        assert u[1] <= flux[2] <= u[2]
+
     def test_active_mask_zeros_outside(self) -> None:
         E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)
         dE = integration_widths_from_centers(E)
@@ -75,6 +137,30 @@ class TestAdvectSpectralFlow:
         mask[5:15] = True
         u_new = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=0.01, dt=0.001, active_mask=mask)
         np.testing.assert_array_equal(u_new[~mask], 0.0)
+
+    @pytest.mark.parametrize(
+        "mask",
+        [np.ones(20, dtype=int), np.ones(20, dtype=float)],
+    )
+    def test_rejects_non_boolean_active_mask(self, mask: np.ndarray) -> None:
+        E, _ = build_energy_grid(
+            gap=1.0,
+            energy_min_factor=1.01,
+            energy_max_factor=5.0,
+            num_energy_bins=20,
+        )
+        dE = integration_widths_from_centers(E)
+
+        with pytest.raises(ValueError, match="boolean dtype"):
+            advect_spectral_flow(
+                np.ones(E.size),
+                E,
+                dE,
+                gap=1.0,
+                gap_dot=0.0,
+                dt=0.0,
+                active_mask=mask,
+            )
 
     def test_total_mass_conserved(self) -> None:
         # Zero-flux BCs at both ends of the energy grid ⇒ ∫u·dE is
