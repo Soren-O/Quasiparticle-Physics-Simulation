@@ -177,7 +177,7 @@ must not be added.
 
 | Area | Observed result |
 |---|---|
-| Final default repository aggregate (`pytest -q`) | **1499 passed, 17 deselected, 4 warnings in 533.61 s** on the exact final code/test/validation tree. The deselections are the opt-in slow/manual selections. |
+| Final default repository aggregate (`pytest -q`) | **1499 passed, 17 deselected, 4 warnings in 507.79 s** on the exact final code/test/validation tree. The deselections are the opt-in slow/manual selections. |
 | Unit/API pytest suite (`pytest tests -q`) | **1272/1272 passed, 13 warnings in 258.88 s** on the post-repair combined tree |
 | Default non-slow validation discovery (initial audit run) | **5 failed, 122 passed, 17 deselected, 3 expected xfailed, 1 warning in 556.56 s.** All five failures were stale finite-volume oracles identified in N28; this initial run is diagnostic history. |
 | Complete post-repair non-slow validation (`pytest validation -q`) | **127 passed, 17 deselected, 3 expected xfailed, 1 warning in 217.75 s.** The expected xfails are the two quarantined Fig. 3 baseline schema/nonvacuity checks and the stale Fig. 6 configuration-metadata check. The sole warning is the explicit `8.28066788472e-08 µeV` support-edge diagnostic in the analytic gap-equilibrium check. |
@@ -196,7 +196,7 @@ must not be added.
 | Fischer 2024 refinement and strict-v2 promotion | All four production grids are `NE=810`; the nested `405/810/1620` ladder keeps `omega_PB/dE=126/252/504` exactly integral. At the native five-drive points, `NE=810 -> 1620` changed `x_qp` by `0.0062--0.1903%` and BCS-capacity total-variation shape by `0.495--1.156%` across the fixed-temperature and endpoint-temperature probes. The old/current `x_qp` offsets were `0.858--4.283%`, far larger than the refinement change and primarily an N19 measure/amplitude shift. At paper-topology Fig. 5 the production-grid `x_qp` change was `0.0794--0.0862%` versus `13.37--14.84%` old/current offsets; shape TV was `2.258--2.834%`. At paper-topology Fig. 8, the low-temperature production-grid `x_qp` change was `0.0830--0.1089%`, and the thermal-dominated 0.30 K change was `0.3102%`; each decreased by about `2.5--2.7x` from the preceding refinement. Direct 0.05 K thermal seeds fail the backward-error gate at the two weak drives, while strong-to-weak continuation converges on every grid; at 0.30 K direct and continued results agree within `7.3e-7` relative. These are fixed-grid qpsim-native regression certificates, not pointwise continuum-shape or paper-parity claims. |
 | Fischer 2024 promoted artifact hashes | Canonical CSV/PDF SHA-256: Fig. 5 paper topology `28bf2ec12d30936276c6a57f89d84132f5758fce03d569c30b06f3aa95af8e4f` / `8a11a07739a770dd784cbaececbcf8911cff8ca249428ce507cab8e64e0fd46`; Fig. 8 paper topology `b0c884f670fbcee2e193c849b8ca87902f2595e1115bdd3e2e2fb7115d9342eb` / `3e89910af8777541f88bdd71c5308c170dc3e17764052b2eda013690ca3dfd12`; Fig. 8 native `31fe7a4f46b57c88c9f53389959f4e8a7680d97fa4e65c5e12535d0087a5aa00` / `8636d8d9dd0d4900e1481de02187d177c6bb42d68af62e29769d309a7b0354c1`; Figs. 5--7 native `a7442881e91ca4b26bf6a2a5364c3c0281034a4bd6c91677fa0086b0d9961add` / `069aa4f61e9d36ba6ac0ea0eb35d26c115ad79869948a6d7261d501e370d59f9`. The 84 persisted solve points all passed strict schema, dependency-hash, ordered-certificate, and certified-payload readback. Maximum `(QP backward error, residual)` by family was `(1.13e-7, 1.10e-16)`, `(9.10e-7, 5.92e-13)`, `(2.72e-11, 3.29e-15)`, and `(3.39e-13, 7.45e-17)`, respectively. |
 | Moving-gap/gap-focused groups | Refined-reference moving-gap order and invariant regressions passed; self-consistent-gap file: 8 passed without extrapolation warnings; broader affected T3 backend group: 37 passed |
-| Fischer 2023 Fig. 7 certified validation | **48/48 exact tight-contract targets passed on both Windows and Linux.** The portability runs completed on Windows in **982.54 s** and Linux in **946.16 s**. After the conservative whole-`qpsim` source digest advanced for the unrelated N31/N33 integration fixes, a final-source Windows rerun passed in **901.13 s** and was promoted. Its maximum QP/Ph0 backward errors are `9.818804637390374e-9`/`9.421980413945276e-9`, below the `2e-8` gate; solve-contract SHA-256 is `b89aa5232c87ec8dc4e2e0f9037bd7c635afa65602d85ea6da77a07a24aeeaff`; canonical CSV/PDF SHA-256 are `4a0dec419764f2e7bf7eb0cdec0823a3e8303456f4e49c9898bdabd4e4c8bef2` / `17bda31fdbae541769a3d347a77a940c49adf75d7348b77fab0fbfcb85872262`. It remained inside the measured Windows/Linux gates (`0.244554%` meaningful loss, `6.3863e-5` `Q_tot`). The loose pair and exact-source Linux predecessor are archived. The low-temperature plateau node passed in **4.20 s**. |
+| Fischer 2023 Fig. 7 certified validation | **48/48 exact tight-contract targets passed on both Windows and Linux.** The portability runs completed on Windows in **982.54 s** and Linux in **946.16 s**. Conservative whole-`qpsim` digest changes were followed by exact uncached Windows recertifications in **901.13 s** and, after the post-publish NumPy-2.5 typing repair, **975.48 s**. The active run's maximum QP/Ph0 backward errors are `9.818804622232902e-9`/`8.270891010038062e-9`, below the `2e-8` gate; solve-contract SHA-256 is `267837430b0a9b294ec8d2289225b2fdc3bdb4b279562333c662d66cee8584d1`; canonical CSV/PDF SHA-256 are `5c5650e42b8670c4f23329930610e8001c889a14540dcf621a18c5fe5213bb1b` / `93fc6db803dd8fc0226a3fd137a9052d5a96409c166684b2563f5d2bae524d05`. Against the preceding canonical it moved meaningful loss by at most `0.136833%` and `Q_tot` by `4.8194e-5`, inside the established `0.4%`/`1e-4` gates. The loose pair and exact-source Linux predecessor are archived. The low-temperature plateau node passed in **4.20 s**. |
 | Transient photon-kick slow validation | **4 passed in 752.05 s** after regenerating the matched-finite-volume CSV/PDF pin. Canonical CSV/PDF SHA-256: `1fb7ef59ec969c8e4a705fa0283006476292ffae04f79a7284215ee02494dbc9` / `f8d7be510eee34c3a294dc3743035c22a8c2209987695575670794b7bc66ea81`. |
 | Web host contract | 15 focused tests passed |
 | Static and source-integrity checks | Final repository-wide `ruff check .`, `mypy qpsim` (75 source files), and `python -m compileall -q qpsim tests validation` all passed. `git diff --check` was clean; Git emitted only the repository's Windows LF-to-CRLF conversion notices. |
@@ -223,7 +223,7 @@ F24 nodes that originally took this path were later promoted and rerun.
 | `fischer_2023/test_fig5_paper.py::test_matches_pinned_baseline` | `slow` | Current expected quarantine xfail; the old cache-off numerical comparison failed its stale pin after 7737.30 s |
 | `fischer_2023/test_fig6_paper.py::test_reduced_full_state_continuation_is_certified_and_repeatable` | `slow` | Direct current-tree pass, 3.71 s |
 | `fischer_2023/test_fig6_paper.py::test_matches_pinned_baseline` | `slow`, `manual_slow` | **Exact node not run.** Equivalent exact-grid production completed and certified 66/66 targets in 7599.292171 s concurrent wall time; the serial pytest wrapper documents an approximately 14-hour cost. |
-| `fischer_2023/test_fig7_paper.py::test_matches_pinned_baseline` | `slow` | The historical loose-contract node passed directly in 603.47 s. After N32, equivalent uncached tight-contract production passed all 48 targets under Linux in 946.16 s and Windows in 982.54 s; the frozen final-source Windows rerun passed in 901.13 s and produced the active canonical. The pytest wrapper was not separately invoked again. |
+| `fischer_2023/test_fig7_paper.py::test_matches_pinned_baseline` | `slow` | The historical loose-contract node passed directly in 603.47 s. After N32, equivalent uncached tight-contract production passed all 48 targets under Linux in 946.16 s and Windows in 982.54 s; later exact-source Windows recertifications passed in 901.13 s and 975.48 s, with the latter producing the active canonical. The pytest wrapper was not separately invoked again. |
 | `fischer_2023/test_fig7_paper.py::test_low_temperature_plateau_is_extrinsic_limited` | `slow` | Direct tight-contract pass, 4.20 s |
 | `fischer_2023/test_figs_9_13_qi_vs_pread.py::test_matches_pinned_baseline` | `slow` | Current expected quarantine xfail |
 | `fischer_2024/test_fig5_paper.py::test_matches_pinned_baseline` | `slow` | Direct promoted-pin pass in the four-node run |
@@ -542,8 +542,8 @@ Fifteen of 16 non-manual slow nodeids have direct current-tree execution
 evidence: 13 numerical tests passed and two F23 pre-schema pins took their
 intended narrow quarantine xfails. The tightened Fig. 7 full-pin wrapper was
 not separately invoked after N32, but its exact uncached 48-target production
-path passed under Linux and Windows, including a 901.13 s Windows rerun on the
-frozen final source that produced the active canonical. The serial Fig. 6
+path passed under Linux and Windows, including a 975.48 s Windows recertification
+on the final source that produced the active canonical. The serial Fig. 6
 `manual_slow` full-pin wrapper likewise was not
 invoked, while its equivalent 66-target production configuration completed with
 independent certificates. Equivalent production evidence does not turn either
@@ -585,12 +585,19 @@ OS/runtime/library portability test rather than independent-hardware evidence.
 
 The later N31/N33 integration repairs changed files outside the Fig. 7 call
 path, but the deliberately conservative solve-contract digest covers all
-`qpsim` sources. A final frozen-source Windows run therefore repeated all 48
-targets in `901.13 s`; it passed the same comparison envelope and certificate
-gate. The active CSV/PDF carry exact final-source digest
-`b89aa5232c87ec8dc4e2e0f9037bd7c635afa65602d85ea6da77a07a24aeeaff`
-and SHA-256 `4a0dec419764f2e7bf7eb0cdec0823a3e8303456f4e49c9898bdabd4e4c8bef2` /
-`17bda31fdbae541769a3d347a77a940c49adf75d7348b77fab0fbfcb85872262`.
+`qpsim` sources. A frozen-source Windows run therefore repeated all 48 targets
+in `901.13 s`. The post-publish CI run then exposed NumPy 2.5's stricter
+`np.sum` overload typing in the unrelated ETD balance projection. Narrowing
+the scalar/axis-preserving branches changed no Fig. 7 call-path code but again
+advanced the whole-tree digest, so a second exact uncached Windows
+recertification repeated all 48 targets in `975.48 s`. It passed the established
+envelope and certificate gates: versus the preceding canonical, meaningful
+loss moved by at most `0.136833%`, `Q_tot` by `4.8194e-5`, and maximum QP/Ph0
+backward errors were `9.818804622232902e-9`/`8.270891010038062e-9`. The active
+CSV/PDF carry exact final-source digest
+`267837430b0a9b294ec8d2289225b2fdc3bdb4b279562333c662d66cee8584d1`
+and SHA-256 `5c5650e42b8670c4f23329930610e8001c889a14540dcf621a18c5fe5213bb1b` /
+`93fc6db803dd8fc0226a3fd137a9052d5a96409c166684b2563f5d2bae524d05`.
 The loose pair and the exact-source Linux predecessor are archived intact.
 Regression tolerances now reflect the measured
 scale-aware envelope and still reject the old-to-tight shifts (`3.4523%` in loss,

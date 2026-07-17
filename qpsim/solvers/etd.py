@@ -21,6 +21,13 @@ _MAX_ETD_ACCEPTED_SUBSTEPS = 1_000_000
 _MAX_ETD_REJECTED_ATTEMPTS = 1_000_000
 
 
+def _sum_balance(values: np.ndarray, axis: int | None) -> np.ndarray | float:
+    """Sum a balance slice while preserving a requested axis dimension."""
+    if axis is None:
+        return float(np.sum(values))
+    return np.sum(values, axis=axis, keepdims=True)
+
+
 def etd1_step(
     f: np.ndarray,
     gain: np.ndarray,
@@ -271,14 +278,10 @@ def etd2_step(
             residual_n = gain_n - loss_n * current
             residual_p = gain_p - loss_p * f_pred
             target = (
-                np.sum(weights * current, axis=axis, keepdims=axis is not None)
+                _sum_balance(weights * current, axis)
                 + 0.5
                 * step_dt
-                * np.sum(
-                    weights * (residual_n + residual_p),
-                    axis=axis,
-                    keepdims=axis is not None,
-                )
+                * _sum_balance(weights * (residual_n + residual_p), axis)
             )
             updated = _project_weighted_balance(
                 updated,
@@ -321,8 +324,7 @@ def _project_weighted_balance(
     added by uniformly scaling holes.  Both branches are positivity preserving
     and avoid selecting an arbitrary energy bin for a correction.
     """
-    keepdims = axis is not None
-    total_weight = np.sum(weights, axis=axis, keepdims=keepdims)
+    total_weight = _sum_balance(weights, axis)
     target_array = np.asarray(target, dtype=float)
     if np.any(~np.isfinite(target_array)):
         raise ValueError("The requested weighted balance must be finite.")
@@ -335,7 +337,7 @@ def _project_weighted_balance(
 
     projected = np.clip(np.asarray(candidate, dtype=float), 0.0, 1.0).copy()
     supported = weights > 0.0
-    current = np.sum(weights * projected, axis=axis, keepdims=keepdims)
+    current = _sum_balance(weights * projected, axis)
     # Keep the roundoff allowance local to each independent balance slice.
     # A single scalar based on the largest column made the projection depend
     # on unrelated columns: a 1e16-mass slice could hide an O(1) defect in a

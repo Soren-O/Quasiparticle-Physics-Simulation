@@ -78,10 +78,12 @@ bound the canonical `0.1`-versus-`0.05` differences by `2.56e-11` in `f` and
 `5.89e-12` in `x_qp`. That is driver-partition step-insensitivity, not a
 formal-order result, because adaptive ETD subcycling dominated the accepted
 partitions. The Fig. 7 pin was regenerated under the tightened solver contract
-at all 48 targets on Windows and Linux. A final frozen-source Windows rerun
-records maximum QP/Ph0 backward errors `9.819e-9`/`9.422e-9` against a `2e-8`
+at all 48 targets on Windows and Linux. After a post-publish NumPy-2.5 typing
+repair outside the Fig. 7 call path advanced the conservative whole-tree
+digest, an exact uncached Windows recertification completed in `975.48 s`. It
+records maximum QP/Ph0 backward errors `9.819e-9`/`8.271e-9` against a `2e-8`
 gate and solve-contract SHA-256
-`b89aa5232c87ec8dc4e2e0f9037bd7c635afa65602d85ea6da77a07a24aeeaff`.
+`267837430b0a9b294ec8d2289225b2fdc3bdb4b279562333c662d66cee8584d1`.
 M25 baselines carry a `# pinned_on:` platform stamp; their strict pin tests run
 only on the generating platform. (Historical reason: pre-normalization-fix
 fixed-point selection was platform-sensitive. With the Γ̄ fix the tracked root
@@ -94,7 +96,7 @@ on a second machine.)
 | Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ⚠️ promoted nonzero NE=1620 certified local regression: peak occupations `[4.738e-10, 1.464e-9, 1.798e-8, 1.889e-7]`, max QP/Ph0 backward errors `9.60e-11`/`2.37e-6`. Its uncached full-pin repeat passed in 5224.19 s with roundoff-level curve differences and a pixel-identical PDF. Exact-capacity scalar refinement estimates `0.77--1.41%` remaining error. The prior `30--42%` Richardson strong-L1 warning is threshold-localized: NE=648→1620 direct strong L1 is `18.93--19.04%`, of which `87.5--88.0%` lies within `2.5 ueV` of `Delta+n*20 ueV`; ratio-zero NE=2592→5184 gives `0.613%` mass change and `0.178%` normalized W1 shape distance despite `12.34%` strong L1. No pointwise/total-variation or paper-parity claim. |
 | Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ⚠️ high-drive branch guard passed, but the cache-off full run failed 20/42 upper-panel pin values after 8088.34 s total. A representative `NE=162/324/648/1296/1620` ladder reduced the maximum selected scalar rung change from `23.89%` to `0.443%`, but left up to `9.24%` strong shape change and about `2.21%` Richardson scalar remainder near the transition. More decisively, certified forward/reverse paper-grid roots at `T*/Delta=0.60` give `x_qp=4.57835e-8`/`4.82952e-6` (`99.052%` separation; max QP/phonon backward errors `4.56e-7`/`5.70e-7`). Branch selection is an unresolved physical contract, not a residual failure. The pre-schema CSV/PDF remain untouched and quarantined; no paper parity claim. |
 | Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py` | `ph0_kaplan/` | ⚠️ all 66 production targets completed in the exact 3x22 schema with max QP/certified-Ph0/gap-map errors `9.27e-7`/`3.31e-6`/`9.92e-11 µeV`, inside `1e-5/1e-5/1e-10` gates. This is certified local regression evidence, not paper parity. |
-| Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ exact tight-contract 48/48 production runs passed on Windows in `982.54 s` and Linux in `946.16 s`; after final unrelated whole-tree provenance changes, a frozen-source Windows rerun passed in `901.13 s`. The active pin has max QP/Ph0 backward errors `9.819e-9`/`9.422e-9` against a `2e-8` gate; solve-contract SHA-256 `b89aa5232c87ec8dc4e2e0f9037bd7c635afa65602d85ea6da77a07a24aeeaff`; CSV/PDF `4a0dec419764f2e7bf7eb0cdec0823a3e8303456f4e49c9898bdabd4e4c8bef2` / `17bda31fdbae541769a3d347a77a940c49adf75d7348b77fab0fbfcb85872262`. Meaningful cross-platform loss drift is at most `0.244554%`; the larger `0.06 K` relative tail is only `1.0941e-19` absolute. The loose pair and tight Linux predecessor are archived. ⚠️ Regression/balance evidence, not bitwise identity or paper parity. |
+| Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ exact tight-contract 48/48 production runs passed on Windows in `982.54 s` and Linux in `946.16 s`; later whole-tree provenance changes were followed by exact uncached Windows runs in `901.13 s` and, after the NumPy-2.5 typing repair, `975.48 s`. The active pin has max QP/Ph0 backward errors `9.819e-9`/`8.271e-9` against a `2e-8` gate; solve-contract SHA-256 `267837430b0a9b294ec8d2289225b2fdc3bdb4b279562333c662d66cee8584d1`; CSV/PDF `5c5650e42b8670c4f23329930610e8001c889a14540dcf621a18c5fe5213bb1b` / `93fc6db803dd8fc0226a3fd137a9052d5a96409c166684b2563f5d2bae524d05`. Versus the preceding canonical, meaningful loss drift was `0.136833%` and `Q_tot` drift `4.8194e-5`, inside the `0.4%`/`1e-4` gates. The loose pair and tight Linux predecessor are archived. ⚠️ Regression/balance evidence, not bitwise identity or paper parity. |
 | Fischer 2023 Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ⚠️ fresh 21-point run certified, but all legacy `Q_i` values moved by up to `14.5144%`. The full commensurate `NE=405/810/1620/3240` ladder has successive maximum `Q_i` changes `2.83%/3.99%/4.38%`; at `-100 dBm` the error grows rather than settles. Mass changes improve `4.12%→1.83%→0.938%` and normalized W1 remains `≤0.242%`, while strong L1 decreases `24.43%→19.84%→17.30%` with `84–89%` threshold localization. NE=1620 forward/reverse `Q_i` agrees to `6.67e-6`, and certificate maxima are QP `1.37e-11`/outer `1.56e-11`: observable discretization, not branch or residual failure. The `NE=405` pre-schema pin remains untouched and quarantined. Not a literal paper figure. |
 | Fischer 2024 Fig. 5 paper-topology distributions | `fischer_2024/fig5_paper.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression after the commensurate `405/810/1620` ladder: `810 -> 1620` changes `x_qp` by `0.0794--0.0862%`, versus `13.37--14.84%` legacy/current offsets; BCS-capacity shape TV is `2.258--2.834%`. Max QP backward error `1.13e-7`; CSV/PDF SHA-256 `28bf2ec12d30936276c6a57f89d84132f5758fce03d569c30b06f3aa95af8e4f` / `8a11a07739a770dd784cbaececbcf8911cff8ca249428ce507cab8e64e0fd46`. ⚠️ Three analytic overlays remain `TODO(paper-parity)`; this is not paper parity. |
 | Fischer 2024 Figs 5-7-topology f(E) characterization | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression. Across all five powers, `810 -> 1620` changes `x_qp` by `0.0062--0.1903%` and shape TV by `0.495--1.156%`, versus `0.858--4.283%` legacy/current scalar offsets. Certificate maxima `3.39e-13`/`7.45e-17`; CSV/PDF SHA-256 `a7442881e91ca4b26bf6a2a5364c3c0281034a4bd6c91677fa0086b0d9961add` / `069aa4f61e9d36ba6ac0ea0eb35d26c115ad79869948a6d7261d501e370d59f9`. ⚠️ Fixed-grid regression, not a pointwise continuum-shape or paper-parity claim. |
@@ -170,7 +172,7 @@ distinct closed equilibria).
 ## Test suite
 
 The final default repository aggregate is **1499 passed, 17 deselected, 4
-warnings in 533.61 s** on Windows (`pytest -q`). The deselections are the opt-in
+warnings in 507.79 s** on Windows (`pytest -q`). The deselections are the opt-in
 slow/manual validation selections. The final exact tree also passes `ruff check
 .`, `mypy qpsim` across 75 source files, `python -m compileall -q qpsim tests
 validation`, and `git diff --check` (apart from Git's Windows line-ending
@@ -184,7 +186,7 @@ Fifteen of 16 non-manual `slow` nodeids have direct execution evidence: 13
 numerical passes and 2 narrow expected xfails for F23 pre-schema canonicals; the
 latter reran together in 1.84 s. The Fig. 7 full-pin wrapper instead has
 equivalent exact-source 48-target production evidence, including the final
-frozen-source Windows run in 901.13 s. The four F24
+uncached Windows recertification in 975.48 s. The four F24
 full live pins passed together in 76.86 s after refinement and strict-v2
 promotion. Other focused reruns include the tight-contract Fig. 7 plateau (4.20 s), reduced
 Fig. 6 continuation (3.71 s), and post-schema F23 Fig. 5 high-drive branch
@@ -219,7 +221,8 @@ self-consistent-gap tests without the former extrapolation warnings; 37 passing
 tests in the broader affected T3 backend group; 132 passing homogeneous
 Newton/Picard/Ph0 certificate tests; 4 passing slow transient tests in 752.05 s;
 exact tight-contract 48-point Fig. 7 production runs on Windows in 982.54 s and
-Linux in 946.16 s, plus the frozen-final-source Windows run in 901.13 s; a certified
+Linux in 946.16 s, plus exact-source Windows recertifications in 901.13 s and
+975.48 s; a certified
 NE=1620 Fig. 3 production run in 5768.40 s plus an uncached full-pin pass in
 5224.19 s; and all 66 certified Fig. 6 targets in 7599.29 s concurrent wall
 time. The cache-off Fig. 5 audit took 8088.34 s:
@@ -247,7 +250,7 @@ Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.
 - The transient photon-kick regression is slow-marked and its four-test subset
   passed on 2026-07-16. Fig. 7 has exact tight-contract 48-point Windows/Linux
-  production evidence plus the final-source Windows rerun, and the four
+  production evidence plus the final-source Windows recertification, and the four
   promoted F24 pins passed in 76.86 s.
   Fifteen of 16 non-manual slow nodeids ran directly (13 passes and 2 F23 legacy
   xfails); the Fig. 7 full-pin wrapper has equivalent exact-source production

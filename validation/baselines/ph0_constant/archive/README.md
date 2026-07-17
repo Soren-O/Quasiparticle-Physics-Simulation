@@ -16,9 +16,12 @@ current validation or paper-parity evidence.
 48-point Linux tight-contract predecessor. It was superseded only because the
 conservative solve-contract digest covers the complete `qpsim` source tree and
 later N31/N33 integration fixes outside the Fig. 7 call path advanced that
-digest. A frozen-final-source Windows repeat passed the established
-cross-platform gates and produced the active canonical. The Linux pair remains
-portable numerical evidence, not an active pin.
+digest. A frozen-source Windows repeat passed the established cross-platform
+gates and produced the `b89aa523` canonical committed in `eb4cfe6`. A later
+NumPy-2.5 typing-only repair outside the Fig. 7 call path advanced the
+whole-tree digest again; an exact Windows recertification produced the current
+active canonical. The Linux pair remains portable numerical evidence, not an
+active pin.
 
 SHA-256:
 
