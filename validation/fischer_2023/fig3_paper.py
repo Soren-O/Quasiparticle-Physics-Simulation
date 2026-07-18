@@ -89,7 +89,8 @@ def curve_regression_rtol(
     near-degenerate strong-bottleneck solution: exact single-thread Linux
     runs differ from the Windows pin by 1.27723% while agreeing with each
     other to about 1e-8 relative.  Keep the wider envelope restricted to that
-    curve and only for the measured Windows/Linux platform pair.
+    curve and only for the Windows/Linux OS-family case calibrated by those
+    hosted runs.
     """
     current = sys.platform if running_on is None else running_on
     measured_pair = {pinned_on, current} == {"win32", "linux"}

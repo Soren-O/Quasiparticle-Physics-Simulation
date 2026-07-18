@@ -52,7 +52,7 @@ from validation.fischer_2023.steady_state_certificate import (
 
 # Ratios through one retain the strict 1e-4 curve gate.  The residual-polished
 # ratio-10 state uses its measured 1.5% fixed-grid envelope only for the
-# Windows/Linux platform pair. The peak-scaled absolute floor is
+# Windows/Linux OS-family case. The peak-scaled absolute floor is
 # O(1e-16..1e-14), not the old vacuous 1e-6.
 
 
