@@ -244,6 +244,12 @@ def _solve_coupled_newton(
         photon_params=photon_params,
         use_phonon_side_kernel=True,
         coupled_newton_tol=1e-10,
+        # The strong-bottleneck state is already balance-certified when the
+        # refining Newton step reaches this relative scale.  A tighter 1e-8
+        # step gate can demand a strictly smaller raw residual after roundoff,
+        # causing Linux builds to discard the polished state and fall back to
+        # the less accurate Picard predictor.
+        coupled_newton_step_rtol=1e-6,
         coupled_newton_max_iter=50,
         coupled_newton_fd_step=1e-8,
         coupled_newton_analytic_cross=True,

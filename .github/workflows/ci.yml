@@ -8,6 +8,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The certified cross-platform envelopes were measured with single-thread
+    # BLAS.  Leaving runner-dependent defaults here changes reduction order
+    # enough to select a different roundoff-limited Newton/Picard stop.
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     strategy:
       fail-fast: false
       matrix:

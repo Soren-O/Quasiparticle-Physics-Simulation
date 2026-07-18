@@ -136,6 +136,8 @@ or validation-honesty hardening.
 | N31 | Medium | Direct `solve_gap` warned but still returned a gap below the reconstructed first energy-cell face by silently extending the first stored occupation across unsampled gap-edge states. The T3 backend rejected this geometry, but low-level callers could ignore the warning and consume a quantitatively unsupported root or normal-state decision. | The public solve now fails closed by default whenever its continuation anchor, selected root, or collapse lies below grid coverage. Historical constant-left extrapolation requires the explicit `allow_gap_edge_extrapolation=True` opt-in and still emits a runtime warning. A fixed `1e-9` relative geometric edge-coincidence tolerance admits only sub-part-per-billion numerical equality and is independent of caller `xtol`, so a large root tolerance cannot opt into missing support. Covered normal-state grids continue to return zero without an extrapolation flag. | The gap-equation file passes **35 tests**, including default root/anchor rejection, explicit legacy opt-in, type validation, a fully covered non-equilibrium collapse, a large-`xtol` bypass adversary, and the Fischer-scale `8.28e-8 micro-eV` numerical edge coincidence. Existing branch-continuation and equilibrium recovery tests remain green. |
 | N32 | High | Fischer 2023 Fig. 7 used an inner Newton tolerance/backward-error gate of `1e-11/1e-6`. Exact loose-contract Windows/Linux solves could therefore stop at different tolerance-limited approximations of the same root while still passing the old `1e-5` artifact gate. The former loss comparison also used `atol=1e-10`, masking every loss below `Q=1e10`. | Tightened the inner Newton contract to `1e-13/1e-8`, the Picard map/change/balance gates to `1e-9/1e-13/1e-8`, and the persisted certificate gate to `2e-8`. Fig. 7 now validates requested axes and every raw/result field before deriving or writing observables; binds `Q_qp` to `sigma1` and `Q_tot` to `Q_qp/Q_ext`; stamps source/runtime provenance; and uses the measured scale-aware loss envelope (`rtol=4e-3`, `atol=2e-19`) plus `Q_tot rtol=1e-4`. The loose canonical is retained under `ph0_constant/archive/`. | Repeated same-platform/thread probes were bitwise stable; tightening Picard alone did not move the selected points, while tightening inner Newton collapsed the two visible cross-platform probes to `1.30e-6` and `3.78e-7` relative loss differences. Exact 48-point tight runs passed on Windows 11 / Python 3.14.3 / NumPy 2.4.2 / SciPy 1.17.0 in **982.54 s** and Linux / Python 3.13.14 / NumPy 2.5.1 / SciPy 1.18.0 in **946.16 s**. Across them, meaningful (`T>=0.10 K`) loss drift was at most `0.24396%`, `Q_tot` drift at most `6.3863e-5`, and the larger low-temperature relative tail represented only `1.0941e-19` absolute loss. Both full runs stayed below the `2e-8` certificate gate. |
 | N33 | Medium | After N31, two integration boundaries still assumed an occupation sampled only above the original gap could support an arbitrarily suppressed root. The web executor also coupled independent equilibrium calibration metadata to that fallible occupation-backed diagnostic, so a support failure removed `delta_eq_ueV` from an otherwise valid result. | `compute_gap_suppression` now documents and enforces its low-edge coverage contract; covered observable fixtures extend their first cell face to zero, while an explicit regression proves the former `1.001*Delta` grid fails closed. The web executor calibrates and persists `delta_eq_ueV` independently, then attempts derived suppression; unsupported suppression fields remain absent with a diagnostic note instead of erasing equilibrium metadata. | The combined affected slice passed **50 tests**; the complete web suite passed **112 tests**. The final repository aggregate passes with the intentionally constant hot-tail warning still visible. Ruff, mypy, and compileall are clean. |
+| N34 | Low | The transient photon-kick CSV writer inherited the Windows locale encoding. Its title's em dash was therefore persisted as CP1252 byte `0x97`, even though `.gitattributes` correctly pinned LF; GitHub Actions Ubuntu/Python 3.14 completed the expensive solve and then failed while decoding the baseline as UTF-8. The artifact has prose provenance but no byte checksum contract, so neither caught the encoding drift. | Both reader and writer now select UTF-8 explicitly while retaining `newline=""` and the CSV writer's `lineterminator="\n"`. The canonical was migrated by replacing only the CP1252 encoding of that em dash with its UTF-8 bytes. A fast artifact-I/O regression requires strict BOM-free UTF-8, LF-only bytes, and a locale-independent write/read round trip. | The pre/post CSV hashes are `1fb7ef59ec969c8e4a705fa0283006476292ffae04f79a7284215ee02494dbc9` / `18e2a2424c037e2b6dd64189848765d0a0c75a6b6cc4bed63364c3f2d05c51d1`. File size changed by exactly two bytes (`447856 -> 447858`); all `447332` bytes from `E_uev` through the final numerical row are identical with SHA-256 `7df15a69abc0fed86494d101d40b300605692dc77c9ebe037743d4d59a6e067a`. The two fast portability tests pass; Ruff and strict mypy are clean. |
+| N35 | Medium | The slow CI job inherited the hosted runner's BLAS thread count even though the certified Fischer 2023 Fig. 3/7 portability envelopes were measured with BLAS fixed to one thread. Four-thread reduction order made Fig. 3's roundoff-limited coupled-Newton line search discard a polished state and retain its less accurate Picard predictor; it also moved one derived Fig. 7 `Q_tot` point just outside the single-thread envelope. | The CI job now pins `OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`, and `MKL_NUM_THREADS` to `1`, with a fast workflow-contract regression. Fig. 3 additionally uses a caller-local `coupled_newton_step_rtol=1e-6`, requiring both a small relative step and a solver-internal balance ratio; returned states still must pass the unchanged, independently reassembled `1e-5` certificate. This lets multithread builds accept the already well-balanced polished state instead of falling back. Existing Fig. 3/7 regression tolerances and numerical baselines remain unchanged. | Python 3.13/3.14 CI reproduced identical failures, excluding interpreter drift. For Fig. 7 at `P=-72 dBm`, `T=0.18 K`, one/two/four BLAS threads gave relative `Q_tot` drift `6.0039e-5` / `9.2573e-5` / `1.2099e-4`; only four threads exceeded the unchanged `1e-4` gate, while the primary QP-loss drift remained within `0.4%`. Patched Fig. 3 NE=81/162 Windows/Linux probes agreed at about `1e-7` relative with backward errors near `1e-14`; the current NE=1620 single-thread solve also completed its ratio-10 polish with QP/Ph0 backward errors `2.397e-15` / `1.412e-14`. Fig. 7 runtime provenance reports BLAS variables, but its current CSV header does not serialize them; the workflow/test contract and this audit record that remaining metadata limitation. |
 
 ## Physics-consistency spot checks
 
@@ -177,10 +179,10 @@ must not be added.
 
 | Area | Observed result |
 |---|---|
-| Final default repository aggregate (`pytest -q`) | **1507 passed, 17 deselected, 4 warnings in 502.46 s** on the exact final code/test/validation tree. The deselections are the opt-in slow/manual selections. |
-| Unit/API pytest suite (`pytest tests -q`) | **1272/1272 passed, 13 warnings in 258.88 s** on the post-repair combined tree |
+| Final default repository aggregate (`pytest -q`) | **1510 passed, 17 deselected, 4 warnings in 473.13 s** on the exact final code/test/validation tree. The deselections are the opt-in slow/manual selections. |
+| Historical unit/API checkpoint (`pytest tests -q`) | **1272/1272 passed, 13 warnings in 258.88 s** on the earlier post-repair combined tree |
 | Default non-slow validation discovery (initial audit run) | **5 failed, 122 passed, 17 deselected, 3 expected xfailed, 1 warning in 556.56 s.** All five failures were stale finite-volume oracles identified in N28; this initial run is diagnostic history. |
-| Complete post-repair non-slow validation (`pytest validation -q`) | **127 passed, 17 deselected, 3 expected xfailed, 1 warning in 217.75 s.** The expected xfails are the two quarantined Fig. 3 baseline schema/nonvacuity checks and the stale Fig. 6 configuration-metadata check. The sole warning is the explicit `8.28066788472e-08 µeV` support-edge diagnostic in the analytic gap-equilibrium check. |
+| Historical post-repair non-slow validation (`pytest validation -q`) | **127 passed, 17 deselected, 3 expected xfailed, 1 warning in 217.75 s.** The expected xfails are the two quarantined Fig. 3 baseline schema/nonvacuity checks and the stale Fig. 6 configuration-metadata check. The sole warning is the explicit `8.28066788472e-08 µeV` support-edge diagnostic in the analytic gap-equilibrium check. |
 | Diffusion-operator validation, including cell-measure references, subcycled-CN analytic inversion, and independent KL product quadrature | **14/14 passed in 209.10 s** after repairing the five stale oracles |
 | Public phonon/sub-gap/PB collision APIs | 59 passed |
 | ETD solver | 12 passed |
@@ -197,7 +199,7 @@ must not be added.
 | Fischer 2024 promoted artifact hashes | Canonical CSV/PDF SHA-256: Fig. 5 paper topology `de560f1ca01052350122fa8cb9ddce5b363e34c97f6d9c58bb2515af8a9bf944` / `8a11a07739a770dd784cbaececbc8f8911cff8ca249428ce507cab8e64e0fd46`; Fig. 8 paper topology `ca77082ff8449869a30356145d3ebe0cb508baaf56ea914fe00ed90b2b13b0bc` / `3e89910af8777541f88bdd71c5308c170dc3e17764052b2eda013690ca3dfd12`; Fig. 8 native `9c196b9803dc0e0df94d9b9492a2eeebb974b045f12fe77b413514c221c0e925` / `8636d8d9dd0d4900e1481de02187d177c6bb42d68af62e29769d309a7b0354c1`; Figs. 5--7 native `e11d718b6da7a659e6baa51850b9f55aa4ebb2beeed039f1342cd4e73552c4b8` / `069aa4f61e9d36ba6ac0ea0eb35d26c115ad79869948a6d7261d501e370d59f9`. The 84 persisted solve points all passed strict schema, dependency-hash, ordered-certificate, and certified-payload readback. Maximum `(QP backward error, residual)` by family was `(1.13e-7, 1.10e-16)`, `(9.10e-7, 5.92e-13)`, `(2.72e-11, 3.29e-15)`, and `(3.39e-13, 7.45e-17)`, respectively. Provenance-only LF/CRLF and thermal-seed portability rebinds changed the CSV hashes but preserved every table row, ordered certificate, certified-payload hash, and PDF byte-for-byte. |
 | Moving-gap/gap-focused groups | Refined-reference moving-gap order and invariant regressions passed; self-consistent-gap file: 8 passed without extrapolation warnings; broader affected T3 backend group: 37 passed |
 | Fischer 2023 Fig. 7 certified validation | **48/48 exact tight-contract targets passed on both Windows and Linux.** The portability runs completed on Windows in **982.54 s** and Linux in **946.16 s**. Conservative whole-`qpsim` digest changes were followed by exact uncached Windows recertifications in **901.13 s** and, after the post-publish NumPy-2.5 typing repair, **975.48 s**. The active run's maximum QP/Ph0 backward errors are `9.818804622232902e-9`/`8.270891010038062e-9`, below the `2e-8` gate; newline-canonical solve-contract SHA-256 is `c9c7cc5530ed35e195d6a7da8ffed8c0236d28d49683b966a580201f0ea30ab9`; canonical CSV/PDF SHA-256 are `e0f957c0d4a43a8ae77d8217eb0e232b8f823634e7d69a9e7a163f0c0f63983a` / `93fc6db803dd8fc0226a3fd137a9052d5a96409c166684b2563f5d2bae524d05`. The portability rebind changed provenance metadata only; all 48 numerical rows and the PDF are unchanged. Against the preceding numerical canonical it moved meaningful loss by at most `0.136833%` and `Q_tot` by `4.8194e-5`, inside the established `0.4%`/`1e-4` gates. The loose pair and exact-source Linux predecessor are archived. The low-temperature plateau node passed in **4.20 s**. |
-| Transient photon-kick slow validation | **4 passed in 752.05 s** after regenerating the matched-finite-volume CSV/PDF pin. Canonical CSV/PDF SHA-256: `1fb7ef59ec969c8e4a705fa0283006476292ffae04f79a7284215ee02494dbc9` / `f8d7be510eee34c3a294dc3743035c22a8c2209987695575670794b7bc66ea81`. |
+| Transient photon-kick slow validation | **4 passed in 752.05 s** after regenerating the matched-finite-volume CSV/PDF pin; the exact module passed again in **726.54 s** after the encoding repair. Canonical CSV/PDF SHA-256: `18e2a2424c037e2b6dd64189848765d0a0c75a6b6cc4bed63364c3f2d05c51d1` / `f8d7be510eee34c3a294dc3743035c22a8c2209987695575670794b7bc66ea81`. The CSV hash change is encoding-only: its numerical payload is byte-identical. |
 | Web host contract | 15 focused tests passed |
 | Static and source-integrity checks | Final repository-wide `ruff check .`, `mypy qpsim` (75 source files), and `python -m compileall -q qpsim tests validation` all passed. `git diff --check` was clean; Git emitted only the repository's Windows LF-to-CRLF conversion notices. |
 
@@ -205,10 +207,10 @@ must not be added.
 
 The exact current-tree collection commands were:
 
-- `python -m pytest --collect-only -q -m "slow and not manual_slow"`: 16/1516
-  selected, 1500 deselected in 3.83 s;
-- `python -m pytest --collect-only -q -m manual_slow`: one of 1516 selected,
-  1515 deselected in 3.62 s.
+- `python -m pytest --collect-only -q -m "slow and not manual_slow"`: 16/1527
+  selected, 1511 deselected in 3.87 s;
+- `python -m pytest --collect-only -q -m manual_slow`: one of 1527 selected,
+  1526 deselected in 3.72 s.
 
 Every deselected node is accounted for below. “Direct” means that exact test
 node ran; “quarantined” means the current node deliberately xfailed before its
@@ -230,7 +232,7 @@ F24 nodes that originally took this path were later promoted and rerun.
 | `fischer_2024/test_fig8_paper.py::test_matches_pinned_baseline` | `slow` | Direct promoted-pin pass in the four-node run |
 | `fischer_2024/test_fig8_xqp_pb.py::test_matches_pinned_baseline` | `slow` | Direct promoted-pin pass in the four-node run |
 | `fischer_2024/test_figs_5_7_fe_pb.py::test_matches_pinned_baseline` | `slow` | Direct promoted-pin pass in the four-node run; all four passed in 76.86 s |
-| `transient/test_photon_kick_response.py::test_matches_pinned_baseline` | module `slow` | Direct pass in the four-node shared-fixture run |
+| `transient/test_photon_kick_response.py::test_matches_pinned_baseline` | module `slow` | Direct numerical pass in the four-node shared-fixture run. A later Ubuntu CI run exposed only the CP1252 title-byte defect after solving; N34 migrates that header to UTF-8 without changing the numerical payload. |
 | `transient/test_photon_kick_response.py::test_x_qp_rises_monotonically` | module `slow` | Direct pass in the four-node shared-fixture run |
 | `transient/test_photon_kick_response.py::test_late_time_approaches_newton_steady_state` | module `slow` | Direct pass in the four-node shared-fixture run |
 | `transient/test_photon_kick_response.py::test_snapshot_x_qp_consistent_with_f` | module `slow` | Direct pass in the four-node shared-fixture run; all four passed in 752.05 s |
@@ -512,7 +514,20 @@ manufactured regression in `tests/validation/test_refinement_metrics.py` now
 pins the distinction between strong capacity-L1, mass-separated Wasserstein-1,
 and threshold-localized error.
 
-Thus no numerical source patch is justified. The ideal clean-BCS,
+The first full slow-CI execution later exposed a separate runtime-contract
+issue, not a threshold-refinement defect. Hosted four-thread BLAS made the
+roundoff-limited ratio-10 Newton line search reject its polished iterate and
+fall back to the certified Picard predictor. Pinning the documented
+single-thread contract removes that reduction-order branch, while a Fig. 3-only
+`coupled_newton_step_rtol=1e-6` accepts the already balance-certified polished
+state on multithread builds. Cross-platform NE=81/162 probes then agree at
+about `1e-7` relative, with backward errors near `1e-14`; an NE=1620 Linux
+single-thread solve completed the current ratio-10 polish with QP/Ph0 backward
+errors `2.397e-15`/`1.412e-14`. The original pointwise regression tolerances
+and promoted numerical baseline were not loosened or regenerated.
+
+Thus no collision, quadrature, or physical-regularization source patch is
+justified for the threshold-layer refinement behavior. The ideal clean-BCS,
 monochromatic-drive model is weakly converging in mass and smooth shape
 observables, but its threshold values and total-variation-style curve metric
 remain grid-dependent. A grid-independent pointwise curve would require an
@@ -606,6 +621,17 @@ scale-aware envelope and still reject the old-to-tight shifts (`3.4523%` in loss
 `0.5732%` in `Q_tot`). This closes the unexplained platform-risk finding, but it
 does not assert bitwise identity, continuum convergence, or paper parity.
 
+The first full GitHub slow gate exposed that the workflow had not actually
+enforced the one-thread BLAS condition used above. At `P=-72 dBm`, `T=0.18 K`,
+one/two/four-thread WSL probes moved `Q_tot` from the active Windows pin by
+`6.0039e-5`/`9.2573e-5`/`1.2099e-4`, with the four-thread value reproducing
+CI's `1.2109e-4` miss. The underlying QP-loss change was still only `0.1996%`,
+inside its `0.4%` gate. CI now pins all three BLAS/OMP thread variables to one,
+matching the certified contract; the Fig. 7 loss and `Q_tot` envelopes remain
+unchanged. Runtime provenance reports those variables, although the current
+CSV header does not serialize them, so the workflow guard and N35 document the
+remaining metadata limitation.
+
 ### U7 — Resolved follow-up: bounded-memory smooth-gap collisions
 
 The spatial collision cache still retains no more than two exact local-gap
@@ -647,7 +673,7 @@ gate for its singular threshold layers.
 The repaired code is materially safer and more numerically honest than the
 base, but release claims should remain scoped:
 
-1. retain the green 1507-pass default aggregate and final Ruff, mypy, compile,
+1. retain the green 1510-pass default aggregate and final Ruff, mypy, compile,
    and diff-clean results; if exact marker-gate closure is required, run only
    the remaining Fig. 6 `manual_slow` wrapper and report its serial cost;
 2. keep Fig. 3 qualified as a certified paper-grid regression rather than a

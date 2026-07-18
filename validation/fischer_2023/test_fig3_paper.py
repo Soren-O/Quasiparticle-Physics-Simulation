@@ -34,6 +34,7 @@ from validation.fischer_2023.fig3_solve import (
     DELTA_0,
     INNER_QP_BACKWARD_ERROR_LIMIT,
     TARGET_BACKWARD_ERROR_LIMIT,
+    _solve_coupled_newton,
     _solve_picard,
     _solve_tau_l_zero,
     _validate_ratio_ladder,
@@ -44,10 +45,12 @@ from validation.fischer_2023.steady_state_certificate import (
     CERTIFICATE_METRIC_VERSION,
 )
 
-# Two repeated reduced-grid continuation runs were bitwise identical, including
-# across OPENBLAS_NUM_THREADS=1 and 24. Keep modest cross-platform headroom while
-# scaling the absolute allowance to each curve's actual signal. On the pinned
-# curves this is O(1e-16..1e-14), not the old vacuous 1e-6.
+# Repeated single-thread continuation runs are stable across the certified
+# Windows/Linux stacks.  Keep modest cross-platform headroom while scaling the
+# absolute allowance to each curve's actual signal.  On the pinned curves this
+# is O(1e-16..1e-14), not the old vacuous 1e-6.  CI pins BLAS to one thread;
+# multithread reduction order is separately absorbed by the Fig. 3-specific
+# roundoff-limited coupled-Newton step gate.
 _CURVE_RTOL = 1e-4
 _CURVE_ATOL_OVER_PEAK = 1e-6
 
@@ -314,6 +317,10 @@ def test_fig3_threads_inner_qp_resolution_limit_to_nested_newton() -> None:
         backend.kwargs["newton_backward_error_tol"]
         == INNER_QP_BACKWARD_ERROR_LIMIT
     )
+
+    assert _solve_coupled_newton(backend, state, photon_params) is state
+    assert backend.kwargs["method"] == "coupled_newton"
+    assert backend.kwargs["coupled_newton_step_rtol"] == pytest.approx(1e-6)
 
     assert _solve_picard(
         backend,

@@ -198,7 +198,7 @@ def read_baseline(path: Path | None = None) -> PhotonKickBaseline:
     x_qp_ss = float("nan")
     header: list[str] | None = None
     rows: list[list[float]] = []
-    with path.open(newline="") as fp:
+    with path.open(encoding="utf-8", newline="") as fp:
         for record in csv.reader(fp):
             if not record:
                 continue
@@ -233,7 +233,7 @@ def write_baseline(result: PhotonKickResult, path: Path | None = None) -> Path:
     if path is None:
         path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
+    with path.open("w", encoding="utf-8", newline="") as fp:
         # Pin LF explicitly so regenerated numerical artifacts are
         # cross-platform diff-clean instead of acquiring Windows CRLF rows.
         writer = csv.writer(fp, lineterminator="\n")

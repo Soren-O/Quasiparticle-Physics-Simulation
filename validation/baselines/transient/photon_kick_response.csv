@@ -1,4 +1,4 @@
-# Photon-kick response — qpsim transient-driver demo
+# Photon-kick response â€” qpsim transient-driver demo
 # Delta_0=189.0 tau_0=63.0 T_bath=0.1 omega_PB=529.1999999999999 n_bar_PB=1000000.0 c_phot_PB=1e-09
 # dt=0.1 ns  total_time=120.0 ns  snapshot_interval=6.0 ns
 # provenance=2026-07-16 qpsim numerical-software audit; matched finite-volume BCS cell_weights/cell_density collision measure; adaptive-ETD driver-step qualification at dt=0.2/0.1/0.05 ns bounded canonical 0.1-vs-0.05 differences by 2.56e-11 in f and 5.89e-12 in x_qp

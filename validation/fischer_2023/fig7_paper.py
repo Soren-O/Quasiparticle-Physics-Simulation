@@ -88,11 +88,14 @@ Q_EXT_BY_DBM: dict[float, float] = {
     -64.0: 0.7e6,
 }
 
-# Cross-platform regression envelope measured on exact 48-point tight solves:
-# Windows/Python 3.14/NumPy 2.4/SciPy 1.17 versus Linux/Python 3.13/NumPy
-# 2.5/SciPy 1.18.  Meaningful loss drift peaked at 2.440e-3 relative.  The
-# larger relative tail scatter occurred only at T=0.06 K, where the largest
-# absolute loss difference was 1.0941e-19 and Q_tot moved by <8e-14 relative.
+# Cross-platform regression envelope measured on exact single-thread 48-point
+# tight solves: Windows/Python 3.14/NumPy 2.4/SciPy 1.17 versus
+# Linux/Python 3.13/NumPy 2.5/SciPy 1.18.  Meaningful loss drift peaked at
+# 2.440e-3 relative.  The larger relative tail scatter occurred only at
+# T=0.06 K, where the largest absolute loss difference was 1.0941e-19 and
+# Q_tot moved by <8e-14 relative.  Runtime provenance reports BLAS variables,
+# and CI pins them to one thread; the current CSV header does not serialize
+# that runtime field, so the workflow contract remains part of this envelope.
 QP_LOSS_REGRESSION_RTOL = 4e-3
 QP_LOSS_REGRESSION_ATOL = 2e-19
 Q_TOTAL_REGRESSION_RTOL = 1e-4
