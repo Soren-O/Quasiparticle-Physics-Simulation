@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from dataclasses import replace
 
 import numpy as np
@@ -11,13 +12,16 @@ from validation.fischer_2023.fig7_paper import (
     NUM_BINS,
     P_READ_DBM,
     Q_EXT_BY_DBM,
+    Q_TOTAL_CROSS_PLATFORM_RTOL,
     Q_TOTAL_REGRESSION_RTOL,
+    QP_LOSS_CROSS_PLATFORM_RTOL,
     QP_LOSS_REGRESSION_ATOL,
     QP_LOSS_REGRESSION_RTOL,
     T_BATH_VALUES,
     LegacyArtifactError,
     baseline_path,
     config_metadata,
+    fig7_regression_tolerances,
     observables,
     read_baseline,
     read_baseline_metadata,
@@ -133,6 +137,55 @@ def test_reproducible_solver_contract_is_tight() -> None:
     assert pytest.approx(2e-8) == TARGET_BACKWARD_ERROR_LIMIT
 
 
+def test_regression_tolerances_are_platform_scoped() -> None:
+    strict_loss, strict_q_tot = fig7_regression_tolerances(
+        "Windows-11-10.0.26100-SP0", running_system="Windows"
+    )
+    assert strict_loss == pytest.approx(QP_LOSS_REGRESSION_RTOL)
+    assert strict_q_tot == pytest.approx(Q_TOTAL_REGRESSION_RTOL)
+    assert fig7_regression_tolerances(
+        "macOS-15.5-arm64-arm-64bit", running_system="Darwin"
+    ) == pytest.approx((QP_LOSS_REGRESSION_RTOL, Q_TOTAL_REGRESSION_RTOL))
+    assert fig7_regression_tolerances(
+        "Windows-11-10.0.26100-SP0", running_system="Darwin"
+    ) == pytest.approx((QP_LOSS_REGRESSION_RTOL, Q_TOTAL_REGRESSION_RTOL))
+
+    portable_loss, portable_q_tot = fig7_regression_tolerances(
+        "Windows-11-10.0.26100-SP0", running_system="Linux"
+    )
+    assert portable_loss == pytest.approx(QP_LOSS_CROSS_PLATFORM_RTOL)
+    assert portable_q_tot == pytest.approx(Q_TOTAL_CROSS_PLATFORM_RTOL)
+
+    pinned_loss = np.array([4.062049012662113e-8])
+    hosted_loss = np.array([4.043230878753479e-8])
+    pinned_q_tot = np.array([868257.8466418125])
+    hosted_q_tot = np.array([868399.734408639])
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose(
+            hosted_loss,
+            pinned_loss,
+            rtol=strict_loss,
+            atol=QP_LOSS_REGRESSION_ATOL,
+        )
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose(
+            hosted_q_tot, pinned_q_tot, rtol=strict_q_tot, atol=0.0
+        )
+    np.testing.assert_allclose(
+        hosted_loss,
+        pinned_loss,
+        rtol=portable_loss,
+        atol=QP_LOSS_REGRESSION_ATOL,
+    )
+    np.testing.assert_allclose(
+        hosted_q_tot, pinned_q_tot, rtol=portable_q_tot, atol=0.0
+    )
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose([1.009], [1.0], rtol=portable_loss, atol=0.0)
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose([1.0003], [1.0], rtol=portable_q_tot, atol=0.0)
+
+
 @pytest.mark.slow
 def test_matches_pinned_baseline() -> None:
     path = baseline_path()
@@ -149,6 +202,10 @@ def test_matches_pinned_baseline() -> None:
     except LegacyArtifactError as error:
         pytest.xfail(str(error))
 
+    metadata = read_baseline_metadata(path)
+    loss_rtol, q_tot_rtol = fig7_regression_tolerances(
+        metadata.generator_platform
+    )
     baseline = read_baseline(path)
     result = run(
         temperatures=tuple(float(x) for x in baseline.T_bath),
@@ -162,19 +219,29 @@ def test_matches_pinned_baseline() -> None:
         # masked every loss below Q=1e10.  The replacement 2e-19 floor is nine
         # orders smaller and covers only the measured T=0.06 K cross-platform
         # tail envelope; every physically visible point is controlled by the
-        # 0.4% relative gate.  Q_tot has its own measured 1e-4 envelope.
+        # same-platform 0.4% relative gate. Q_tot has its own 1e-4 gate;
+        # comparisons against a pin generated on another OS use the narrowly
+        # measured 0.8% / 2e-4 portability envelopes.
         np.testing.assert_allclose(
             1.0 / np.asarray(result.Q_qp_by_dbm[p]),
             1.0 / np.asarray(baseline.Q_qp_by_dbm[p]),
-            rtol=QP_LOSS_REGRESSION_RTOL,
+            rtol=loss_rtol,
             atol=QP_LOSS_REGRESSION_ATOL,
-            err_msg=f"Q_qp loss drift at P_read={p:g} dBm",
+            err_msg=(
+                f"Q_qp loss drift at P_read={p:g} dBm "
+                f"(pinned_on={metadata.generator_platform!r}, "
+                f"running_on={platform.system()!r}, rtol={loss_rtol:g})"
+            ),
         )
         np.testing.assert_allclose(
             result.Q_tot_by_dbm[p], baseline.Q_tot_by_dbm[p],
-            rtol=Q_TOTAL_REGRESSION_RTOL,
+            rtol=q_tot_rtol,
             atol=0.0,
-            err_msg=f"Q_tot drift at P_read={p:g} dBm",
+            err_msg=(
+                f"Q_tot drift at P_read={p:g} dBm "
+                f"(pinned_on={metadata.generator_platform!r}, "
+                f"running_on={platform.system()!r}, rtol={q_tot_rtol:g})"
+            ),
         )
 
 

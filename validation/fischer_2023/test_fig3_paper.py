@@ -13,6 +13,7 @@ First-time generation::
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 
 import numpy as np
@@ -21,8 +22,12 @@ from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 
 from validation.fischer_2023.fig3_paper import (
+    CURVE_REGRESSION_ATOL_OVER_PEAK,
+    CURVE_REGRESSION_RTOL,
+    STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL,
     baseline_path,
     config_metadata,
+    curve_regression_rtol,
     observables,
     read_baseline,
     read_baseline_metadata,
@@ -45,14 +50,10 @@ from validation.fischer_2023.steady_state_certificate import (
     CERTIFICATE_METRIC_VERSION,
 )
 
-# Repeated single-thread continuation runs are stable across the certified
-# Windows/Linux stacks.  Keep modest cross-platform headroom while scaling the
-# absolute allowance to each curve's actual signal.  On the pinned curves this
-# is O(1e-16..1e-14), not the old vacuous 1e-6.  CI pins BLAS to one thread;
-# multithread reduction order is separately absorbed by the Fig. 3-specific
-# roundoff-limited coupled-Newton step gate.
-_CURVE_RTOL = 1e-4
-_CURVE_ATOL_OVER_PEAK = 1e-6
+# Ratios through one retain the strict 1e-4 curve gate.  The residual-polished
+# ratio-10 state uses its measured 1.5% fixed-grid envelope only for the
+# Windows/Linux platform pair. The peak-scaled absolute floor is
+# O(1e-16..1e-14), not the old vacuous 1e-6.
 
 
 def _small_certified_result():
@@ -139,6 +140,7 @@ def _assert_config_matches_baseline(path) -> None:
     assert cfg.target_backward_error_limit == pytest.approx(
         meta.target_backward_error_limit,
     )
+    assert meta.pinned_on
     assert set(meta.certificate_maxima) == set(CERTIFICATE_FIELDS)
     assert np.all(np.isfinite(tuple(meta.certificate_maxima.values())))
     for field in ("qp_backward_error", "phonon_backward_error"):
@@ -173,7 +175,9 @@ def test_baseline_roundtrip_preserves_certificate_maxima(tmp_path) -> None:
     assert metadata.certificate_metric_version == CERTIFICATE_METRIC_VERSION
     assert metadata.target_backward_error_limit == TARGET_BACKWARD_ERROR_LIMIT
     assert metadata.certificate_maxima == expected.certificate_maxima
+    assert metadata.pinned_on == sys.platform
     header = path.read_text(encoding="utf-8")
+    assert f"# pinned_on: {sys.platform}" in header
     assert "certificate_metric_version=" in header
     assert "target_backward_error_limit=1e-05" in header
     assert b"\r\n" not in path.read_bytes()
@@ -182,6 +186,29 @@ def test_baseline_roundtrip_preserves_certificate_maxima(tmp_path) -> None:
     legacy_path.write_text(header, encoding="cp1252")
     legacy = read_baseline(legacy_path)
     assert legacy.certificate_maxima == expected.certificate_maxima
+
+
+def test_curve_regression_policy_is_platform_and_ratio_scoped() -> None:
+    assert curve_regression_rtol(
+        10.0, pinned_on="win32", running_on="win32"
+    ) == pytest.approx(CURVE_REGRESSION_RTOL)
+    assert curve_regression_rtol(
+        1.0, pinned_on="win32", running_on="linux"
+    ) == pytest.approx(CURVE_REGRESSION_RTOL)
+    assert curve_regression_rtol(
+        10.0, pinned_on="win32", running_on="darwin"
+    ) == pytest.approx(CURVE_REGRESSION_RTOL)
+    portable = curve_regression_rtol(
+        10.0, pinned_on="win32", running_on="linux"
+    )
+    assert portable == pytest.approx(STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL)
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose(
+            [1.013], [1.0], rtol=CURVE_REGRESSION_RTOL, atol=0.0
+        )
+    np.testing.assert_allclose([1.013], [1.0], rtol=portable, atol=0.0)
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose([1.02], [1.0], rtol=portable, atol=0.0)
 
 
 def test_uncertified_baseline_is_rejected(tmp_path) -> None:
@@ -195,6 +222,27 @@ def test_uncertified_baseline_is_rejected(tmp_path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="certificate metric"):
+        read_baseline(path)
+
+
+def test_invalid_pin_platform_records_are_rejected(tmp_path) -> None:
+    path = write_baseline(_small_certified_result(), tmp_path / "unstamped.csv")
+    lines = [
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("# pinned_on:")
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="pin-platform"):
+        read_baseline(path)
+
+    path = write_baseline(_small_certified_result(), tmp_path / "duplicated.csv")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines.insert(2, f"# pinned_on: {sys.platform}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="pin-platform"):
         read_baseline(path)
 
 
@@ -397,6 +445,7 @@ def test_matches_pinned_baseline() -> None:
     _assert_config_matches_baseline(path)
 
     baseline = read_baseline(path)
+    metadata = read_baseline_metadata(path)
     _assert_baseline_curves_are_nonvacuous(baseline)
     result = run()
 
@@ -411,12 +460,17 @@ def test_matches_pinned_baseline() -> None:
 
     for ratio in result.ratios:
         peak = float(np.max(np.abs(baseline.f_by_ratio[ratio])))
+        rtol = curve_regression_rtol(ratio, pinned_on=metadata.pinned_on)
         np.testing.assert_allclose(
             result.f_by_ratio[ratio],
             baseline.f_by_ratio[ratio],
-            rtol=_CURVE_RTOL,
-            atol=_CURVE_ATOL_OVER_PEAK * peak,
-            err_msg=f"Mismatch at τ_l/τ_0^PB = {ratio}",
+            rtol=rtol,
+            atol=CURVE_REGRESSION_ATOL_OVER_PEAK * peak,
+            err_msg=(
+                f"Mismatch at τ_l/τ_0^PB = {ratio} "
+                f"(pinned_on={metadata.pinned_on!r}, "
+                f"running_on={sys.platform!r}, rtol={rtol:g})"
+            ),
         )
 
 

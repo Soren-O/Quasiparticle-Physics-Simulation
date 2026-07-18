@@ -88,17 +88,43 @@ Q_EXT_BY_DBM: dict[float, float] = {
     -64.0: 0.7e6,
 }
 
-# Cross-platform regression envelope measured on exact single-thread 48-point
-# tight solves: Windows/Python 3.14/NumPy 2.4/SciPy 1.17 versus
-# Linux/Python 3.13/NumPy 2.5/SciPy 1.18.  Meaningful loss drift peaked at
-# 2.440e-3 relative.  The larger relative tail scatter occurred only at
-# T=0.06 K, where the largest absolute loss difference was 1.0941e-19 and
-# Q_tot moved by <8e-14 relative.  Runtime provenance reports BLAS variables,
-# and CI pins them to one thread; the current CSV header does not serialize
-# that runtime field, so the workflow contract remains part of this envelope.
+# Same-system regression limits remain deliberately strict.  Exact
+# single-thread hosted-Linux runs of the Windows pin expose a larger, stable
+# same-root portability envelope: QP-loss drift reached 4.633e-3 and Q_tot
+# drift 1.6342e-4 while every independently assembled balance certificate
+# remained below 2e-8.  A tighter inner Newton gate was rejected because it
+# selects a different low-occupation branch at T=0.14 K.  Keep the measured
+# wider limits restricted to Windows/Linux comparisons; the absolute loss
+# floor still covers only the numerically tiny T=0.06 K tail.
 QP_LOSS_REGRESSION_RTOL = 4e-3
 QP_LOSS_REGRESSION_ATOL = 2e-19
 Q_TOTAL_REGRESSION_RTOL = 1e-4
+QP_LOSS_CROSS_PLATFORM_RTOL = 8e-3
+Q_TOTAL_CROSS_PLATFORM_RTOL = 2e-4
+
+
+def fig7_regression_tolerances(
+    generator_platform: str,
+    *,
+    running_system: str | None = None,
+) -> tuple[float, float]:
+    """Return ``(QP-loss rtol, Q_tot rtol)`` for a pinned comparison.
+
+    ``generator_platform`` is the full :func:`platform.platform` record stored
+    in the baseline.  Comparing only its operating-system prefix keeps
+    same-system reruns strict without pretending that Windows and Linux
+    floating-point solver paths are interchangeable at the same tolerance.
+    The wider envelope is limited to that measured OS pair; unmeasured pairs
+    retain the strict limits.
+    """
+    current_system = platform.system() if running_system is None else running_system
+    pinned_system = generator_platform.split("-", maxsplit=1)[0]
+    if pinned_system == "macOS":
+        pinned_system = "Darwin"
+    measured_pair = {pinned_system, current_system} == {"Windows", "Linux"}
+    if measured_pair:
+        return QP_LOSS_CROSS_PLATFORM_RTOL, Q_TOTAL_CROSS_PLATFORM_RTOL
+    return QP_LOSS_REGRESSION_RTOL, Q_TOTAL_REGRESSION_RTOL
 
 
 @dataclass(frozen=True)

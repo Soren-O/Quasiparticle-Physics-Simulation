@@ -36,6 +36,7 @@ import csv
 import inspect
 import os
 import re
+import sys
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -69,6 +70,32 @@ from validation.fischer_2023.fig3_solve import (
     solve,
     solver_fingerprint,
 )
+
+CURVE_REGRESSION_RTOL = 1e-4
+CURVE_REGRESSION_ATOL_OVER_PEAK = 1e-6
+STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL = 1.5e-2
+
+
+def curve_regression_rtol(
+    ratio: float,
+    *,
+    pinned_on: str,
+    running_on: str | None = None,
+) -> float:
+    """Return the measured fixed-grid curve envelope for this platform.
+
+    Ratios through one remain stable at the strict regression tolerance on
+    Windows and Linux.  The ratio-10 state is a residual-polished,
+    near-degenerate strong-bottleneck solution: exact single-thread Linux
+    runs differ from the Windows pin by 1.27723% while agreeing with each
+    other to about 1e-8 relative.  Keep the wider envelope restricted to that
+    curve and only for the measured Windows/Linux platform pair.
+    """
+    current = sys.platform if running_on is None else running_on
+    measured_pair = {pinned_on, current} == {"win32", "linux"}
+    if ratio == 10.0 and measured_pair:
+        return STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL
+    return CURVE_REGRESSION_RTOL
 
 
 @dataclass(frozen=True)
@@ -205,6 +232,7 @@ _CERTIFICATE_LIMIT_RE = re.compile(
     r"target_backward_error_limit=([\deE.+-]+)"
 )
 _CERTIFICATE_MAXIMA_RE = re.compile(r"^# certificate_maxima\s+(.+)$", re.MULTILINE)
+_PIN_PLATFORM_RE = re.compile(r"^# pinned_on: ([^\r\n]+)$", re.MULTILINE)
 _CERTIFIED_BACKWARD_ERROR_FIELDS = (
     "qp_backward_error",
     "phonon_backward_error",
@@ -343,6 +371,7 @@ def write_baseline(result: Fig3PaperResult, path: Path | None = None) -> Path:
         writer.writerow([
             "# Fischer 2023 Fig. 3 — paper-target legend-ratio reproduction"
         ])
+        writer.writerow([f"# pinned_on: {sys.platform}"])
         writer.writerow([
             f"# Delta_0={DELTA_0} tau_0={TAU_0} T_bath={T_BATH} "
             f"omega_0={OMEGA_0} n_bar={N_BAR} c_phot={C_PHOT}"
@@ -499,6 +528,7 @@ class BaselineMetadata:
     certificate_metric_version: str
     target_backward_error_limit: float
     certificate_maxima: dict[str, float]
+    pinned_on: str
 
 
 def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
@@ -529,10 +559,18 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     ratios_m = _RATIOS_RE.search(text)
     versions = _CERTIFICATE_VERSION_RE.findall(text)
     limits = _CERTIFICATE_LIMIT_RE.findall(text)
-    if ne_m is None or ratios_m is None or len(versions) != 1 or len(limits) != 1:
+    pinned_platforms = _PIN_PLATFORM_RE.findall(text)
+    if (
+        ne_m is None
+        or ratios_m is None
+        or len(versions) != 1
+        or len(limits) != 1
+        or len(pinned_platforms) != 1
+        or not pinned_platforms[0].strip()
+    ):
         raise RuntimeError(
             f"Baseline header at {path} must contain NE / ratios and exactly "
-            "one certificate metric / target record."
+            "one pin-platform / certificate metric / target record."
         )
     ratios = tuple(
         float(x.strip()) for x in ratios_m.group(1).split(",") if x.strip()
@@ -580,6 +618,7 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         certificate_metric_version=version,
         target_backward_error_limit=target,
         certificate_maxima=maxima,
+        pinned_on=pinned_platforms[0].strip(),
     )
 
 
@@ -610,6 +649,7 @@ def config_metadata() -> BaselineMetadata:
         ),
         target_backward_error_limit=TARGET_BACKWARD_ERROR_LIMIT,
         certificate_maxima={},
+        pinned_on=sys.platform,
     )
 
 

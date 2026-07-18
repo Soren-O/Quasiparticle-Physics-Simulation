@@ -1,4 +1,5 @@
 # Fischer 2023 Fig. 3 — paper-target legend-ratio reproduction
+# pinned_on: win32
 # Delta_0=180.0 tau_0=438.0 T_bath=0.1 omega_0=20.0 n_bar=10000000.0 c_phot=1e-09
 # Grid: NE=1620 E_min=1.0*Delta E_max=10.0*Delta
 "# tau_0_pb_ns=0.2546462020857182 ratios=[0.0, 0.1, 1.0, 10.0]"
