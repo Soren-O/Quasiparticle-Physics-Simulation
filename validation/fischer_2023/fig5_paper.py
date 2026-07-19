@@ -1670,16 +1670,19 @@ def write_plot(result: Fig5PaperResult, path: Path | None = None) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer 2023 Fig. 5 — paper-topology reproduction ...")
+    print("Fischer 2023 Fig. 5 -- paper-topology reproduction ...")
     print(
-        f"  Δ_0={DELTA_0} μeV, τ_0={TAU_0} ns, ω_0={OMEGA_0:.2f} μeV, "
-        f"c_phot={C_PHOT:.0e} ns⁻¹"
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_0={OMEGA_0:.2f} micro-eV, c_phot={C_PHOT:.0e} ns^-1"
     )
-    print(f"  Grid: NE={NUM_BINS}, dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS:.3f} μeV")
-    print(f"  Upper panel: T_B={list(UPPER_T_BATH_K)} K, n̄ ∈ "
+    print(
+        f"  Grid: NE={NUM_BINS}, "
+        f"dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS:.3f} micro-eV"
+    )
+    print(f"  Upper panel: T_B={list(UPPER_T_BATH_K)} K, nbar in "
           f"[{UPPER_NBAR_VALUES[0]:.0e}, {UPPER_NBAR_VALUES[-1]:.0e}] "
           f"({UPPER_NBAR_VALUES.size} pts)")
-    print(f"  Lower panel: n̄={list(LOWER_NBAR)}, T_B ∈ "
+    print(f"  Lower panel: nbar={list(LOWER_NBAR)}, T_B in "
           f"[{LOWER_T_BATH_K[0]:.3f}, {LOWER_T_BATH_K[-1]:.3f}] K "
           f"({LOWER_T_BATH_K.size} pts)")
     result = run_cached()

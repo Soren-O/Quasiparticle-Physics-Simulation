@@ -114,7 +114,9 @@ def run() -> Figs57Result:
     dE_scalar = float(state.spectral.dE[0])
     frac_err = abs(OMEGA_PB - round(OMEGA_PB / dE_scalar) * dE_scalar) / OMEGA_PB
     if frac_err > 1e-10:
-        raise RuntimeError(f"ω_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}")
+        raise RuntimeError(
+            f"omega_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}"
+        )
 
     # Thermal reference (no PB drive): state.f already populated with f_FD.
     f_thermal = state.f.copy()
@@ -364,13 +366,16 @@ def write_plot(result: Figs57Result, path: Path | None = None) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer & Catelani 2024 Figs 5-7 — f(E) with PB-photon drive ...")
-    print(f"  Δ₀={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, T_B={T_BATH_FE} K")
-    print(f"  Powers (c·n̄, ns⁻¹): {list(POWER_LEVELS)}")
+    print("Fischer & Catelani 2024 Figs 5-7 -- f(E) with PB-photon drive ...")
+    print(
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_PB={OMEGA_PB:.2f} micro-eV, T_B={T_BATH_FE} K"
+    )
+    print(f"  Powers (c*nbar, ns^-1): {list(POWER_LEVELS)}")
     print(f"  Grid: NE={NUM_BINS}")
     result = run()
     for p in result.powers:
-        print(f"    c·n̄ = {p:g}:  x_qp = {result.x_qp_by_power[p]:.4e}")
+        print(f"    c*nbar = {p:g}:  x_qp = {result.x_qp_by_power[p]:.4e}")
     csv_path = write_baseline(result)
     pdf_path = write_plot(result)
     print(f"  Baseline CSV: {csv_path}")

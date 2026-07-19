@@ -120,34 +120,72 @@ def gap_integral_from_distribution_direct(
     occupations onto the left-edge nodes first; ``samples="edges"`` treats
     ``f`` as already sampled at those left edges.
     """
-    if gap <= 0.0:
-        raise ValueError("gap must be positive.")
+    if not np.isfinite(gap) or gap <= 0.0:
+        raise ValueError("gap must be finite and positive.")
     E = np.asarray(E_bins, dtype=float).reshape(-1)
     f_arr = np.asarray(f, dtype=float).reshape(-1)
     if f_arr.shape != E.shape:
         raise ValueError(f"f and E_bins must have the same shape, got {f_arr.shape} and {E.shape}.")
+    if E.size < 2:
+        raise ValueError("At least two energy bins are required.")
+
+    edges = left_edges_from_centers(E)
+    h = float(E[1] - E[0])
+    # Missing even a tiny interval directly above Delta is amplified by the
+    # ideal-BCS square-root singularity.  Admit only coordinate roundoff, not a
+    # user-scale geometric tolerance, and align that roundoff-sized offset to
+    # Delta before integrating so the singular support is not silently dropped.
+    tol = 64.0 * np.finfo(float).eps * max(gap, h, 1.0)
+    grid_lo = float(edges[0])
+    if grid_lo > gap + tol:
+        raise ValueError(
+            "Energy grid does not cover the superconducting gap: "
+            f"first cell edge {grid_lo:g} > gap {gap:g}."
+        )
+    if grid_lo > gap:
+        edges = edges - (grid_lo - gap)
+    grid_hi = float(edges[-1] + h)
+    if grid_hi <= gap + tol:
+        raise ValueError("Energy grid lies entirely below the superconducting gap.")
 
     mode = samples.lower()
     if mode in {"center", "centers"}:
-        vals = edge_samples_from_centers(f_arr, E)
+        # Ideal-BCS cells wholly below Delta have zero spectral capacity, so
+        # their stored occupations are placeholders rather than physical
+        # sub-gap samples. (A gap-cut cell remains represented even if its
+        # center is below Delta.) Reconstruct the gap-edge value only from
+        # positive-capacity centers; otherwise an arbitrary guard value leaks
+        # through np.interp into the singular first active interval.
+        active = gap < edges + h
+        if np.count_nonzero(active) < 2:
+            raise ValueError(
+                "Center-sampled direct gap integration requires at least two "
+                "positive-capacity energy-bin centers at the superconducting gap."
+            )
+        E_active = E[active]
+        f_active = f_arr[active]
+        vals = np.interp(edges, E_active, f_active)
+        slope_left = (f_active[1] - f_active[0]) / (
+            E_active[1] - E_active[0]
+        )
+        below_first_active = edges < E_active[0]
+        vals[below_first_active] = f_active[0] + slope_left * (
+            edges[below_first_active] - E_active[0]
+        )
+        vals = np.maximum(vals, 0.0)
     elif mode in {"edge", "edges", "authors"}:
         # The final interval is held constant, matching the bundled author code.
         vals = np.maximum(f_arr, 0.0)
-        left_edges_from_centers(E)  # validates the grid before continuing.
     else:
         raise ValueError("samples must be 'centers' or 'edges'.")
 
-    edges = left_edges_from_centers(E)
-    if E.size < 2:
-        raise ValueError("At least two energy bins are required.")
-    h = float(E[1] - E[0])
-    x_lo = edges - gap
-    x_hi = x_lo + h
-    tol = 1e-10 * max(gap, h, 1.0)
-    if np.any(x_hi <= -tol):
-        raise ValueError("Energy grid lies below the superconducting gap.")
-    x_lo = np.maximum(x_lo, 0.0)
-    x_hi = np.maximum(x_hi, 0.0)
+    # Cells wholly below the ideal-BCS gap have exactly zero spectral measure.
+    # Keeping them in the kinetic grid is useful for a later moving-gap solve
+    # and must not invalidate this fixed-gap integral.  Clamp their transformed
+    # bounds to zero; the first gap-crossing cell then starts exactly at Delta.
+    cell_x_lo = edges - gap
+    x_lo = np.maximum(cell_x_lo, 0.0)
+    x_hi = np.maximum(cell_x_lo + h, 0.0)
 
     a_hi = np.arcsinh(np.sqrt(x_hi / (2.0 * gap)))
     a_lo = np.arcsinh(np.sqrt(x_lo / (2.0 * gap)))
@@ -161,7 +199,10 @@ def gap_integral_from_distribution_direct(
     lin_weight = (
         np.sqrt(x1 * (x1 + 2.0 * gap))
         - np.sqrt(x0 * (x0 + 2.0 * gap))
-        - 2.0 * (x0 + gap) * da
+        # Keep the affine occupation anchored at the cell's true left edge.
+        # For a gap-crossing cell that edge is below Delta even though the
+        # spectral integration bound is clamped to Delta.
+        - 2.0 * (cell_x_lo[:-1] + gap) * da
     )
     lin_term = float(np.sum(2.0 * (vals[1:] - vals[:-1]) / h * lin_weight))
     return const_term + lin_term

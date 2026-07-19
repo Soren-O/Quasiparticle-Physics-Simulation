@@ -65,7 +65,11 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.t3_diffusion import (
+    SelfConsistentGapCollapseError,
+    T3DiffusionBackend,
+    T3DiffusionState,
+)
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_phonon_side,
@@ -85,6 +89,7 @@ from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics import build_tau_l, calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
+from qpsim.solvers.coupled_newton import CoupledNewtonLineSearchError
 
 from validation.fischer_2023.fig5_paper import _xqp_analytic_eq47
 from validation.fischer_2023.steady_state_certificate import (
@@ -154,6 +159,20 @@ TARGET_BACKWARD_ERROR_LIMIT = 1e-5
 
 NEWTON_BACKWARD_ERROR_TOL = 1e-6
 """Inner Newton balance gate used by the Picard kinetic solve."""
+
+DIRECT_GAP_NEWTON_BACKWARD_ERROR_TOL = 1e-10
+"""Inner-Newton balance gate for the fixed-gap direct-observable fallback."""
+
+DIRECT_GAP_BACKWARD_ERROR_LIMIT = 1e-9
+"""Independent kinetic-balance gate for accepted direct-gap points.
+
+The direct observable divides two integrals that are both exponentially small
+at low bath temperature, so the ordinary paper-sweep gate is not sufficiently
+selective. This limit applies to the QP and representability-aware certified
+phonon metrics. The raw phonon metric remains diagnostic: on cold grids it can
+sit near ``1e-6`` solely because the affine phonon root is not representable in
+float64 even when the certified excess is zero.
+"""
 
 GAP_FIXED_POINT_ABS_TOL_UEV = 1e-10
 """Absolute independently reassembled gap-map target for accepted points."""
@@ -450,7 +469,7 @@ def _solve_coupled_newton_fixed_gap(
         # can guarantee at f ~ 1e-10. Opt into the scale-invariant relative-step
         # criterion so warm continuation seeds keep refining instead of exiting
         # at iteration 0 with a stale state.
-        coupled_newton_step_rtol=1e-6,
+        coupled_newton_step_rtol=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
         coupled_newton_max_iter=80,
         coupled_newton_fd_step=1e-8,
         # Analytical cross-Jacobians (J_fn, J_nf): exact and O(NE²), where the
@@ -461,49 +480,145 @@ def _solve_coupled_newton_fixed_gap(
     )
 
 
+def _solve_picard_fixed_gap(
+    backend: T3DiffusionBackend,
+    state: T3DiffusionState,
+    photon_params: dict[str, float] | None,
+) -> T3DiffusionState:
+    """Strict fixed-gap Picard solve used when coupled Newton stalls.
+
+    Coupled Newton is the fast path for the paper grid, but at a fully
+    converged cold-grid root its line search can be unable to reduce an
+    already-roundoff-level dimensional residual. Retrying with the independent
+    Picard formulation avoids classifying that numerical stall as a physical
+    continuation fold. The caller still independently reassembles and gates
+    the returned balance.
+    """
+    return backend.steady_state(
+        state,
+        method="picard",
+        photon_params=photon_params,
+        use_phonon_side_kernel=True,
+        self_consistent_gap=False,
+        picard_tol=PICARD_TOL,
+        picard_atol=PICARD_ATOL,
+        picard_balance_tol=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+        picard_max_iter=2000,
+        picard_mixing=0.3,
+        anderson_depth=0,
+        newton_tol=1e-14,
+        newton_backward_error_tol=DIRECT_GAP_NEWTON_BACKWARD_ERROR_TOL,
+        newton_max_iter=500,
+    )
+
+
+def _solve_fixed_gap_kinetics(
+    backend: T3DiffusionBackend,
+    state: T3DiffusionState,
+    photon_params: dict[str, float] | None,
+) -> T3DiffusionState:
+    """Use coupled Newton first, with strict fixed-gap Picard as fallback."""
+    try:
+        return _solve_coupled_newton_fixed_gap(backend, state, photon_params)
+    except CoupledNewtonLineSearchError as coupled_error:
+        # Picard is an independent polish only for the observed cold-grid
+        # roundoff stall. Ordinary line-search failure above the configured
+        # dimensional tolerance, singular Jacobians, non-finite states, and
+        # iteration exhaustion remain fail-loud.
+        if (
+            not np.isfinite(coupled_error.residual_norm)
+            or coupled_error.residual_norm > PICARD_TOL
+        ):
+            raise
+        try:
+            return _solve_picard_fixed_gap(backend, state, photon_params)
+        except RuntimeError as picard_error:
+            raise RuntimeError(
+                "Fischer Fig. 6 fixed-gap kinetics failed with both coupled "
+                f"Newton ({coupled_error}) and strict Picard ({picard_error})."
+            ) from picard_error
+
+
 def _check_tau_0_pb(tau_0_pb: float, tau_l: float) -> None:
     tau_pb_ps = tau_0_pb * 1000.0
     tau_l_ps = tau_l * 1000.0
-    print(f"  τ_0^PB (phonon-side extracted)       = {tau_0_pb:.4f} ns "
+    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns "
           f"({tau_pb_ps:.1f} ps)")
-    print(f"  Paper-quoted τ_0^PB                   ≈ {PAPER_TAU_0_PB_PS:.0f} ps")
-    print(f"  τ_ℓ (model={TAU_L_MODEL!r})           = {tau_l:.4f} ns "
+    print(f"  Paper-quoted tau_0^PB                 ~= {PAPER_TAU_0_PB_PS:.0f} ps")
+    print(f"  tau_l (model={TAU_L_MODEL!r})         = {tau_l:.4f} ns "
           f"({tau_l_ps:.1f} ps)")
-    print(f"  τ_ℓ / paper-τ_0^PB                    ≈ "
-          f"{tau_l_ps / PAPER_TAU_0_PB_PS:.2f}× "
-          f"(paper sets τ_ℓ = τ_0^PB exactly)")
+    print(f"  tau_l / paper-tau_0^PB                ~= "
+          f"{tau_l_ps / PAPER_TAU_0_PB_PS:.2f}x "
+          f"(paper sets tau_l = tau_0^PB exactly)")
     pb_ratio = tau_pb_ps / PAPER_TAU_0_PB_PS
     if pb_ratio > TAU_0_PB_WARN_FACTOR or pb_ratio < 1.0 / TAU_0_PB_WARN_FACTOR:
         print(
-            f"  (Note: extracted τ_0^PB / paper τ_0^PB = {pb_ratio:.2f}×; "
+            f"  (Note: extracted tau_0^PB / paper tau_0^PB = {pb_ratio:.2f}x; "
             f"check the phonon-side pair-breaking diagnostic before\n"
             f"   regenerating baselines.)",
             flush=True,
         )
     if TAU_L_MODEL not in ("tau_0_pb", "tau0_pb", "pair_breaking", "paper"):
         print(
-            f"  (Note: τ_ℓ model is {TAU_L_MODEL!r}, not the paper's "
-            f"τ_ℓ = τ_0^PB convention; the Fig. 6 ordinate amplitude is\n"
-            f"   sensitive to τ_ℓ, so expect a y-axis offset vs the paper.)",
+            f"  (Note: tau_l model is {TAU_L_MODEL!r}, not the paper's "
+            f"tau_l = tau_0^PB convention; the Fig. 6 ordinate amplitude is\n"
+            f"   sensitive to tau_l, so expect a y-axis offset vs the paper.)",
             flush=True,
         )
 
 
-def _acceptable_ratio(obs: float, *, direct_gap_observable: bool) -> bool:
-    """Whether a numerical gap-suppression ratio is physically acceptable.
+def _acceptable_ratio(obs: float) -> bool:
+    """Accept every finite signed gap-suppression ratio.
 
-    Always rejects NaN / inf. The non-negativity floor applies **only** to
-    direct-gap mode, where the small-difference Δ[f] observable can produce
-    spurious large-negative values at the gap-collapse fold (the −1.04 /
-    −0.187 garbage we filter). In self-consistent-gap mode the observable is
-    ``(Δ_driven − Δ_eq) / (Δ_0 − Δ_eq)``, and a negative value is the
-    legitimate "drive suppresses below thermal" signal — accept it.
+    Both formulations evaluate ``(Δ_driven − Δ_eq) / (Δ_0 − Δ_eq)``.
+    A negative value legitimately means that drive suppresses the gap below
+    its thermal value. Solver failures and independent root certificates,
+    rather than the sign of a derived observable, remain authoritative.
     """
-    if not np.isfinite(obs):
-        return False
-    if not direct_gap_observable:
-        return True
-    return obs > -1e-3
+    return bool(np.isfinite(obs))
+
+
+def _require_finite_measurements(
+    obs: float,
+    delta_driven: float,
+    x_qp: float,
+    *,
+    T_bath: float,
+    n_bar: float,
+) -> None:
+    """Fail loudly when a solved state yields a non-finite derived quantity."""
+    measurements = {
+        "gap-suppression observable": obs,
+        "driven gap": delta_driven,
+        "x_qp": x_qp,
+    }
+    nonfinite = []
+    if not _acceptable_ratio(obs):
+        nonfinite.append("gap-suppression observable")
+    nonfinite.extend(
+        name
+        for name, value in measurements.items()
+        if name != "gap-suppression observable" and not np.isfinite(value)
+    )
+    if nonfinite:
+        raise RuntimeError(
+            "Fischer Fig. 6 produced non-finite derived measurement(s) "
+            f"{', '.join(nonfinite)} at T_B={T_bath:g} K, n_bar={n_bar:.6e}."
+        )
+
+
+def _require_supported_mode(
+    *,
+    direct_gap_observable: bool,
+    fixed_gap_kinetics: bool,
+) -> None:
+    """Require one of the two internally consistent Fig. 6 formulations."""
+    if bool(direct_gap_observable) != bool(fixed_gap_kinetics):
+        raise ValueError(
+            "direct_gap_observable and fixed_gap_kinetics must be enabled "
+            "together: use either the self-consistent-gap formulation or "
+            "the author-style fixed-gap/direct-observable formulation."
+        )
 
 
 def _require_target_certificate(
@@ -512,20 +627,31 @@ def _require_target_certificate(
     T_bath: float,
     n_bar: float,
     require_gap_fixed_point: bool,
+    backward_error_limit: float = TARGET_BACKWARD_ERROR_LIMIT,
 ) -> None:
-    """Hard-fail a returned kinetic state that is not a certified root."""
+    """Hard-fail a returned kinetic state that is not a certified root.
+
+    ``backward_error_limit`` gates the QP and representability-aware certified
+    phonon metrics. The raw phonon metric remains diagnostic because it includes
+    irreducible float64 rounding of the affine phonon root.
+    """
+    if not np.isfinite(backward_error_limit) or backward_error_limit <= 0.0:
+        raise ValueError(
+            "backward_error_limit must be finite and positive; "
+            f"got {backward_error_limit}."
+        )
     qp_backward = certificate["qp_backward_error"]
     phonon_backward = certificate["phonon_backward_error"]
     if (
         not np.isfinite(qp_backward)
         or not np.isfinite(phonon_backward)
-        or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
-        or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
+        or qp_backward > backward_error_limit
+        or phonon_backward > backward_error_limit
     ):
         raise RuntimeError(
             "Fischer Fig. 6 converged target failed the independent "
             f"steady-state certificate at T_B={T_bath:g} K, "
-            f"n_bar={n_bar:.6e} (limit={TARGET_BACKWARD_ERROR_LIMIT:g}): "
+            f"n_bar={n_bar:.6e} (limit={backward_error_limit:g}): "
             f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
         )
 
@@ -543,7 +669,7 @@ def _require_target_certificate(
 
 
 class _PointSolveError(RuntimeError):
-    """Expected backend non-convergence at a continuation fold."""
+    """Explicit superconducting collapse recorded as a missing curve point."""
 
 
 def _solve_and_measure(
@@ -576,21 +702,20 @@ def _solve_and_measure(
     photon_params = {
         "omega_0": OMEGA_0, "n_bar": float(n_bar_val), "c_phot": C_PHOT,
     }
-    try:
-        converged = (
-            _solve_coupled_newton_fixed_gap(backend, state, photon_params)
-            if fixed_gap_kinetics
-            else _solve_picard_sc_gap(backend, state, photon_params)
-        )
-    except RuntimeError as exc:
-        # A nonlinear point solve may legitimately terminate at the documented
-        # continuation fold. Only that backend failure is fold-to-NaN eligible.
-        # Observable, independent kinetic-certificate, and gap-map errors below
-        # must propagate so a broken certification path cannot masquerade as a
-        # physical fold.
-        raise _PointSolveError(
-            "Fischer Fig. 6 backend point solve did not converge."
-        ) from exc
+    if fixed_gap_kinetics:
+        # Fixed-gap/direct mode has no outer gap-continuation fold. Its solver
+        # failures therefore remain fail-loud all the way through _solve_sweep.
+        converged = _solve_fixed_gap_kinetics(backend, state, photon_params)
+    else:
+        try:
+            converged = _solve_picard_sc_gap(backend, state, photon_params)
+        except SelfConsistentGapCollapseError as exc:
+            # Only an explicitly classified superconducting collapse is
+            # fold-to-NaN eligible. Singular/nonfinite failures, inner-solver
+            # exhaustion, and ordinary outer-gap nonconvergence propagate.
+            raise _PointSolveError(
+                "Fischer Fig. 6 self-consistent gap collapsed."
+            ) from exc
     if direct_gap_observable:
         # _solve_sweep always supplies thermal_integral in direct-gap mode.
         assert thermal_integral is not None
@@ -605,6 +730,13 @@ def _solve_and_measure(
         delta_driven = float(converged.gap)
         obs = (converged.gap - delta_eq) / delta_T
     x_qp = qp_fraction(converged.f, converged.spectral, delta_0=DELTA_0)
+    _require_finite_measurements(
+        obs,
+        delta_driven,
+        x_qp,
+        T_bath=T_bath,
+        n_bar=n_bar_val,
+    )
     tau_l = float(converged.phonon.tau_l[0, 0])
     certificate = steady_state_certificate(
         converged,
@@ -654,6 +786,10 @@ def _solve_sweep(
     All shaped ``(len(T_BATH_VALUES), N_BAR_VALUES.size)`` except
     ``delta_eq`` (per-T_B) and ``tau_l_used`` (scalar).
     """
+    _require_supported_mode(
+        direct_gap_observable=direct_gap_observable,
+        fixed_gap_kinetics=fixed_gap_kinetics,
+    )
     n_T = len(T_BATH_VALUES)
     n_n = N_BAR_VALUES.size
     T_star = np.zeros((n_T, n_n))
@@ -724,15 +860,11 @@ def _solve_sweep(
             )
             obs_eq53[i, j] = (delta_T - delta_drive_analytic) / delta_T
 
-            # Warm-continuation solve, rejecting an unphysical (negative)
-            # suppression ratio so the figure shows an honest gap rather than a
-            # spurious dip. A steep gap-collapse *fold* sits between each curve's
-            # peak and the fully-collapsed (ratio→1) deep tail: the physical
-            # declining branch terminates there (singular Jacobian). The exact
-            # cross-Jacobian, the scale-invariant convergence fix, and 8-step n̄
-            # continuation all fail to cross it (0/8 recoveries), so transition
-            # points degrade to NaN. (n̄ substepping was tried and removed —
-            # 0 recoveries at ~8× runtime; continuation cannot cross a fold.)
+            # Warm-continuation solve. Signed finite observables are retained:
+            # Delta_driven < Delta_eq legitimately gives a negative ordinate.
+            # An explicitly classified self-consistent superconducting collapse
+            # is recorded as NaN. Every other solver or certificate failure
+            # propagates; fixed-gap/direct mode has no outer gap collapse.
             converged: T3DiffusionState | None = None
             certificate: dict[str, float] | None = None
             obs = delta_driven_pt = x_qp_pt = float("nan")
@@ -752,9 +884,16 @@ def _solve_sweep(
                     thermal_integral=thermal_integral,
                     delta_eq=delta_eq_per_T[i], delta_T=delta_T,
                 )
-                ok = _acceptable_ratio(
-                    obs, direct_gap_observable=direct_gap_observable,
+                # Keep the sweep fail-loud even if a future test double or
+                # alternate point solver bypasses _solve_and_measure's check.
+                _require_finite_measurements(
+                    obs,
+                    delta_driven_pt,
+                    x_qp_pt,
+                    T_bath=T_bath,
+                    n_bar=float(n_bar),
                 )
+                ok = True
             except _PointSolveError:
                 ok = False
 
@@ -769,8 +908,11 @@ def _solve_sweep(
                     certificate,
                     T_bath=T_bath,
                     n_bar=float(n_bar),
-                    require_gap_fixed_point=(
-                        not direct_gap_observable and not fixed_gap_kinetics
+                    require_gap_fixed_point=not direct_gap_observable,
+                    backward_error_limit=(
+                        DIRECT_GAP_BACKWARD_ERROR_LIMIT
+                        if direct_gap_observable
+                        else TARGET_BACKWARD_ERROR_LIMIT
                     ),
                 )
 
@@ -779,7 +921,8 @@ def _solve_sweep(
                 delta_driven[i, j] = np.nan
                 x_qp_num[i, j] = np.nan
                 print(
-                    f"  T_B={T_bath:.2f} K  n̄={n_bar:.2e}  T_*/Δ={T_star[i, j]:.3f}  "
+                    f"  T_B={T_bath:.2f} K  nbar={n_bar:.2e}  "
+                    f"T_*/Delta={T_star[i, j]:.3f}  "
                     f"SOLVE FAILED (no acceptable solution); recorded NaN",
                     flush=True,
                 )
@@ -793,8 +936,10 @@ def _solve_sweep(
             # SpectralContext instead of silently resetting both to DELTA_0.
             continuation_seed = converged
             print(
-                f"  T_B={T_bath:.2f} K  n̄={n_bar:.2e}  T_*/Δ={T_star[i, j]:.3f}  "
-                f"Δ_driven={delta_driven[i, j]:.4f} μeV  (Δ_T-Δ)/(Δ_0-Δ_eq)="
+                f"  T_B={T_bath:.2f} K  nbar={n_bar:.2e}  "
+                f"T_*/Delta={T_star[i, j]:.3f}  "
+                f"Delta_driven={delta_driven[i, j]:.4f} micro-eV  "
+                f"(Delta_T-Delta)/(Delta_0-Delta_eq)="
                 f"{obs_num[i, j]:+.4f}",
                 flush=True,
             )
@@ -816,7 +961,7 @@ def solve(
 ) -> dict[str, np.ndarray]:
     """Solve Fischer Fig. 6 on the paper grid; return the raw sweep arrays.
 
-    The expensive half of Fig. 6 (the ~14 h paper run): for each T_B the
+    The expensive half of Fig. 6 (historically ~6.04 h serial): for each T_B the
     self-consistent-gap (or fixed-gap + direct-Δ[f]) joint solve is swept over n̄
     with (f, n_ph) continuation, gated by the gap-suppression acceptance test (a
     fold sits past each curve's peak). The numerical observable is computed here
@@ -827,6 +972,10 @@ def solve(
     path), so :func:`solver_fingerprint` — which reads the same globals — and the
     cache key both reflect ``--fast`` automatically.
     """
+    _require_supported_mode(
+        direct_gap_observable=direct_gap_observable,
+        fixed_gap_kinetics=fixed_gap_kinetics,
+    )
     material = _fischer_material()
     _, _, spectral = _build_grid_and_spectral()
 
@@ -836,11 +985,14 @@ def solve(
 
     if direct_gap_observable:
         if fixed_gap_kinetics:
-            print("Sweep n̄ at three T_B with fixed gap + direct Delta[f] observable:")
+            print("Sweep nbar at three T_B with fixed gap + direct Delta[f] observable:")
         else:
-            print("Sweep n̄ at three T_B with direct Delta[f] observable:")
+            print("Sweep nbar at three T_B with direct Delta[f] observable:")
     else:
-        print(f"Sweep n̄ at three T_B with self-consistent gap + τ_ℓ (model={TAU_L_MODEL!r}):")
+        print(
+            "Sweep nbar at three T_B with self-consistent gap + "
+            f"tau_l (model={TAU_L_MODEL!r}):"
+        )
     (
         T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
         obs_num, obs_eq53, tau_l_arr, certificates,
@@ -898,6 +1050,10 @@ def solver_fingerprint() -> dict[str, Any]:
         "picard_balance_tol": TARGET_BACKWARD_ERROR_LIMIT,
         "newton_backward_error_tol": NEWTON_BACKWARD_ERROR_TOL,
         "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
+        "direct_gap_newton_backward_error_tol": (
+            DIRECT_GAP_NEWTON_BACKWARD_ERROR_TOL
+        ),
+        "direct_gap_backward_error_limit": DIRECT_GAP_BACKWARD_ERROR_LIMIT,
         "gap_solve_xtol_uev": GAP_SOLVE_XTOL_UEV,
         "gap_fixed_point_abs_tol_uev": GAP_FIXED_POINT_ABS_TOL_UEV,
         "gap_fixed_point_rel_tol": GAP_FIXED_POINT_REL_TOL,

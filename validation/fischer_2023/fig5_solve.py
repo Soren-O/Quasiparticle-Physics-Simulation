@@ -88,7 +88,7 @@ PAPER_TAU_0_PB_PS = 255.0
 TAU_0_PB_WARN_FACTOR = 1.05
 """Warn if the numerical tau_0^PB diverges from the paper-quoted 255 ps."""
 
-TARGET_BACKWARD_ERROR_LIMIT = 1.0e-5
+TARGET_BACKWARD_ERROR_LIMIT = 1.0e-9
 """Maximum independently reassembled QP and phonon balance error."""
 
 SOLVER_KWARGS: dict[str, Any] = {
@@ -96,11 +96,11 @@ SOLVER_KWARGS: dict[str, Any] = {
     "use_phonon_side_kernel": True,
     "picard_tol": 1.0e-8,
     "picard_atol": 1.0e-12,
-    "picard_balance_tol": 1.0e-6,
+    "picard_balance_tol": 1.0e-9,
     "picard_max_iter": 10000,
     "anderson_depth": 0,
     "newton_tol": 1.0e-12,
-    "newton_backward_error_tol": 1.0e-6,
+    "newton_backward_error_tol": 1.0e-10,
     "newton_max_iter": 500,
 }
 
@@ -211,13 +211,14 @@ def _solve_picard(
 
 def _check_tau_0_pb(tau_0_pb: float) -> None:
     tau_ps = tau_0_pb * 1000.0
-    print(f"  τ_0^PB (phonon-side extracted)       = {tau_0_pb:.4f} ns "
+    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns "
           f"({tau_ps:.1f} ps)")
-    print(f"  Paper-quoted τ_0^PB                   ≈ {PAPER_TAU_0_PB_PS:.0f} ps")
+    print(f"  Paper-quoted tau_0^PB                 ~= {PAPER_TAU_0_PB_PS:.0f} ps")
     ratio = tau_ps / PAPER_TAU_0_PB_PS
     if ratio > TAU_0_PB_WARN_FACTOR or ratio < 1.0 / TAU_0_PB_WARN_FACTOR:
         print(
-            f"  ⚠ τ_0^PB normalization mismatch: extracted/paper = {ratio:.2f}×.",
+            f"  WARNING: tau_0^PB normalization mismatch: "
+            f"extracted/paper = {ratio:.2f}x.",
             flush=True,
         )
 
@@ -267,7 +268,7 @@ def solve(
         for field in CERTIFICATE_FIELDS
     }
 
-    print("Upper panel — sweep n̄ at three T_B:")
+    print("Upper panel -- sweep nbar at three T_B:")
     for i, T_bath in enumerate(up_T):
         f_seed: np.ndarray | None = None
         n_ph_seed: np.ndarray | None = None
@@ -295,9 +296,13 @@ def solve(
             )
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
-            print(f"  upper  T_B={float(T_bath):.2f} K  n̄={float(n_bar):.2e}", flush=True)
+            print(
+                f"  upper  T_B={float(T_bath):.2f} K  "
+                f"nbar={float(n_bar):.2e}",
+                flush=True,
+            )
 
-    print("Lower panel — sweep T_B at three n̄:")
+    print("Lower panel -- sweep T_B at three nbar:")
     for i, n_bar in enumerate(lo_N):
         f_seed = None
         n_ph_seed = None
@@ -325,7 +330,11 @@ def solve(
             )
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
-            print(f"  lower  n̄={float(n_bar):.2e}  T_B={float(T_bath):.3f} K", flush=True)
+            print(
+                f"  lower  nbar={float(n_bar):.2e}  "
+                f"T_B={float(T_bath):.3f} K",
+                flush=True,
+            )
 
     return {
         "upper_f": upper_f,

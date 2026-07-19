@@ -16,8 +16,10 @@ joint kinetic-equation + self-consistent gap solve. Dashed lines:
 analytical Eq. 53.
 
 The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)/\\delta\\Delta_T$,
-which goes negative on the strong-drive side; the 1640-bin grid resolves
-the sign change cleanly.
+which goes negative on the strong-drive side. The stored arrays resolve the
+sign change; the canonical plot retains the paper's nonnegative window, while
+the diagnostic ``--direct-gap`` plot expands its axes, uses a signed-log scale,
+and marks every finite numerical point.
 
 $\\tau_\\ell$ model
 ------------------
@@ -106,12 +108,10 @@ from validation.fischer_2023.fig6_solve import (
     solver_fingerprint,
 )
 
-# Output-path suffixes (do NOT affect the solve or the cache key — only where
-# the CSV/PDF land). ``__main__`` sets these for --fast / --direct-gap, and also
-# mutates the solve-affecting knobs (NUM_BINS / N_BAR_VALUES / PICARD_TOL) on
-# :mod:`fig6_solve`, which is where solve() and solver_fingerprint() read them.
+# Output-path suffix (does NOT affect the solve or cache key). ``__main__`` sets
+# it for --fast and separately passes the explicit direct-mode flag to the path
+# helpers. It also mutates solve-affecting knobs on :mod:`fig6_solve`.
 _FAST_SUFFIX: str = ""
-_MODE_SUFFIX: str = ""
 
 
 @dataclass(frozen=True)
@@ -201,7 +201,7 @@ def run_cached(
     direct_gap_observable: bool = False,
     fixed_gap_kinetics: bool = False,
 ) -> Fig6PaperResult:
-    """Like :func:`run`, but the ~14 h solve is served from the disk cache when
+    """Like :func:`run`, but the ~6.04 h serial solve is served from disk when
     nothing solve-relevant has changed (see :mod:`validation.sweep_cache`).
 
     Used by the regen / ``__main__`` path. Editing the plotting code here keeps
@@ -212,6 +212,10 @@ def run_cached(
     grid / n̄ / picard-tol live on :mod:`fig6_solve` (mutated by --fast), so the
     fingerprint distinguishes a --fast run from a paper run.
     """
+    fig6_solve._require_supported_mode(
+        direct_gap_observable=direct_gap_observable,
+        fixed_gap_kinetics=fixed_gap_kinetics,
+    )
     extra_source = (
         inspect.getsource(fig6_solve)
         + inspect.getsource(_gap_suppression_mod)
@@ -242,23 +246,27 @@ def run_cached(
     return observables(raw)
 
 
-def baseline_path() -> Path:
+def baseline_path(*, direct_gap_observable: bool = False) -> Path:
     """Output CSV path.
 
     The filename is paper-facing, while the module docstring records the
     remaining $\\tau_\\ell$ convention gap. ``--fast`` runs append a
     ``_fast`` suffix via :data:`_FAST_SUFFIX` so dev baselines do not
-    clobber the paper-faithful CSV.
+    clobber the paper-faithful CSV. Direct-mode calls always receive a
+    ``_direct`` suffix, including programmatic generation outside ``__main__``.
     """
     root = Path(__file__).resolve().parents[2]
+    mode_suffix = "_direct" if direct_gap_observable else ""
     return (
         root / "validation" / "baselines" / "ph0_kaplan"
-        / f"fischer_fig6_paper{_MODE_SUFFIX}{_FAST_SUFFIX}.csv"
+        / f"fischer_fig6_paper{mode_suffix}{_FAST_SUFFIX}.csv"
     )
 
 
-def plot_path() -> Path:
-    return baseline_path().with_suffix(".pdf")
+def plot_path(*, direct_gap_observable: bool = False) -> Path:
+    return baseline_path(
+        direct_gap_observable=direct_gap_observable,
+    ).with_suffix(".pdf")
 
 
 _TAU_0_PB_RE = re.compile(r"tau_0_pb_ns=([\deE.+-]+)")
@@ -551,7 +559,7 @@ class BaselineMetadata:
 
     Comparing the live config's fingerprint against the pinned baseline's is
     the **cheap preflight** that lets the slow regression test reject a stale
-    config/baseline pairing in seconds instead of after the ~14 h sweep (the
+    config/baseline pairing in seconds instead of after the ~6.04 h sweep (the
     failure mode that once burned 9.5 h: baseline pinned at
     ``TAU_L_MODEL='acoustic_escape'`` / 368 ps while the script default is
     ``'tau_0_pb'`` / 255 ps).
@@ -634,7 +642,7 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
 
 def config_metadata() -> BaselineMetadata:
     """Fingerprint the *current module config* would stamp into a fresh
-    baseline header — computed without the (~14 h) sweep.
+    baseline header — computed without the (~6.04 h serial) sweep.
 
     ``tau_0_pb_ns`` and ``tau_l_ns`` are produced by the exact same calls
     :func:`run` makes (:func:`_compute_tau_0_pb` and the ``τ_ℓ`` of a freshly
@@ -667,7 +675,40 @@ def config_metadata() -> BaselineMetadata:
     )
 
 
-def write_plot(result: Fig6PaperResult, path: Path | None = None) -> Path:
+def _direct_plot_limits(
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Expand the paper window enough to show every finite direct-mode point."""
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+    finite = np.isfinite(x) & np.isfinite(y)
+    if not np.any(finite):
+        return (0.20, 0.65), (0.0, 0.25)
+
+    x_lo = min(0.20, float(np.min(x[finite])))
+    x_hi = max(0.65, float(np.max(x[finite])))
+    y_lo = min(0.0, float(np.min(y[finite])))
+    y_hi = max(0.25, float(np.max(y[finite])))
+    x_pad = 0.03 * max(x_hi - x_lo, np.finfo(float).eps)
+    y_pad = 0.03 * max(y_hi - y_lo, np.finfo(float).eps)
+    x_limits = (
+        x_lo - x_pad if x_lo < 0.20 else 0.20,
+        x_hi + x_pad if x_hi > 0.65 else 0.65,
+    )
+    y_limits = (
+        y_lo - y_pad if y_lo < 0.0 else 0.0,
+        y_hi + y_pad if y_hi > 0.25 else 0.25,
+    )
+    return x_limits, y_limits
+
+
+def write_plot(
+    result: Fig6PaperResult,
+    path: Path | None = None,
+    *,
+    direct_gap_observable: bool = False,
+) -> Path:
     """Paper-style plot: paper observable vs $T_*/\\Delta$, three $T_B$ curves.
 
     Colors match Fischer 2023 Fig. 6:
@@ -682,7 +723,7 @@ def write_plot(result: Fig6PaperResult, path: Path | None = None) -> Path:
     import matplotlib.pyplot as plt
 
     if path is None:
-        path = plot_path()
+        path = plot_path(direct_gap_observable=direct_gap_observable)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Paper Fig. 6 palette — matches standalone reproduction figures/fig6.py:
@@ -761,14 +802,26 @@ def write_plot(result: Fig6PaperResult, path: Path | None = None) -> Path:
         else:
             ax.plot(xs, ys, color=color, lw=1.8,
                     label=rf"$T_B = {T_bath:g}$ K")
+        if direct_gap_observable:
+            ax.plot(xs, ys, linestyle="none", marker="o", ms=2.5, color=color)
 
         x_a, y_a = _dashed_curve(float(T_bath))
         ax.plot(x_a, y_a, color=color, ls=(0, (5, 2)),
                 lw=1.6, alpha=0.95, zorder=4)
 
     ax.axhline(0.0, color="k", lw=0.4)
-    ax.set_xlim(0.20, 0.65)
-    ax.set_ylim(0.00, 0.25)
+    if direct_gap_observable:
+        x_limits, y_limits = _direct_plot_limits(
+            result.T_star_over_delta,
+            result.paper_observable_num,
+        )
+        ax.set_yscale("symlog", linthresh=1e-2)
+        ax.set_xlim(*x_limits)
+        ax.set_ylim(*y_limits)
+    else:
+        # Preserve the published paper window for the canonical default plot.
+        ax.set_xlim(0.20, 0.65)
+        ax.set_ylim(0.00, 0.25)
     ax.set_xlabel(r"$T_*/\Delta$")
     ax.set_ylabel(r"$(\delta\Delta_T - \delta\Delta)/\delta\Delta_T$")
     ax.grid(True, ls=":", alpha=0.4)
@@ -787,24 +840,31 @@ def generate_baseline(
 ) -> tuple[Path, Path]:
     print("Fischer 2023 Fig. 6 paper-target reproduction ...")
     print(
-        f"  Δ_0={DELTA_0} μeV, τ_0={TAU_0} ns, ω_0={OMEGA_0:.2f} μeV, "
-        f"c_phot={C_PHOT:.0e} ns⁻¹"
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_0={OMEGA_0:.2f} micro-eV, c_phot={C_PHOT:.0e} ns^-1"
     )
     print(
         f"  Acoustic-escape geometry: d={FILM_THICKNESS_NM:.0f} nm, "
-        f"η={SUBSTRATE_ETA:.2f}"
+        f"eta={SUBSTRATE_ETA:.2f}"
     )
     print(f"  Grid: NE={fig6_solve.NUM_BINS}, "
-          f"dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/fig6_solve.NUM_BINS:.3f} μeV")
+          f"dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/fig6_solve.NUM_BINS:.3f} micro-eV")
     print(f"  T_B values: {list(T_BATH_VALUES)} K")
-    print(f"  n̄ values:   {fig6_solve.N_BAR_VALUES.size} pts in "
+    print(f"  nbar values: {fig6_solve.N_BAR_VALUES.size} pts in "
           f"[{fig6_solve.N_BAR_VALUES[0]:.0e}, {fig6_solve.N_BAR_VALUES[-1]:.0e}]")
     result = run_cached(
         direct_gap_observable=direct_gap_observable,
         fixed_gap_kinetics=fixed_gap_kinetics,
     )
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path = write_baseline(
+        result,
+        baseline_path(direct_gap_observable=direct_gap_observable),
+    )
+    pdf_path = write_plot(
+        result,
+        plot_path(direct_gap_observable=direct_gap_observable),
+        direct_gap_observable=direct_gap_observable,
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path
@@ -817,8 +877,9 @@ if __name__ == "__main__":
         description=(
             "Fischer 2023 Fig. 6 paper-target reproduction. "
             "Default settings use a 1640-bin paper-resolution grid "
-            "(dE=1 micro-eV plus sub-gap guard cells), 22 n̄ pts, "
-            "picard_tol=1e-12) and take ~14 h. Pass --fast for a dev-speed "
+            "(dE=1 micro-eV plus sub-gap guard cells), 22 nbar pts, "
+            "picard_tol=1e-12) and historically took ~6.04 h serial. "
+            "Pass --fast for a dev-speed "
             "knob (~30 min/run)."
         )
     )
@@ -826,7 +887,7 @@ if __name__ == "__main__":
         "--fast",
         action="store_true",
         help=(
-            "Dev mode: 410-bin grid, 8 n̄ pts, picard_tol=1e-9. Output "
+            "Dev mode: 410-bin grid, 8 nbar pts, picard_tol=1e-9. Output "
             "paths gain a '_fast' suffix so the paper-faithful baseline "
             "is not clobbered. Use during iteration; switch back to the "
             "default for the final ship run."
@@ -843,7 +904,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.direct_gap:
-        _MODE_SUFFIX = "_direct"
         print("--direct-gap mode: fixed-gap kinetics, direct Delta[f] observable, "
               "output suffix '_direct'.")
 
@@ -859,7 +919,7 @@ if __name__ == "__main__":
         fig6_solve.N_BAR_VALUES = np.logspace(4.0, 8.2, 8)
         fig6_solve.PICARD_TOL = 1e-9
         _FAST_SUFFIX = "_fast"
-        print("--fast mode: 410-bin grid, 8 n̄ pts, picard_tol=1e-9, "
+        print("--fast mode: 410-bin grid, 8 nbar pts, picard_tol=1e-9, "
               "output suffix '_fast'.")
 
     generate_baseline(

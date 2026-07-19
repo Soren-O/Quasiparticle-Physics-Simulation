@@ -244,8 +244,8 @@ def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]
     if frac_err > 1e-10:
         raise RuntimeError(
             f"F24 Fig. 5 paper grid not commensurate: "
-            f"ω_PB={OMEGA_PB} μeV, m·dE={m * dE_scalar} μeV, frac_err={frac_err}. "
-            f"Choose NUM_BINS such that ω_PB/dE is integer."
+            f"omega_PB={OMEGA_PB} micro-eV, m*dE={m * dE_scalar} micro-eV, "
+            f"frac_err={frac_err}. Choose NUM_BINS such that omega_PB/dE is integer."
         )
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
     return E, dE, spectral
@@ -261,22 +261,22 @@ def _assert_unit_audit() -> None:
     """
     # Strict assertion on the conversion factor itself.
     assert HZ_TO_NS_INV == 1.0e-9, (
-        f"Hz → ns⁻¹ conversion drifted: HZ_TO_NS_INV={HZ_TO_NS_INV} "
-        "must be 1e-9 (1 Hz = 1 s⁻¹ = 10⁻⁹ ns⁻¹)."
+        f"Hz -> ns^-1 conversion drifted: HZ_TO_NS_INV={HZ_TO_NS_INV} "
+        "must be 1e-9 (1 Hz = 1 s^-1 = 1e-9 ns^-1)."
     )
     for hz, ns_inv in zip(PAPER_DRIVES_HZ, PAPER_DRIVES_NS_INV, strict=True):
         expected = hz * 1.0e-9
         assert abs(ns_inv - expected) < 1e-30, (
-            f"Drive conversion mismatch: {hz} Hz mapped to {ns_inv} ns⁻¹, expected {expected}."
+            f"Drive conversion mismatch: {hz} Hz mapped to {ns_inv} ns^-1, expected {expected}."
         )
     # Soft warning on the magnitude regime.
     paper_min, paper_max = min(PAPER_DRIVES_NS_INV), max(PAPER_DRIVES_NS_INV)
     native_min, native_max = EXISTING_F24_NATIVE_RANGE_NS_INV
     if paper_max < native_min or paper_min > native_max:
         print(
-            "  ⚠ Hz → ns⁻¹ unit-audit warning:\n"
-            f"    Paper-quoted drives  : {paper_min:.2e} - {paper_max:.2e} ns⁻¹\n"
-            f"    Existing F24 sweep   : {native_min:.2e} - {native_max:.2e} ns⁻¹\n"
+            "  WARNING: Hz -> ns^-1 unit-audit mismatch:\n"
+            f"    Paper-quoted drives  : {paper_min:.2e} - {paper_max:.2e} ns^-1\n"
+            f"    Existing F24 sweep   : {native_min:.2e} - {native_max:.2e} ns^-1\n"
             "    Drive products are several orders of magnitude apart.\n"
             "    Resolution requires auditing the pair-breaking kernel\n"
             "    prefactor (qpsim.collisions.pair_breaking_photon) against\n"
@@ -393,15 +393,19 @@ def _neumann_f2(
 def run() -> Fig5PaperResult:
     """Solve F24 Fig. 5 — three drive levels at fixed T_B = 0.1 K."""
     print("F24 Fig. 5 paper-target reproduction ...")
-    print(f"  Δ_0={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, T_B={T_BATH} K, τ_ℓ=0")
+    print(
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_PB={OMEGA_PB:.2f} micro-eV, T_B={T_BATH} K, tau_l=0"
+    )
     print(
         f"  Grid: NE={NUM_BINS}, "
-        f"dE={(E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS:.4f} μeV "
-        f"(ω_PB/dE = {round(OMEGA_PB / ((E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS))})"
+        f"dE={(E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS:.4f} micro-eV "
+        f"(omega_PB/dE = "
+        f"{round(OMEGA_PB / ((E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS))})"
     )
     print(
         f"  Drive levels (paper Hz): {list(PAPER_DRIVES_HZ)}\n"
-        f"  Drive levels (ns⁻¹)    : "
+        f"  Drive levels (ns^-1)   : "
         f"{[f'{p:.2e}' for p in PAPER_DRIVES_NS_INV]}"
     )
 
@@ -461,7 +465,7 @@ def run() -> Fig5PaperResult:
         f012_by_drive[drive_hz] = f0 + f1 + f2
 
         print(
-            f"    c·n̄ = {drive_hz:g} Hz ({drive_ns_inv:.2e} ns⁻¹): x_qp = {x_qp:.4e}",
+            f"    c*nbar = {drive_hz:g} Hz ({drive_ns_inv:.2e} ns^-1): x_qp = {x_qp:.4e}",
             flush=True,
         )
 

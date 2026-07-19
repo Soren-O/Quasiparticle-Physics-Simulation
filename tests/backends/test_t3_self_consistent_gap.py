@@ -6,7 +6,11 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.t3_diffusion import (
+    SelfConsistentGapCollapseError,
+    T3DiffusionBackend,
+    T3DiffusionState,
+)
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -235,7 +239,10 @@ class TestSelfConsistentGapPath:
 
         state = _build_state(T_bath=0.3, num_energy=40)
         monkeypatch.setattr(t3_mod, "solve_gap", lambda *args, **kwargs: 0.0)
-        with pytest.raises(RuntimeError, match="gap collapsed"):
+        with pytest.raises(
+            SelfConsistentGapCollapseError,
+            match="gap collapsed",
+        ) as caught:
             T3DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
@@ -243,6 +250,8 @@ class TestSelfConsistentGapPath:
                 gap_tol=1e-6,
                 gap_max_iter=4,
             )
+        assert caught.value.iteration == 1
+        assert caught.value.max_occupation >= 0.0
 
     def test_gap_under_relaxation_does_not_scale_convergence_residual(
         self,

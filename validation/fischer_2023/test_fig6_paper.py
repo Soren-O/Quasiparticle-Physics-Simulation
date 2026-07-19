@@ -18,6 +18,8 @@ First-time generation::
 
 from __future__ import annotations
 
+import ast
+import inspect
 from dataclasses import replace
 
 import numpy as np
@@ -27,6 +29,9 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics import calibrate_gap
 from qpsim.physics.spectral import SpectralContext
 
+import validation.fischer_2023.fig5_paper as fig5_paper
+import validation.fischer_2023.fig5_solve as fig5_solve
+import validation.fischer_2023.fig6_paper as fig6_paper
 import validation.fischer_2023.fig6_solve as fig6_solve
 from validation.fischer_2023.fig6_paper import (
     FIG6_BASELINE_COLUMNS,
@@ -39,6 +44,7 @@ from validation.fischer_2023.fig6_paper import (
 )
 from validation.fischer_2023.fig6_solve import (
     DELTA_0,
+    DIRECT_GAP_BACKWARD_ERROR_LIMIT,
     FIG6_CERTIFICATE_FIELDS,
     FINITE_CUTOFF_DELTA0_OVER_KBTC,
     GAP_FIXED_POINT_ABS_TOL_UEV,
@@ -49,6 +55,87 @@ from validation.fischer_2023.fig6_solve import (
     _build_grid_and_spectral,
     _require_target_certificate,
 )
+
+
+def test_console_diagnostic_literals_are_ascii() -> None:
+    """An expensive Windows CLI run must not fail while printing results."""
+    offenders: list[tuple[str, int, str]] = []
+    for module in (fig5_solve, fig5_paper, fig6_solve, fig6_paper):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            console_roots: list[ast.AST] = []
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                console_roots.append(node)
+            console_roots.extend(
+                keyword.value
+                for keyword in node.keywords
+                if keyword.arg in {"description", "help"}
+            )
+            for root in console_roots:
+                for child in ast.walk(root):
+                    if not (
+                        isinstance(child, ast.Constant)
+                        and isinstance(child.value, str)
+                    ):
+                        continue
+                    try:
+                        child.value.encode("ascii")
+                    except UnicodeEncodeError:
+                        offenders.append(
+                            (module.__name__, node.lineno, child.value)
+                        )
+
+    assert offenders == []
+
+
+def test_direct_plot_limits_expose_signed_low_drive_point() -> None:
+    x_limits, y_limits = fig6_paper._direct_plot_limits(
+        np.array([0.159, 0.30, 0.70]),
+        np.array([-0.0168, 0.10, 0.20]),
+    )
+
+    assert x_limits[0] < 0.159
+    assert x_limits[1] > 0.70
+    assert y_limits[0] < -0.0168
+    assert y_limits[1] == 0.25
+
+
+def test_programmatic_direct_generation_cannot_clobber_canonical(
+    monkeypatch,
+) -> None:
+    reference = read_baseline(baseline_path())
+    written: dict[str, object] = {}
+
+    monkeypatch.setattr(fig6_paper, "run_cached", lambda **_kwargs: reference)
+
+    def record_csv(_result, path=None):
+        written["csv"] = path
+        return path
+
+    def record_pdf(_result, path=None, **kwargs):
+        written["pdf"] = path
+        written["direct"] = kwargs["direct_gap_observable"]
+        return path
+
+    monkeypatch.setattr(fig6_paper, "write_baseline", record_csv)
+    monkeypatch.setattr(fig6_paper, "write_plot", record_pdf)
+
+    csv_path, pdf_path = fig6_paper.generate_baseline(
+        direct_gap_observable=True,
+        fixed_gap_kinetics=True,
+    )
+
+    canonical = baseline_path()
+    assert csv_path == fig6_paper.baseline_path(direct_gap_observable=True)
+    assert pdf_path == fig6_paper.plot_path(direct_gap_observable=True)
+    assert csv_path != canonical
+    assert pdf_path != canonical.with_suffix(".pdf")
+    assert written == {"csv": csv_path, "pdf": pdf_path, "direct": True}
 
 
 def test_grid_covers_self_consistent_gap_support() -> None:
@@ -155,7 +242,7 @@ def _assert_config_matches_baseline(path) -> None:
     """Cheap preflight (~1 s, no solve): the live module config must match the
     pinned baseline's stamped header + sweep axes.
 
-    Gating the ~14 h :func:`run` behind this turns a stale config/baseline
+    Gating the ~6.04 h serial :func:`run` behind this turns a stale config/baseline
     pairing — a ``TAU_L_MODEL`` swap, a grid change, a sweep-range edit — into
     a seconds-long failure instead of one discovered only after the full
     sweep. Compares the config fingerprint against the baseline header, and
@@ -212,7 +299,7 @@ def test_config_matches_baseline_metadata() -> None:
 
     This is the standing fast-suite guard that would have caught the τ_ℓ-model
     / baseline mismatch that once wasted 9.5 h. The slow
-    ``test_matches_pinned_baseline`` re-runs the same check inline so the 14 h
+    ``test_matches_pinned_baseline`` re-runs the same check inline so the 6.04 h
     sweep is gated even when this fast test is not selected.
     """
     path = baseline_path()
@@ -272,6 +359,210 @@ def test_fixed_gap_certificate_allows_nan_gap_map_metric() -> None:
         n_bar=1e6,
         require_gap_fixed_point=False,
     )
+
+
+def test_direct_gap_certificate_uses_strict_certified_metrics() -> None:
+    certificate = {
+        "qp_residual_inf": 1e-20,
+        "qp_backward_error": 0.5 * DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+        "phonon_residual_inf": 1e-20,
+        # Raw phonon balance includes irreducible affine-root rounding; direct
+        # mode gates the representability-aware certified excess below.
+        "phonon_raw_backward_error": 1e-6,
+        "phonon_backward_error": 0.0,
+        "gap_fixed_point_abs_error_uev": float("nan"),
+    }
+    _require_target_certificate(
+        certificate,
+        T_bath=0.1,
+        n_bar=1e4,
+        require_gap_fixed_point=False,
+        backward_error_limit=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+    )
+
+    certificate["qp_backward_error"] = 2.0 * DIRECT_GAP_BACKWARD_ERROR_LIMIT
+    with pytest.raises(RuntimeError, match="limit=1e-09"):
+        _require_target_certificate(
+            certificate,
+            T_bath=0.1,
+            n_bar=1e4,
+            require_gap_fixed_point=False,
+            backward_error_limit=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+        )
+
+
+@pytest.mark.parametrize("obs", (-1.04, -0.0168056837102, 0.0, 1.0))
+def test_signed_finite_gap_suppression_ratio_is_acceptable(obs: float) -> None:
+    assert fig6_solve._acceptable_ratio(obs)
+
+
+@pytest.mark.parametrize("obs", (float("nan"), float("inf"), float("-inf")))
+def test_nonfinite_gap_suppression_ratio_is_rejected(obs: float) -> None:
+    assert not fig6_solve._acceptable_ratio(obs)
+
+
+def test_fixed_gap_solver_falls_back_to_picard(monkeypatch) -> None:
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    state = fig6_solve._build_state(material, spectral, 0.1)
+    calls: list[str] = []
+
+    def fail_coupled(*_args, **_kwargs):
+        calls.append("coupled")
+        raise fig6_solve.CoupledNewtonLineSearchError(
+            iteration=1,
+            residual_norm=0.5 * fig6_solve.PICARD_TOL,
+        )
+
+    def pass_picard(_backend, state_arg, _photon_params):
+        calls.append("picard")
+        return state_arg
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_coupled_newton_fixed_gap",
+        fail_coupled,
+    )
+    monkeypatch.setattr(fig6_solve, "_solve_picard_fixed_gap", pass_picard)
+
+    result = fig6_solve._solve_fixed_gap_kinetics(
+        T3DiffusionBackend(),
+        state,
+        {"omega_0": OMEGA_0, "n_bar": 1e4, "c_phot": fig6_solve.C_PHOT},
+    )
+
+    assert result is state
+    assert calls == ["coupled", "picard"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        fig6_solve.CoupledNewtonLineSearchError(
+            iteration=2,
+            residual_norm=2.0 * fig6_solve.PICARD_TOL,
+        ),
+        RuntimeError("Coupled Newton Jacobian singular at iteration 2."),
+    ),
+)
+def test_fixed_gap_solver_does_not_mask_non_roundoff_failure(
+    monkeypatch,
+    error: RuntimeError,
+) -> None:
+    def fail_coupled(*_args, **_kwargs):
+        raise error
+
+    def fail_if_picard_runs(*_args, **_kwargs):
+        pytest.fail("Picard fallback must be reserved for a roundoff-level stall")
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_coupled_newton_fixed_gap",
+        fail_coupled,
+    )
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_picard_fixed_gap",
+        fail_if_picard_runs,
+    )
+
+    with pytest.raises(type(error), match=str(error).split(" at iteration")[0]):
+        fig6_solve._solve_fixed_gap_kinetics(
+            T3DiffusionBackend(),
+            object(),  # type: ignore[arg-type]
+            None,
+        )
+
+
+def test_direct_point_solve_propagates_fixed_gap_failure(monkeypatch) -> None:
+    """The public point path must not relabel fixed-gap errors as folds."""
+    expected = RuntimeError("synthetic fixed-gap singular Jacobian")
+
+    def fail_fixed_gap(*_args, **_kwargs):
+        raise expected
+
+    monkeypatch.setattr(fig6_solve, "_solve_fixed_gap_kinetics", fail_fixed_gap)
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+
+    with pytest.raises(RuntimeError, match="singular Jacobian") as caught:
+        fig6_solve._solve_and_measure(
+            T3DiffusionBackend(),
+            material,
+            spectral,
+            0.1,
+            1e4,
+            None,
+            fixed_gap_kinetics=True,
+            direct_gap_observable=True,
+            thermal_integral=0.0,
+            delta_eq=DELTA_0,
+            delta_T=1.0,
+        )
+
+    assert caught.value is expected
+
+
+def test_reduced_direct_gap_picard_fallback_is_repeatable_and_certified(
+    monkeypatch,
+) -> None:
+    """Exercise the real strict fallback on a small commensurate grid."""
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "PICARD_TOL", 1e-9)
+
+    def fail_coupled(*_args, **_kwargs):
+        raise fig6_solve.CoupledNewtonLineSearchError(
+            iteration=1,
+            residual_norm=0.5 * fig6_solve.PICARD_TOL,
+        )
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_coupled_newton_fixed_gap",
+        fail_coupled,
+    )
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    thermal_integral = fig6_solve.thermal_gap_integral_direct(
+        spectral.E,
+        gap=DELTA_0,
+        T_bath=0.1,
+        samples="centers",
+    )
+    delta_eq = DELTA_0 * float(np.exp(-thermal_integral))
+    kwargs = {
+        "fixed_gap_kinetics": True,
+        "direct_gap_observable": True,
+        "thermal_integral": thermal_integral,
+        "delta_eq": delta_eq,
+        "delta_T": DELTA_0 - delta_eq,
+    }
+
+    first = fig6_solve._solve_and_measure(
+        T3DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
+    )
+    repeated = fig6_solve._solve_and_measure(
+        T3DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
+    )
+
+    assert first[0].gap == DELTA_0
+    assert first[1] == pytest.approx(repeated[1], rel=0.0, abs=1e-14)
+    np.testing.assert_array_equal(first[0].f, repeated[0].f)
+    np.testing.assert_array_equal(
+        first[0].phonon.n_ph,
+        repeated[0].phonon.n_ph,
+    )
+    for result in (first, repeated):
+        certificate = result[4]
+        _require_target_certificate(
+            certificate,
+            T_bath=0.1,
+            n_bar=1e4,
+            require_gap_fixed_point=False,
+            backward_error_limit=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+        )
+        assert certificate["qp_backward_error"] < DIRECT_GAP_BACKWARD_ERROR_LIMIT
+        assert certificate["phonon_backward_error"] == 0.0
 
 
 def test_legacy_nine_column_baseline_reads_with_nan_certificates(tmp_path) -> None:
@@ -486,6 +777,69 @@ def test_sweep_carries_full_state_within_row_and_resets_between_rows(
         np.testing.assert_array_equal(certificates[field], np.zeros((2, 2)))
 
 
+def test_direct_gap_sweep_applies_strict_certificate_limit(monkeypatch) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.10,))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+
+    def fake_solve_and_measure(
+        _backend,
+        material_arg,
+        spectral_arg,
+        T_bath,
+        _n_bar,
+        _continuation_seed,
+        **_kwargs,
+    ):
+        state = fig6_solve._build_state(material_arg, spectral_arg, T_bath)
+        certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        certificate["qp_backward_error"] = (
+            2.0 * DIRECT_GAP_BACKWARD_ERROR_LIMIT
+        )
+        certificate["gap_fixed_point_abs_error_uev"] = float("nan")
+        return state, 0.1, DELTA_0, 1e-8, certificate
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_and_measure",
+        fake_solve_and_measure,
+    )
+
+    with pytest.raises(RuntimeError, match="limit=1e-09"):
+        fig6_solve._solve_sweep(
+            T3DiffusionBackend(),
+            material,
+            spectral,
+            tau_0_pb=0.255,
+            direct_gap_observable=True,
+            fixed_gap_kinetics=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("direct_gap_observable", "fixed_gap_kinetics"),
+    ((True, False), (False, True)),
+)
+def test_solve_rejects_inconsistent_numerical_modes_before_setup(
+    monkeypatch,
+    direct_gap_observable: bool,
+    fixed_gap_kinetics: bool,
+) -> None:
+    def fail_if_setup_runs():
+        pytest.fail("mode validation must precede the expensive grid setup")
+
+    monkeypatch.setattr(fig6_solve, "_fischer_material", fail_if_setup_runs)
+
+    with pytest.raises(ValueError, match="must be enabled together"):
+        fig6_solve.solve(
+            direct_gap_observable=direct_gap_observable,
+            fixed_gap_kinetics=fixed_gap_kinetics,
+        )
+
+
 def test_independent_certificate_runtime_error_propagates(monkeypatch) -> None:
     monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
     monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
@@ -515,6 +869,101 @@ def test_independent_certificate_runtime_error_propagates(monkeypatch) -> None:
             spectral,
             tau_0_pb=0.255,
         )
+
+
+@pytest.mark.parametrize("direct_gap_observable", (False, True))
+def test_nonfinite_derived_observable_propagates_through_sweep(
+    monkeypatch,
+    direct_gap_observable: bool,
+) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+
+    def nonfinite_measurement(
+        _backend,
+        material_arg,
+        spectral_arg,
+        T_bath,
+        _n_bar,
+        _continuation_seed,
+        **_kwargs,
+    ):
+        state = fig6_solve._build_state(material_arg, spectral_arg, T_bath)
+        certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        if direct_gap_observable:
+            certificate["gap_fixed_point_abs_error_uev"] = float("nan")
+        return state, float("nan"), DELTA_0, 1e-8, certificate
+
+    monkeypatch.setattr(
+        fig6_solve,
+        "_solve_and_measure",
+        nonfinite_measurement,
+    )
+
+    with pytest.raises(RuntimeError, match="non-finite derived measurement"):
+        fig6_solve._solve_sweep(
+            T3DiffusionBackend(),
+            material,
+            spectral,
+            tau_0_pb=0.255,
+            direct_gap_observable=direct_gap_observable,
+            fixed_gap_kinetics=direct_gap_observable,
+        )
+
+
+def test_self_consistent_inner_solver_failure_propagates_through_sweep(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    expected = RuntimeError("synthetic inner Picard exhaustion")
+
+    def fail_inner_solver(*_args, **_kwargs):
+        raise expected
+
+    monkeypatch.setattr(fig6_solve, "_solve_picard_sc_gap", fail_inner_solver)
+
+    with pytest.raises(RuntimeError, match="inner Picard exhaustion") as caught:
+        fig6_solve._solve_sweep(
+            T3DiffusionBackend(),
+            material,
+            spectral,
+            tau_0_pb=0.255,
+        )
+
+    assert caught.value is expected
+
+
+def test_explicit_self_consistent_collapse_is_recorded_as_nan(monkeypatch) -> None:
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+    material = fig6_solve._fischer_material()
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+
+    def collapse(*_args, **_kwargs):
+        raise fig6_solve.SelfConsistentGapCollapseError(
+            iteration=4,
+            max_occupation=0.25,
+        )
+
+    monkeypatch.setattr(fig6_solve, "_solve_picard_sc_gap", collapse)
+    result = fig6_solve._solve_sweep(
+        T3DiffusionBackend(),
+        material,
+        spectral,
+        tau_0_pb=0.255,
+    )
+
+    assert np.isnan(result[2][0, 0])
+    assert np.isnan(result[3][0, 0])
+    assert np.isnan(result[5][0, 0])
 
 
 @pytest.mark.slow
@@ -615,7 +1064,7 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
 def test_matches_pinned_baseline() -> None:
     """Run the full 1640-bin paper-resolution sweep (manual validation only).
 
-    The source itself documents a roughly 14-hour runtime, which is not a
+    The source itself documents a roughly 6.04-hour serial runtime, which is not a
     bounded pull-request check. Keep this test executable with
     ``pytest -m 'slow and manual_slow'`` while the author-style fixed-gap,
     direct-Delta[f] path is evaluated as the replacement CI target.
@@ -628,7 +1077,7 @@ def test_matches_pinned_baseline() -> None:
         )
 
     # Cheap preflight first (~1 s): reject a stale config/baseline pairing
-    # before the ~14 h run() below, instead of after it.
+    # before the ~6.04 h serial run() below, instead of after it.
     _assert_config_matches_baseline(path)
 
     baseline = read_baseline(path)
@@ -691,7 +1140,7 @@ def test_matches_pinned_baseline() -> None:
 
 class TestFig6CacheIntegration:
     """The cached regen path (:func:`run_cached`) wraps the same solve/observables
-    split and serves the (otherwise ~14 h) solve from disk. The expensive solve is
+    split and serves the (otherwise ~6.04 h serial) solve from disk. The expensive solve is
     stubbed so the test is fast; it exercises the real cache + observables (pure
     unpack) wiring. Engine-level key/store properties are covered in
     ``tests/validation/test_sweep_cache.py``.

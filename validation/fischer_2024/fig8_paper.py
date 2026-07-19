@@ -267,7 +267,7 @@ def _assert_unit_audit() -> None:
     9-decade slip; this assertion makes that slip impossible here.
     """
     assert HZ_TO_NS_INV == 1e-9, (
-        f"Hz → ns⁻¹ conversion mis-pinned: {HZ_TO_NS_INV} != 1e-9. "
+        f"Hz -> ns^-1 conversion mis-pinned: {HZ_TO_NS_INV} != 1e-9. "
         "Refusing to run a paper-target script with a corrupted unit factor."
     )
     # Independently verify via dimensional analysis:
@@ -281,7 +281,7 @@ def _assert_unit_audit() -> None:
     for d_hz in PAPER_DRIVES_HZ:
         d_ns = d_hz * HZ_TO_NS_INV
         assert 1e-20 < d_ns < 1e-5, (
-            f"Drive {d_hz} Hz → {d_ns} ns⁻¹ is outside the expected "
+            f"Drive {d_hz} Hz -> {d_ns} ns^-1 is outside the expected "
             f"PB-photon kernel range; suspect unit slip."
         )
     assert all(stronger > weaker for stronger, weaker in pairwise(PAPER_DRIVES_HZ)), (
@@ -307,8 +307,8 @@ def run() -> Fig8PaperResult:
     frac_err = abs(OMEGA_PB - round(OMEGA_PB / dE_scalar) * dE_scalar) / OMEGA_PB
     if frac_err > 1e-10:
         raise RuntimeError(
-            f"ω_PB={OMEGA_PB} not integer-commensurate with dE={dE_scalar:.4f} "
-            f"(frac_err={frac_err:.2e}). Choose NUM_BINS so ω_PB/dE is integer."
+            f"omega_PB={OMEGA_PB} not integer-commensurate with dE={dE_scalar:.4f} "
+            f"(frac_err={frac_err:.2e}). Choose NUM_BINS so omega_PB/dE is integer."
         )
 
     nT = T_values.size
@@ -359,8 +359,8 @@ def run() -> Fig8PaperResult:
             qp_residual[d_hz][i] = certificate.residual_inf
             x_ana[d_hz][i] = _xqp_analytic_pb(d_ns)
             print(
-                f"  T_B={T:.3f} K  c·n̄={d_hz:.0e} Hz "
-                f"({d_ns:.2e} ns⁻¹)  x_qp(num)={x_num[d_hz][i]:.3e}  "
+                f"  T_B={T:.3f} K  c*nbar={d_hz:.0e} Hz "
+                f"({d_ns:.2e} ns^-1)  x_qp(num)={x_num[d_hz][i]:.3e}  "
                 f"x_qp(ana)={x_ana[d_hz][i]:.3e}",
                 flush=True,
             )
@@ -670,20 +670,21 @@ def write_plot(result: Fig8PaperResult, path: Path | None = None) -> Path:
 def generate_baseline() -> tuple[Path, Path]:
     print("Fischer & Catelani 2024 Fig. 8 paper-target reproduction ...")
     print(
-        f"  Δ_0={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, n̄_PB={N_BAR_PB:.0e}, τ_ℓ=0"
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_PB={OMEGA_PB:.2f} micro-eV, nbar_PB={N_BAR_PB:.0e}, tau_l=0"
     )
     print(f"  Grid: NE={NUM_BINS}")
     print(
         f"  Drive products: {list(PAPER_DRIVES_HZ)} Hz "
-        f"(× HZ_TO_NS_INV={HZ_TO_NS_INV} → "
-        f"{[f'{d * HZ_TO_NS_INV:.2e}' for d in PAPER_DRIVES_HZ]} ns⁻¹)"
+        f"(x HZ_TO_NS_INV={HZ_TO_NS_INV} -> "
+        f"{[f'{d * HZ_TO_NS_INV:.2e}' for d in PAPER_DRIVES_HZ]} ns^-1)"
     )
     print(
         f"  T_B sweep: {T_BATH_VALUES.size} points, "
-        f"{T_BATH_VALUES[0]:.3f} → {T_BATH_VALUES[-1]:.3f} K"
+        f"{T_BATH_VALUES[0]:.3f} -> {T_BATH_VALUES[-1]:.3f} K"
     )
     print(
-        "  ⚠ Analytic dashed overlay is the _xqp_analytic_pb placeholder, "
+        "  WARNING: Analytic dashed overlay is the _xqp_analytic_pb placeholder, "
         "NOT the paper formula.\n"
         "    See module docstring; rename artifacts to *_paper.{csv,pdf} "
         "once the analytic formula lands."

@@ -45,6 +45,21 @@ from qpsim.services.steady_state import solve_steady_state
 from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.etd import etd2_step
 
+
+class SelfConsistentGapCollapseError(RuntimeError):
+    """The driven state has no supported superconducting gap root."""
+
+    def __init__(self, *, iteration: int, max_occupation: float) -> None:
+        self.iteration = int(iteration)
+        self.max_occupation = float(max_occupation)
+        super().__init__(
+            "Self-consistent gap collapsed: solve_gap returned Delta=0 at "
+            f"iteration {self.iteration} with |f|_max={self.max_occupation:.3e}. "
+            "The drive has exceeded the pair-breaking threshold; this solver "
+            "does not yet support the normal state."
+        )
+
+
 _TAU_L_UNIFORMITY_RTOL = 1e-10
 _GAP_STATE_MATCH_RTOL = 1e-12
 _GAP_SUPPORT_EPS = 1e-30
@@ -743,7 +758,7 @@ class T3DiffusionBackend:
         current = state
         last_rel_change = float("inf")
 
-        for _ in range(gap_max_iter):
+        for iteration in range(1, gap_max_iter + 1):
             solved = self._steady_state_fixed_gap(
                 current,
                 method=method,
@@ -781,11 +796,9 @@ class T3DiffusionBackend:
                 # solution; collapse to the normal state directly. Under-relaxing
                 # zero against the previous gap would have drifted us to a
                 # spurious tiny-Δ "almost-superconducting" fixed point.
-                raise RuntimeError(
-                    "Self-consistent gap collapsed: solve_gap returned Δ=0 at "
-                    f"iteration with |f|_max={float(solved.f.max()):.3e}. "
-                    "The drive has exceeded the pair-breaking threshold; "
-                    "this solver does not yet support the normal state."
+                raise SelfConsistentGapCollapseError(
+                    iteration=iteration,
+                    max_occupation=float(solved.f.max()),
                 )
 
             cell_edges = cell_edges_from_widths(

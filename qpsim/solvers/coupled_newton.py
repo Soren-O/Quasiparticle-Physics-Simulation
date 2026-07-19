@@ -53,6 +53,23 @@ if TYPE_CHECKING:
     from qpsim.devices.external_flux import ExternalFlux
 
 
+class CoupledNewtonLineSearchError(RuntimeError):
+    """A coupled-Newton line search could not reduce the residual.
+
+    The structured residual norm lets callers distinguish a roundoff-level
+    polish stall from singular-Jacobian, non-finite, and ordinary
+    non-convergence failures without parsing an error message.
+    """
+
+    def __init__(self, *, iteration: int, residual_norm: float) -> None:
+        self.iteration = int(iteration)
+        self.residual_norm = float(residual_norm)
+        super().__init__(
+            f"Coupled Newton line search failed at iteration {self.iteration}. "
+            f"max |residual| = {self.residual_norm:.2e}"
+        )
+
+
 def coupled_newton_solve(
     ctx: SpectralContext,
     f_init: np.ndarray,
@@ -479,9 +496,9 @@ def coupled_newton_solve(
                 )
                 if newton_rel < step_rtol and balance_ratio < step_rtol:
                     return f, n_ph
-            raise RuntimeError(
-                f"Coupled Newton line search failed at iteration {iteration}. "
-                f"max |residual| = {norm:.2e}"
+            raise CoupledNewtonLineSearchError(
+                iteration=iteration,
+                residual_norm=norm,
             )
 
         # Scale-invariant convergence: the refining step barely moved the state.

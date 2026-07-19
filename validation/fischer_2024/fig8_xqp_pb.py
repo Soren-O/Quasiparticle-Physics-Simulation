@@ -171,7 +171,9 @@ def run() -> Fig8Result:
     dE_scalar = float(probe_state.spectral.dE[0])
     frac_err = abs(OMEGA_PB - round(OMEGA_PB / dE_scalar) * dE_scalar) / OMEGA_PB
     if frac_err > 1e-10:
-        raise RuntimeError(f"ω_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}")
+        raise RuntimeError(
+            f"omega_PB={OMEGA_PB} is not integer-commensurate with dE={dE_scalar:.4f}"
+        )
 
     for i, T in enumerate(T_values):
         state = _build_state(material, T)
@@ -412,13 +414,16 @@ def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer & Catelani 2024 Fig 8 — x_qp(T_B) with PB-photon drive ...")
-    print(f"  Δ₀={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, n̄_PB={N_BAR_PB:.0e}")
-    print(f"  Powers (c·n̄, ns⁻¹): {list(POWER_LEVELS)}")
+    print("Fischer & Catelani 2024 Fig 8 -- x_qp(T_B) with PB-photon drive ...")
+    print(
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_PB={OMEGA_PB:.2f} micro-eV, nbar_PB={N_BAR_PB:.0e}"
+    )
+    print(f"  Powers (c*nbar, ns^-1): {list(POWER_LEVELS)}")
     print(f"  Grid: NE={NUM_BINS}")
     print(
         f"  T_bath sweep: {len(T_BATH_VALUES)} points, "
-        f"{T_BATH_VALUES[0]:.3f} → {T_BATH_VALUES[-1]:.3f} K"
+        f"{T_BATH_VALUES[0]:.3f} -> {T_BATH_VALUES[-1]:.3f} K"
     )
     result = run()
     csv_path = write_baseline(result)

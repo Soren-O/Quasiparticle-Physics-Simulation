@@ -101,6 +101,36 @@ def test_legacy_canonical_is_explicitly_quarantined() -> None:
         read_baseline_metadata(path)
 
 
+def test_reduced_transition_is_seed_independent_when_tightly_certified() -> None:
+    """The former forward/reverse split was a loose-Newton stopping artifact."""
+    target = float(UPPER_NBAR_VALUES[6])  # T_*/Delta = 0.60
+    paths = (
+        tuple(float(UPPER_NBAR_VALUES[index]) for index in (0, 5, 6)),
+        tuple(float(UPPER_NBAR_VALUES[index]) for index in (13, 9, 7, 6)),
+        (target,),
+    )
+
+    results = [
+        run(
+            num_bins=162,
+            upper_T_bath=(0.10,),
+            upper_nbar=path,
+            lower_nbar=(),
+            lower_T_bath=(),
+        )
+        for path in paths
+    ]
+    transition_x_qp = np.asarray(
+        [result.upper_x_qp_num[0, -1] for result in results],
+        dtype=float,
+    )
+
+    assert np.ptp(transition_x_qp) / np.max(transition_x_qp) <= 1.0e-3
+    for result in results:
+        assert result.upper_qp_backward_error[0, -1] <= 1.0e-9
+        assert result.upper_phonon_backward_error[0, -1] <= 1.0e-9
+
+
 @pytest.mark.slow
 def test_high_drive_does_not_false_converge_to_thermal_branch() -> None:
     """A tiny above-gap phonon population must still drive the QP branch.
@@ -516,7 +546,7 @@ class TestFig5CacheIntegration:
         }
         for panel in ("upper", "lower"):
             for field in certificate_module.CERTIFICATE_FIELDS:
-                payload[f"{panel}_{field}"] = np.full((1, 1), 1.0e-8)
+                payload[f"{panel}_{field}"] = np.full((1, 1), 1.0e-10)
         return payload
 
     def _cfg(self) -> dict:
