@@ -10,9 +10,12 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import (
+    _phonon_balance_backward_error,
     _picard_convergence_ratio,
+    _resolve_picard_balance_tol,
     solve_steady_state,
 )
 
@@ -30,6 +33,77 @@ def _setup(T_bath: float = 0.3, T_c: float = 1.2, num: int = 30):
 
 
 class TestThermalPhononPath:
+    @pytest.mark.parametrize("T_bath", [-1.0, float("nan"), float("inf")])
+    def test_rejects_invalid_bath_temperature(self, T_bath: float) -> None:
+        ctx, K_s0, K_r0, _ = _setup()
+        with pytest.raises(ValueError, match="T_bath"):
+            solve_steady_state(ctx, K_s0, K_r0, T_bath)
+
+    @pytest.mark.parametrize(
+        "phonon_escape_time",
+        [-1.0, float("nan"), float("inf")],
+    )
+    def test_rejects_invalid_phonon_escape_time(
+        self,
+        phonon_escape_time: float,
+    ) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        with pytest.raises(ValueError, match="phonon_escape_time"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                phonon_escape_time=phonon_escape_time,
+            )
+
+    @pytest.mark.parametrize(
+        ("control", "value", "message"),
+        [
+            ("max_picard_iter", 0, "max_picard_iter"),
+            ("max_picard_iter", 1.5, "max_picard_iter"),
+            ("max_picard_iter", True, "max_picard_iter"),
+            ("picard_tol", 0.0, "picard_tol"),
+            ("picard_tol", float("nan"), "picard_tol"),
+            ("picard_atol", -1.0, "picard_atol"),
+            ("picard_atol", float("inf"), "picard_atol"),
+            ("picard_balance_tol", 0.0, "picard_balance_tol"),
+            ("picard_mixing", 0.0, "picard_mixing"),
+            ("picard_mixing", 1.01, "picard_mixing"),
+            ("picard_mixing", float("nan"), "picard_mixing"),
+            ("anderson_depth", -1, "anderson_depth"),
+            ("anderson_depth", 1.5, "anderson_depth"),
+            ("anderson_depth", True, "anderson_depth"),
+        ],
+    )
+    def test_rejects_invalid_picard_controls(
+        self,
+        control: str,
+        value: object,
+        message: str,
+    ) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        with pytest.raises(ValueError, match=message):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                **{control: value},
+            )
+
+    def test_rejects_dynes_collision_context(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        dynes = SpectralContext(
+            E_bins=ctx.E,
+            dE_bins=ctx.dE,
+            gap=ctx.gap,
+            dynes_gamma=0.1,
+        )
+
+        with pytest.raises(ValueError, match="Dynes-broadened collision solves"):
+            solve_steady_state(dynes, K_s0, K_r0, T_bath)
+
     def test_recovers_fermi_dirac(self) -> None:
         # At thermal phonons + bath temperature T_bath, the steady state
         # should be Fermi-Dirac at T_bath.
@@ -48,8 +122,143 @@ class TestThermalPhononPath:
                 ctx, K_s0, K_r0, T_bath, initial_guess=np.zeros(3),
             )
 
+    def test_rejects_matrix_initial_guess_even_when_size_matches(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        with pytest.raises(ValueError, match="one-dimensional"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_guess=np.zeros((1, ctx.E.size)),
+            )
+
+    @pytest.mark.parametrize(
+        ("control", "value", "message"),
+        [
+            ("tol", 0.0, "tol"),
+            ("newton_backward_error_tol", 0.0, "newton_backward_error_tol"),
+            ("max_iter", 0, "max_iter"),
+        ],
+    )
+    def test_no_active_bins_still_validate_newton_controls(
+        self,
+        control: str,
+        value: object,
+        message: str,
+    ) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        ctx._active_mask = np.zeros(ctx.E.size, dtype=bool)  # type: ignore[attr-defined]
+        with pytest.raises(ValueError, match=message):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                **{control: value},
+            )
+
+    def test_no_active_bins_still_validate_phonon_seed_shape(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup()
+        ctx._active_mask = np.zeros(ctx.E.size, dtype=bool)  # type: ignore[attr-defined]
+
+        with pytest.raises(ValueError, match="initial_phonon_guess"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_phonon_guess=np.zeros(1),
+                phonon_escape_time=0.1,
+            )
+
 
 class TestFiniteTauLPath:
+    def test_picard_consumes_explicit_initial_phonon_guess(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.services.steady_state as steady_state_module
+
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        from qpsim.collisions.phonon import build_phonon_frequency_map
+
+        omega = build_phonon_frequency_map(ctx.E)[0]
+        seed = thermal_phonon_occupation(omega, T_bath) + 0.125
+        observed: list[np.ndarray] = []
+        original_project = steady_state_module.phonon_occupation_matrices_from_state
+
+        def capture_project(n_ph, *args, **kwargs):
+            observed.append(np.asarray(n_ph, dtype=float).copy())
+            return original_project(n_ph, *args, **kwargs)
+
+        def fixed_phonon_map(*args, coefficients_out, **kwargs):
+            coefficients_out["a_ph"] = np.zeros(omega.size)
+            coefficients_out["b_ph"] = np.zeros(omega.size)
+            return seed.copy()
+
+        monkeypatch.setattr(
+            steady_state_module,
+            "phonon_occupation_matrices_from_state",
+            capture_project,
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "newton_solve_f",
+            lambda _ctx, f, **kwargs: np.asarray(f, dtype=float).copy(),
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "phonon_steady_state",
+            fixed_phonon_map,
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "_phonon_balance_backward_error",
+            lambda *args, **kwargs: 0.0,
+        )
+
+        solve_steady_state(
+            ctx,
+            K_s0,
+            K_r0,
+            T_bath,
+            initial_guess=np.full(ctx.E.size, 0.01),
+            initial_phonon_guess=seed,
+            phonon_escape_time=0.1,
+            max_picard_iter=1,
+        )
+
+        assert len(observed) == 1
+        np.testing.assert_array_equal(observed[0], seed)
+
+    @pytest.mark.parametrize(
+        "bad",
+        [np.zeros((1, 2)), np.array([-1.0]), np.array([np.nan])],
+    )
+    def test_rejects_invalid_initial_phonon_guess(self, bad: np.ndarray) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        with pytest.raises(ValueError, match="initial_phonon_guess"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_phonon_guess=bad,
+                phonon_escape_time=0.1,
+            )
+
+    def test_rejects_phonon_seed_on_thermal_shortcut(self) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        with pytest.raises(ValueError, match="initial_phonon_guess"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_phonon_guess=np.zeros(1),
+            )
+
     def test_tau_l_zero_matches_thermal_at_low_rates(self) -> None:
         # With phonon_escape_time=0 (no substrate coupling) and weak
         # coupling, the Picard solve should still approximately recover
@@ -123,6 +332,52 @@ class TestFiniteTauLPath:
 
         assert observed == [(2e-8, 3e-13)]
 
+    def test_candidate_requires_physical_phonon_balance(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.services.steady_state as steady_state_module
+
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+
+        # Isolate the new gate: manufacture an occupation-space candidate that
+        # the fixed-point metric accepts, while its affine physical balance is
+        # O(1) wrong in backward-error units.
+        monkeypatch.setattr(
+            steady_state_module,
+            "_picard_convergence_ratio",
+            lambda *args, **kwargs: 0.0,
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "newton_solve_f",
+            lambda _ctx, f, **kwargs: np.asarray(f, dtype=float).copy(),
+        )
+
+        def unbalanced_fixed_point(*args, coefficients_out, **kwargs):
+            n_omega = args[4].size
+            coefficients_out["a_ph"] = np.full(n_omega, 1e-12)
+            coefficients_out["b_ph"] = np.zeros(n_omega)
+            return thermal_phonon_occupation(args[4], T_bath) + 1e-13
+
+        monkeypatch.setattr(
+            steady_state_module,
+            "phonon_steady_state",
+            unbalanced_fixed_point,
+        )
+
+        with pytest.raises(RuntimeError, match="phonon balance backward error"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                phonon_escape_time=0.1,
+                max_picard_iter=1,
+                picard_tol=1e-7,
+                picard_atol=1e-11,
+                picard_balance_tol=1e-6,
+            )
+
 
 class TestPicardConvergenceMetric:
     """Unit tests for the finite-τ_l Picard convergence metric.
@@ -146,6 +401,21 @@ class TestPicardConvergenceMetric:
         assert _picard_convergence_ratio(
             n_ph, n_ph_new, rtol=picard_tol, atol=picard_atol,
         ) <= 1.0
+
+    def test_all_small_state_cannot_converge_only_under_atol(self) -> None:
+        # Every component-wise update lies below atol, so the former local-only
+        # test accepted this state even though the update is O(1) relative to
+        # the state as a whole.  The normwise guard is amplitude independent.
+        n_ph = np.full(8, 1e-12)
+        n_ph_new = np.full(8, 9e-12)
+        rtol = 1e-7
+        atol = 1e-11
+
+        local_allowed = atol + rtol * np.maximum(n_ph, n_ph_new)
+        assert np.all(np.abs(n_ph_new - n_ph) <= local_allowed)
+        assert _picard_convergence_ratio(
+            n_ph, n_ph_new, rtol=rtol, atol=atol,
+        ) > 1.0
 
     def test_small_physical_bin_is_not_hidden_by_unrelated_peak(self) -> None:
         # Regression for Fischer Fig. 5: a large low-energy occupation must not
@@ -206,3 +476,28 @@ class TestPicardConvergenceMetric:
             _picard_convergence_ratio(
                 np.array([1.0]), np.array([bad]), rtol=1e-7, atol=1e-11,
             )
+
+
+class TestPhononBalanceBackwardError:
+    def test_is_scale_invariant(self) -> None:
+        n_ph = np.array([0.0, 2.0])
+        n_th = np.zeros(2)
+        a_ph = np.array([1.0, 4.0])
+        b_ph = np.array([0.0, -1.0])
+        reference = _phonon_balance_backward_error(
+            n_ph, a_ph, b_ph, n_th, tau_l=0.0,
+        )
+        scaled = _phonon_balance_backward_error(
+            n_ph, 1e-30 * a_ph, 1e-30 * b_ph, n_th, tau_l=0.0,
+        )
+        assert reference == pytest.approx(3.0 / 7.0)
+        assert scaled == pytest.approx(reference)
+
+
+class TestPicardBalanceTolerance:
+    def test_default_has_roundoff_headroom(self) -> None:
+        assert _resolve_picard_balance_tol(1e-10, None) == pytest.approx(1e-6)
+        assert _resolve_picard_balance_tol(2e-4, None) == pytest.approx(2e-3)
+
+    def test_explicit_limit_is_preserved(self) -> None:
+        assert _resolve_picard_balance_tol(1e-7, 3e-5) == pytest.approx(3e-5)

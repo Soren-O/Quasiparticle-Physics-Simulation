@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 import pytest
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
@@ -22,6 +20,24 @@ def _setup(gap: float = 180.0, num: int = 40):
 
 
 class TestShapesAndNullCases:
+    @pytest.mark.parametrize(
+        "bad_f",
+        [np.zeros(3), np.full(40, np.nan), np.full(40, -0.1), np.full(40, 1.1)],
+    )
+    def test_no_op_still_rejects_invalid_occupation(
+        self,
+        bad_f: np.ndarray,
+    ) -> None:
+        ctx = _setup()
+        with pytest.raises(ValueError, match=r"finite occupations|shape"):
+            sub_gap_photon_collision_rates(
+                bad_f,
+                ctx,
+                omega_0=0.0,
+                n_bar=0.0,
+                c_phot=0.0,
+            )
+
     def test_output_shapes(self) -> None:
         ctx = _setup()
         NE = ctx.E.size
@@ -87,33 +103,96 @@ class TestShapesAndNullCases:
                 np.zeros(E.size), ctx, omega_0=3.0, n_bar=1.0, c_phot=1.0,
             )
 
+    def test_rejects_frequency_at_or_above_pair_threshold(self) -> None:
+        ctx = _setup()
+        dE = float(ctx.dE[0])
+        m = int(np.ceil(2.0 * ctx.gap / dE))
+        with pytest.raises(ValueError, match="omega_0 < 2\\*gap"):
+            sub_gap_photon_collision_rates(
+                np.zeros(ctx.E.size), ctx, omega_0=m * dE,
+                n_bar=1.0, c_phot=1.0,
+            )
 
-class TestCommensurateWarning:
-    def test_warns_when_off_grid(self) -> None:
+    def test_rejects_dynes_context(self) -> None:
+        ctx = _setup()
+        dynes = SpectralContext(
+            E_bins=ctx.E,
+            dE_bins=ctx.dE,
+            gap=ctx.gap,
+            dynes_gamma=0.1,
+        )
+        with pytest.raises(ValueError, match="dynes_gamma"):
+            sub_gap_photon_collision_rates(
+                np.zeros(ctx.E.size), dynes, omega_0=3.0 * ctx.dE[0],
+                n_bar=1.0, c_phot=1.0,
+            )
+
+
+class TestCommensurateGrid:
+    def test_rejects_when_off_grid(self) -> None:
         ctx = _setup()
         dE = float(ctx.dE[0])
         f = 0.1 * np.ones(ctx.E.size)
         # 0.4 · dE is about 40% off — well outside the 1% tolerance.
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="not grid-commensurate"):
             sub_gap_photon_collision_rates(
                 f, ctx, omega_0=3 * dE + 0.4 * dE, n_bar=1.0, c_phot=1.0,
             )
-        assert any("not grid-commensurate" in str(w.message) for w in caught)
 
-    def test_no_warning_within_tolerance(self) -> None:
+    def test_accepts_within_tolerance(self) -> None:
         ctx = _setup()
         dE = float(ctx.dE[0])
         f = 0.1 * np.ones(ctx.E.size)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            sub_gap_photon_collision_rates(
-                f, ctx, omega_0=3 * dE + 0.005 * dE, n_bar=1.0, c_phot=1.0,
-            )
-        assert not any("commensurate" in str(w.message) for w in caught)
+        gain, loss = sub_gap_photon_collision_rates(
+            f, ctx, omega_0=3 * dE + 0.005 * dE, n_bar=1.0, c_phot=1.0,
+        )
+        assert np.all(np.isfinite(gain))
+        assert np.all(np.isfinite(loss))
 
 
 class TestPhysicalConsistency:
+    def test_exact_capacity_conservation_exposes_hybrid_point_rate_bug(self) -> None:
+        # The gap cuts cell 0, whose center is sub-gap: point rho[0] is zero
+        # while its exact capacity is finite.  Fixed-lattice scattering must
+        # use rho_bar=w/dE on the partner leg so w_i*T_ij=w_j*T_ji.
+        E = np.arange(0.9, 3.0, 0.4)
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        f = np.array([0.08, 0.12, 0.03, 0.20, 0.01, 0.15])
+
+        gain, loss = sub_gap_photon_collision_rates(
+            f, ctx, omega_0=0.8, n_bar=2.3, c_phot=0.7,
+        )
+        exact_drift = float(ctx.cell_weights @ (gain - loss * f))
+        assert abs(exact_drift) < 2e-15
+
+        # Recreate the rejected G1 hybrid locally: exact conserved capacity,
+        # but point-sampled photon partner density.  It creates an O(1e-2)
+        # artificial drain on this tiny grid, the mechanism that collapsed
+        # the driven Fischer solutions by several orders of magnitude.
+        hybrid = SpectralContext(E, dE, gap=1.0)
+        hybrid._cell_density = np.asarray(hybrid.rho).copy()
+        gain_bad, loss_bad = sub_gap_photon_collision_rates(
+            f, hybrid, omega_0=0.8, n_bar=2.3, c_phot=0.7,
+        )
+        hybrid_drift = float(
+            hybrid.cell_weights @ (gain_bad - loss_bad * f)
+        )
+        assert abs(hybrid_drift) > 1e-3
+
+    def test_zero_dos_target_rows_are_zero(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 0.75, 4.0, 60)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E, dE, gap)
+        f = np.zeros(E.size)
+        f[ctx.active_mask] = 0.1
+        gain, loss = sub_gap_photon_collision_rates(
+            f, ctx, omega_0=3.0 * dE[0], n_bar=0.0, c_phot=1.0,
+        )
+        np.testing.assert_array_equal(gain[~ctx.active_mask], 0.0)
+        np.testing.assert_array_equal(loss[~ctx.active_mask], 0.0)
+
     def test_thermal_balance_low_nbar(self) -> None:
         # With n_bar = n_BE(ω₀, T), a thermal f should leave df/dt ≈ 0.
         # This is the "photon bath at bath temperature" limit.

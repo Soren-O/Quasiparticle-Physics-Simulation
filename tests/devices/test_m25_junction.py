@@ -363,7 +363,7 @@ class TestM25JunctionEvaluateValidation:
         dE_L_below = integration_widths_from_centers(E_L_below)
         # The shared spectral invariant now catches this before an invalid
         # state can reach the M25-specific positive-support guard.
-        with pytest.raises(ValueError, match="at least one energy bin above gap"):
+        with pytest.raises(ValueError, match="positive represented spectral capacity"):
             SpectralContext(
                 E_bins=E_L_below, dE_bins=dE_L_below, gap=Delta_L_uev,
             )
@@ -433,7 +433,7 @@ class TestM25JunctionEvaluateValidation:
         )
         np.testing.assert_allclose(recovered_Hz, gain_moment_Hz, rtol=1e-12)
 
-    def test_spectral_context_rejects_L_grid_with_only_boundary_bin(self) -> None:
+    def test_spectral_context_accepts_L_grid_with_gap_cut_boundary_cell(self) -> None:
         from qpsim.physics.spectral import SpectralContext
 
         params, _drive = _fig3a_setup()
@@ -443,8 +443,12 @@ class TestM25JunctionEvaluateValidation:
             np.array([Delta_L_uev]),
         ])
         dE_L = integration_widths_from_centers(E_L)
-        with pytest.raises(ValueError, match="at least one energy bin above gap"):
-            SpectralContext(E_bins=E_L, dE_bins=dE_L, gap=Delta_L_uev)
+        spectral = SpectralContext(
+            E_bins=E_L, dE_bins=dE_L, gap=Delta_L_uev,
+        )
+        assert spectral.rho[-1] == 0.0
+        assert spectral.cell_weights[-1] > 0.0
+        assert spectral.active_mask[-1]
 
     def test_rejects_R_grid_missing_Rgt(self) -> None:
         # If the R grid never reaches Δ_L, the R> sub-band is empty

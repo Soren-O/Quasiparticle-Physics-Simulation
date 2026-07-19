@@ -23,20 +23,25 @@ Usage:
 from __future__ import annotations
 
 import csv
+import hashlib
 import inspect
 import os
+import platform
 import re
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import numpy as np
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.observables.ac_conductivity import compute_ac_conductivity
 
-from validation import sweep_cache
+from validation import source_provenance, sweep_cache
 from validation.fischer_2023 import fig7_solve
+from validation.fischer_2023 import steady_state_certificate as certificate_module
 from validation.fischer_2023.fig7_solve import (
     C_PHOT,
     DELTA_0,
@@ -47,11 +52,14 @@ from validation.fischer_2023.fig7_solve import (
     P_READ_DBM,
     T_BATH_VALUES,
     T_C,
+    TARGET_BACKWARD_ERROR_LIMIT,
     TAU_0,
     TAU_0_PB,
     TAU_L,
     TSTAR_OVER_DELTA,
     _build_grid,
+    _nbar_from_table_iii,
+    _validated_sweep_request,
     solve,
     solver_fingerprint,
 )
@@ -80,6 +88,44 @@ Q_EXT_BY_DBM: dict[float, float] = {
     -64.0: 0.7e6,
 }
 
+# Same-system regression limits remain deliberately strict.  Exact
+# single-thread hosted-Linux runs of the Windows pin expose a larger, stable
+# same-root portability envelope: QP-loss drift reached 4.633e-3 and Q_tot
+# drift 1.6342e-4 while every independently assembled balance certificate
+# remained below 2e-8.  A tighter inner Newton gate was rejected because it
+# selects a different low-occupation branch at T=0.14 K.  Keep the measured
+# wider limits restricted to Windows/Linux comparisons; the absolute loss
+# floor still covers only the numerically tiny T=0.06 K tail.
+QP_LOSS_REGRESSION_RTOL = 4e-3
+QP_LOSS_REGRESSION_ATOL = 2e-19
+Q_TOTAL_REGRESSION_RTOL = 1e-4
+QP_LOSS_CROSS_PLATFORM_RTOL = 8e-3
+Q_TOTAL_CROSS_PLATFORM_RTOL = 2e-4
+
+
+def fig7_regression_tolerances(
+    generator_platform: str,
+    *,
+    running_system: str | None = None,
+) -> tuple[float, float]:
+    """Return ``(QP-loss rtol, Q_tot rtol)`` for a pinned comparison.
+
+    ``generator_platform`` is the full :func:`platform.platform` record stored
+    in the baseline.  Comparing only its operating-system prefix keeps
+    same-system reruns strict without pretending that Windows and Linux
+    floating-point solver paths are interchangeable at the same tolerance.
+    The wider envelope is limited to that measured OS pair; unmeasured pairs
+    retain the strict limits.
+    """
+    current_system = platform.system() if running_system is None else running_system
+    pinned_system = generator_platform.split("-", maxsplit=1)[0]
+    if pinned_system == "macOS":
+        pinned_system = "Darwin"
+    measured_pair = {pinned_system, current_system} == {"Windows", "Linux"}
+    if measured_pair:
+        return QP_LOSS_CROSS_PLATFORM_RTOL, Q_TOTAL_CROSS_PLATFORM_RTOL
+    return QP_LOSS_REGRESSION_RTOL, Q_TOTAL_REGRESSION_RTOL
+
 
 @dataclass(frozen=True)
 class Fig7PaperResult:
@@ -89,12 +135,143 @@ class Fig7PaperResult:
     Q_qp_by_dbm: dict[float, np.ndarray]
     Q_tot_by_dbm: dict[float, np.ndarray]
     sigma1_by_dbm: dict[float, np.ndarray]
+    qp_residual_inf: np.ndarray
+    qp_backward_error: np.ndarray
+    phonon_residual_inf: np.ndarray
+    phonon_raw_backward_error: np.ndarray
+    phonon_backward_error: np.ndarray
+
+
+def solve_contract_digest() -> str:
+    """Content digest for a portable Fig. 7 reproduction report.
+
+    The disk cache already keys on the same ingredients.  Exposing one digest
+    here lets an uncached cross-platform run state exactly which solver tree,
+    Fig. 7 driver, and independent certificate implementation it exercised.
+    """
+    digest = hashlib.sha256()
+    ingredients = (
+        ("qpsim", sweep_cache.solve_source_digest()),
+        ("solve_source_digest", inspect.getsource(sweep_cache.solve_source_digest)),
+        (
+            "canonical_source_bytes",
+            inspect.getsource(source_provenance.canonical_source_bytes),
+        ),
+        ("fig7_solve", inspect.getsource(fig7_solve)),
+        ("certificate", inspect.getsource(certificate_module)),
+    )
+    for label, source in ingredients:
+        digest.update(label.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def reproduction_provenance() -> dict[str, object]:
+    """Return environment + source provenance for an uncached reproduction."""
+    import scipy
+
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+        "numpy": np.__version__,
+        "scipy": scipy.__version__,
+        "blas_threads": {
+            name: os.environ.get(name)
+            for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")
+        },
+        "solve_contract_digest": solve_contract_digest(),
+        "solver_fingerprint": solver_fingerprint(),
+        "temperatures": list(T_BATH_VALUES),
+        "powers_dbm": list(P_READ_DBM),
+    }
 
 
 def _parallel_quality_factor(Q_qp: float, Q_ext: float) -> float:
     if not np.isfinite(Q_qp):
         return float(Q_ext)
     return float(1.0 / (1.0 / Q_qp + 1.0 / Q_ext))
+
+
+def _validated_raw_payload(
+    raw: Mapping[str, np.ndarray],
+) -> tuple[np.ndarray, tuple[float, ...], np.ndarray, int, np.ndarray, dict[str, np.ndarray]]:
+    """Validate an uncached or disk-cached solve before deriving observables."""
+    required = {
+        "f_solved",
+        "temperatures",
+        "powers_dbm",
+        "n_bar",
+        "num_bins",
+        *certificate_module.CERTIFICATE_FIELDS,
+    }
+    missing = sorted(required.difference(raw))
+    if missing:
+        raise ValueError(f"Fig. 7 raw solve payload is missing fields {missing}.")
+
+    num_bins_raw = np.asarray(raw["num_bins"])
+    if num_bins_raw.shape != (1,):
+        raise ValueError(
+            "Fig. 7 raw num_bins must have exact shape (1,); "
+            f"got {num_bins_raw.shape}."
+        )
+    num_bins_value = num_bins_raw[0]
+    if (
+        isinstance(num_bins_value, (bool, np.bool_))
+        or not np.isfinite(num_bins_value)
+        or float(num_bins_value) != int(num_bins_value)
+    ):
+        raise ValueError("Fig. 7 raw num_bins must contain one finite integer.")
+
+    T_values, powers_array, num_bins = _validated_sweep_request(
+        np.asarray(raw["temperatures"], dtype=float),  # type: ignore[arg-type]
+        np.asarray(raw["powers_dbm"], dtype=float),  # type: ignore[arg-type]
+        int(num_bins_value),
+    )
+    powers = tuple(float(power) for power in powers_array)
+    n_bar = np.asarray(raw["n_bar"], dtype=float)
+    if n_bar.shape != powers_array.shape or np.any(~np.isfinite(n_bar)) or np.any(n_bar < 0.0):
+        raise ValueError(
+            "Fig. 7 raw n_bar must be finite, non-negative, and match the power axis."
+        )
+    expected_n_bar = np.asarray([_nbar_from_table_iii(power) for power in powers])
+    if not np.allclose(n_bar, expected_n_bar, rtol=1e-14, atol=0.0):
+        raise ValueError("Fig. 7 raw n_bar is inconsistent with the Table-III power axis.")
+
+    f_solved = np.asarray(raw["f_solved"], dtype=float)
+    expected_f_shape = (len(powers), T_values.size, num_bins)
+    if f_solved.shape != expected_f_shape:
+        raise ValueError(
+            f"Fig. 7 raw f_solved has shape {f_solved.shape}; "
+            f"expected {expected_f_shape}."
+        )
+    if np.any(~np.isfinite(f_solved)) or np.any((f_solved < 0.0) | (f_solved > 1.0)):
+        raise ValueError("Fig. 7 raw f_solved must contain finite occupations in [0, 1].")
+
+    certificate_shape = (len(powers), T_values.size)
+    certificate_arrays = {
+        field: np.asarray(raw[field], dtype=float)
+        for field in certificate_module.CERTIFICATE_FIELDS
+    }
+    for field, values in certificate_arrays.items():
+        if values.shape != certificate_shape:
+            raise ValueError(
+                f"Fig. 7 certificate field {field!r} has shape {values.shape}; "
+                f"expected {certificate_shape}."
+            )
+        if np.any(~np.isfinite(values)) or np.any(values < 0.0):
+            raise ValueError(
+                f"Fig. 7 certificate field {field!r} must be finite and non-negative."
+            )
+    for field in _CERTIFIED_BACKWARD_ERROR_FIELDS:
+        if np.any(certificate_arrays[field] > TARGET_BACKWARD_ERROR_LIMIT):
+            raise ValueError(
+                f"Fig. 7 raw certificate field {field!r} exceeds "
+                f"{TARGET_BACKWARD_ERROR_LIMIT:g}."
+            )
+    return T_values, powers, n_bar, num_bins, f_solved, certificate_arrays
 
 
 def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
@@ -105,11 +282,9 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
     (power, T_bath) point. A pure function of ``raw`` — this is what the cache
     leaves uncached, so editing it never triggers a re-solve.
     """
-    T_values = np.asarray(raw["temperatures"], dtype=float)
-    powers = tuple(float(p) for p in raw["powers_dbm"])
-    n_bar = np.asarray(raw["n_bar"], dtype=float)
-    num_bins = int(np.asarray(raw["num_bins"]).reshape(-1)[0])
-    f_solved = np.asarray(raw["f_solved"], dtype=float)
+    T_values, powers, n_bar, num_bins, f_solved, certificate_arrays = (
+        _validated_raw_payload(raw)
+    )
 
     spectral, _omega = _build_grid(num_bins)
 
@@ -137,6 +312,13 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
         Q_qp_by_dbm=Q_qp_by_dbm,
         Q_tot_by_dbm=Q_tot_by_dbm,
         sigma1_by_dbm=sigma1_by_dbm,
+        qp_residual_inf=certificate_arrays["qp_residual_inf"],
+        qp_backward_error=certificate_arrays["qp_backward_error"],
+        phonon_residual_inf=certificate_arrays["phonon_residual_inf"],
+        phonon_raw_backward_error=certificate_arrays[
+            "phonon_raw_backward_error"
+        ],
+        phonon_backward_error=certificate_arrays["phonon_backward_error"],
     )
 
 
@@ -183,7 +365,13 @@ def run_cached(
         ),
         fingerprint=solver_fingerprint(num_bins=num_bins),
         kwargs=kwargs,
-        extra_source=inspect.getsource(fig7_solve),
+        # The raw payload now includes independently reassembled balance
+        # certificates. Their helper lives outside qpsim/ and fig7_solve, so it
+        # must participate explicitly in cache invalidation.
+        extra_source=(
+            inspect.getsource(fig7_solve)
+            + inspect.getsource(certificate_module)
+        ),
     )
     return observables(raw)
 
@@ -200,6 +388,30 @@ def plot_path() -> Path:
 _GRID_NE_RE = re.compile(r"NE=(\d+)")
 _E_MIN_RE = re.compile(r"E_min=([\deE.+-]+)\*Delta")
 _E_MAX_RE = re.compile(r"E_max=([\deE.+-]+)\*Delta")
+_CERTIFICATE_VERSION_RE = re.compile(r"certificate_metric_version='([^']*)'")
+_CERTIFICATE_LIMIT_RE = re.compile(
+    r"target_backward_error_limit=([\deE.+-]+)"
+)
+_SOLVE_CONTRACT_RE = re.compile(r"solve_contract_digest=([0-9a-f]{64})")
+_GENERATOR_RE = {
+    "platform": re.compile(r"generator_platform='([^']*)'"),
+    "python": re.compile(r"generator_python='([^']*)'"),
+    "numpy": re.compile(r"generator_numpy='([^']*)'"),
+    "scipy": re.compile(r"generator_scipy='([^']*)'"),
+}
+_BASELINE_COLUMNS = (
+    "T_bath_K",
+    "P_read_dbm",
+    "n_bar",
+    "Q_qp",
+    "Q_tot",
+    "sigma1",
+    *certificate_module.CERTIFICATE_FIELDS,
+)
+_CERTIFIED_BACKWARD_ERROR_FIELDS = (
+    "qp_backward_error",
+    "phonon_backward_error",
+)
 _HEADER_PARAM_RE = {
     "delta_0": re.compile(r"Delta_0=([\deE.+-]+)"),
     "tau_0": re.compile(r"tau_0=([\deE.+-]+)"),
@@ -212,21 +424,165 @@ _HEADER_PARAM_RE = {
 }
 
 
+@contextmanager
+def _atomic_text_file(path: Path) -> Iterator[TextIO]:
+    """Yield a same-directory temporary file and replace ``path`` on success."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as stream:
+            yield stream
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _validate_certificate_arrays(
+    result: Fig7PaperResult,
+    *,
+    context: str,
+) -> None:
+    """Reject incomplete or failed persisted steady-state certificates."""
+    expected_shape = (len(result.p_read_dbm), result.T_bath.size)
+    for field in certificate_module.CERTIFICATE_FIELDS:
+        values = np.asarray(getattr(result, field), dtype=float)
+        if values.shape != expected_shape:
+            raise RuntimeError(
+                f"{context} certificate field {field!r} has shape "
+                f"{values.shape}; expected {expected_shape}."
+            )
+        if not np.all(np.isfinite(values)) or np.any(values < 0.0):
+            raise RuntimeError(
+                f"{context} certificate field {field!r} must contain only "
+                "finite non-negative values."
+            )
+    for field in _CERTIFIED_BACKWARD_ERROR_FIELDS:
+        maximum = float(np.max(np.asarray(getattr(result, field), dtype=float)))
+        if maximum > TARGET_BACKWARD_ERROR_LIMIT:
+            raise RuntimeError(
+                f"{context} certificate field {field!r} has maximum "
+                f"{maximum:.17g}, above target "
+                f"{TARGET_BACKWARD_ERROR_LIMIT:.17g}."
+            )
+
+
+def _validate_result_for_artifact(result: Fig7PaperResult) -> None:
+    """Validate the rectangular, finite Fig. 7 payload before serialization."""
+    temperatures = np.asarray(result.T_bath, dtype=float)
+    if temperatures.ndim != 1 or temperatures.size == 0:
+        raise RuntimeError("Fig. 7 artifact temperatures must be a non-empty 1-D array.")
+    if (
+        not np.all(np.isfinite(temperatures))
+        or np.any(temperatures <= 0.0)
+        or np.unique(temperatures).size != temperatures.size
+    ):
+        raise RuntimeError("Fig. 7 artifact temperatures must be finite, positive, and unique.")
+    powers = np.asarray(result.p_read_dbm, dtype=float)
+    if powers.ndim != 1 or powers.size == 0:
+        raise RuntimeError("Fig. 7 artifact powers must be a non-empty 1-D tuple.")
+    if not np.all(np.isfinite(powers)) or np.unique(powers).size != powers.size:
+        raise RuntimeError("Fig. 7 artifact powers must be finite and unique.")
+    unsupported = sorted({float(power) for power in powers} - set(Q_EXT_BY_DBM))
+    if unsupported:
+        raise RuntimeError(
+            f"Fig. 7 artifact contains unsupported readout powers {unsupported}."
+        )
+
+    expected_keys = set(result.p_read_dbm)
+    for name, mapping in (
+        ("n_bar", result.n_bar_by_dbm),
+        ("Q_qp", result.Q_qp_by_dbm),
+        ("Q_tot", result.Q_tot_by_dbm),
+        ("sigma1", result.sigma1_by_dbm),
+    ):
+        if set(mapping) != expected_keys:
+            raise RuntimeError(
+                f"Fig. 7 artifact {name} power keys do not exactly match "
+                f"{result.p_read_dbm}."
+            )
+        for power in result.p_read_dbm:
+            values = np.asarray(mapping[power], dtype=float)
+            expected_shape = () if name == "n_bar" else temperatures.shape
+            if values.shape != expected_shape or not np.all(np.isfinite(values)):
+                raise RuntimeError(
+                    f"Fig. 7 artifact {name} at P={power:g} must have finite "
+                    f"shape {expected_shape}; got {values.shape}."
+                )
+            if name in {"n_bar", "Q_qp", "Q_tot"} and np.any(values <= 0.0):
+                raise RuntimeError(f"Fig. 7 artifact {name} at P={power:g} must be positive.")
+            if name == "sigma1" and np.any(values <= 0.0):
+                raise RuntimeError(f"Fig. 7 artifact sigma1 at P={power:g} must be positive.")
+
+    for power in result.p_read_dbm:
+        expected_n_bar = _nbar_from_table_iii(power)
+        if not np.isclose(
+            result.n_bar_by_dbm[power],
+            expected_n_bar,
+            rtol=1e-14,
+            atol=0.0,
+        ):
+            raise RuntimeError(
+                f"Fig. 7 artifact n_bar at P={power:g} is inconsistent with Table III."
+            )
+        expected_q_qp = (
+            np.pi
+            * DELTA_0
+            / (OMEGA_0 * ALPHA_KI * np.asarray(result.sigma1_by_dbm[power]))
+        )
+        if not np.allclose(
+            result.Q_qp_by_dbm[power],
+            expected_q_qp,
+            rtol=1e-14,
+            atol=0.0,
+        ):
+            raise RuntimeError(
+                f"Fig. 7 artifact Q_qp at P={power:g} is not bound to sigma1."
+            )
+        expected_q_tot = 1.0 / (
+            1.0 / expected_q_qp + 1.0 / Q_EXT_BY_DBM[power]
+        )
+        if not np.allclose(
+            result.Q_tot_by_dbm[power],
+            expected_q_tot,
+            rtol=1e-14,
+            atol=0.0,
+        ):
+            raise RuntimeError(
+                f"Fig. 7 artifact Q_tot at P={power:g} is not bound to Q_qp and Q_ext."
+            )
+    _validate_certificate_arrays(result, context="Fig. 7 artifact")
+
+
 def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
     if path is None:
         path = baseline_path()
+    _validate_result_for_artifact(result)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+    provenance = reproduction_provenance()
+    with _atomic_text_file(path) as fp:
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow(["# Fischer 2023 Fig. 7 paper-facing Q_i(T_B); pinned by qpsim"])
         writer.writerow([
-            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_0={OMEGA_0} "
+            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.17g} omega_0={OMEGA_0} "
             f"alpha={ALPHA_KI} c_phot={C_PHOT} tau_l={TAU_L} tau_0_pb={TAU_0_PB}"
         ])
         writer.writerow([f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"])
+        writer.writerow([
+            "# certificate_metric_version="
+            f"{certificate_module.CERTIFICATE_METRIC_VERSION!r} "
+            "target_backward_error_limit="
+            f"{TARGET_BACKWARD_ERROR_LIMIT}"
+        ])
+        writer.writerow([
+            "# solve_contract_digest="
+            f"{provenance['solve_contract_digest']} "
+            f"generator_platform={provenance['platform']!r} "
+            f"generator_python={provenance['python']!r} "
+            f"generator_numpy={provenance['numpy']!r} "
+            f"generator_scipy={provenance['scipy']!r}"
+        ])
         writer.writerow([f"# p_read_dbm={','.join(f'{p:g}' for p in result.p_read_dbm)}"])
-        writer.writerow(["T_bath_K", "P_read_dbm", "n_bar", "Q_qp", "Q_tot", "sigma1"])
-        for p in result.p_read_dbm:
+        writer.writerow(_BASELINE_COLUMNS)
+        for pi, p in enumerate(result.p_read_dbm):
             for i, T_bath in enumerate(result.T_bath):
                 writer.writerow([
                     f"{T_bath:.17e}",
@@ -235,6 +591,11 @@ def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
                     f"{result.Q_qp_by_dbm[p][i]:.17e}",
                     f"{result.Q_tot_by_dbm[p][i]:.17e}",
                     f"{result.sigma1_by_dbm[p][i]:.17e}",
+                    f"{result.qp_residual_inf[pi, i]:.17e}",
+                    f"{result.qp_backward_error[pi, i]:.17e}",
+                    f"{result.phonon_residual_inf[pi, i]:.17e}",
+                    f"{result.phonon_raw_backward_error[pi, i]:.17e}",
+                    f"{result.phonon_backward_error[pi, i]:.17e}",
                 ])
     return path
 
@@ -242,47 +603,147 @@ def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
 def read_baseline(path: Path | None = None) -> Fig7PaperResult:
     if path is None:
         path = baseline_path()
+    metadata = read_baseline_metadata(path)
+    if metadata.certificate_metric_version != certificate_module.CERTIFICATE_METRIC_VERSION:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} uses unsupported certificate metric "
+            f"{metadata.certificate_metric_version!r}; expected "
+            f"{certificate_module.CERTIFICATE_METRIC_VERSION!r}."
+        )
+    if metadata.target_backward_error_limit != TARGET_BACKWARD_ERROR_LIMIT:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} has certificate target "
+            f"{metadata.target_backward_error_limit:.17g}; expected "
+            f"{TARGET_BACKWARD_ERROR_LIMIT:.17g}."
+        )
     rows: list[list[float]] = []
     powers: list[float] = []
-    with path.open() as fp:
+    power_records = 0
+    columns: tuple[str, ...] | None = None
+    with path.open(encoding="utf-8") as fp:
         reader = csv.reader(fp)
         for line in reader:
             if not line:
                 continue
             first = line[0]
             if first.startswith("# p_read_dbm"):
-                powers = [float(x) for x in first.split("=", 1)[1].split(",")]
+                power_records += 1
+                if power_records != 1:
+                    raise RuntimeError(
+                        f"Fig. 7 baseline at {path} has duplicate power metadata."
+                    )
+                try:
+                    powers = [float(x) for x in first.split("=", 1)[1].split(",")]
+                except (IndexError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"Fig. 7 baseline at {path} has malformed power metadata."
+                    ) from exc
                 continue
-            if first.startswith("#") or first == "T_bath_K":
+            if first.startswith("#"):
                 continue
-            rows.append([float(x) for x in line])
+            if first == "T_bath_K":
+                current_columns = tuple(line)
+                if columns is not None:
+                    raise RuntimeError(
+                        f"Fig. 7 baseline at {path} has duplicate column headers."
+                    )
+                if current_columns != _BASELINE_COLUMNS:
+                    raise RuntimeError(
+                        f"Fig. 7 baseline at {path} has columns "
+                        f"{current_columns}; expected current certified schema "
+                        f"{_BASELINE_COLUMNS}."
+                    )
+                columns = current_columns
+                continue
+            if columns is None:
+                raise RuntimeError(
+                    f"Fig. 7 baseline at {path} has data before its column header."
+                )
+            if len(line) != len(_BASELINE_COLUMNS):
+                raise RuntimeError(
+                    f"Fig. 7 baseline row has {len(line)} columns; expected "
+                    f"the current {len(_BASELINE_COLUMNS)}-column certified schema."
+                )
+            try:
+                values = [float(x) for x in line]
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Fig. 7 baseline at {path} contains a non-numeric data row."
+                ) from exc
+            rows.append(values)
     if not powers:
         raise RuntimeError(f"Baseline at {path} missing '# p_read_dbm=' metadata.")
+    if columns is None:
+        raise RuntimeError(f"Fig. 7 baseline at {path} missing its column header.")
+    power_array = np.asarray(powers, dtype=float)
+    if not np.all(np.isfinite(power_array)) or np.unique(power_array).size != len(powers):
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} has non-finite or duplicate power metadata."
+        )
+    if not rows:
+        raise RuntimeError(f"Fig. 7 baseline at {path} contains no data rows.")
     data = np.array(rows, dtype=float)
+    if not np.all(np.isfinite(data)):
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} contains non-finite data or certificates."
+        )
     temps = np.unique(data[:, 0])
+    actual_keys = [(float(row[1]), float(row[0])) for row in data]
+    if len(set(actual_keys)) != len(actual_keys):
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} contains duplicate (P_read, T_bath) rows."
+        )
+    expected_keys = {(p, float(T)) for p in powers for T in temps}
+    if set(actual_keys) != expected_keys:
+        missing = sorted(expected_keys.difference(actual_keys))
+        extra = sorted(set(actual_keys).difference(expected_keys))
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} is not the exact Cartesian "
+            f"(P_read, T_bath) grid; missing={missing}, extra={extra}."
+        )
     p_tuple = tuple(powers)
     n_bar_by_dbm: dict[float, float] = {}
     Q_qp_by_dbm: dict[float, np.ndarray] = {}
     Q_tot_by_dbm: dict[float, np.ndarray] = {}
     sigma1_by_dbm: dict[float, np.ndarray] = {}
-    for p in p_tuple:
+    certificate_arrays = {
+        field: np.full((len(p_tuple), temps.size), np.nan, dtype=float)
+        for field in certificate_module.CERTIFICATE_FIELDS
+    }
+    for pi, p in enumerate(p_tuple):
         subset = data[data[:, 1] == p]
         if subset.shape[0] != temps.size:
             raise RuntimeError(f"Baseline has {subset.shape[0]} rows for P={p}, expected {temps.size}.")
         order = np.argsort(subset[:, 0])
         subset = subset[order]
+        if not np.all(subset[:, 2] == subset[0, 2]):
+            raise RuntimeError(
+                f"Fig. 7 baseline at {path} has inconsistent n_bar values "
+                f"for P={p:g}."
+            )
         n_bar_by_dbm[p] = float(subset[0, 2])
         Q_qp_by_dbm[p] = subset[:, 3]
         Q_tot_by_dbm[p] = subset[:, 4]
         sigma1_by_dbm[p] = subset[:, 5]
-    return Fig7PaperResult(
+        for field_index, field in enumerate(certificate_module.CERTIFICATE_FIELDS):
+            certificate_arrays[field][pi] = subset[:, 6 + field_index]
+    result = Fig7PaperResult(
         T_bath=temps,
         p_read_dbm=p_tuple,
         n_bar_by_dbm=n_bar_by_dbm,
         Q_qp_by_dbm=Q_qp_by_dbm,
         Q_tot_by_dbm=Q_tot_by_dbm,
         sigma1_by_dbm=sigma1_by_dbm,
+        qp_residual_inf=certificate_arrays["qp_residual_inf"],
+        qp_backward_error=certificate_arrays["qp_backward_error"],
+        phonon_residual_inf=certificate_arrays["phonon_residual_inf"],
+        phonon_raw_backward_error=certificate_arrays[
+            "phonon_raw_backward_error"
+        ],
+        phonon_backward_error=certificate_arrays["phonon_backward_error"],
     )
+    _validate_result_for_artifact(result)
+    return result
 
 
 @dataclass(frozen=True)
@@ -311,6 +772,17 @@ class BaselineMetadata:
     num_bins: int
     e_min_factor: float
     e_max_factor: float
+    certificate_metric_version: str
+    target_backward_error_limit: float
+    solve_contract_digest: str
+    generator_platform: str
+    generator_python: str
+    generator_numpy: str
+    generator_scipy: str
+
+
+class LegacyArtifactError(RuntimeError):
+    """A pre-provenance Fig. 7 pin that must not validate current code."""
 
 
 def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
@@ -322,7 +794,7 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     """
     if path is None:
         path = baseline_path()
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
 
     def _num(rx: re.Pattern[str], field: str) -> float:
         m = rx.search(text)
@@ -330,11 +802,39 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
             raise RuntimeError(
                 f"Baseline header at {path} missing {field} metadata."
             )
-        return float(m.group(1))
+        value = float(m.group(1))
+        if not np.isfinite(value):
+            raise RuntimeError(
+                f"Baseline header at {path} has non-finite {field} metadata."
+            )
+        return value
 
     ne_m = _GRID_NE_RE.search(text)
-    if ne_m is None:
-        raise RuntimeError(f"Baseline header at {path} missing NE metadata.")
+    versions = _CERTIFICATE_VERSION_RE.findall(text)
+    limits = _CERTIFICATE_LIMIT_RE.findall(text)
+    contracts = _SOLVE_CONTRACT_RE.findall(text)
+    if ne_m is None or len(versions) != 1 or len(limits) != 1:
+        raise RuntimeError(
+            f"Baseline header at {path} must contain NE and exactly one "
+            "certificate metric / target record."
+        )
+    if not contracts:
+        raise LegacyArtifactError(
+            f"Fig. 7 baseline at {path} predates solve-contract provenance."
+        )
+    if len(contracts) != 1:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} must contain exactly one solve-contract digest."
+        )
+    generator_values: dict[str, str] = {}
+    for field, pattern in _GENERATOR_RE.items():
+        values = pattern.findall(text)
+        if len(values) != 1 or not values[0]:
+            raise RuntimeError(
+                f"Fig. 7 baseline at {path} must contain exactly one non-empty "
+                f"generator_{field} record."
+            )
+        generator_values[field] = values[0]
     return BaselineMetadata(
         delta_0=_num(_HEADER_PARAM_RE["delta_0"], "Delta_0"),
         tau_0=_num(_HEADER_PARAM_RE["tau_0"], "tau_0"),
@@ -347,6 +847,16 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         num_bins=int(ne_m.group(1)),
         e_min_factor=_num(_E_MIN_RE, "E_min"),
         e_max_factor=_num(_E_MAX_RE, "E_max"),
+        certificate_metric_version=versions[0],
+        target_backward_error_limit=_num(
+            _CERTIFICATE_LIMIT_RE,
+            "target_backward_error_limit",
+        ),
+        solve_contract_digest=contracts[0],
+        generator_platform=generator_values["platform"],
+        generator_python=generator_values["python"],
+        generator_numpy=generator_values["numpy"],
+        generator_scipy=generator_values["scipy"],
     )
 
 
@@ -354,6 +864,7 @@ def config_metadata() -> BaselineMetadata:
     """Fingerprint the *current module config* would stamp into a fresh
     baseline header — pure constants, so effectively instant (Fig. 7's
     ``τ_l`` / ``τ_0^PB`` are fixed Table II/III scalars, not extracted)."""
+    provenance = reproduction_provenance()
     return BaselineMetadata(
         delta_0=DELTA_0,
         tau_0=TAU_0,
@@ -366,6 +877,15 @@ def config_metadata() -> BaselineMetadata:
         num_bins=NUM_BINS,
         e_min_factor=E_MIN_FACTOR,
         e_max_factor=E_MAX_FACTOR,
+        certificate_metric_version=(
+            certificate_module.CERTIFICATE_METRIC_VERSION
+        ),
+        target_backward_error_limit=TARGET_BACKWARD_ERROR_LIMIT,
+        solve_contract_digest=str(provenance["solve_contract_digest"]),
+        generator_platform=str(provenance["platform"]),
+        generator_python=str(provenance["python"]),
+        generator_numpy=str(provenance["numpy"]),
+        generator_scipy=str(provenance["scipy"]),
     )
 
 
@@ -436,8 +956,13 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
     ax.grid(True, which="both", ls=":", alpha=0.4)
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        fig.savefig(temporary, format=path.suffix.removeprefix("."))
+        temporary.replace(path)
+    finally:
+        plt.close(fig)
+        temporary.unlink(missing_ok=True)
     return path
 
 

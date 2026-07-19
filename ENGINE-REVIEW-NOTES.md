@@ -1,9 +1,37 @@
 # Engine review — integration notes
 
-Branch `fix/gpt-review-engine` (base: `main`). This is the **code half** of a
-10-finding review; the **paper half** is on `fix/gpt-review-2026-07-05`. The two
-change sets are independent. Everything here is verified: `ruff check .`,
-`mypy qpsim`, and the touched-code tests pass (see "Reproduce green" below).
+This file began as historical integration context for branch
+`fix/gpt-review-engine`. Current code-audit work is on
+`codex/qpsim-deep-audit-fixes`; the dated counts below remain historical and
+must not be read as results for later follow-up edits.
+
+## 2026-07-18 numerical-audit correction
+
+- Fig. 5's tested forward/reverse split at `T_star/Delta=0.60` is not evidence
+  of a physical branch ambiguity. Tightening inner Newton backward error to
+  `1e-10` brings direct/forward/reverse `NE=1620` values within `0.046%`. The legacy pin remains
+  quarantined pending full tight-contract regeneration/refinement.
+- Fig. 6's measured production-row times sum to `21726.6965 s` (`6.04 h`)
+  serial, versus `7599.292171 s` (`2.11 h`) concurrent; the old 14-hour estimate
+  below is superseded. More importantly, the default self-consistent observable
+  is tighter than its accepted gap-map state justifies. The repaired fixed-gap/
+  direct path has a strictly certified full-grid point, but its corrected
+  low-drive observable is negative and no full canonical exists, so the old
+  wrapper is not closure.
+- Figs. 9--13 remains quarantined through an aligned `NE=6480`, `-100 dBm`
+  point (`4.44368%` rung). Observable variants and an overlap-aware photon
+  prototype do not justify rewriting the photon operator.
+- The self-consistent diffusion-feedback benchmark now represents the direct
+  gap closure down to its `0.5*Delta_0` floor. Its seed is calibrated at the
+  requested fixed point, and the raw map raises if it does not converge within
+  64 iterations instead of returning a truncated or unconverged well. Its
+  intentional guard plateau uses fixed edge-node reconstruction, so the
+  advertised 10% default well no longer loses its root at a cell-face stencil
+  jump; analytic drift ignores zero-capacity cells just as transport does.
+- Fischer 2023 Fig. 5/6 and all four Fischer 2024 generators keep executable
+  console, exception, and CLI-help text ASCII-safe, so a long Windows CP1252 run
+  cannot finish a solve and then fail while reporting it. Source-level AST
+  regressions guard those paths without constraining plot typography.
 
 ## Slow-validation integration gate
 
@@ -27,7 +55,7 @@ to make that step safe for pull requests:
    knees, ordering, and scales agree qualitatively.
 
 3. **The full Fig. 6 sweep is now `manual_slow`.** Pull-request CI runs
-   `pytest -m "slow and not manual_slow"`, so the roughly 14-hour full-resolution
+   `pytest -m "slow and not manual_slow"`, so the measured roughly 6.04-hour serial full-resolution
    regression cannot stall the gate. The automated slow step has a 180-minute
    timeout. Fig. 6 remains runnable explicitly with
    `pytest -m "slow and manual_slow" validation/fischer_2023/test_fig6_paper.py`.
@@ -35,10 +63,14 @@ to make that step safe for pull requests:
 The authors' source in `PhysApplPaper_Figure_6/examples/Figure_6.py` uses a fixed
 kinetic gap, ten coupled Newton iterations, and evaluates the driven gap directly
 from the converged quasiparticle distribution. qpsim's `--direct-gap` path encodes
-those semantics and is fast on a reduced grid, but it does not yet reproduce the
-published high-drive turnover reliably. Replacing the current self-consistent-gap
-baseline therefore remains follow-up physics/numerics work, separate from merging
-the engine fixes.
+those semantics. Guard-cell-invariant edge reconstruction, a narrowly scoped
+strict Picard fallback, paired mode flags, and signed-observable retention now
+make that path runnable and certified at the diagnosed full-grid point. Its
+corrected negative low-drive value remains a paper-parity/refinement warning; a
+complete direct-gap campaign is required before replacing the tolerance-limited
+self-consistent-gap baseline.
+Direct-mode generation now derives `_direct` CSV/PDF paths from its public
+arguments, so programmatic use is as no-clobber-safe as the CLI.
 
 ## Original engine change set (13 files, all verified)
 

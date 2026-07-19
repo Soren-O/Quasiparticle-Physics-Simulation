@@ -67,6 +67,18 @@ DT = 0.1            # ns
 TOTAL_TIME = 120.0  # ns  — resolves the τ_0 = 63 ns timescale
 SNAPSHOT_INTERVAL = 6.0  # ns  →  21 snapshots including t=0
 
+# Artifact provenance is intentionally embedded in both output formats.  The
+# 2026-07-16 numerical-software audit replaced point-DOS midpoint collision
+# quadrature with the matched finite-volume BCS capacity used by observables
+# and ETD balance.  The canonical dt=0.1 ns trajectory was qualified against
+# dt=0.2 and 0.05 ns runs before this pin was regenerated.
+BASELINE_PROVENANCE = (
+    "2026-07-16 qpsim numerical-software audit; matched finite-volume BCS "
+    "cell_weights/cell_density collision measure; adaptive-ETD driver-step "
+    "qualification at dt=0.2/0.1/0.05 ns bounded canonical 0.1-vs-0.05 "
+    "differences by 2.56e-11 in f and 5.89e-12 in x_qp"
+)
+
 
 @dataclass(frozen=True)
 class PhotonKickResult:
@@ -186,7 +198,7 @@ def read_baseline(path: Path | None = None) -> PhotonKickBaseline:
     x_qp_ss = float("nan")
     header: list[str] | None = None
     rows: list[list[float]] = []
-    with path.open(newline="") as fp:
+    with path.open(encoding="utf-8", newline="") as fp:
         for record in csv.reader(fp):
             if not record:
                 continue
@@ -221,8 +233,10 @@ def write_baseline(result: PhotonKickResult, path: Path | None = None) -> Path:
     if path is None:
         path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
+    with path.open("w", encoding="utf-8", newline="") as fp:
+        # Pin LF explicitly so regenerated numerical artifacts are
+        # cross-platform diff-clean instead of acquiring Windows CRLF rows.
+        writer = csv.writer(fp, lineterminator="\n")
         writer.writerow(["# Photon-kick response — qpsim transient-driver demo"])
         writer.writerow([
             f"# Delta_0={DELTA_0} tau_0={TAU_0} T_bath={T_BATH} "
@@ -232,6 +246,7 @@ def write_baseline(result: PhotonKickResult, path: Path | None = None) -> Path:
             f"# dt={DT} ns  total_time={TOTAL_TIME} ns  "
             f"snapshot_interval={SNAPSHOT_INTERVAL} ns"
         ])
+        writer.writerow([f"# provenance={BASELINE_PROVENANCE}"])
         writer.writerow([
             f"# x_qp_steady_state={result.x_qp_steady_state:.17e}"
         ])
@@ -323,8 +338,22 @@ def write_plot(result: PhotonKickResult, path: Path | None = None) -> Path:
     ax_x.grid(True, which="both", ls=":", alpha=0.3)
     ax_x.legend(fontsize=8, loc="lower right")
 
-    fig.tight_layout()
-    fig.savefig(path)
+    fig.text(
+        0.5,
+        0.004,
+        f"Provenance: {BASELINE_PROVENANCE}",
+        ha="center",
+        va="bottom",
+        fontsize=5.5,
+    )
+    fig.tight_layout(rect=(0.0, 0.025, 1.0, 1.0))
+    fig.savefig(
+        path,
+        metadata={
+            "Title": "qpsim transient photon-kick response",
+            "Subject": BASELINE_PROVENANCE,
+        },
+    )
     plt.close(fig)
     return path
 

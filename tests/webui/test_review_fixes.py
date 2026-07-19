@@ -268,7 +268,9 @@ class TestDiagnosticsNeverSinkARun:
         # The solve itself survived: arrays and primary observables present.
         assert "f" in payload.arrays
         assert payload.summary["x_qp"] > 0.0
-        assert "delta_eq_ueV" not in payload.summary
+        assert "delta_eq_ueV" in payload.summary
+        assert "delta_suppression_ueV" not in payload.summary
+        assert "rel_gap_suppression" not in payload.summary
         assert any("synthetic diagnostic failure" in n for n in payload.notes)
 
 

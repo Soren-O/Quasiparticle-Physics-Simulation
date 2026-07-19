@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import (
     SpectralContext,
     bcs_anomalous_weight,
@@ -160,14 +161,14 @@ class TestSpectralContext:
 
     def test_rebuild_skipped_within_tolerance(self) -> None:
         E = np.linspace(1.01, 5.0, 10)
-        dE = np.full_like(E, 0.4)
+        dE = np.full_like(E, E[1] - E[0])
         ctx = SpectralContext(E, dE, gap=1.0, rebuild_tolerance=1e-3)
         assert not ctx.maybe_rebuild(1.0 + 1e-6)
         assert ctx.gap == 1.0
 
     def test_rebuild_triggered_outside_tolerance(self) -> None:
         E = np.linspace(1.01, 5.0, 10)
-        dE = np.full_like(E, 0.4)
+        dE = np.full_like(E, E[1] - E[0])
         ctx = SpectralContext(E, dE, gap=1.0, rebuild_tolerance=1e-3)
         assert ctx.maybe_rebuild(2.0)
         assert ctx.gap == 2.0
@@ -175,53 +176,81 @@ class TestSpectralContext:
     def test_diffusion_coefficient_legacy_form(self) -> None:
         # D(E) = D₀ √(1 − (Δ/E)²)
         E = np.array([2.0, 5.0])
-        dE = np.array([1.0, 1.0])
+        dE = np.array([3.0, 3.0])
         ctx = SpectralContext(E, dE, gap=1.0, diffusion_coefficient=1.0)
         expected = np.sqrt(1.0 - (1.0 / E) ** 2)
         np.testing.assert_allclose(ctx.D_E, expected)
 
     def test_diffusion_coefficient_zero_when_D0_zero(self) -> None:
         E = np.array([2.0, 5.0])
-        dE = np.array([1.0, 1.0])
+        dE = np.array([3.0, 3.0])
         ctx = SpectralContext(E, dE, gap=1.0, diffusion_coefficient=0.0)
         np.testing.assert_allclose(ctx.D_E, 0.0)
 
     def test_active_mask(self) -> None:
-        # Uniform grid: first-above-gap dE = mean dE = 0.5, so
-        # epsilon = 0.1 · 0.5 = 0.05 and active mask = E ≥ 1.05.
+        # The first cell straddles the BCS gap despite its center being at it.
         E = np.array([1.0, 1.5, 2.0])
         dE = np.array([0.5, 0.5, 0.5])
         ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
+        assert ctx.active_mask.tolist() == [True, True, True]
+
+    def test_active_mask_never_excludes_supported_near_gap_bin(self) -> None:
+        # The former 0.1*dE margin excluded E=1.01 despite finite capacity.
+        E = np.array([0.91, 1.01, 1.11])
+        dE = np.array([0.1, 0.1, 0.1])
+        ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
+        np.testing.assert_array_equal(ctx.active_mask, ctx.cell_weights > 0.0)
         assert ctx.active_mask.tolist() == [False, True, True]
 
-    def test_active_mask_uses_local_dE_on_piecewise_grid(self) -> None:
-        # Piecewise grid: fine bins near the gap (dE=0.01), wide bins
-        # far from the gap (dE=10.0). Pre-Phase-5c the threshold used
-        # mean(dE) ≈ 5, which excluded the entire fine sub-band. The
-        # corrected epsilon uses the bin spacing local to the gap edge.
-        E = np.concatenate([
-            np.linspace(1.005, 1.04, 4),  # 4 fine bins near gap
-            np.linspace(11.0, 41.0, 4),   # 4 wide bins far from gap
-        ])
-        dE = np.array([0.01] * 4 + [10.0] * 4)
-        ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
-        # Local dE = dE of first bin > gap = 0.01.
-        # epsilon = 0.1 · 0.01 = 0.001, so active = E ≥ 1.001.
-        # All bins satisfy this: full active mask.
-        assert ctx.active_mask.tolist() == [True] * 8
+    def test_dynes_subgap_support_is_active(self) -> None:
+        E = np.array([0.5, 0.99, 1.01, 1.5])
+        dE = np.full(E.size, 0.25)
+        ctx = SpectralContext(E, dE, gap=1.0, dynes_gamma=0.01)
+        assert np.all(ctx.rho > 0.0)
+        assert np.all(ctx.active_mask)
 
-    def test_active_mask_immune_to_tiny_far_tail_bin(self) -> None:
-        # A tiny bin far from the gap must NOT shrink epsilon for
-        # near-gap bins (the bug a naïve global ``min(dE)`` would have
-        # introduced). Here the near-gap bin spacing is 0.5 and a
-        # 1e-4-wide bin lives at the far tail. Active threshold should
-        # still be set by the near-gap dE = 0.5, rejecting E=1.0.
-        E = np.array([1.0, 1.5, 2.0, 100.0, 100.0001])
-        dE = np.array([0.5, 0.5, 0.5, 100.0, 1e-4])
-        ctx = SpectralContext(E, dE, gap=1.0, active_margin_factor=0.1)
-        # epsilon = 0.1 · 0.5 = 0.05 (from first-above-gap bin),
-        # not 0.1 · 1e-4 = 1e-5 (which would mark E=1.0 as active).
-        assert ctx.active_mask.tolist() == [False, True, True, True, True]
+    def test_active_support_includes_cell_cut_by_gap_edge(self) -> None:
+        E = np.array([0.9, 1.3, 1.7])
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        finite_volume_support = bcs_dos_cell_weights(E, dE, gap=1.0) > 0.0
+
+        np.testing.assert_array_equal(ctx.active_mask, finite_volume_support)
+        assert ctx.rho[0] == 0.0
+        assert ctx.cell_weights[0] > 0.0
+        assert ctx.cell_density[0] == pytest.approx(
+            ctx.cell_weights[0] / ctx.dE[0]
+        )
+
+    def test_cut_cell_coherence_is_exact_product_measure_average(self) -> None:
+        E = np.array([0.9, 1.3, 1.7])
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        ratio = np.divide(
+            ctx.cell_anomalous_density,
+            ctx.cell_density,
+            out=np.zeros_like(E),
+            where=ctx.cell_density > 0.0,
+        )
+        product = ratio[:, None] * ratio[None, :]
+
+        np.testing.assert_allclose(ctx.K_plus, 1.0 + product)
+        np.testing.assert_allclose(ctx.K_minus, 1.0 - product)
+        assert ctx.K_minus[0, 1] > 0.0
+
+    def test_cell_measure_cache_is_read_only(self) -> None:
+        ctx = SpectralContext(
+            np.array([0.9, 1.3, 1.7]), np.full(3, 0.4), gap=1.0,
+        )
+        for values in (
+            ctx.cell_weights,
+            ctx.cell_density,
+            ctx.cell_anomalous_density,
+            ctx.active_mask,
+        ):
+            assert not values.flags.writeable
+            with pytest.raises(ValueError):
+                values[0] = 0.0
 
     def test_rejects_mismatched_grid_sizes(self) -> None:
         with pytest.raises(ValueError, match="same length"):
@@ -264,12 +293,22 @@ class TestSpectralContext:
         with pytest.raises(ValueError, match=message):
             SpectralContext(E_bins=E, dE_bins=dE, gap=0.5)
 
-    def test_rejects_grid_without_above_gap_support(self) -> None:
-        with pytest.raises(ValueError, match="at least one energy bin above gap"):
+    def test_last_cell_cut_by_gap_is_valid_without_above_gap_center(self) -> None:
+        ctx = SpectralContext(
+            E_bins=np.array([1.0, 2.0]),
+            dE_bins=np.ones(2),
+            gap=2.0,
+        )
+        np.testing.assert_array_equal(ctx.active_mask, [False, True])
+        assert ctx.rho[1] == 0.0
+        assert ctx.cell_weights[1] > 0.0
+
+    def test_rejects_grid_without_represented_spectral_capacity(self) -> None:
+        with pytest.raises(ValueError, match="positive represented spectral capacity"):
             SpectralContext(
                 E_bins=np.array([1.0, 2.0]),
                 dE_bins=np.ones(2),
-                gap=2.0,
+                gap=2.6,
             )
 
     @pytest.mark.parametrize(

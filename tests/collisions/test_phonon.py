@@ -16,6 +16,7 @@ from qpsim.collisions.phonon import (
     compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
+    phonon_source_sink_jacobian_f,
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -70,6 +71,31 @@ class TestDetailedBalance:
 
 
 class TestKernelBuilders:
+    def test_public_kernel_builders_reject_dynes_context(self) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        dynes = SpectralContext(
+            E_bins=ctx.E,
+            dE_bins=ctx.dE,
+            gap=ctx.gap,
+            dynes_gamma=0.1,
+        )
+
+        builders = (
+            lambda: build_scattering_kernel_base(dynes, tau_0=438.0, T_c=1.18),
+            lambda: build_recombination_kernel_base(
+                dynes, tau_0=438.0, T_c=1.18,
+            ),
+            lambda: build_scattering_kernel_phonon_side(
+                dynes, tau_0_pb_ns=0.255,
+            ),
+            lambda: build_recombination_kernel_phonon_side(
+                dynes, tau_0_pb_ns=0.255,
+            ),
+        )
+        for build in builders:
+            with pytest.raises(ValueError, match="dynes_gamma"):
+                build()
+
     def test_phonon_vs_photon_swaps_coherence(self) -> None:
         ctx, _, _, _, _ = _thermal_setup()
         K_s_phonon = build_scattering_kernel_base(
@@ -138,9 +164,9 @@ class TestPhononSidePairBreaking:
 
         common = (
             ctx.dE[target_idx]
-            * ctx.rho[source_idx]
+            * ctx.cell_density[source_idx]
             * f[source_idx]
-            * ctx.rho[target_idx]
+            * ctx.cell_density[target_idx]
         )
         np.testing.assert_allclose(
             a_legacy[omega_idx],
@@ -245,6 +271,122 @@ class TestPhononSidePairBreaking:
 
 
 class TestCollisionRates:
+    @pytest.mark.parametrize(
+        "bad_f",
+        [np.zeros(3), np.full(40, np.nan), np.full(40, -0.1), np.full(40, 1.1)],
+    )
+    def test_rejects_invalid_occupation(self, bad_f: np.ndarray) -> None:
+        ctx, _, K_s0, K_r0, T_bath = _thermal_setup()
+        with pytest.raises(ValueError, match=r"finite occupations|shape"):
+            phonon_collision_rates(bad_f, ctx, K_s0, K_r0, T_bath)
+
+    @pytest.mark.parametrize("bad_temperature", [-0.1, np.nan, np.inf])
+    def test_rejects_invalid_bath_temperature(self, bad_temperature: float) -> None:
+        ctx, f, K_s0, K_r0, _ = _thermal_setup()
+        with pytest.raises(ValueError, match="T_bath"):
+            phonon_collision_rates(f, ctx, K_s0, K_r0, bad_temperature)
+
+    def test_rejects_malformed_kernel_and_override_contracts(self) -> None:
+        ctx, f, K_s0, K_r0, T_bath = _thermal_setup()
+        with pytest.raises(ValueError, match="K_s0 must have shape"):
+            phonon_collision_rates(f, ctx, K_s0[:-1], K_r0, T_bath)
+        with pytest.raises(ValueError, match="supplied together"):
+            phonon_collision_rates(
+                f,
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                N_emit_override=np.ones_like(K_r0),
+            )
+        with pytest.raises(ValueError, match="N_p_override must have shape"):
+            phonon_collision_rates(
+                f,
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                N_p_override=np.ones(ctx.E.size),
+            )
+
+    def test_cut_cell_qp_and_phonon_event_measures_match(self) -> None:
+        # Cell 0 is cut by the gap and has rho(E_center)=0 but finite exact
+        # capacity.  For a zero-temperature phonon state, QP scattering energy
+        # loss must equal phonon energy creation under the matched line measure
+        # dE*rho_bar_i*rho_bar_j = w_i*w_j/dE.
+        E = np.arange(0.9, 3.0, 0.4)
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        f = np.zeros(E.size)
+        f[3] = 0.2
+        K_s0 = build_scattering_kernel_base(ctx, tau_0=1.0, T_c=1.2)
+        omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(E)
+        N_p, _N_emit, _N_abs = phonon_occupation_matrices_from_state(
+            np.zeros(omega.size), idx_diff, idx_sum, sign,
+        )
+
+        gain, loss = phonon_collision_rates(
+            f,
+            ctx,
+            K_s0,
+            None,
+            T_bath=0.0,
+            enable_recombination=False,
+            N_p_override=N_p,
+        )
+        a_ph, _b_ph = compute_phonon_source_sink(
+            f,
+            ctx,
+            K_s0,
+            None,
+            idx_diff,
+            idx_sum,
+            sign,
+            omega.size,
+            enable_recombination=False,
+        )
+        qp_energy_rate = float(ctx.cell_weights @ (E * (gain - loss * f)))
+        phonon_energy_rate = float(dE[0] * (omega @ a_ph))
+
+        assert float(ctx.cell_weights @ (gain - loss * f)) == pytest.approx(
+            0.0, abs=1e-20,
+        )
+        assert qp_energy_rate + phonon_energy_rate == pytest.approx(
+            0.0, abs=1e-20,
+        )
+
+    def test_cut_cell_source_jacobian_matches_finite_difference(self) -> None:
+        E = np.arange(0.9, 3.0, 0.4)
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        f = np.array([0.08, 0.12, 0.03, 0.20, 0.01, 0.15])
+        omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(E)
+        K_s0 = build_scattering_kernel_base(ctx, tau_0=1.0, T_c=1.2)
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=1.0, T_c=1.2)
+        da_df, db_df = phonon_source_sink_jacobian_f(
+            f, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+        )
+
+        h = 1e-7
+        da_fd = np.empty_like(da_df)
+        db_fd = np.empty_like(db_df)
+        for j in range(f.size):
+            up = f.copy()
+            down = f.copy()
+            up[j] += h
+            down[j] -= h
+            a_up, b_up = compute_phonon_source_sink(
+                up, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+            )
+            a_down, b_down = compute_phonon_source_sink(
+                down, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+            )
+            da_fd[:, j] = (a_up - a_down) / (2.0 * h)
+            db_fd[:, j] = (b_up - b_down) / (2.0 * h)
+
+        np.testing.assert_allclose(da_df, da_fd, rtol=2e-7, atol=2e-13)
+        np.testing.assert_allclose(db_df, db_fd, rtol=2e-7, atol=2e-13)
+
     def test_zero_f_gives_zero_gain(self) -> None:
         # With no quasiparticles, in-scattering is zero. The loss-rate
         # coefficient (rate at which a QP would scatter out if placed
@@ -280,6 +422,17 @@ class TestCollisionRates:
         )
         np.testing.assert_allclose(gain_ov, gain_ref)
         np.testing.assert_allclose(loss_ov, loss_ref)
+
+    def test_thermal_scattering_handles_sub_epsilon_spacing(self) -> None:
+        from qpsim.collisions.phonon import _thermal_phonon_scattering_occupation
+
+        E = np.array([2.0, np.nextafter(2.0, np.inf)])
+        occupation = _thermal_phonon_scattering_occupation(E, 1.0)
+        assert np.all(np.isfinite(occupation))
+        assert occupation[1, 0] > 1.0
+        assert occupation[0, 1] > 0.0
+        assert occupation[0, 0] == 0.0
+        assert occupation[1, 1] == 0.0
 
 
 class TestFrequencyMap:
@@ -377,6 +530,63 @@ class TestApplyPhononCollision:
         f_new = apply_phonon_collision(f, ctx, K_s0, K_r0, T_bath, dt=0.01)
         np.testing.assert_allclose(f_new, f, atol=1e-8)
 
+    def test_pure_bcs_subgap_storage_is_never_populated(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 0.75, 4.0, 80)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E, dE, gap)
+        K_s0 = build_scattering_kernel_base(ctx, tau_0=438.0, T_c=1.18)
+        f = np.zeros(E.size)
+        f[~ctx.active_mask] = 0.37
+        f[ctx.active_mask] = 0.01 * np.exp(
+            -((E[ctx.active_mask] / gap - 2.0) / 0.25) ** 2
+        )
+
+        gain, loss = phonon_collision_rates(
+            f,
+            ctx,
+            K_s0,
+            None,
+            T_bath=0.1,
+            enable_recombination=False,
+        )
+        np.testing.assert_array_equal(gain[~ctx.active_mask], 0.0)
+        np.testing.assert_array_equal(loss[~ctx.active_mask], 0.0)
+
+        f_new = apply_phonon_collision(
+            f,
+            ctx,
+            K_s0,
+            None,
+            T_bath=0.1,
+            dt=0.1,
+            enable_recombination=False,
+        )
+        np.testing.assert_array_equal(f_new[~ctx.active_mask], 0.37)
+
+    def test_stiff_scattering_step_preserves_finite_volume_mass(self) -> None:
+        gap = 180.0
+        E, _ = build_energy_grid(gap, 1.0, 20.0, 80)
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E, dE, gap)
+        K_s0 = build_scattering_kernel_base(ctx, tau_0=438.0, T_c=1.18)
+        f = np.full(E.size, 1.0e-3)
+        weights = ctx.cell_weights
+        initial_mass = float(weights @ f)
+
+        f_new = apply_phonon_collision(
+            f,
+            ctx,
+            K_s0,
+            None,
+            T_bath=0.1,
+            dt=0.1,
+            enable_recombination=False,
+        )
+
+        assert float(weights @ f_new) == pytest.approx(initial_mass, rel=2e-13)
+        assert np.all((f_new >= 0.0) & (f_new <= 1.0))
+
 
 class TestKaplanRecombinationNormalization:
     """Pin the absolute recombination normalization to Kaplan Eq. (8).
@@ -412,8 +622,8 @@ class TestKaplanRecombinationNormalization:
         # regression in either the rates or the builder prefactors
         # shows up as a ratio of 2.
         T_bath = 0.15
-        ctx, f_th, gap, tau_0, T_c, kT = self._grid_setup(T_bath)
-        E, dE = ctx.E, ctx.dE
+        ctx, f_th, _gap, tau_0, T_c, kT = self._grid_setup(T_bath)
+        E = ctx.E
         K_r0 = build_recombination_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
         _, loss = phonon_collision_rates(
             f_th, ctx, None, K_r0, T_bath,
@@ -422,15 +632,21 @@ class TestKaplanRecombinationNormalization:
         E_sum = E[:, None] + E[None, :]
         N_emit = 1.0 + 1.0 / (np.exp(np.minimum(E_sum / kT, 500.0)) - 1.0)
         kBTc = KB_UEV_PER_K * T_c
-        K_plus = 1.0 + gap**2 / (E[:, None] * E[None, :])
+        ratio = np.divide(
+            ctx.cell_anomalous_density,
+            ctx.cell_density,
+            out=np.zeros_like(E),
+            where=ctx.cell_density > 0.0,
+        )
+        K_plus = 1.0 + ratio[:, None] * ratio[None, :]
         kaplan = (E_sum / kBTc) ** 2 / kBTc / tau_0 * K_plus * N_emit
-        inv_tau_r = kaplan @ (ctx.rho * f_th * dE)
+        inv_tau_r = kaplan @ (ctx.cell_weights * f_th)
         np.testing.assert_allclose(loss, inv_tau_r, rtol=1e-12)
 
     def test_gain_is_pair_breaking_mirror(self) -> None:
         T_bath = 0.15
-        ctx, f_th, gap, tau_0, T_c, kT = self._grid_setup(T_bath)
-        E, dE = ctx.E, ctx.dE
+        ctx, f_th, _gap, tau_0, T_c, kT = self._grid_setup(T_bath)
+        E = ctx.E
         K_r0 = build_recombination_kernel_base(ctx, tau_0=tau_0, T_c=T_c)
         gain, _ = phonon_collision_rates(
             f_th, ctx, None, K_r0, T_bath,
@@ -439,9 +655,17 @@ class TestKaplanRecombinationNormalization:
         E_sum = E[:, None] + E[None, :]
         n_BE = 1.0 / (np.exp(np.minimum(E_sum / kT, 500.0)) - 1.0)
         kBTc = KB_UEV_PER_K * T_c
-        K_plus = 1.0 + gap**2 / (E[:, None] * E[None, :])
+        ratio = np.divide(
+            ctx.cell_anomalous_density,
+            ctx.cell_density,
+            out=np.zeros_like(E),
+            where=ctx.cell_density > 0.0,
+        )
+        K_plus = 1.0 + ratio[:, None] * ratio[None, :]
         kaplan = (E_sum / kBTc) ** 2 / kBTc / tau_0 * K_plus * n_BE
-        expected = (1.0 - f_th) * (kaplan @ (ctx.rho * (1.0 - f_th) * dE))
+        expected = (1.0 - f_th) * (
+            kaplan @ (ctx.cell_weights * (1.0 - f_th))
+        )
         np.testing.assert_allclose(gain, expected, rtol=1e-12)
 
     def test_edge_rate_matches_continuum_kaplan(self) -> None:
@@ -473,10 +697,10 @@ class TestKaplanRecombinationNormalization:
             enable_scattering=False, enable_recombination=True,
         )
         ratio = float(loss[0]) / inv_tau_r_exact
-        # The ±15% budget is the midpoint-vs-exact-cell discretization gap at the
-        # sqrt-singular gap edge (finding G1): the collision operator contracts
-        # with the midpoint measure ρ·dE, which converges only ~1/√NE against the
-        # exact continuum rate here. This is a TRACKED convergence budget, not an
-        # arbitrary tolerance — tighten it once the collision measure is unified
-        # with the exact observable weights (bcs_dos_cell_weights).
+        # Capacity and coherence are integrated exactly over the singular
+        # cells.  The remaining ~9% error on this deliberately broad grid is
+        # the ordinary mass-lumped quadrature of the smooth energy/frequency
+        # prefactor at cell centers (plus the finite upper-energy truncation).
+        # Keep a bounded continuum comparison in addition to the exact
+        # discrete-form tests above.
         assert 0.85 < ratio < 1.15

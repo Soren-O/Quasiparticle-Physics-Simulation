@@ -92,16 +92,66 @@ The scheme is an exactly-conservative finite-volume Crank–Nicolson step on
 the conserved density `u = N_1^p f` with harmonic-mean face weights
 `W = D_N N_1^q` and reflective (zero-flux) ends, so `Σ_x N_1^p f` is conserved
 per energy to round-off. `f = u / N_1^p` is recovered and clipped to `[0, 1]`.
+In these discrete expressions `N_1` is the exact represented cell-average
+DOS, `cell_weights / dE`, rather than the point value at the energy-cell
+center. For `q = 0`, a cell cut by the gap uses the exact above-gap support
+fraction for `D_L`; a cell with only partial support does not receive a
+full-strength longitudinal flux.
+Because Crank–Nicolson is not L-stable, a single very stiff step can otherwise
+flip the sign of a decaying spatial mode and nearly swap a two-cell pulse. The
+backend conservatively subcycles each energy channel until
+`h max(exit_rate) <= 1`. The finite-volume generator satisfies
+`|lambda_max| <= 2 max(exit_rate)`, so every retained CN modal amplification
+is non-negative. This preserves positivity and damping without changing the
+second-order CN method; the final occupation clip is normally a round-off
+no-op and remains only as a fail-loud backstop.
 
 A spatially-varying gap is supplied via `gap_profile` (shape `(NX,)`); the DOS
 `N_1(E, x)` is then evaluated per cell. A finite `interface_conductance`
 `G_N` turns every face where the gap steps into a
 **Kupriyanov–Lukichev interface** carrying the energy-channel current
-`F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R)` (dx-independent,
-current-continuous, `f`-discontinuous) — the coherence-factor (Maki–Griffin)
-weight, regular at matched gaps; the bare DOS product `N_1 N_1'` belongs to
-the charge channel. Both only affect transport; the collision term still uses
-the scalar-gap `SpectralContext`.
+`F = G_N overline[(N_1^L N_1^R - N_2^L N_2^R)] (f_L - f_R)`
+(dx-independent, current-continuous, `f`-discontinuous). The overbar is the
+single energy-cell average of the complete coherence-factor product, not a
+product of separately averaged `N_1`/`N_2` values. This Maki–Griffin weight is
+regular at matched gaps; the bare DOS product `N_1 N_1'` belongs to the charge
+channel. Local collisions use the matching gap and spectral support in each
+region. Because an exact local-gap collision operator retains three dense
+`NE x NE` matrices, a two-entry LRU bounds retained kernels. One- and two-gap
+profiles advance in one batched ETD2 call; profiles with more distinct values
+stream one exact gap group at a time. Smooth `gap_profile` collisions therefore
+retain `O(NE**2)` resident kernel memory rather than `O(NX * NE**2)`, at the
+cost of building one operator per distinct gap.
+
+Collision capacity and support use the same exact cell-integrated BCS measure
+as transport. A finite-volume energy cell whose center lies below the gap but
+which straddles the edge therefore remains represented with its correct
+non-zero partial capacity.
+
+## Validation-oracle correction (July 2026)
+
+The numerical-software audit exposed five failures in the diffusion benchmark
+tests after the production finite-volume repairs. They were stale validation
+oracles, not evidence that transport should return to point sampling:
+
+1. `uniform_gap_packet` compared the measured rate with center-point DOS and
+   inverted one caller-visible CN step, although production uses represented
+   cell-average DOS and may take `m` internal CN substeps. Its reference now
+   uses `cell_weights / dE`, the exact above-gap support fraction for `q = 0`,
+   and the analytic `m`-substep inversion.
+2. `self_consistent_feedback` built its conserved-density COM and drift
+   prediction from center-point DOS. Both now use exact BCS cell weights, so
+   the oracle and transport act on the same finite-volume state.
+3. `interface_trap` multiplied separately cell-averaged `N_1` and `N_2` terms.
+   The correct KL coefficient is the single cell average of the complete
+   product `N_1^L N_1^R - N_2^L N_2^R`; an independent direct-energy
+   quadrature now supplies that reference, with a raw current-continuity gate.
+
+The two interface failures, two feedback-drift failures, and one uniform-packet
+failure were thereby resolved; all **14/14** tests in
+`validation/diffusion_operators/` passed in **209.10 s**. This establishes
+internal agreement with qpsim's declared finite-volume discretization. It does
+not establish agreement with a paper or experiment.
 
 ## §7.5 benchmarks
 
@@ -109,7 +159,8 @@ the scalar-gap `SpectralContext`.
 `python -m validation.diffusion_operators.<name>`; CSV + figure land in
 `outputs/diffusion_operators/`):
 
-1. **`uniform_gap_packet`** — the measured `D_eff(E)/D_N` traces `N_1^{q-p}`:
+1. **`uniform_gap_packet`** — the measured `D_eff(E)/D_N` traces the
+   finite-volume `N_1^{q-p}`:
    falling (A1 and C, identical curves), rising (A1P), flat (A2), steeply
    falling (B); `n_qp` conserved to ~1e-15.
 2. **`gap_gradient_drift`** — the COM drift velocity matches
@@ -118,9 +169,12 @@ the scalar-gap `SpectralContext`.
    and C/B (`q < 0`) drift *down* it.
 3. **`interface_trap`** — a two-gap Kupriyanov–Lukichev interface: current is
    continuous across it while `f` is discontinuous (jump = bulk current /
-   `G_N [N_1^L N_1^R - N_2^L N_2^R]`); a closed relaxation shows A1 and A2
+   the cell-averaged KL conductance); a closed relaxation shows A1 and A2
    reaching *distinct* equilibria (the `p` dressing the driven steady state
    cannot see).
+4. **`self_consistent_feedback`** — a heavy population digs a gap well through
+   the direct gap closure, and a weak probe's finite-volume conserved-density
+   COM follows the operator-family drift prediction on that realized well.
 
 ## Scope
 

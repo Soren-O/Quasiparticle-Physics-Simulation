@@ -107,10 +107,22 @@ class TestDeviceValidation:
 
 
 class TestSymmetricGapTunnelingJunction:
-    def test_rejects_negative_alpha(self) -> None:
-        with pytest.raises(ValueError, match="alpha_per_ns must be non-negative"):
+    @pytest.mark.parametrize("alpha", [-0.1, np.inf, np.nan])
+    def test_rejects_invalid_alpha(self, alpha: float) -> None:
+        with pytest.raises(ValueError, match="finite and non-negative"):
             SymmetricGapTunnelingJunction(
-                name="J", region_a="L", region_b="R", alpha_per_ns=-0.1,
+                name="J", region_a="L", region_b="R", alpha_per_ns=alpha,
+            )
+
+    @pytest.mark.parametrize("ratio", [0.0, -1.0, np.inf, np.nan])
+    def test_rejects_invalid_capacity_ratio(self, ratio: float) -> None:
+        with pytest.raises(ValueError, match="capacity_ratio_a_to_b"):
+            SymmetricGapTunnelingJunction(
+                name="J",
+                region_a="L",
+                region_b="R",
+                alpha_per_ns=0.1,
+                capacity_ratio_a_to_b=ratio,
             )
 
     def test_rejects_self_loop(self) -> None:
@@ -161,6 +173,49 @@ class TestSymmetricGapTunnelingJunction:
             atol=1e-15,
         )
 
+    def test_unequal_capacities_conserve_weighted_population(self) -> None:
+        state_a = _build_state(T_bath=0.1, num_energy=20)
+        state_b = _build_state(T_bath=0.1, num_energy=20)
+        state_a = T3DiffusionState(
+            f=np.full_like(state_a.f, 0.2),
+            gap=state_a.gap,
+            spectral=state_a.spectral,
+            phonon=state_a.phonon,
+            material=state_a.material,
+            T_bath=state_a.T_bath,
+        )
+        state_b = T3DiffusionState(
+            f=np.full_like(state_b.f, 0.8),
+            gap=state_b.gap,
+            spectral=state_b.spectral,
+            phonon=state_b.phonon,
+            material=state_b.material,
+            T_bath=state_b.T_bath,
+        )
+        capacity_ratio = 3.0
+        result = SymmetricGapTunnelingJunction(
+            name="J",
+            region_a="L",
+            region_b="R",
+            alpha_per_ns=0.04,
+            capacity_ratio_a_to_b=capacity_ratio,
+        ).evaluate(state_a, state_b)
+
+        rhs_a = (
+            result.external_flux_a.gain
+            - result.external_flux_a.loss_rate * state_a.f
+        )
+        rhs_b = (
+            result.external_flux_b.gain
+            - result.external_flux_b.loss_rate * state_b.f
+        )
+        # Set C_b = 1, hence C_a = capacity_ratio.  Conservation must hold
+        # independently in every matched energy bin.
+        np.testing.assert_allclose(capacity_ratio * rhs_a + rhs_b, 0.0, atol=1e-15)
+        assert result.external_flux_b.diagnostics["alpha_b_per_ns"] == pytest.approx(
+            0.12
+        )
+
     def test_evaluate_rejects_mismatched_E_grids(self) -> None:
         state_L = _build_state(T_bath=0.1, num_energy=20)
         state_R = _build_state(T_bath=0.1, num_energy=25)  # different
@@ -170,15 +225,64 @@ class TestSymmetricGapTunnelingJunction:
         with pytest.raises(ValueError, match="matching E grids"):
             junction.evaluate(state_L, state_R)
 
+    def test_evaluate_rejects_state_gap_spectral_mismatch(self) -> None:
+        state_a = _build_state(T_bath=0.1, num_energy=20)
+        state_b = _build_state(T_bath=0.1, num_energy=20)
+        state_b.gap *= 0.95
+        junction = SymmetricGapTunnelingJunction(
+            name="J", region_a="L", region_b="R", alpha_per_ns=0.01,
+        )
+
+        with pytest.raises(ValueError, match="public gap to match its spectral gap"):
+            junction.evaluate(state_a, state_b)
+
+    def test_evaluate_rejects_mismatched_cell_widths(self) -> None:
+        state_a = _build_state(T_bath=0.1, num_energy=20)
+        state_b = _build_state(T_bath=0.1, num_energy=20)
+        state_b.spectral = SpectralContext(
+            E_bins=state_b.spectral.E,
+            dE_bins=1.01 * state_b.spectral.dE,
+            gap=state_b.gap,
+        )
+        junction = SymmetricGapTunnelingJunction(
+            name="J", region_a="L", region_b="R", alpha_per_ns=0.01,
+        )
+
+        with pytest.raises(ValueError, match="cell widths"):
+            junction.evaluate(state_a, state_b)
+
+    def test_evaluate_rejects_mismatched_dynes_measure(self) -> None:
+        state_a = _build_state(T_bath=0.1, num_energy=20)
+        state_b = _build_state(T_bath=0.1, num_energy=20)
+        state_b.spectral = SpectralContext(
+            E_bins=state_b.spectral.E,
+            dE_bins=state_b.spectral.dE,
+            gap=state_b.gap,
+            dynes_gamma=0.1,
+        )
+        junction = SymmetricGapTunnelingJunction(
+            name="J", region_a="L", region_b="R", alpha_per_ns=0.01,
+        )
+
+        with pytest.raises(ValueError, match="identical Dynes broadening"):
+            junction.evaluate(state_a, state_b)
+
     def test_evaluate_rejects_mismatched_gaps(self) -> None:
         # The "symmetric gap" name is a contract — different gaps must
         # raise rather than silently produce wrong physics.
         state_L = _build_state(T_bath=0.1, num_energy=20)
-        # Manually craft a state with a different gap on the same E grid.
+        # Manually craft a coherent state with a different gap on the same E
+        # centers; the cross-region symmetric-gap contract must reject it.
+        gap_b = state_L.gap * 1.05
+        spectral_b = SpectralContext(
+            E_bins=state_L.spectral.E,
+            dE_bins=state_L.spectral.dE,
+            gap=gap_b,
+        )
         state_R_diff_gap = T3DiffusionState(
             f=state_L.f,
-            gap=state_L.gap * 1.05,  # 5% larger
-            spectral=state_L.spectral,
+            gap=gap_b,
+            spectral=spectral_b,
             phonon=state_L.phonon,
             material=state_L.material,
             T_bath=state_L.T_bath,

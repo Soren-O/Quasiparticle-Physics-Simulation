@@ -48,17 +48,20 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import numpy as np
 
+from validation.source_provenance import canonical_source_bytes, canonical_source_text
+
 # Bump to invalidate every existing entry on a key-schema / codec change.
-_FORMAT_VERSION = 1
+_FORMAT_VERSION = 2
 
 _ENV_ENABLE = "QPSIM_SWEEP_CACHE"
 _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
@@ -68,6 +71,26 @@ _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
 _OBSERVABLES_PKG = "observables"
 
 _DISABLED_VALUES = {"0", "false", "no", "off", ""}
+
+# Figure ids are logical namespaces (for example ``fischer_2023/fig7``), not
+# filesystem paths. Each namespace component and every content-addressed key
+# must therefore use a deliberately small, portable filename alphabet.
+_SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _is_safe_component(value: str) -> bool:
+    """Whether ``value`` is one portable, non-aliasing path component."""
+    stem = value.split(".", 1)[0].upper()
+    return bool(
+        _SAFE_COMPONENT.fullmatch(value)
+        and not value.endswith(".")
+        and stem not in _WINDOWS_RESERVED_NAMES
+    )
 
 
 def _repo_root() -> Path:
@@ -94,9 +117,10 @@ def default_cache_dir() -> Path:
 def solve_source_digest(qpsim_root: Path | None = None) -> str:
     """SHA-256 over all ``qpsim/**/*.py`` except the ``observables`` subpackage.
 
-    The relative path is folded in alongside each file's bytes so that moving or
-    renaming a module also changes the digest. Conservative by design: it hashes
-    the entire solver subtree rather than a per-figure import closure, trading a
+    The relative path is folded in alongside each file's newline-normalized
+    bytes so that moving or renaming a module also changes the digest while LF
+    versus CRLF checkout policy does not. Conservative by design: it hashes the
+    entire solver subtree rather than a per-figure import closure, trading a
     little over-invalidation for the guarantee that no solve-relevant edit is
     ever missed.
     """
@@ -112,7 +136,7 @@ def solve_source_digest(qpsim_root: Path | None = None) -> str:
         rel = p.relative_to(qpsim_root).as_posix()
         h.update(rel.encode())
         h.update(b"\0")
-        h.update(p.read_bytes())
+        h.update(canonical_source_bytes(p))
         h.update(b"\0")
     return h.hexdigest()
 
@@ -168,7 +192,8 @@ def cache_key(
     extra_source
         The figure's own solve-path source (e.g. ``inspect.getsource(solve)``
         joined with its helpers), so figure-side solver edits invalidate too —
-        while its plotting / observable code, omitted here, does not.
+        while its plotting / observable code, omitted here, does not. Source
+        newlines are normalized so checkout policy cannot change the key.
     qpsim_root
         Override the library root (tests point this at a temp tree).
     """
@@ -178,17 +203,71 @@ def cache_key(
         "fingerprint": _canonical(fingerprint),
         "kwargs": _canonical(kwargs),
         "solve_source": solve_source_digest(qpsim_root),
-        "extra_source": hashlib.sha256(extra_source.encode()).hexdigest(),
+        "extra_source": hashlib.sha256(
+            canonical_source_text(extra_source).encode()
+        ).hexdigest(),
         "versions": _lib_versions(),
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def _validate_figure_id(figure: str) -> str:
+    """Return a safe directory name for a logical figure identifier.
+
+    Forward slashes are supported only as the documented logical namespace
+    delimiter; they are encoded as ``__`` before any path is constructed.
+    That token is consequently reserved inside components so the encoding is
+    injective (``a/b`` must not alias a literal ``a__b`` namespace). Native
+    or foreign path syntax, empty components, and traversal are rejected.
+    """
+    if not figure or "\\" in figure:
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    if PurePosixPath(figure).is_absolute() or PureWindowsPath(figure).is_absolute():
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    parts = figure.split("/")
+    if any(not _is_safe_component(part) or "__" in part for part in parts):
+        raise ValueError(f"Unsafe sweep-cache figure id: {figure!r}")
+    return "__".join(parts)
+
+
+def _validate_key(key: str) -> str:
+    """Validate a cache key as one portable filename component."""
+    if not _is_safe_component(key):
+        raise ValueError(f"Unsafe sweep-cache key: {key!r}")
+    return key
+
+
+def _cache_root(cache_dir: Path) -> Path:
+    """Resolve the cache root without requiring it to exist yet."""
+    return cache_dir.expanduser().resolve(strict=False)
+
+
+def _contained_path(root: Path, candidate: Path) -> Path:
+    """Resolve ``candidate`` and prove that it is below ``root``."""
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Sweep-cache path escapes cache root: {candidate}") from exc
+    if resolved == root:
+        raise ValueError("Sweep-cache entry may not be the cache root itself")
+    return resolved
+
+
+def _figure_dir(cache_dir: Path, figure: str) -> Path:
+    root = _cache_root(cache_dir)
+    return _contained_path(root, root / _validate_figure_id(figure))
+
+
 def _entry_paths(cache_dir: Path, figure: str, key: str) -> tuple[Path, Path]:
-    safe_figure = figure.replace("/", "__")
-    d = cache_dir / safe_figure
-    return d / f"{key}.npz", d / f"{key}.meta.json"
+    root = _cache_root(cache_dir)
+    d = _figure_dir(root, figure)
+    safe_key = _validate_key(key)
+    return (
+        _contained_path(root, d / f"{safe_key}.npz"),
+        _contained_path(root, d / f"{safe_key}.meta.json"),
+    )
 
 
 def load(
@@ -227,6 +306,9 @@ def store(
     cache_dir = cache_dir or default_cache_dir()
     npz_path, meta_path = _entry_paths(cache_dir, figure, key)
     npz_path.parent.mkdir(parents=True, exist_ok=True)
+    # Re-resolve after mkdir so a pre-existing figure-directory symlink cannot
+    # redirect either file outside the configured cache root.
+    npz_path, meta_path = _entry_paths(cache_dir, figure, key)
 
     fd, tmp_name = tempfile.mkstemp(dir=npz_path.parent, suffix=".npz.tmp")
     try:
@@ -288,7 +370,7 @@ def cached_solve(
 def clear(*, figure: str | None = None, cache_dir: Path | None = None) -> None:
     """Remove cached entries — one figure's subdir, or the whole cache."""
     cache_dir = cache_dir or default_cache_dir()
-    target = cache_dir / figure.replace("/", "__") if figure is not None else cache_dir
+    target = _figure_dir(cache_dir, figure) if figure is not None else _cache_root(cache_dir)
     if target.exists():
         shutil.rmtree(target)
 

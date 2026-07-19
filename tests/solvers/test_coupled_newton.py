@@ -98,7 +98,9 @@ class TestCoupledNewtonSolve:
             "T_bath": T_bath, "tau_l": 0.25,
         }
         # Loose absolute tol → early-exit at iteration 0 with the stale seed.
-        f_abs, _ = coupled_newton_solve(ctx, f_seed, n_BE, tol=1e-1, **common)
+        f_abs, _ = coupled_newton_solve(
+            ctx, f_seed, n_BE, tol=1e-1, step_rtol=0.0, **common,
+        )
         # Same loose tol as a safety floor, but step_rtol drives refinement.
         f_rel, _ = coupled_newton_solve(
             ctx, f_seed, n_BE, tol=1e-1, step_rtol=1e-8, **common
@@ -168,6 +170,72 @@ class TestCoupledNewtonSolve:
                 T_bath=T_bath,
                 tau_l=0.25,
                 tol=1e-12,
+                step_rtol=1e-6,
+                max_iter=1,
+            )
+
+    def test_step_rtol_cannot_fall_back_to_tiny_absolute_residual(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A line-search stall must not bypass the balance certificate."""
+        from qpsim.solvers import coupled_newton as coupled_newton_module
+
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            num=3,
+        )
+        f_init = np.full(ctx.E.size, 0.5)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        # The dimensional residual is far below tol but its backward balance
+        # error is exactly one.  A zero Jacobian step makes every line-search
+        # trial identical, exercising the post-line-search fallback that used
+        # to return this false root whenever norm < tol.
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "_gain_loss_sum",
+            lambda f, *args, **kwargs: (
+                np.full_like(f, 1.0e-20), np.zeros_like(f),
+            ),
+        )
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "_jacobian_analytical",
+            lambda f, *args, **kwargs: np.eye(f.size) * 1.0e20,
+        )
+
+        def zero_phonon_balance(
+            f: np.ndarray,
+            ctx: SpectralContext,
+            K_s0: np.ndarray | None,
+            K_r0: np.ndarray | None,
+            omega_idx_diff: np.ndarray,
+            omega_idx_sum: np.ndarray,
+            diff_sign: np.ndarray,
+            n_omega: int,
+            **kwargs: object,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            return np.zeros(n_omega), np.zeros(n_omega)
+
+        monkeypatch.setattr(
+            coupled_newton_module,
+            "compute_phonon_source_sink",
+            zero_phonon_balance,
+        )
+
+        with pytest.raises(RuntimeError, match="line search failed"):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                tol=1e-10,
                 step_rtol=1e-6,
                 max_iter=1,
             )
@@ -325,6 +393,27 @@ class TestCoupledNewtonSolve:
                 omega_idx_diff=idx_d, omega_idx_sum=idx_s, diff_sign=sgn,
                 K_s0=K_s0, K_r0=K_r0,
                 T_bath=T_bath, tau_l=0.1,
+            )
+
+    @pytest.mark.parametrize("bad_temperature", [-0.1, np.nan, np.inf])
+    def test_rejects_invalid_bath_temperature(self, bad_temperature: float) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(num=10)
+        f_init = np.full(ctx.E.size, 0.1)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        with pytest.raises(ValueError, match="T_bath"):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=bad_temperature,
+                tau_l=0.1,
             )
 
     def test_zero_tau_l_branch(self) -> None:

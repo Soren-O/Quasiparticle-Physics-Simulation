@@ -68,10 +68,29 @@ class TestCacheKey:
         k_py = sc.cache_key("f", {"x": 1.5}, {}, qpsim_root=q)
         assert k_np == k_py
 
+    def test_extra_source_is_newline_independent(self, tmp_path):
+        q = _make_qpsim_tree(tmp_path)
+        kwargs = {"qpsim_root": q}
+        lf = sc.cache_key("f", {}, {}, extra_source="a\nb\n", **kwargs)
+        crlf = sc.cache_key("f", {}, {}, extra_source="a\r\nb\r\n", **kwargs)
+        cr = sc.cache_key("f", {}, {}, extra_source="a\rb\r", **kwargs)
+        assert lf == crlf == cr
+
 
 # ── solve-source digest ─────────────────────────────────────────────────
 
 class TestSolveSourceDigest:
+    def test_equivalent_for_lf_crlf_and_cr_checkouts(self, tmp_path):
+        q = _make_qpsim_tree(tmp_path)
+        source = q / "solvers" / "newton.py"
+
+        source.write_bytes(b"def solve():\n    return 1\n")
+        lf_digest = sc.solve_source_digest(q)
+        source.write_bytes(b"def solve():\r\n    return 1\r\n")
+        assert sc.solve_source_digest(q) == lf_digest
+        source.write_bytes(b"def solve():\r    return 1\r")
+        assert sc.solve_source_digest(q) == lf_digest
+
     def test_ignores_observables_subpackage(self, tmp_path):
         q = _make_qpsim_tree(tmp_path)
         d0 = sc.solve_source_digest(q)
@@ -145,6 +164,87 @@ class TestStoreLoad:
         sc.store("fischer_2023/fig7", "k", {"x": np.zeros(1)}, cache_dir=cdir)
         assert (cdir / "fischer_2023__fig7" / "k.npz").exists()
         assert sc.load("fischer_2023/fig7", "k", cache_dir=cdir) is not None
+
+    @pytest.mark.parametrize(
+        "figure",
+        [
+            "..",
+            "../victim",
+            r"..\victim",
+            r"group\figure",
+            "/absolute",
+            r"C:\absolute",
+            r"\\server\share",
+            "group//figure",
+            "group__figure",
+            "NUL",
+            "trailing.",
+        ],
+    )
+    def test_unsafe_figure_id_rejected_by_all_entry_operations(self, tmp_path, figure):
+        cdir = tmp_path / "cache"
+        victim = tmp_path / "victim"
+        victim.mkdir()
+        marker = victim / "keep.txt"
+        marker.write_text("keep")
+
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.load(figure, "k", cache_dir=cdir)
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.store(figure, "k", {"x": np.zeros(1)}, cache_dir=cdir)
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.clear(figure=figure, cache_dir=cdir)
+        assert marker.read_text() == "keep"
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "..",
+            "../key",
+            r"..\key",
+            "group/key",
+            "/absolute",
+            r"C:\absolute",
+            "CON",
+            "trailing.",
+        ],
+    )
+    def test_unsafe_key_rejected_by_load_and_store(self, tmp_path, key):
+        cdir = tmp_path / "cache"
+        with pytest.raises(ValueError, match="Unsafe sweep-cache key"):
+            sc.load("figure", key, cache_dir=cdir)
+        with pytest.raises(ValueError, match="Unsafe sweep-cache key"):
+            sc.store("figure", key, {"x": np.zeros(1)}, cache_dir=cdir)
+
+    def test_resolved_entry_must_remain_under_cache_root(self, tmp_path, monkeypatch):
+        cdir = tmp_path / "cache"
+        monkeypatch.setattr(sc, "_validate_figure_id", lambda _figure: "../victim")
+        with pytest.raises(ValueError, match="escapes cache root"):
+            sc.store("figure", "key", {"x": np.zeros(1)}, cache_dir=cdir)
+
+    def test_namespace_encoding_cannot_alias_store_load_or_clear(self, tmp_path):
+        cdir = tmp_path / "cache"
+        expected = {"x": np.array([1.0])}
+        sc.store("group/figure", "key", expected, cache_dir=cdir)
+
+        # ``group__figure`` formerly encoded to the same directory as the
+        # slash-delimited namespace, allowing a cross-namespace overwrite or
+        # clear. The encoding token is now reserved in literal components.
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.store(
+                "group__figure",
+                "key",
+                {"x": np.array([2.0])},
+                cache_dir=cdir,
+            )
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.load("group__figure", "key", cache_dir=cdir)
+        with pytest.raises(ValueError, match="Unsafe sweep-cache figure id"):
+            sc.clear(figure="group__figure", cache_dir=cdir)
+
+        restored = sc.load("group/figure", "key", cache_dir=cdir)
+        assert restored is not None
+        np.testing.assert_array_equal(restored["x"], expected["x"])
 
 
 # ── cached_solve (integration) ──────────────────────────────────────────

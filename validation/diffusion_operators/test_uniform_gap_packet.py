@@ -9,6 +9,9 @@ from validation.diffusion_operators.uniform_gap_packet import run
 
 def test_deff_matches_analytic_per_model() -> None:
     result = run(NE=14, NX=21, dt=2.0, conservation_steps=10)
+    # Exercise the subcycled inversion rather than accidentally reducing this
+    # integration check to the historical one-step CN formula.
+    assert max(np.max(v) for v in result.transport_substeps.values()) > 1
     for name in ("A1", "A1P", "A2", "C", "B"):
         measured = result.deff_over_dn[name]
         analytic = result.analytic_over_dn[name]
@@ -17,8 +20,8 @@ def test_deff_matches_analytic_per_model() -> None:
 
 
 def test_gap_edge_ordering() -> None:
-    # Nearest-gap bin has N_1 > 1, so N_1^{q-p} orders
-    # A1P > A2 = 1 > A1 = C > B.
+    # Nearest-gap bin is fully represented and has cell-average N_1 > 1,
+    # so N_1^{q-p} orders A1P > A2 = 1 > A1 = C > B.
     result = run(NE=14, NX=21)
     i = 0
     a1 = result.deff_over_dn["A1"][i]

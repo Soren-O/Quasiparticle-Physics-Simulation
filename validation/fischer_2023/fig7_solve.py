@@ -31,6 +31,12 @@ from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
+from validation.fischer_2023.steady_state_certificate import (
+    CERTIFICATE_FIELDS,
+    CERTIFICATE_METRIC_VERSION,
+    steady_state_certificate,
+)
+
 # Fischer 2023 Tables II/III — solve-affecting constants.
 DELTA_0 = 189.0
 TAU_0 = 63.0
@@ -65,14 +71,24 @@ T_BATH_VALUES: tuple[float, ...] = (0.06, 0.10, 0.14, 0.18, 0.22, 0.26, 0.30, 0.
 SOLVER_KWARGS: dict[str, Any] = {
     "method": "picard",
     "use_phonon_side_kernel": True,
-    "picard_tol": 1e-7,
-    "picard_atol": 1e-11,
-    "picard_max_iter": 500,
+    # The former 1e-7/1e-11 outer and 1e-6 inner-backward-error gates admitted
+    # visibly different approximate roots across NumPy/SciPy/BLAS builds even
+    # though every state passed the looser independent certificate.  The tight
+    # contract was checked at all 48 production targets on Windows and at the
+    # two worst cross-platform targets on Linux before promotion.
+    "picard_tol": 1e-9,
+    "picard_atol": 1e-13,
+    "picard_balance_tol": 1e-8,
+    "picard_max_iter": 2000,
     "picard_mixing": 0.2,
     "anderson_depth": 3,
-    "newton_tol": 1e-11,
+    "newton_tol": 1e-13,
+    "newton_backward_error_tol": 1e-8,
     "newton_max_iter": 300,
 }
+
+TARGET_BACKWARD_ERROR_LIMIT = 2e-8
+"""Maximum independently reassembled balance error at every Fig. 7 target."""
 
 
 def _paper_material() -> Material:
@@ -97,6 +113,53 @@ def _nbar_from_table_iii(power_dbm: float) -> float:
         * OMEGA_0**2
     )
     return float(target**6 / denom)
+
+
+def _validated_sweep_request(
+    temperatures: tuple[float, ...],
+    powers_dbm: tuple[float, ...],
+    num_bins: int,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Return canonical float axes after rejecting ambiguous sweep requests.
+
+    Fig. 7 points are independent, but their raw payload is later keyed by
+    floating-point power.  Duplicate powers would therefore collapse through
+    the observable dictionaries, while duplicate temperatures would create an
+    ambiguous Cartesian artifact.  Reject both at the solve boundary instead
+    of relying on the downstream writer to notice after an expensive run.
+    """
+    temperatures_array = np.asarray(temperatures, dtype=float)
+    if temperatures_array.ndim != 1 or temperatures_array.size == 0:
+        raise ValueError("Fig. 7 temperatures must be a non-empty one-dimensional axis.")
+    if (
+        np.any(~np.isfinite(temperatures_array))
+        or np.any(temperatures_array <= 0.0)
+        or np.unique(temperatures_array).size != temperatures_array.size
+    ):
+        raise ValueError("Fig. 7 temperatures must be finite, positive, and unique.")
+
+    powers_array = np.asarray(powers_dbm, dtype=float)
+    if powers_array.ndim != 1 or powers_array.size == 0:
+        raise ValueError("Fig. 7 powers must be a non-empty one-dimensional axis.")
+    if (
+        np.any(~np.isfinite(powers_array))
+        or np.unique(powers_array).size != powers_array.size
+    ):
+        raise ValueError("Fig. 7 powers must be finite and unique.")
+    unsupported = sorted({float(power) for power in powers_array} - set(TSTAR_OVER_DELTA))
+    if unsupported:
+        raise ValueError(
+            "Fig. 7 powers must have Table-III T*/Delta entries; "
+            f"unsupported powers={unsupported}."
+        )
+
+    if (
+        isinstance(num_bins, (bool, np.bool_))
+        or not isinstance(num_bins, (int, np.integer))
+        or int(num_bins) < 2
+    ):
+        raise ValueError(f"Fig. 7 num_bins must be an integer >= 2; got {num_bins!r}.")
+    return temperatures_array, powers_array, int(num_bins)
 
 
 def _build_grid(num_bins: int = NUM_BINS) -> tuple[SpectralContext, np.ndarray]:
@@ -176,18 +239,25 @@ def solve(
         ``temperatures``, ``powers_dbm``, per-power ``n_bar``, and ``num_bins``
         axes needed to reconstruct the observables downstream.
     """
+    T_values, powers, resolved_num_bins = _validated_sweep_request(
+        temperatures,
+        powers_dbm,
+        num_bins,
+    )
     material = _paper_material()
-    spectral, omega = _build_grid(num_bins)
+    spectral, omega = _build_grid(resolved_num_bins)
     backend = T3DiffusionBackend()
 
-    T_values = np.asarray(temperatures, dtype=float)
-    powers = np.asarray(powers_dbm, dtype=float)
-    n_bar = np.asarray([_nbar_from_table_iii(p) for p in powers_dbm], dtype=float)
+    n_bar = np.asarray([_nbar_from_table_iii(p) for p in powers], dtype=float)
 
     NE = spectral.E.size
     f_solved = np.zeros((powers.size, T_values.size, NE), dtype=float)
+    certificates = {
+        field: np.zeros((powers.size, T_values.size), dtype=float)
+        for field in CERTIFICATE_FIELDS
+    }
 
-    for pi, _p_dbm in enumerate(powers_dbm):
+    for pi, _p_dbm in enumerate(powers):
         photon_params = {"omega_0": OMEGA_0, "n_bar": float(n_bar[pi]), "c_phot": C_PHOT}
         for ti, T_bath in enumerate(T_values):
             state = _build_state(material, spectral, omega, float(T_bath))
@@ -197,13 +267,36 @@ def solve(
                 **SOLVER_KWARGS,
             )
             f_solved[pi, ti] = solved.f
+            certificate = steady_state_certificate(
+                solved,
+                photon_params=photon_params,
+                tau_l=TAU_L,
+            )
+            for field in CERTIFICATE_FIELDS:
+                certificates[field][pi, ti] = certificate[field]
+            qp_backward = certificate["qp_backward_error"]
+            phonon_backward = certificate["phonon_backward_error"]
+            if (
+                not np.isfinite(qp_backward)
+                or not np.isfinite(phonon_backward)
+                or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
+                or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
+            ):
+                raise RuntimeError(
+                    "Fischer Fig. 7 target failed the independent steady-state "
+                    f"certificate at P_read={_p_dbm:g} dBm, "
+                    f"T_bath={T_bath:g} K (limit="
+                    f"{TARGET_BACKWARD_ERROR_LIMIT:g}): "
+                    f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+                )
 
     return {
         "f_solved": f_solved,
         "temperatures": T_values,
         "powers_dbm": powers,
         "n_bar": n_bar,
-        "num_bins": np.asarray([int(num_bins)]),
+        "num_bins": np.asarray([resolved_num_bins]),
+        **certificates,
     }
 
 
@@ -227,4 +320,6 @@ def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
         "e_max_factor": E_MAX_FACTOR,
         "num_bins": int(num_bins),
         "solver": dict(SOLVER_KWARGS),
+        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
+        "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
     }

@@ -86,6 +86,10 @@ _EXPORTS = {
         "qpsim.observables.density",
         "qp_fraction",
     ),
+    "qp_fraction_paper": (
+        "qpsim.observables.density",
+        "qp_fraction_paper",
+    ),
     "qp_number_density": (
         "qpsim.observables.density",
         "qp_number_density",

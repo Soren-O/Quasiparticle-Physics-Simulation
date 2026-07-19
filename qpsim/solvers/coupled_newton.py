@@ -23,9 +23,10 @@ with:
   and unlocks the Fig. 6 strong-drive tail at production grids
   (NE ≳ 800) in seconds rather than tens of minutes per point.
 
-Unlocks the Fischer 2023 ``τ_l/τ_PB = 10`` strong-bottleneck regime
-that the Picard + Anderson path in
-:mod:`qpsim.services.steady_state` fails to converge on.
+This remains a local nonlinear solve: strong-bottleneck branches may require
+parameter continuation to keep the initial state inside the desired basin.
+The solver fails closed when its scale-aware convergence certificate is not
+met; it does not itself choose among multiple branches.
 """
 
 from __future__ import annotations
@@ -52,6 +53,23 @@ if TYPE_CHECKING:
     from qpsim.devices.external_flux import ExternalFlux
 
 
+class CoupledNewtonLineSearchError(RuntimeError):
+    """A coupled-Newton line search could not reduce the residual.
+
+    The structured residual norm lets callers distinguish a roundoff-level
+    polish stall from singular-Jacobian, non-finite, and ordinary
+    non-convergence failures without parsing an error message.
+    """
+
+    def __init__(self, *, iteration: int, residual_norm: float) -> None:
+        self.iteration = int(iteration)
+        self.residual_norm = float(residual_norm)
+        super().__init__(
+            f"Coupled Newton line search failed at iteration {self.iteration}. "
+            f"max |residual| = {self.residual_norm:.2e}"
+        )
+
+
 def coupled_newton_solve(
     ctx: SpectralContext,
     f_init: np.ndarray,
@@ -71,7 +89,7 @@ def coupled_newton_solve(
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
     tol: float = 1e-10,
-    step_rtol: float = 0.0,
+    step_rtol: float = 1e-8,
     max_iter: int = 50,
     fd_step: float = 1e-8,
     fd_floor: float = 1e-12,
@@ -122,12 +140,14 @@ def coupled_newton_solve(
         is bit-for-bit identical to pre-Phase-2 behavior.
     tol
         Absolute infinity-norm tolerance on the combined residual
-        ``max(|R_f|, |R_ph|)``. Used as the early-exit test when
-        ``step_rtol == 0`` (legacy default), and as a safety floor otherwise.
+        ``max(|R_f|, |R_ph|)``. Used as the early-exit test only when
+        ``step_rtol == 0`` (legacy opt-out), and for diagnostics otherwise.
     step_rtol
         Scale-invariant convergence tolerance on the relative Newton step
-        ``max(‖Δf‖∞/‖f‖∞, ‖Δn‖∞/‖n‖∞)``. ``0.0`` (default) keeps the legacy
-        absolute-residual behavior exactly. Set ``> 0`` when all physical
+        ``max(‖Δf‖∞/‖f‖∞, ‖Δn‖∞/‖n‖∞)``. The default ``1e-8`` pairs this with a
+        normwise gain/loss balance certificate. Set ``0.0`` only to reproduce
+        the legacy absolute-residual behavior exactly. A positive value is
+        essential when all physical
         amplitudes are tiny (e.g. f, n_ph ~ 1e-10 in the cold-bath
         strong-suppression regime that drives Fischer Fig. 6), where an
         absolute ``tol`` is unreliable: a warm continuation seed can sit just
@@ -187,16 +207,40 @@ def coupled_newton_solve(
         )
     if not np.all(np.isfinite(n_arr)) or np.any(n_arr < 0.0):
         raise ValueError("n_ph_init must be finite and non-negative.")
+    if not np.isfinite(T_bath) or T_bath < 0.0:
+        raise ValueError(f"T_bath must be finite and non-negative; got {T_bath}.")
     if not np.isfinite(tau_l) or tau_l <= 0.0:
         raise ValueError(
             "coupled Newton requires a finite positive tau_l; the tau_l = 0 "
             "closed-phonon residual has an unconstrained conserved-energy mode."
         )
+    if not np.isfinite(tol) or tol <= 0.0:
+        raise ValueError(f"tol must be finite and positive; got {tol}.")
+    if not np.isfinite(step_rtol) or step_rtol < 0.0:
+        raise ValueError(
+            f"step_rtol must be finite and non-negative; got {step_rtol}."
+        )
+    if not isinstance(max_iter, int) or isinstance(max_iter, bool) or max_iter <= 0:
+        raise ValueError(f"max_iter must be a positive integer; got {max_iter!r}.")
+    if not np.isfinite(fd_step) or fd_step <= 0.0:
+        raise ValueError(f"fd_step must be finite and positive; got {fd_step}.")
+    if not np.isfinite(fd_floor) or fd_floor <= 0.0:
+        raise ValueError(f"fd_floor must be finite and positive; got {fd_floor}.")
 
     NE = int(f_arr.size)
     N_omega = int(omega_bins.size)
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
+        external_flux._validate_gain_support(ctx.active_mask)
+    active_f = ctx.active_mask
+    n_active_f = int(np.count_nonzero(active_f))
+    if n_active_f == 0:
+        raise ValueError(
+            "coupled Newton requires at least one quasiparticle energy row "
+            "with non-zero finite-volume spectral capacity. An all-zero-DOS "
+            "context has no f unknown to couple; solve its phonon bath with "
+            "the phonon-only model instead."
+        )
 
     f = f_arr.copy()
     n_ph = n_arr.copy()
@@ -252,17 +296,26 @@ def coupled_newton_solve(
             or np.any(~np.isfinite(ph_scale))
         ):
             raise RuntimeError("Coupled Newton residual became non-finite.")
-        qp_ratio = np.zeros_like(R_f)
-        ph_ratio = np.zeros_like(R_ph)
-        np.divide(np.abs(R_f), qp_scale, out=qp_ratio, where=qp_scale > 0.0)
-        np.divide(np.abs(R_ph), ph_scale, out=ph_ratio, where=ph_scale > 0.0)
-        if np.any((qp_scale == 0.0) & (R_f != 0.0)):
-            qp_ratio[(qp_scale == 0.0) & (R_f != 0.0)] = np.inf
-        if np.any((ph_scale == 0.0) & (R_ph != 0.0)):
-            ph_ratio[(ph_scale == 0.0) & (R_ph != 0.0)] = np.inf
-        balance_ratio = max(
-            float(np.max(qp_ratio)), float(np.max(ph_ratio)),
+        # Normwise backward errors for the two equation blocks.  A pointwise
+        # maximum is unusable on cold grids: high-energy tails contain terms
+        # hundreds of orders below the resolved signal, where harmless
+        # underflow gives a formal local ratio of one.  The L1 block ratio is
+        # still scale invariant and remains exactly one for an unbalanced
+        # near-vacuum branch (gain present, opposing loss absent), while not
+        # allowing numerically empty tail bins to veto a physical root.
+        qp_denominator = float(np.sum(qp_scale))
+        ph_denominator = float(np.sum(ph_scale))
+        qp_ratio = (
+            float(np.sum(np.abs(R_f))) / qp_denominator
+            if qp_denominator > 0.0
+            else (0.0 if not np.any(R_f) else np.inf)
         )
+        ph_ratio = (
+            float(np.sum(np.abs(R_ph))) / ph_denominator
+            if ph_denominator > 0.0
+            else (0.0 if not np.any(R_ph) else np.inf)
+        )
+        balance_ratio = max(qp_ratio, ph_ratio)
 
         return R_f, R_ph, balance_ratio
 
@@ -343,7 +396,7 @@ def coupled_newton_solve(
 
             h_f = np.maximum(fd_step * np.abs(f), fd_floor)
             J_nf = np.zeros((N_omega, NE))
-            for j in range(NE):
+            for j in np.flatnonzero(active_f):
                 f_pert = f.copy()
                 # Keep the finite-difference probe inside the public
                 # occupation domain.  A forward probe at f[j] == 1 used to
@@ -363,8 +416,18 @@ def coupled_newton_solve(
                 _, R_ph_pert, _ = residual(f_pert, n_ph)
                 J_nf[:, j] = (R_ph_pert - R_ph) / signed_step
 
-        J = np.block([[J_ff, J_fn], [J_nf, J_nn]])
-        R = np.concatenate([R_f, R_ph])
+        # Pure-BCS grids may retain rho == 0 rows as storage placeholders.
+        # Their residual and Jacobian rows are identically zero, so including
+        # them as Newton unknowns makes the monolithic matrix singular. Solve
+        # only the represented f-subspace and leave placeholder occupations
+        # unchanged, matching newton_solve_f's active-set contract.
+        J = np.block(
+            [
+                [J_ff[np.ix_(active_f, active_f)], J_fn[active_f, :]],
+                [J_nf[:, active_f], J_nn],
+            ]
+        )
+        R = np.concatenate([R_f[active_f], R_ph])
 
         try:
             delta = np.linalg.solve(J, -R)
@@ -373,8 +436,9 @@ def coupled_newton_solve(
                 f"Coupled Newton Jacobian singular at iteration {iteration}."
             ) from err
 
-        delta_f = delta[:NE]
-        delta_n = delta[NE:]
+        delta_f = np.zeros(NE)
+        delta_f[active_f] = delta[:n_active_f]
+        delta_n = delta[n_active_f:]
 
         # Backtracking line search on the combined residual norm.
         alpha = 1.0
@@ -392,10 +456,11 @@ def coupled_newton_solve(
                 # Relative Newton-step size for the scale-invariant convergence
                 # test; measured against the state magnitude so it is meaningful
                 # whether f ~ 1 or f ~ 1e-10. ``or 1.0`` guards a zero state.
-                f_scale = float(np.max(np.abs(f))) or 1.0
+                f_scale = float(np.max(np.abs(f[active_f]))) or 1.0
                 n_scale = float(np.max(np.abs(n_ph))) or 1.0
                 rel_step = max(
-                    float(np.max(np.abs(f_trial - f))) / f_scale,
+                    float(np.max(np.abs(f_trial[active_f] - f[active_f])))
+                    / f_scale,
                     float(np.max(np.abs(n_trial - n_ph))) / n_scale,
                 )
                 f, n_ph = f_trial, n_trial
@@ -404,7 +469,12 @@ def coupled_newton_solve(
             alpha *= 0.5
 
         if not accepted:
-            if norm < tol:
+            # Preserve the legacy absolute-only escape solely when the caller
+            # explicitly selected it.  Previously this unconditional branch
+            # defeated ``step_rtol``: a line search could walk into a
+            # near-vacuum state with a tiny dimensional residual but O(1)
+            # gain/loss imbalance, then return it as converged anyway.
+            if step_rtol <= 0.0 and norm < tol:
                 return f, n_ph
             # Scale-invariant fallback: when the line search cannot reduce the
             # residual further, require both a negligible Newton step and a
@@ -418,17 +488,17 @@ def coupled_newton_solve(
             # below; gated on step_rtol>0 so the legacy absolute-tol path (the
             # pinned suite) is bit-for-bit untouched.
             if step_rtol > 0.0:
-                f_scale = float(np.max(np.abs(f))) or 1.0
+                f_scale = float(np.max(np.abs(f[active_f]))) or 1.0
                 n_scale = float(np.max(np.abs(n_ph))) or 1.0
                 newton_rel = max(
-                    float(np.max(np.abs(delta_f))) / f_scale,
+                    float(np.max(np.abs(delta_f[active_f]))) / f_scale,
                     float(np.max(np.abs(delta_n))) / n_scale,
                 )
                 if newton_rel < step_rtol and balance_ratio < step_rtol:
                     return f, n_ph
-            raise RuntimeError(
-                f"Coupled Newton line search failed at iteration {iteration}. "
-                f"max |residual| = {norm:.2e}"
+            raise CoupledNewtonLineSearchError(
+                iteration=iteration,
+                residual_norm=norm,
             )
 
         # Scale-invariant convergence: the refining step barely moved the state.

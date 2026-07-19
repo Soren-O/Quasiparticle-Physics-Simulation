@@ -14,6 +14,10 @@ from __future__ import annotations
 import numpy as np
 
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
 
 
 def _finite_array(name: str, values: np.ndarray) -> np.ndarray:
@@ -172,6 +176,9 @@ class SpectralContext:
 
         self._gap: float = 0.0
         self._rho: np.ndarray = np.empty(0)
+        self._cell_weights: np.ndarray = np.empty(0)
+        self._cell_density: np.ndarray = np.empty(0)
+        self._cell_anomalous_density: np.ndarray = np.empty(0)
         self._K_plus: np.ndarray = np.empty(0)
         self._K_minus: np.ndarray = np.empty(0)
         self._D_E: np.ndarray = np.empty(0)
@@ -200,17 +207,56 @@ class SpectralContext:
 
     @property
     def rho(self) -> np.ndarray:
-        """DOS ρ(E), shape ``(NE,)``."""
+        """Point-sampled DOS ``ρ(E_i)``, shape ``(NE,)``.
+
+        Collision quadratures must use :attr:`cell_weights` for an
+        integrated partner measure and :attr:`cell_density` for a density
+        sampled on a fixed energy-transition lattice.  This point value is
+        retained for analytic formulas and backwards-compatible inspection.
+        """
         return self._ro(self._rho)
 
     @property
+    def cell_weights(self) -> np.ndarray:
+        r"""Represented DOS measure ``w_i = ∫_cell_i ρ(E) dE``.
+
+        Pure-BCS cells are integrated analytically, including a cell cut by
+        the square-root gap edge.  Dynes spectra are nonsingular and retain
+        the midpoint rule ``rho * dE``.  These weights define quasiparticle
+        capacity, conservation, remapping, and finite-volume observables.
+        """
+        return self._ro(self._cell_weights)
+
+    @property
+    def cell_density(self) -> np.ndarray:
+        r"""Cell-average DOS ``rho_bar_i = cell_weights_i / dE_i``.
+
+        Fixed-lattice photon rates and phonon line integrals use this density
+        so their event flux is paired with the same finite-volume capacity as
+        the quasiparticle equation.
+        """
+        return self._ro(self._cell_density)
+
+    @property
+    def cell_anomalous_density(self) -> np.ndarray:
+        r"""Cell-average ideal-BCS anomalous weight ``N2(E)``.
+
+        For pure BCS this is the analytic average of
+        ``gap / sqrt(E**2-gap**2)`` over each represented cell.  It is zero
+        outside the BCS band.  Dynes contexts currently expose the ideal-BCS
+        point value times the support convention because broadened collision
+        coherence factors are deliberately unsupported elsewhere.
+        """
+        return self._ro(self._cell_anomalous_density)
+
+    @property
     def K_plus(self) -> np.ndarray:
-        """K⁺(E_i, E_j), shape ``(NE, NE)``."""
+        """Finite-volume ``K⁺`` coherence matrix, shape ``(NE, NE)``."""
         return self._ro(self._K_plus)
 
     @property
     def K_minus(self) -> np.ndarray:
-        """K⁻(E_i, E_j), shape ``(NE, NE)``."""
+        """Finite-volume ``K⁻`` coherence matrix, shape ``(NE, NE)``."""
         return self._ro(self._K_minus)
 
     @property
@@ -220,11 +266,14 @@ class SpectralContext:
 
     @property
     def active_mask(self) -> np.ndarray:
-        """``E ≥ Δ + margin·dE_local``, shape ``(NE,)`` bool.
+        """Bins with non-zero represented spectral capacity.
 
-        ``dE_local`` is the bin spacing at the first bin above the gap
-        (equals ``mean(dE)`` on uniform grids; preserves correct
-        margin behavior on piecewise / nonuniform grids).
+        Every represented state must participate in a steady-state solve.
+        In particular, no numerical margin is removed above the BCS gap:
+        excluding such a bin can hide a non-zero residual and produce a
+        false steady state.  A pure-BCS cell cut by the gap is active even if
+        its center lies below the gap; a Dynes DOS naturally includes its
+        broadened sub-gap support.
         """
         return self._ro(self._active_mask)
 
@@ -244,7 +293,11 @@ class SpectralContext:
 
     @property
     def active_margin_factor(self) -> float:
-        """Fractional margin above Δ used to set :attr:`active_mask`."""
+        """Legacy configuration value, retained for API compatibility.
+
+        The value no longer removes positive-capacity states from
+        :attr:`active_mask`.
+        """
         return self._active_margin_factor
 
     def maybe_rebuild(self, new_gap: float) -> bool:
@@ -258,20 +311,64 @@ class SpectralContext:
 
     def _rebuild(self, gap: float) -> None:
         gap = _non_negative_scalar("gap", gap)
-        if not np.any(gap < self._E):
-            raise ValueError(
-                "SpectralContext requires at least one energy bin above gap."
-            )
         self._gap = gap
         E = self._E
 
         if self._dynes_gamma > 0:
             self._rho = dynes_density_of_states(E, gap, self._dynes_gamma)
+            self._cell_weights = self._rho * self._dE
+            self._cell_anomalous_density = bcs_anomalous_weight(E, gap)
         else:
             self._rho = bcs_density_of_states(E, gap)
+            # A kinetic grid represents only its own finite-volume domain.
+            # If its lower edge starts above the physical gap, do not invent
+            # the missing interval; integrate exactly from that represented
+            # edge.  Observable APIs may impose a stricter full-gap coverage
+            # contract when the missing singular interval matters.
+            first_edge = float(cell_edges_from_widths(E, self._dE)[0])
+            self._cell_weights = bcs_dos_cell_weights(
+                E,
+                self._dE,
+                gap,
+                lower_bound=max(gap, first_edge),
+            )
+        self._cell_density = self._cell_weights / self._dE
+        if not np.any(self._cell_weights > 0.0):
+            raise ValueError(
+                "SpectralContext requires positive represented spectral "
+                "capacity above/broadened through the gap."
+            )
 
-        self._K_plus = coherence_factor_plus(E, gap)
-        self._K_minus = coherence_factor_minus(E, gap)
+        if self._dynes_gamma > 0.0:
+            self._K_plus = coherence_factor_plus(E, gap)
+            self._K_minus = coherence_factor_minus(E, gap)
+        elif gap == 0.0:
+            self._cell_anomalous_density = np.zeros_like(E)
+            self._K_plus = np.ones((E.size, E.size))
+            self._K_minus = np.ones((E.size, E.size))
+        else:
+            # K± = 1 ± (Delta/E_i)(Delta/E_j).  Under the product
+            # finite-volume DOS measure the double-cell average therefore
+            # factorizes exactly.  Integrate N2 = rho*Delta/E analytically;
+            # this keeps a gap-cut cell physical even when its center lies
+            # below Delta, where a point coherence factor is undefined.
+            edges = cell_edges_from_widths(E, self._dE)
+            lo = np.maximum(edges[:-1], gap)
+            hi = np.maximum(edges[1:], lo)
+            anomalous_weight = gap * (
+                np.arccosh(np.maximum(hi / gap, 1.0))
+                - np.arccosh(np.maximum(lo / gap, 1.0))
+            )
+            self._cell_anomalous_density = anomalous_weight / self._dE
+            ratio = np.zeros_like(E)
+            supported = self._cell_weights > 0.0
+            ratio[supported] = (
+                anomalous_weight[supported] / self._cell_weights[supported]
+            )
+            ratio = np.clip(ratio, 0.0, 1.0)
+            product = ratio[:, None] * ratio[None, :]
+            self._K_plus = 1.0 + product
+            self._K_minus = np.maximum(1.0 - product, 0.0)
 
         if self._D0 > 0 and gap > 0:
             ratio = np.minimum(gap / E, 1.0)
@@ -281,22 +378,11 @@ class SpectralContext:
         else:
             self._D_E = np.zeros_like(E)
 
-        # Active-margin epsilon is set by the bin spacing local to the
-        # gap edge, not by global statistics. On uniform grids this
-        # equals mean(dE) (the legacy heuristic); on piecewise grids
-        # (e.g. M25's two-band R electrode with dense R< near the gap
-        # and sparse R> far above it) it picks up the fine R< spacing.
-        # A previous attempt used global ``min(dE)``, but that lets a
-        # tiny far-tail bin shrink epsilon globally and re-enables
-        # near-gap bins the margin was meant to exclude.
-        above_gap = gap < E
-        if np.any(above_gap):
-            first_above_gap = int(np.argmax(above_gap))
-            local_dE = float(self._dE[first_above_gap])
-        else:
-            # No bin above the gap — exotic grid, fall back to the
-            # legacy mean(dE) so this branch behaves identically to
-            # the pre-Phase-5c default.
-            local_dE = float(np.mean(self._dE))
-        epsilon = self._active_margin_factor * local_dE
-        self._active_mask = (gap + epsilon) <= E
+        # The support of the represented DOS measure is the only physically
+        # meaningful active-set criterion.  A former ``0.1*dE`` gap-edge margin could
+        # freeze a bin with finite BCS DOS and let Newton certify a false
+        # steady state because that bin's residual was never inspected.
+        # Exact BCS cell capacity additionally preserves cells cut by a moving
+        # gap even when their center is sub-gap.  Dynes midpoint capacity
+        # preserves its intended broadened sub-gap semantics.
+        self._active_mask = self._cell_weights > 0.0

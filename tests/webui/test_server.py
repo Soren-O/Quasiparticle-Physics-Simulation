@@ -37,6 +37,18 @@ def _wait_done(client: TestClient, run_id: str, timeout_s: float = 60.0) -> dict
 
 
 class TestMetaAndMaterials:
+    def test_foreign_host_is_rejected(self, client: TestClient) -> None:
+        resp = client.get("/api/meta", headers={"host": "attacker.example"})
+        assert resp.status_code == 400
+        assert resp.text == "Invalid host header"
+
+    @pytest.mark.parametrize(
+        "host",
+        ["localhost:8000", "127.0.0.1:8000", "127.0.0.2:8000", "[::1]:8000"],
+    )
+    def test_local_hosts_are_allowed(self, client: TestClient, host: str) -> None:
+        assert client.get("/api/meta", headers={"host": host}).status_code == 200
+
     def test_meta_lists_modes(self, client: TestClient) -> None:
         body = client.get("/api/meta").json()
         assert set(body["modes"]) == {
@@ -128,9 +140,99 @@ class TestRunLifecycle:
         assert any("T_c" in e for e in resp.json()["errors"])
         assert client.get("/api/runs").json() == []
 
+    def test_equal_gap_interface_is_rejected_before_run(self, client: TestClient) -> None:
+        setup = {
+            "mode": "spatial_1d",
+            "gap_profile": {
+                "kind": "step",
+                "gap_left": 180.0,
+                "gap_right": 180.0,
+                "interface_G_N": 1.0,
+            },
+        }
+        resp = client.post("/api/runs", json={"name": "bad interface", "setup": setup})
+        assert resp.status_code == 400
+        assert any("interface_G_N requires distinct" in e for e in resp.json()["errors"])
+        assert client.get("/api/runs").json() == []
+
 
 class TestReviewFixes:
     """Server-visible behavior pinned by the 2026-07-03 review fixes."""
+
+    def test_permanent_terminal_manifest_failure_does_not_strand_run(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from qpsim.webui.runner import JobState
+
+        workspace = client.app.state.workspace
+        runner = client.app.state.runner
+        run_id = workspace.new_run_id()
+        disk_manifest: dict[str, Any] = {
+            "id": run_id,
+            "name": "write failure",
+            "mode": "steady_state_0d",
+            "status": "running",
+            "created": "2026-07-15T00:00:00",
+            "setup": {},
+            "summary": {},
+            "notes": [],
+            "error": None,
+            "elapsed_s": None,
+        }
+        workspace.write_manifest(run_id, disk_manifest)
+
+        terminal_manifest = dict(disk_manifest)
+        terminal_manifest["status"] = "failed"
+        terminal_manifest["error"] = "synthetic failure"
+        job = JobState(run_id=run_id, status="failed")
+        runner._jobs[run_id] = job
+
+        write_attempts = 0
+
+        def permanently_unwritable(*_args: object, **_kwargs: object) -> None:
+            nonlocal write_attempts
+            write_attempts += 1
+            raise PermissionError("synthetic permanent manifest failure")
+
+        monkeypatch.setattr(workspace, "write_manifest", permanently_unwritable)
+        runner._write_manifest_or_stash(job, terminal_manifest)
+        job.worker_finished.set()
+        assert job.pending_manifest == terminal_manifest
+
+        # Polling retries and fails again, reproducing the old permanent-live
+        # state, while still serving the terminal in-memory snapshot.
+        assert client.get(f"/api/runs/{run_id}").json()["status"] == "failed"
+        assert write_attempts == 2
+
+        captured_retry = dict(terminal_manifest)
+        resp = client.delete(f"/api/runs/{run_id}")
+        assert resp.status_code == 200
+        assert runner.live_state(run_id) is None
+        assert not workspace.run_dir(run_id).exists()
+
+        # An overlay request may have copied the retry just before deletion.
+        # Closed writes make that stale copy a no-op rather than recreating a
+        # one-file zombie directory.
+        runner._write_manifest_or_stash(job, captured_retry)
+        assert write_attempts == 2
+        assert not workspace.run_dir(run_id).exists()
+
+    def test_terminal_run_cannot_delete_before_worker_finishes(
+        self, client: TestClient
+    ) -> None:
+        from qpsim.webui.runner import JobState
+
+        workspace = client.app.state.workspace
+        runner = client.app.state.runner
+        run_id = workspace.new_run_id()
+        job = JobState(run_id=run_id, status="failed")
+        runner._jobs[run_id] = job
+
+        resp = client.delete(f"/api/runs/{run_id}")
+
+        assert resp.status_code == 409
+        assert "still finalizing" in resp.json()["detail"]
+        runner._jobs.pop(run_id)
 
     def test_autofill_params_do_not_carry_dynes_gamma(self, client: TestClient) -> None:
         al = next(m for m in client.get("/api/materials").json() if m["name"] == "Al")
@@ -139,21 +241,17 @@ class TestReviewFixes:
         assert "dynes_gamma" not in al["params"]
 
     def test_creation_warnings_persist_as_run_notes(self, client: TestClient) -> None:
-        # ω₀ = 22 μeV on a 48-bin grid (dE = 33.75 μeV) is far off
-        # commensurate — a warning, not an error.
-        setup = dict(
-            TINY_SETUP,
-            subgap_drive={"enabled": True, "omega_0": 22.0, "n_bar": 0.0, "c_phot": 6e-11},
-        )
+        # T > 0.5 Tc is supported but carries a resolution/BCS-regime warning.
+        setup = dict(TINY_SETUP, T_bath=0.7)
         resp = client.post("/api/runs", json={"name": "warned", "setup": setup})
         assert resp.status_code == 200
-        assert any("commensurate" in w for w in resp.json()["warnings"])
+        assert any("T_c/2" in warning for warning in resp.json()["warnings"])
         run_id = resp.json()["id"]
         # The warning is already on the manifest before completion and
         # survives it — the browser switches views on submit, so a
         # transient banner alone would be lost.
         body = _wait_done(client, run_id)
-        assert any("commensurate" in n for n in body["notes"])
+        assert any("T_c/2" in note for note in body["notes"])
 
     def test_missing_npz_degrades_detail_and_404s_artifacts(self, client: TestClient) -> None:
         resp = client.post("/api/runs", json={"name": "tiny", "setup": TINY_SETUP})

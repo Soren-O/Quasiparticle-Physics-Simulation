@@ -1,9 +1,11 @@
 # G1 collision-measure unification — attempted and rejected (2026-07-14)
 
-**Status: DO NOT MERGE. The naive exact-cell-weight swap is physically wrong in
-the driven solve.** Code preserved on branch `g1-measure-unification` (commit
-`5408b7b`, parent `562c1f4` on `audit-fixes-2026-07-14`); a physicist should
-diagnose the root cause before any re-attempt.
+**Status: HISTORICAL REJECTED EXPERIMENT; ROOT CAUSE RESOLVED 2026-07-16.** Do
+not merge commit `5408b7b` itself. It changed only one leg of a coupled discrete
+measure. The matched finite-volume repair now in the audit working tree changes
+capacity, transition density, coherence factors, photon drive, phonon-side line
+measure, Jacobians, support, transport, remap, and observables together, and is
+gated by a reduced driven regression.
 
 ## The finding (G1)
 
@@ -18,11 +20,14 @@ recommended "route both onto one SpectralContext cell-weight vector."
 
 ## What was implemented
 
-Added `SpectralContext.cell_weights` (exact `∫_cell ρ dE` for pure-BCS covering
+The historical branch added `SpectralContext.cell_weights` (exact
+`∫_cell ρ dE` for pure-BCS covering
 the gap; midpoint fallback for Dynes / gap-uncovered grids) and swapped the
 phonon scattering + recombination rates and both Jacobians (Newton analytic +
-n_ph cross-term) from `ρ·dE` to `cell_weights`. Photon channels are point-partner
-(no `dE` quadrature) and were correctly left untouched.
+n_ph cross-term) from `ρ·dE` to `cell_weights`. Photon channels and phonon-side
+source terms were left point-sampled. That was the defect: although a photon
+partner lookup has no explicit quadrature sum, its transition density must be
+the cell-average density matched to the target cell's conserved capacity.
 
 ## What validated (and gave false confidence)
 
@@ -60,16 +65,58 @@ suppressed gap** (`solve_gap` → `Δ = 179.99999992 µeV`, matching the CSV), w
 the exact weights leave `Δ = 180` (no suppression). So the measure change *is* the
 cause, isolated to the driven collision balance.
 
-**Physics diagnosis:** the exact singular cell weight at the sqrt-singular first
-cell is ~1.4× larger than `ρ·dE`. This is harmless at the thermal fixed point
-(detailed balance is measure-agnostic), but in the **driven, self-consistent-gap,
-dynamic-n_ph solve** it over-weights recombination/loss at the gap edge relative
-to the generation/drive, collapsing the driven QP population to a spurious
-near-empty fixed point 4–7 orders below even the thermal floor. The Fig. 3
-signature — all τ_l curves collapsing onto one — indicates the drive/source term
-effectively stops entering the balance under the exact measure. This is a real
-physics interaction, not a solver glitch (verified via cold- and warm-seeded
-single-point solves and the module `run()` paths).
+That A/B test correctly isolated the historical patch, but its original
+interpretation was incomplete: exact weights do not intrinsically over-weight
+physical loss. The patch mixed two discrete measures.
+
+For a uniform energy lattice define the represented QP capacity and its
+cell-average density by
+
+```
+w_i = integral_cell_i rho(E) dE
+rho_bar_i = w_i / dE
+```
+
+A number-conserving fixed-mode transition requires the weighted event flux to
+be symmetric: `w_i T_ij = w_j T_ji`. The legacy midpoint scheme happened to
+satisfy this because `w_i^mid = rho_i*dE` and `T_ij` used `rho_j`. Commit
+`5408b7b` changed `w_i` to the exact integral but retained `T_ij proportional
+to rho_j`, so generally `w_i*rho_j != w_j*rho_i`. The driven photon channel
+therefore became a spurious net drain. The same mismatch existed between the
+QP event measure `w_i*w_j` and the phonon-side line measure
+`dE*rho_i*rho_j`.
+
+The matched repair uses `rho_bar` on photon partner legs and in phonon line
+sources/Jacobians, giving
+
+```
+w_i * rho_bar_j = w_i*w_j/dE = w_j * rho_bar_i
+dE * rho_bar_i * rho_bar_j = w_i*w_j/dE
+```
+
+after accounting for the phonon-bin energy width. Pure-BCS coherence factors
+are also averaged under the same product measure. If
+`r_i = integral_cell_i N2(E)dE / w_i`, then
+`Kbar_plus/minus[i,j] = 1 plus/minus r_i*r_j`. Remaining smooth energy and
+frequency factors use the existing cell-center mass-lumped quadrature.
+
+## Resolution evidence (2026-07-16)
+
+- On an 81-cell Fischer Fig. 3 proxy with thermal phonons, legacy midpoint gave
+  peak `7.6458e-11`; the rejected exact-QP/point-photon hybrid gave
+  `1.5204e-17`; the matched finite-volume operator gives about `9.69e-11`.
+- At `tau_l/tau_0^PB = 0.1`, the matched reduced solve retains a larger
+  bottleneck state (currently about `2.60e-10` with the stricter Picard
+  certificate), rather than becoming byte-identical to the ratio-zero curve.
+- A six-cell adversarial drive has exact-capacity number drift below `2e-15`;
+  recreating the historical hybrid produces drift above `1e-3` (about
+  `4.2e-2` in the manufactured state).
+- QP scattering energy loss and phonon energy creation agree to roundoff on a
+  gap-cut cell, and analytical QP/phonon Jacobians agree with finite
+  differences.
+- `validation/fischer_2023/test_fig3_finite_volume_reduced.py` is a fast driven
+  branch regression, so thermal detailed balance can no longer provide false
+  confidence by itself.
 
 ## Lessons
 
@@ -78,14 +125,11 @@ single-point solves and the module `run()` paths).
    self-consistent reproductions. Any future collision-operator change must be
    gated on the slow Fischer figure reproductions (or a fast reduced-grid proxy
    of the *driven* solve), not just unit + detailed-balance tests.
-2. **The G1 "just swap ρ·dE → exact cell weights" recommendation was too naive.**
-   Making the collision *conserve* the exact number is not the same as making the
-   *driven balance* correct. The exact singular edge weight must be reconciled
-   with the drive/generation and recombination terms consistently — likely the
-   center-evaluated kernel and the singular measure interact and need a matched
-   treatment (or the observable/collision inconsistency should be resolved a
-   different way, e.g. a documented convergence budget rather than an
-   edge-over-weighting measure swap).
+2. **A discrete measure is a cross-operator contract.** Changing conserved
+   capacity without changing partner transition density, phonon delta-line
+   measure, Jacobians, sources, support, remap, transport, and observables is not
+   a conservative finite-volume discretization, even if one isolated operator
+   passes a conservation test.
 
 ## For the physicist
 
@@ -94,9 +138,9 @@ single-point solves and the module `run()` paths).
   Jacobians).
 - Reproduce with `PYTHONUTF8=1 python -m validation.fischer_2023.fig6_paper` (or
   the fast `test_fig6_paper_eq53.py`) and the A/B monkeypatch above.
-- The question to resolve: how should the exact gap-edge DOS weight enter the
-  *driven* scattering/recombination balance so the driven branch survives and the
-  reproductions stay faithful, while still removing the collision-vs-observable
-  number inconsistency G1 identified?
-- Until then, `qpsim` ships with the documented (midpoint-collision) behavior; the
-  G1 inconsistency is a known ~1/√NE convergence budget, not a shipped bug.
+- Use the historical commit only to reproduce the mixed-measure failure. The
+  repair must retain the algebraic identities above and the driven regression;
+  a local `rho*dE -> cell_weights` edit is still prohibited.
+- Full-grid paper validation remains a separate release gate. The reduced
+  regression proves that this numerical-measure repair no longer destroys the
+  driven branch; it does not by itself establish paper agreement.

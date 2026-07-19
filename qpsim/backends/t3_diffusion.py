@@ -5,16 +5,17 @@ backend with both steady-state and transient time-evolution paths.
 
 Scope for Gate 2: spatially-homogeneous runs (``N_spatial = 1``), a
 scalar gap, the e-phonon integral, and optional sub-gap / PB photon
-channels via ``photon_params`` / ``pb_photon_params``. The transient
-``step()`` uses a symmetric 3-operator Strang split with
-``apply_transport`` as a no-op for ``N_spatial = 1`` (real spatial
-diffusion lands at Gate 5).
+channels via ``photon_params`` / ``pb_photon_params``. Moving-gap ``step()``
+uses a stage-constrained ETD2 reduction on persistent BCS material
+coordinates. The standalone ``apply_gap_update`` remains an algebraic
+projection, not a time-parameterized flow. ``apply_transport`` remains a
+no-op for ``N_spatial = 1`` (real spatial diffusion lands at Gate 5).
 """
 
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -32,21 +33,47 @@ from qpsim.collisions.phonon import (
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononState
+from qpsim.phonon_models.state import PhononModel, PhononState
 from qpsim.physics.bcs_quadrature import (
     bcs_dos_cell_weights,
     cell_edges_from_widths,
 )
-from qpsim.physics.gap_equation import calibrate_gap, solve_gap
+from qpsim.physics.gap_equation import GapCalibration, calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
 from qpsim.solvers.coupled_newton import coupled_newton_solve
 from qpsim.solvers.etd import etd2_step
 
+
+class SelfConsistentGapCollapseError(RuntimeError):
+    """The driven state has no supported superconducting gap root."""
+
+    def __init__(self, *, iteration: int, max_occupation: float) -> None:
+        self.iteration = int(iteration)
+        self.max_occupation = float(max_occupation)
+        super().__init__(
+            "Self-consistent gap collapsed: solve_gap returned Delta=0 at "
+            f"iteration {self.iteration} with |f|_max={self.max_occupation:.3e}. "
+            "The drive has exceeded the pair-breaking threshold; this solver "
+            "does not yet support the normal state."
+        )
+
+
 _TAU_L_UNIFORMITY_RTOL = 1e-10
 _GAP_STATE_MATCH_RTOL = 1e-12
 _GAP_SUPPORT_EPS = 1e-30
+# ``apply_gap_update`` is a nonlinear algebraic projection: solving the gap
+# changes the spectral coordinates and therefore remaps ``f``; that remapped
+# occupation changes the gap equation in turn.  Certify the completed state,
+# rather than accepting one solve/remap pass.  The Brent tolerance is kept
+# well below the projection tolerance so root-solver noise cannot set the
+# fixed-point floor.
+_GAP_PROJECTION_RTOL = 1e-12
+_GAP_PROJECTION_ATOL_UEV = 1e-10
+_GAP_PROJECTION_SOLVE_XTOL_UEV = 1e-12
+_GAP_PROJECTION_MAX_ITER = 50
+_MOVING_GAP_TAIL_RTOL = 5e-12
 _EDGE_REMAP_MIN_BINS = 4
 _EDGE_REMAP_OCCUPATION_CEILING = 1.0 - 1e-12
 
@@ -76,11 +103,7 @@ def _spread_mass_change(
 
     while True:
         selected = support_indices[:n_selected]
-        available = (
-            capacity[selected] - mass[selected]
-            if add_mass
-            else mass[selected]
-        )
+        available = capacity[selected] - mass[selected] if add_mass else mass[selected]
         available = np.maximum(available, 0.0)
         available_total = float(np.sum(available))
         if available_total + tolerance >= need or n_selected == n_support:
@@ -108,11 +131,7 @@ def _spread_mass_change(
     if remaining > tolerance:
         correction_adds = signed_remaining > 0.0
         for idx in support_indices:
-            room = (
-                capacity[idx] - mass[idx]
-                if correction_adds
-                else mass[idx]
-            )
+            room = capacity[idx] - mass[idx] if correction_adds else mass[idx]
             amount = min(max(float(room), 0.0), remaining)
             mass[idx] += amount if correction_adds else -amount
             remaining -= amount
@@ -142,8 +161,13 @@ def _recover_conservative_gap_occupation(
         raise RuntimeError("apply_gap_update produced non-finite spectral mass.")
 
     mass_scale = float(np.sum(np.abs(cell_mass)))
-    tolerance = 256.0 * np.finfo(float).eps * max(
-        mass_scale, np.finfo(float).tiny,
+    tolerance = (
+        256.0
+        * np.finfo(float).eps
+        * max(
+            mass_scale,
+            np.finfo(float).tiny,
+        )
     )
     total_mass = float(np.sum(cell_mass))
     if total_mass < -tolerance:
@@ -181,27 +205,30 @@ def _recover_conservative_gap_occupation(
 
     mass_out = np.zeros_like(cell_mass)
     mass_out[support] = np.clip(
-        cell_mass[support], 0.0, allocation_capacity[support],
+        cell_mass[support],
+        0.0,
+        allocation_capacity[support],
     )
     delta = total_mass - float(np.sum(mass_out))
     n_touched = _spread_mass_change(
-        mass_out, allocation_capacity, support_indices, delta, tolerance,
+        mass_out,
+        allocation_capacity,
+        support_indices,
+        delta,
+        tolerance,
     )
 
     final_mass = float(np.sum(mass_out))
     residual = total_mass - final_mass
     if abs(residual) > tolerance:
         raise RuntimeError(
-            "apply_gap_update conservative remap left a mass residual of "
-            f"{residual:g}."
+            f"apply_gap_update conservative remap left a mass residual of {residual:g}."
         )
 
     f_new = np.zeros_like(u)
     f_new[support] = mass_out[support] / capacity[support]
     if np.any(f_new < -1e-13) or np.any(f_new > 1.0 + 1e-13):
-        raise RuntimeError(
-            "apply_gap_update conservative remap violated occupation bounds."
-        )
+        raise RuntimeError("apply_gap_update conservative remap violated occupation bounds.")
     f_new = np.clip(f_new, 0.0, 1.0)
     remapped_mass = 0.5 * float(np.sum(np.abs(mass_out - cell_mass)))
     return f_new, remapped_mass, n_touched
@@ -228,9 +255,7 @@ def _remap_bcs_frozen_xi_cell_mass(
     widths = np.asarray(dE, dtype=float)
     if occupations.shape != energies.shape or widths.shape != energies.shape:
         raise ValueError("f_old, E, and dE must have identical one-dimensional shapes.")
-    if np.any(~np.isfinite(occupations)) or np.any(
-        (occupations < 0.0) | (occupations > 1.0)
-    ):
+    if np.any(~np.isfinite(occupations)) or np.any((occupations < 0.0) | (occupations > 1.0)):
         raise ValueError("f_old must contain finite occupations in [0, 1].")
 
     cell_edges = cell_edges_from_widths(energies, widths)
@@ -238,9 +263,7 @@ def _remap_bcs_frozen_xi_cell_mass(
     def xi_edges(gap: float) -> np.ndarray:
         xi = np.zeros_like(cell_edges)
         above = cell_edges > gap
-        xi[above] = np.sqrt(
-            (cell_edges[above] - gap) * (cell_edges[above] + gap)
-        )
+        xi[above] = np.sqrt((cell_edges[above] - gap) * (cell_edges[above] + gap))
         return xi
 
     old_xi = xi_edges(old_gap)
@@ -278,14 +301,18 @@ def _remap_bcs_frozen_xi_cell_mass(
 
     old_mass = float(np.sum(old_widths * occupations))
     mapped_mass = float(np.sum(new_mass))
-    mass_tolerance = 256.0 * np.finfo(float).eps * max(
-        abs(old_mass), np.finfo(float).tiny,
+    mass_tolerance = (
+        256.0
+        * np.finfo(float).eps
+        * max(
+            abs(old_mass),
+            np.finfo(float).tiny,
+        )
     )
     escaped_mass = old_mass - mapped_mass
     if escaped_mass < -mass_tolerance:
         raise RuntimeError(
-            "Frozen-xi gap remap created quasiparticle mass; "
-            f"signed excess {-escaped_mass:g}."
+            f"Frozen-xi gap remap created quasiparticle mass; signed excess {-escaped_mass:g}."
         )
     escaped_mass = max(escaped_mass, 0.0)
 
@@ -296,6 +323,90 @@ def _remap_bcs_frozen_xi_cell_mass(
     if not np.allclose(new_widths, expected_new_widths, rtol=5e-14, atol=tolerance):
         raise RuntimeError("Frozen-xi cell widths disagree with BCS DOS weights.")
     return new_mass, escaped_mass
+
+
+@dataclass(frozen=True)
+class _PersistentGapCoordinates:
+    r"""Authoritative moving-gap occupation on fixed material ``xi`` cells.
+
+    ``public_f`` and the grid/gap snapshots are synchronization sentinels.  A
+    caller is free to mutate or replace the public state; if that happens, the
+    next moving-gap step deliberately rebuilds material coordinates instead of
+    reusing stale hidden data.  Arrays are copied and made read-only so rejected
+    ETD trials cannot mutate an accepted state.
+    """
+
+    xi_edges: np.ndarray
+    occupation: np.ndarray
+    energy_grid: np.ndarray
+    energy_widths: np.ndarray
+    synchronized_gap: float
+    public_f: np.ndarray
+
+    def __post_init__(self) -> None:
+        arrays = {
+            "xi_edges": self.xi_edges,
+            "occupation": self.occupation,
+            "energy_grid": self.energy_grid,
+            "energy_widths": self.energy_widths,
+            "public_f": self.public_f,
+        }
+        for name, value in arrays.items():
+            copied = np.asarray(value, dtype=float).copy()
+            copied.flags.writeable = False
+            object.__setattr__(self, name, copied)
+        if self.xi_edges.ndim != 1 or self.occupation.ndim != 1:
+            raise ValueError("Persistent moving-gap coordinates must be one-dimensional.")
+        if self.xi_edges.size != self.occupation.size + 1:
+            raise ValueError("xi_edges must contain one more entry than occupation.")
+        if np.any(~np.isfinite(self.xi_edges)) or np.any(np.diff(self.xi_edges) <= 0.0):
+            raise ValueError("xi_edges must be finite and strictly increasing.")
+        if np.any(~np.isfinite(self.occupation)) or np.any(
+            (self.occupation < 0.0) | (self.occupation > 1.0)
+        ):
+            raise ValueError("Persistent occupations must be finite and lie in [0, 1].")
+        if (
+            self.energy_grid.ndim != 1
+            or self.energy_widths.shape != self.energy_grid.shape
+            or self.public_f.shape != self.energy_grid.shape
+        ):
+            raise ValueError("Persistent energy snapshots must have one matching shape.")
+        if (
+            self.energy_grid.size == 0
+            or np.any(~np.isfinite(self.energy_grid))
+            or np.any(np.diff(self.energy_grid) <= 0.0)
+            or np.any(~np.isfinite(self.energy_widths))
+            or np.any(self.energy_widths <= 0.0)
+        ):
+            raise ValueError(
+                "Persistent energy snapshots require a finite increasing grid "
+                "and positive finite widths."
+            )
+        if np.any(~np.isfinite(self.public_f)) or np.any(
+            (self.public_f < 0.0) | (self.public_f > 1.0)
+        ):
+            raise ValueError("The synchronized public occupation must lie in [0, 1].")
+        if not np.isfinite(self.synchronized_gap) or self.synchronized_gap <= 0.0:
+            raise ValueError("The synchronized moving gap must be finite and positive.")
+
+
+def _bcs_xi_edges(cell_edges: np.ndarray, gap: float) -> np.ndarray:
+    r"""Map fixed energy faces to ``xi=sqrt(E**2-gap**2)``."""
+    edges = np.asarray(cell_edges, dtype=float)
+    xi = np.zeros_like(edges)
+    above = edges > gap
+    xi[above] = np.sqrt((edges[above] - gap) * (edges[above] + gap))
+    return xi
+
+
+def _material_overlap(
+    xi_edges: np.ndarray,
+    energy_xi_edges: np.ndarray,
+) -> np.ndarray:
+    """Exact ``d xi`` overlap from persistent rows to energy-cell columns."""
+    left = np.maximum(xi_edges[:-1, None], energy_xi_edges[None, :-1])
+    right = np.minimum(xi_edges[1:, None], energy_xi_edges[None, 1:])
+    return np.maximum(right - left, 0.0)
 
 
 @dataclass
@@ -327,6 +438,12 @@ class T3DiffusionState:
     tier
         Always :attr:`Tier.T3_DIFFUSION`; included for downstream code
         that branches on the tier enum.
+
+    Notes
+    -----
+    Accepted moving-gap steps also carry a private, read-only material-grid
+    synchronization record. It is intentionally excluded from ``repr`` and
+    equality and is invalidated automatically if the public state is edited.
     """
 
     f: np.ndarray
@@ -336,13 +453,18 @@ class T3DiffusionState:
     material: Material
     T_bath: float
     tier: Tier = Tier.T3_DIFFUSION
+    _moving_gap_coordinates: _PersistentGapCoordinates | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 class T3DiffusionBackend:
-    """Steady-state solver for the T3 tier.
+    """Homogeneous steady-state and transient solver for the T3 tier.
 
-    Stateless; a single instance can be reused across many runs.
-    Transient methods land in task 12.
+    Backend instances are stateless and reusable. Accepted moving-gap material
+    coordinates belong to :class:`T3DiffusionState`, not to this object.
     """
 
     def steady_state(
@@ -353,19 +475,21 @@ class T3DiffusionBackend:
         self_consistent_gap: bool = False,
         use_thermal_phonons: bool = False,
         external_dissipation_only: bool = False,
-        use_phonon_side_kernel: bool = False,
+        use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
         newton_tol: float = 1e-14,
+        newton_backward_error_tol: float = 1e-6,
         newton_max_iter: int = 200,
         picard_tol: float = 1e-10,
         picard_atol: float = 1e-11,
+        picard_balance_tol: float | None = None,
         picard_max_iter: int = 200,
         picard_mixing: float = 0.3,
         anderson_depth: int = 0,
         coupled_newton_tol: float = 1e-10,
-        coupled_newton_step_rtol: float = 0.0,
+        coupled_newton_step_rtol: float = 1e-8,
         coupled_newton_max_iter: int = 50,
         coupled_newton_fd_step: float = 1e-8,
         coupled_newton_analytic_cross: bool = False,
@@ -406,9 +530,10 @@ class T3DiffusionBackend:
             ``f`` (and, if applicable, ``n_ph``) at the current gap,
             updates ``Δ`` via :func:`qpsim.physics.gap_equation.solve_gap`,
             and repeats until the relative gap change is below
-            ``gap_tol``. The final state is re-solved once more at the
-            converged gap so ``f``/``n_ph`` and ``Δ`` are exactly
-            consistent.
+            ``gap_tol``. Convergence is accepted only on a state whose
+            fixed-gap kinetic solve has already completed and whose own
+            branch-anchored gap-map residual passes the tolerance; no
+            unchecked post-convergence kinetic polish is returned.
         use_thermal_phonons
             ``True`` pins ``n_ph`` at the substrate Bose-Einstein
             distribution and runs Newton-only on ``f`` (no Picard, no
@@ -435,8 +560,8 @@ class T3DiffusionBackend:
             ``self_consistent_gap=True`` (the gap equation depends on
             e-ph occupations).
         use_phonon_side_kernel
-            **Opt-in** F&C 2023 Eq. 12 phonon-side kernel for the
-            phonon-equation rate. When ``True``, builds a sibling
+            F&C 2023 Eq. 12 phonon-side kernel for the phonon-equation
+            rate (the default). When ``True``, builds a sibling
             ``K_s0_phonon_side = 2K⁻/(π Δ τ_0^PB)`` and
             ``K_r0_phonon_side = K⁺/(π Δ τ_0^PB)`` from
             ``state.material.tau_0_pb_ns`` (via
@@ -452,23 +577,58 @@ class T3DiffusionBackend:
             Requires ``state.material.tau_0_pb_ns`` to be set;
             otherwise raises ``ValueError``. Ignored when
             ``use_thermal_phonons=True`` or
-            ``external_dissipation_only=True``. ``False`` (default)
-            preserves legacy behavior bit-for-bit.
+            ``external_dissipation_only=True``. Set ``False`` only to
+            reproduce the legacy behavior that reused the QP-side kernel in
+            the phonon equation.
         photon_params, pb_photon_params
             Optional photon channel dicts.
-        newton_tol, newton_max_iter
-            Inner Newton controls (used by Picard and thermal-phonon paths).
-        picard_tol, picard_atol, picard_max_iter, picard_mixing, anderson_depth
+        newton_tol, newton_backward_error_tol, newton_max_iter
+            Inner Newton dimensional residual tolerance, scale-independent
+            gain/loss backward-error limit, and iteration cap (used by Picard
+            and thermal-phonon paths).
+        picard_tol, picard_atol, picard_balance_tol, picard_max_iter,
+        picard_mixing, anderson_depth
             Picard path controls. ``picard_atol`` is an absolute tolerance on
             dimensionless phonon occupation, independent of ``newton_tol``.
-        coupled_newton_tol, coupled_newton_max_iter, coupled_newton_fd_step
-            Coupled-Newton path controls.
+            ``picard_balance_tol`` is the normwise physical phonon-balance
+            limit; ``None`` derives ``max(10*picard_tol, 1e-6)``.
+        coupled_newton_tol, coupled_newton_step_rtol,
+        coupled_newton_max_iter, coupled_newton_fd_step
+            Coupled-Newton path controls. ``coupled_newton_step_rtol`` defaults
+            to a scale-aware step plus gain/loss-balance certificate; pass
+            ``0.0`` only to reproduce the legacy absolute-residual exit.
         gap_tol, gap_max_iter, gap_under_relaxation
             Outer self-consistent-gap loop controls. ``gap_tol`` applies to
             the unrelaxed fixed-point residual; under-relaxation changes the
             step size but cannot weaken the convergence criterion. Ignored
             when ``self_consistent_gap=False``.
         """
+        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=_GAP_STATE_MATCH_RTOL,
+            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match before a "
+                "steady-state solve; got "
+                f"{state.gap:g} and {state.spectral.gap:g}."
+            )
+
+        dynes_collision_enabled = (
+            not external_dissipation_only
+            or photon_params is not None
+            or pb_photon_params is not None
+        )
+        if state.spectral.dynes_gamma > 0.0 and dynes_collision_enabled:
+            raise ValueError(
+                "Dynes-broadened collision solves are not supported: the "
+                "current electron-phonon and photon coherence kernels are "
+                "ideal-BCS while the density of states is broadened. Set "
+                "dynes_gamma=0 until consistent broadened kernels are implemented."
+            )
+
         if use_thermal_phonons and method == "coupled_newton":
             raise ValueError(
                 "use_thermal_phonons=True pins n_ph at Bose-Einstein, so the "
@@ -511,6 +671,7 @@ class T3DiffusionBackend:
         # masked by the Picard-stability guard below.
         if external_flux is not None:
             external_flux._validate_for_NE(int(state.spectral.E.size))
+            external_flux._validate_gain_support(state.spectral.active_mask)
 
         # Default unaccelerated Picard (anderson_depth=0) is brittle when
         # ANY perturbation feeds through the phonon-emission cycle —
@@ -539,15 +700,6 @@ class T3DiffusionBackend:
                     "stability concern; not a kwarg-threading bug."
                 )
 
-        if gap_tol <= 0:
-            raise ValueError("gap_tol must be positive.")
-        if gap_max_iter <= 0:
-            raise ValueError("gap_max_iter must be positive.")
-        if not (0.0 < gap_under_relaxation <= 1.0):
-            raise ValueError(
-                "gap_under_relaxation must lie in the interval (0, 1]."
-            )
-
         if not self_consistent_gap:
             return self._steady_state_fixed_gap(
                 state,
@@ -559,9 +711,11 @@ class T3DiffusionBackend:
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
                 newton_tol=newton_tol,
+                newton_backward_error_tol=newton_backward_error_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
                 picard_atol=picard_atol,
+                picard_balance_tol=picard_balance_tol,
                 picard_max_iter=picard_max_iter,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
@@ -572,23 +726,39 @@ class T3DiffusionBackend:
                 coupled_newton_analytic_cross=coupled_newton_analytic_cross,
             )
 
-        if state.material.T_c <= 0:
+        if not np.isfinite(gap_tol) or gap_tol <= 0.0:
+            raise ValueError("gap_tol must be finite and positive.")
+        if (
+            isinstance(gap_max_iter, (bool, np.bool_))
+            or not isinstance(gap_max_iter, (int, np.integer))
+            or gap_max_iter <= 0
+        ):
+            raise ValueError("gap_max_iter must be a positive integer.")
+        if (
+            not np.isfinite(gap_under_relaxation)
+            or not 0.0 < gap_under_relaxation <= 1.0
+        ):
             raise ValueError(
-                "state.material.T_c must be positive for self-consistent-gap solves."
+                "gap_under_relaxation must be finite and lie in the interval (0, 1]."
             )
+
+        if state.material.T_c <= 0:
+            raise ValueError("state.material.T_c must be positive for self-consistent-gap solves.")
         if state.T_bath >= state.material.T_c:
             raise ValueError(
                 "self-consistent-gap steady state requires T_bath < T_c; "
                 f"got T_bath={state.T_bath} K and T_c={state.material.T_c} K."
             )
 
-        calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
+        calibration = calibrate_gap(
+            T_c=state.material.T_c,
+            T_bath=state.T_bath,
+            Delta_0=state.material.Delta_0,
+        )
         current = state
-        final_delta = float(state.gap)
-        last_solved: T3DiffusionState | None = None
         last_rel_change = float("inf")
 
-        for _ in range(gap_max_iter):
+        for iteration in range(1, gap_max_iter + 1):
             solved = self._steady_state_fixed_gap(
                 current,
                 method=method,
@@ -598,9 +768,11 @@ class T3DiffusionBackend:
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
                 newton_tol=newton_tol,
+                newton_backward_error_tol=newton_backward_error_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
                 picard_atol=picard_atol,
+                picard_balance_tol=picard_balance_tol,
                 picard_max_iter=picard_max_iter,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
@@ -610,10 +782,13 @@ class T3DiffusionBackend:
                 coupled_newton_fd_step=coupled_newton_fd_step,
                 coupled_newton_analytic_cross=coupled_newton_analytic_cross,
             )
-            last_solved = solved
 
             delta_raw = solve_gap(
-                calibration, solved.f, solved.spectral.E,
+                calibration,
+                solved.f,
+                solved.spectral.E,
+                dE_bins=solved.spectral.dE,
+                reference_gap=solved.gap,
                 xtol=gap_solve_xtol,
             )
             if delta_raw <= 0.0:
@@ -621,73 +796,63 @@ class T3DiffusionBackend:
                 # solution; collapse to the normal state directly. Under-relaxing
                 # zero against the previous gap would have drifted us to a
                 # spurious tiny-Δ "almost-superconducting" fixed point.
-                raise RuntimeError(
-                    "Self-consistent gap collapsed: solve_gap returned Δ=0 at "
-                    f"iteration with |f|_max={float(solved.f.max()):.3e}. "
-                    "The drive has exceeded the pair-breaking threshold; "
-                    "this solver does not yet support the normal state."
+                raise SelfConsistentGapCollapseError(
+                    iteration=iteration,
+                    max_occupation=float(solved.f.max()),
                 )
-            final_delta = (
-                (1.0 - gap_under_relaxation) * solved.gap
-                + gap_under_relaxation * delta_raw
+
+            cell_edges = cell_edges_from_widths(
+                solved.spectral.E,
+                solved.spectral.dE,
             )
+            lower_edge = float(cell_edges[0])
+            support_tolerance = 64.0 * np.finfo(float).eps * max(
+                abs(delta_raw),
+                abs(lower_edge),
+                1.0,
+            )
+            if delta_raw < lower_edge - support_tolerance:
+                raise ValueError(
+                    "Self-consistent gap solve returned a candidate below the "
+                    "first represented energy-cell face: "
+                    f"Delta={delta_raw:.12g} micro-eV, "
+                    f"E_face_min={lower_edge:.12g} micro-eV. The gap equation "
+                    "would depend on extrapolating f through unsampled BCS "
+                    "gap-edge support; extend the energy grid below every "
+                    "candidate gap."
+                )
+
             # Test the gap equation itself, before under-relaxation. Testing
-            # ``final_delta`` would scale the residual by the relaxation
-            # factor and could accept an arbitrarily poor fixed point.
+            # the relaxed update would scale the residual by the relaxation
+            # factor and could accept an arbitrarily poor fixed point.  Return
+            # ``solved`` itself when this passes: its kinetic equation was
+            # solved at ``solved.gap`` and this exact occupation produced the
+            # checked, branch-anchored ``delta_raw`` above.
             last_rel_change = abs(delta_raw - solved.gap) / max(
-                abs(solved.gap), 1e-30,
+                abs(solved.gap),
+                1e-30,
             )
 
             if last_rel_change < gap_tol:
-                break
+                return solved
+
+            relaxed_delta = (
+                1.0 - gap_under_relaxation
+            ) * solved.gap + gap_under_relaxation * delta_raw
 
             current = replace(
                 solved,
-                gap=final_delta,
+                gap=relaxed_delta,
                 spectral=self._rebuild_spectral_context(
-                    solved.spectral, new_gap=final_delta,
+                    solved.spectral,
+                    new_gap=relaxed_delta,
                 ),
             )
-        else:
-            raise RuntimeError(
-                "Self-consistent gap iteration did not converge in "
-                f"{gap_max_iter} iterations. Final |Δ_raw - Δ| / Δ = "
-                f"{last_rel_change:.2e}."
-            )
 
-        if last_solved is None:
-            raise RuntimeError("Internal error: no steady-state solve was performed.")
-
-        if abs(final_delta - last_solved.gap) < 1e-14:
-            return last_solved
-
-        final_state = replace(
-            last_solved,
-            gap=final_delta,
-            spectral=self._rebuild_spectral_context(
-                last_solved.spectral, new_gap=final_delta,
-            ),
-        )
-        return self._steady_state_fixed_gap(
-            final_state,
-            method=method,
-            use_thermal_phonons=use_thermal_phonons,
-            use_phonon_side_kernel=use_phonon_side_kernel,
-            photon_params=photon_params,
-            pb_photon_params=pb_photon_params,
-            external_flux=external_flux,
-            newton_tol=newton_tol,
-            newton_max_iter=newton_max_iter,
-            picard_tol=picard_tol,
-            picard_atol=picard_atol,
-            picard_max_iter=picard_max_iter,
-            picard_mixing=picard_mixing,
-            anderson_depth=anderson_depth,
-            coupled_newton_tol=coupled_newton_tol,
-            coupled_newton_step_rtol=coupled_newton_step_rtol,
-            coupled_newton_max_iter=coupled_newton_max_iter,
-            coupled_newton_fd_step=coupled_newton_fd_step,
-            coupled_newton_analytic_cross=coupled_newton_analytic_cross,
+        raise RuntimeError(
+            "Self-consistent gap iteration did not converge in "
+            f"{gap_max_iter} iterations. Final |Δ_raw - Δ| / Δ = "
+            f"{last_rel_change:.2e}."
         )
 
     def _steady_state_fixed_gap(
@@ -697,14 +862,16 @@ class T3DiffusionBackend:
         method: str,
         use_thermal_phonons: bool,
         external_dissipation_only: bool = False,
-        use_phonon_side_kernel: bool = False,
+        use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
         external_flux: ExternalFlux | None,
         newton_tol: float,
+        newton_backward_error_tol: float,
         newton_max_iter: int,
         picard_tol: float,
         picard_atol: float,
+        picard_balance_tol: float | None,
         picard_max_iter: int,
         picard_mixing: float,
         anderson_depth: int,
@@ -743,21 +910,24 @@ class T3DiffusionBackend:
                 # phonon-equation rate. Built here so the same matrix
                 # is shared by Picard (via solve_steady_state →
                 # phonon_steady_state) and coupled-Newton paths.
-                if state.material.tau_0_pb_ns is None:
+                tau_0_pb_ns = state.material.tau_0_pb_ns
+                if tau_0_pb_ns is None or not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
                     raise ValueError(
-                        "use_phonon_side_kernel=True requires "
-                        "state.material.tau_0_pb_ns to be set; got None. "
+                        "Dynamic Ph0 with use_phonon_side_kernel=True requires "
+                        "state.material.tau_0_pb_ns to be finite and positive; "
+                        f"got {tau_0_pb_ns!r}. "
                         "Set τ_0^PB on the Material (e.g. via the YAML "
-                        "database key 'tau_0_pb_ns') or leave the flag "
-                        "False to retain the legacy QP-side kernel."
+                        "database key 'tau_0_pb_ns'). Pass "
+                        "use_phonon_side_kernel=False only to reproduce the "
+                        "legacy QP-side-kernel behavior."
                     )
                 K_r0_phonon_side = build_recombination_kernel_phonon_side(
                     state.spectral,
-                    tau_0_pb_ns=state.material.tau_0_pb_ns,
+                    tau_0_pb_ns=tau_0_pb_ns,
                 )
                 K_s0_phonon_side = build_scattering_kernel_phonon_side(
                     state.spectral,
-                    tau_0_pb_ns=state.material.tau_0_pb_ns,
+                    tau_0_pb_ns=tau_0_pb_ns,
                 )
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
@@ -766,17 +936,29 @@ class T3DiffusionBackend:
             # Newton-only shortcut: solve_steady_state routes to newton_solve_f
             # when phonon_escape_time=None, with n_ph held at Bose-Einstein.
             f_new = solve_steady_state(
-                state.spectral, K_s0, K_r0, state.T_bath,
+                state.spectral,
+                K_s0,
+                K_r0,
+                state.T_bath,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
                 initial_guess=state.f,
-                tol=newton_tol, max_iter=newton_max_iter,
+                tol=newton_tol,
+                newton_backward_error_tol=newton_backward_error_tol,
+                max_iter=newton_max_iter,
                 phonon_escape_time=None,
             )
             omega_conv, _, _, _ = build_phonon_frequency_map(state.spectral.E)
             n_ph_conv = thermal_phonon_occupation(omega_conv, state.T_bath)
         elif method == "picard":
+            omega_seed, _, _, _ = build_phonon_frequency_map(state.spectral.E)
+            initial_phonon_guess: np.ndarray | None = None
+            if (
+                state.phonon.omega_bins.shape == (1, omega_seed.size)
+                and np.array_equal(state.phonon.omega_bins[0], omega_seed)
+            ):
+                initial_phonon_guess = state.phonon.n_ph[0, :, 0].copy()
             phonon_out: dict[str, np.ndarray] = {}
             f_new = solve_steady_state(
                 state.spectral,
@@ -789,12 +971,15 @@ class T3DiffusionBackend:
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
                 initial_guess=state.f,
+                initial_phonon_guess=initial_phonon_guess,
                 tol=newton_tol,
+                newton_backward_error_tol=newton_backward_error_tol,
                 max_iter=newton_max_iter,
                 phonon_escape_time=tau_l_scalar,
                 max_picard_iter=picard_max_iter,
                 picard_tol=picard_tol,
                 picard_atol=picard_atol,
+                picard_balance_tol=picard_balance_tol,
                 picard_mixing=picard_mixing,
                 anderson_depth=anderson_depth,
                 phonon_out=phonon_out,
@@ -802,28 +987,29 @@ class T3DiffusionBackend:
             n_ph_conv = phonon_out["n_ph"]
             omega_conv = phonon_out["omega_bins"]
         elif method == "coupled_newton":
-            omega_conv, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
-                state.spectral.E
-            )
+            omega_conv, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(state.spectral.E)
             # Seed n_ph from state if it's already on the physics grid,
             # else start from thermal.
-            if (
-                state.phonon.omega_bins.shape == (1, omega_conv.size)
-                and np.allclose(state.phonon.omega_bins[0], omega_conv)
+            if state.phonon.omega_bins.shape == (1, omega_conv.size) and np.array_equal(
+                state.phonon.omega_bins[0], omega_conv
             ):
                 n_ph_init = state.phonon.n_ph[0, :, 0].copy()
             else:
                 n_ph_init = thermal_phonon_occupation(omega_conv, state.T_bath)
             f_new, n_ph_conv = coupled_newton_solve(
-                state.spectral, state.f, n_ph_init,
+                state.spectral,
+                state.f,
+                n_ph_init,
                 omega_bins=omega_conv,
                 omega_idx_diff=idx_diff,
                 omega_idx_sum=idx_sum,
                 diff_sign=diff_sign,
-                K_s0=K_s0, K_r0=K_r0,
+                K_s0=K_s0,
+                K_r0=K_r0,
                 K_s0_phonon_side=K_s0_phonon_side,
                 K_r0_phonon_side=K_r0_phonon_side,
-                T_bath=state.T_bath, tau_l=tau_l_scalar,
+                T_bath=state.T_bath,
+                tau_l=tau_l_scalar,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
@@ -834,9 +1020,7 @@ class T3DiffusionBackend:
                 analytic_cross=coupled_newton_analytic_cross,
             )
         else:
-            raise ValueError(
-                f"Unknown method {method!r}. Use 'picard' or 'coupled_newton'."
-            )
+            raise ValueError(f"Unknown method {method!r}. Use 'picard' or 'coupled_newton'.")
 
         new_phonon = replace(
             state.phonon,
@@ -871,6 +1055,7 @@ class T3DiffusionBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
+        _diagnostics: dict[str, object] | None = None,
     ) -> T3DiffusionState:
         """One ETD2 collision substep on ``f`` with ``n_ph`` frozen.
 
@@ -883,6 +1068,14 @@ class T3DiffusionBackend:
         steady state use :func:`steady_state` or
         :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`).
         """
+        if state.spectral.dynes_gamma > 0.0:
+            raise ValueError(
+                "Dynes-broadened transient collisions are not supported: the "
+                "current electron-phonon and photon coherence kernels are "
+                "ideal-BCS while the density of states is broadened. Set "
+                "dynes_gamma=0 until consistent broadened kernels are implemented."
+            )
+
         self._validate_gate2_scope(state.phonon)
         self._validate_phonon_on_physics_grid(state)
 
@@ -893,8 +1086,16 @@ class T3DiffusionBackend:
         # built from spectral.gap while ignoring state.gap.
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError(f"apply_collisions requires a finite positive dt; got {dt}.")
-        if not np.all(np.isfinite(state.f)):
-            raise ValueError("apply_collisions requires a finite state.f.")
+        f_state = np.asarray(state.f, dtype=float)
+        if f_state.shape != state.spectral.E.shape:
+            raise ValueError(
+                "state.f must have the same one-dimensional shape as the "
+                "spectral energy grid."
+            )
+        if np.any(~np.isfinite(f_state)) or np.any(
+            (f_state < 0.0) | (f_state > 1.0)
+        ):
+            raise ValueError("state.f must contain finite occupations in [0, 1].")
         gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
         if not np.isclose(
             state.gap,
@@ -909,28 +1110,43 @@ class T3DiffusionBackend:
 
         if external_flux is not None:
             external_flux._validate_for_NE(int(state.spectral.E.size))
+            external_flux._validate_gain_support(state.spectral.active_mask)
 
         K_s0 = build_scattering_kernel_base(
-            state.spectral, tau_0=state.material.tau_0, T_c=state.material.T_c,
+            state.spectral,
+            tau_0=state.material.tau_0,
+            T_c=state.material.T_c,
         )
         K_r0 = build_recombination_kernel_base(
-            state.spectral, tau_0=state.material.tau_0, T_c=state.material.T_c,
+            state.spectral,
+            tau_0=state.material.tau_0,
+            T_c=state.material.T_c,
         )
 
         _, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(state.spectral.E)
         n_ph_1d = state.phonon.n_ph[0, :, 0]
         N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
-            n_ph_1d, idx_diff, idx_sum, diff_sign,
+            n_ph_1d,
+            idx_diff,
+            idx_sum,
+            diff_sign,
         )
 
         def rhs(f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             gain, loss = phonon_collision_rates(
-                f, state.spectral, K_s0, K_r0, state.T_bath,
-                N_p_override=N_p, N_emit_override=N_emit, N_abs_override=N_abs,
+                f,
+                state.spectral,
+                K_s0,
+                K_r0,
+                state.T_bath,
+                N_p_override=N_p,
+                N_emit_override=N_emit,
+                N_abs_override=N_abs,
             )
             if photon_params is not None:
                 gp, lp = sub_gap_photon_collision_rates(
-                    f, state.spectral,
+                    f,
+                    state.spectral,
                     photon_params["omega_0"],
                     photon_params["n_bar"],
                     photon_params["c_phot"],
@@ -939,7 +1155,8 @@ class T3DiffusionBackend:
                 loss = loss + lp
             if pb_photon_params is not None:
                 gp, lp = pair_breaking_photon_collision_rates(
-                    f, state.spectral,
+                    f,
+                    state.spectral,
                     pb_photon_params["omega_PB"],
                     pb_photon_params["n_bar_PB"],
                     pb_photon_params["c_phot_PB"],
@@ -949,10 +1166,103 @@ class T3DiffusionBackend:
             if external_flux is not None:
                 gain = gain + external_flux.gain
                 loss = loss + external_flux.loss_rate
+            unsupported = ~state.spectral.active_mask
+            gain[unsupported] = 0.0
+            loss[unsupported] = 0.0
             return gain, loss
 
-        f_new = etd2_step(state.f, rhs, dt)
+        etd_diagnostics: dict[str, int] = {}
+        f_new = etd2_step(
+            f_state,
+            rhs,
+            dt,
+            balance_weights=state.spectral.cell_weights,
+            max_loss_step=0.25,
+            _diagnostics=etd_diagnostics,
+        )
+        if _diagnostics is not None:
+            # Rejected nonlinear predictor trials add RHS evaluations but are
+            # not completed integration work. Forward the stepper's exact
+            # accepted-substep diagnostic instead of inferring it from calls.
+            accepted_substeps = etd_diagnostics.get("accepted_substeps")
+            if not isinstance(accepted_substeps, int) or accepted_substeps < 1:
+                raise RuntimeError("ETD2 returned an invalid accepted-step count.")
+            _diagnostics["etd_substeps"] = accepted_substeps
+            if bool(_diagnostics.get("evaluate_residual", False)):
+                # Evaluate the endpoint once more using the same built kernels,
+                # frozen phonon matrices, and caller-sampled flux. This gives
+                # early stopping an unclipped residual without rebuilding
+                # O(NE^2) operators or resampling a time callback.
+                gain_end, loss_end = rhs(f_new)
+                _diagnostics["raw_collision_rate"] = gain_end - loss_end * f_new
         return replace(state, f=f_new)
+
+    def apply_collisions_with_diagnostics(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+        *,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
+        external_flux: ExternalFlux | None = None,
+        evaluate_residual: bool = False,
+    ) -> tuple[T3DiffusionState, np.ndarray | None, int]:
+        """Advance once and report raw residual plus internal ETD substeps.
+
+        ``evaluate_residual=False`` records rate-limited ETD2 work without an
+        extra RHS evaluation. When true, the returned residual uses the same
+        frozen operator and external-flux sample as the step. Custom backends
+        may implement this protocol; otherwise the transient driver counts one
+        opaque backend step and uses a conservative stopping fallback.
+        """
+        diagnostics: dict[str, object] = {
+            "evaluate_residual": bool(evaluate_residual),
+        }
+        updated = self.apply_collisions(
+            state,
+            dt,
+            photon_params=photon_params,
+            pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
+            _diagnostics=diagnostics,
+        )
+        raw_rate = diagnostics.get("raw_collision_rate")
+        if raw_rate is not None and not isinstance(raw_rate, np.ndarray):
+            raise RuntimeError("Collision diagnostics returned an invalid residual.")
+        substeps = diagnostics.get("etd_substeps")
+        if not isinstance(substeps, int) or substeps < 1:
+            raise RuntimeError("Collision diagnostics returned an invalid step count.")
+        return updated, raw_rate, substeps
+
+    def apply_collisions_with_residual(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+        *,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
+        external_flux: ExternalFlux | None = None,
+    ) -> tuple[T3DiffusionState, np.ndarray]:
+        """Advance once and return the raw endpoint collision residual.
+
+        This is the diagnostics protocol used by the transient service when
+        ``stop_tol`` is enabled.  The residual is evaluated with the exact
+        same frozen operator and external-flux sample as the ETD2 step.
+        Custom backends may implement the same method to provide a trustworthy
+        stopping certificate; otherwise the service uses a conservative
+        finite-difference fallback.
+        """
+        updated, raw_rate, _substeps = self.apply_collisions_with_diagnostics(
+            state,
+            dt,
+            photon_params=photon_params,
+            pb_photon_params=pb_photon_params,
+            external_flux=external_flux,
+            evaluate_residual=True,
+        )
+        if raw_rate is None:
+            raise RuntimeError("Collision diagnostics did not return a raw residual.")
+        return updated, raw_rate
 
     def apply_transport(
         self,
@@ -974,76 +1284,341 @@ class T3DiffusionBackend:
             )
         return state
 
-    def apply_gap_update(
+    @staticmethod
+    def _persistent_coordinates_for_state(
+        state: T3DiffusionState,
+    ) -> _PersistentGapCoordinates:
+        """Reuse synchronized material data or initialize it from public ``f``."""
+        cached = state._moving_gap_coordinates
+        if cached is not None and (
+            cached.synchronized_gap == float(state.gap)
+            and np.array_equal(cached.energy_grid, state.spectral.E)
+            and np.array_equal(cached.energy_widths, state.spectral.dE)
+            and np.array_equal(cached.public_f, state.f)
+        ):
+            return cached
+
+        E = state.spectral.E
+        dE = state.spectral.dE
+        f = np.asarray(state.f, dtype=float)
+        cell_edges = cell_edges_from_widths(E, dE)
+        scale = max(abs(float(state.gap)), float(np.max(np.abs(cell_edges))), 1.0)
+        tolerance = 128.0 * np.finfo(float).eps * scale
+        if float(cell_edges[0]) > state.gap + tolerance:
+            raise ValueError(
+                "The energy grid does not cover the moving BCS gap edge. "
+                "Extend E_min below every gap reached by the trajectory."
+            )
+
+        mapped_edges = _bcs_xi_edges(cell_edges, state.gap)
+        mapped_widths = np.diff(mapped_edges)
+        represented = np.flatnonzero(mapped_widths > 0.0)
+        if represented.size == 0:
+            raise ValueError("The energy grid has no represented material cells.")
+        if not np.array_equal(
+            represented,
+            np.arange(represented[0], represented[-1] + 1),
+        ):
+            raise RuntimeError("BCS material support must be one contiguous interval.")
+
+        xi_edges = np.concatenate(([mapped_edges[represented[0]]], mapped_edges[represented + 1]))
+        occupation = f[represented].copy()
+
+        # Reserve vacuum material cells up to the largest xi that the fixed
+        # energy grid can expose as Delta -> 0.  This prevents a falling gap
+        # from creating work-grid cells with no persistent degree of freedom.
+        # The extension is never populated while it lies beyond E_max; if a
+        # later rising gap would strand material occupied mass there, the
+        # materialization audit below fails loudly.
+        xi_limit = max(float(cell_edges[-1]), float(xi_edges[-1]))
+        remaining = xi_limit - float(xi_edges[-1])
+        if remaining > tolerance:
+            typical_width = float(np.median(np.diff(xi_edges)))
+            n_extra = max(1, int(np.ceil(remaining / typical_width)))
+            extra_edges = np.linspace(
+                float(xi_edges[-1]),
+                xi_limit,
+                n_extra + 1,
+            )[1:]
+            xi_edges = np.concatenate((xi_edges, extra_edges))
+            occupation = np.concatenate((occupation, np.zeros(n_extra)))
+
+        return _PersistentGapCoordinates(
+            xi_edges=xi_edges,
+            occupation=occupation,
+            energy_grid=E,
+            energy_widths=dE,
+            synchronized_gap=float(state.gap),
+            public_f=f,
+        )
+
+    def _materialize_persistent_occupation(
         self,
         state: T3DiffusionState,
-        dt: float,
-    ) -> T3DiffusionState:
-        r"""Advance ``Delta`` and remap BCS cell mass at frozen ``xi``.
-
-        1. Solve for the new gap from the current ``f`` (reference-
-           subtracted BCS).
-        2. If the gap moved, map the ideal-BCS finite-volume mass exactly
-           along frozen-``xi`` characteristics by overlapping the old and
-           new ``xi`` cells.  This is the characteristic solution of the
-           conservative spectral-flow equation because ``rho(E) dE = dxi``.
-        3. Rebuild the :class:`SpectralContext` at the new Δ and recover a
-           bounded ``f`` with an analytic-BCS-cell-weight conservative remap.
-
-        Moving-gap flow is currently supported only for ideal BCS spectra.
-        The grid cells must cover the new gap edge.  A finite upper energy
-        boundary may truncate rising-gap characteristics; material loss at
-        that boundary is diagnosed rather than silently discarded.
-        """
-        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
-        if not np.isclose(
-            state.gap,
-            state.spectral.gap,
-            rtol=_GAP_STATE_MATCH_RTOL,
-            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        coordinates: _PersistentGapCoordinates,
+        gap: float,
+        *,
+        occupation: np.ndarray | None = None,
+    ) -> tuple[SpectralContext, np.ndarray, np.ndarray]:
+        """Conservatively expose persistent ``xi`` averages on the work grid."""
+        material_occupation = (
+            coordinates.occupation if occupation is None else np.asarray(occupation, dtype=float)
+        )
+        if material_occupation.shape != coordinates.occupation.shape:
+            raise ValueError("Material occupation has the wrong persistent-xi shape.")
+        if np.any(~np.isfinite(material_occupation)) or np.any(
+            (material_occupation < 0.0) | (material_occupation > 1.0)
         ):
+            raise ValueError("Material occupation must be finite and lie in [0, 1].")
+        spectral = self._rebuild_spectral_context(state.spectral, new_gap=gap)
+        cell_edges = cell_edges_from_widths(spectral.E, spectral.dE)
+        scale = max(abs(float(gap)), float(np.max(np.abs(cell_edges))), 1.0)
+        tolerance = 128.0 * np.finfo(float).eps * scale
+        if float(cell_edges[0]) > gap + tolerance:
             raise ValueError(
-                "state.gap and state.spectral.gap must match before a gap "
-                f"update; got {state.gap:g} and {state.spectral.gap:g}."
+                "The energy grid does not cover the moving BCS gap edge. "
+                "Extend E_min below every gap reached by the trajectory."
             )
-        if not np.isfinite(state.gap) or state.gap <= 0.0:
-            raise ValueError(
-                f"apply_gap_update requires a finite positive gap; got {state.gap}."
-            )
-        if not np.isfinite(dt):
-            raise ValueError(f"dt must be finite; got {dt}.")
-        if dt <= 0:
-            return state
 
-        f_state = np.asarray(state.f, dtype=float)
-        if f_state.shape != state.spectral.E.shape:
-            raise ValueError(
-                "state.f must have the same one-dimensional shape as the "
-                "spectral energy grid."
-            )
-        if np.any(~np.isfinite(f_state)) or np.any(
-            (f_state < 0.0) | (f_state > 1.0)
+        energy_xi_edges = _bcs_xi_edges(cell_edges, gap)
+        exact_weights = np.diff(energy_xi_edges)
+        if not np.allclose(
+            exact_weights,
+            spectral.cell_weights,
+            rtol=5e-14,
+            atol=tolerance,
         ):
-            raise ValueError("state.f must contain finite occupations in [0, 1].")
-
-        calibration = calibrate_gap(T_c=state.material.T_c, T_bath=state.T_bath)
-        new_gap = float(solve_gap(calibration, f_state, state.spectral.E))
-
-        if not np.isfinite(new_gap) or new_gap <= 0.0:
             raise RuntimeError(
-                "solve_gap returned a collapsed or non-finite gap "
-                f"({new_gap}); normal-state moving-gap dynamics are not "
-                "implemented."
-            )
-        if abs(new_gap - state.gap) < 1e-14:
-            return state
-        if state.spectral.dynes_gamma > 0.0:
-            raise ValueError(
-                "Moving-gap spectral flow is implemented only for an ideal "
-                "BCS spectrum (dynes_gamma == 0). A Dynes DOS requires the "
-                "complex anomalous spectral flux, not (Delta/E)*rho."
+                "Persistent material cells disagree with SpectralContext.cell_weights."
             )
 
+        overlap = _material_overlap(coordinates.xi_edges, energy_xi_edges)
+        covered_weights = np.sum(overlap, axis=0)
+        if not np.allclose(
+            covered_weights,
+            exact_weights,
+            rtol=5e-14,
+            atol=tolerance,
+        ):
+            raise RuntimeError("The persistent xi grid does not cover the energy work grid.")
+
+        mass = overlap.T @ material_occupation
+        f = np.divide(
+            mass,
+            exact_weights,
+            out=np.zeros_like(mass),
+            where=exact_weights > _GAP_SUPPORT_EPS,
+        )
+        bound_tolerance = 256.0 * np.finfo(float).eps
+        if np.any(f < -bound_tolerance) or np.any(f > 1.0 + bound_tolerance):
+            raise RuntimeError("Persistent materialization violated occupation bounds.")
+        f = np.clip(f, 0.0, 1.0)
+
+        xi_widths = np.diff(coordinates.xi_edges)
+        material_mass = float(xi_widths @ material_occupation)
+        represented_mass = float(exact_weights @ f)
+        tail_mass = material_mass - represented_mass
+        tail_tolerance = _MOVING_GAP_TAIL_RTOL * max(
+            material_mass, np.finfo(float).tiny
+        ) + 256.0 * np.finfo(float).eps * max(material_mass, 1.0)
+        if tail_mass < -tail_tolerance:
+            raise RuntimeError("Persistent materialization created finite-volume mass.")
+        if tail_mass > tail_tolerance:
+            raise RuntimeError(
+                "The moving gap would strand occupied persistent-xi mass "
+                "above the fixed E_max boundary. Extend the energy grid."
+            )
+        return spectral, f, overlap
+
+    def _constrain_persistent_occupation(
+        self,
+        state: T3DiffusionState,
+        coordinates: _PersistentGapCoordinates,
+        occupation: np.ndarray,
+        calibration: GapCalibration,
+        *,
+        reference_gap: float,
+    ) -> tuple[float, SpectralContext, np.ndarray, np.ndarray]:
+        """Solve the coupled discrete constraint ``G(P_Delta g, Delta)=0``."""
+        current_gap = float(reference_gap)
+        last_error = float("inf")
+        last_tolerance = float("nan")
+        for _iteration in range(1, _GAP_PROJECTION_MAX_ITER + 1):
+            spectral, f, overlap = self._materialize_persistent_occupation(
+                state,
+                coordinates,
+                current_gap,
+                occupation=occupation,
+            )
+            constrained_gap = float(
+                solve_gap(
+                    calibration,
+                    f,
+                    spectral.E,
+                    dE_bins=spectral.dE,
+                    reference_gap=current_gap,
+                    xtol=_GAP_PROJECTION_SOLVE_XTOL_UEV,
+                )
+            )
+            if not np.isfinite(constrained_gap) or constrained_gap <= 0.0:
+                raise RuntimeError(
+                    "The stage gap collapsed or became non-finite; "
+                    "normal-state moving-gap dynamics are not implemented."
+                )
+            last_error = abs(constrained_gap - current_gap)
+            last_tolerance = _GAP_PROJECTION_ATOL_UEV + _GAP_PROJECTION_RTOL * max(
+                abs(constrained_gap),
+                abs(current_gap),
+            )
+            if last_error <= last_tolerance:
+                return current_gap, spectral, f, overlap
+            current_gap = constrained_gap
+
+        raise RuntimeError(
+            "The stage-coupled moving-gap constraint did not converge in "
+            f"{_GAP_PROJECTION_MAX_ITER} iterations: final error "
+            f"{last_error:.3e} micro-eV exceeds {last_tolerance:.3e} micro-eV."
+        )
+
+    def _moving_gap_energy_collision_rates(
+        self,
+        state: T3DiffusionState,
+        spectral: SpectralContext,
+        f: np.ndarray,
+        *,
+        N_p: np.ndarray,
+        N_emit: np.ndarray,
+        N_abs: np.ndarray,
+        photon_params: dict[str, float] | None,
+        pb_photon_params: dict[str, float] | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Evaluate all Pauli-limited collision channels on uniform ``E``."""
+        K_s0 = build_scattering_kernel_base(
+            spectral,
+            tau_0=state.material.tau_0,
+            T_c=state.material.T_c,
+        )
+        K_r0 = build_recombination_kernel_base(
+            spectral,
+            tau_0=state.material.tau_0,
+            T_c=state.material.T_c,
+        )
+        gain, loss = phonon_collision_rates(
+            f,
+            spectral,
+            K_s0,
+            K_r0,
+            state.T_bath,
+            N_p_override=N_p,
+            N_emit_override=N_emit,
+            N_abs_override=N_abs,
+        )
+        if photon_params is not None:
+            photon_gain, photon_loss = sub_gap_photon_collision_rates(
+                f,
+                spectral,
+                photon_params["omega_0"],
+                photon_params["n_bar"],
+                photon_params["c_phot"],
+            )
+            gain = gain + photon_gain
+            loss = loss + photon_loss
+        if pb_photon_params is not None:
+            photon_gain, photon_loss = pair_breaking_photon_collision_rates(
+                f,
+                spectral,
+                pb_photon_params["omega_PB"],
+                pb_photon_params["n_bar_PB"],
+                pb_photon_params["c_phot_PB"],
+            )
+            gain = gain + photon_gain
+            loss = loss + photon_loss
+        if np.any(~np.isfinite(gain)) or np.any(~np.isfinite(loss)):
+            raise RuntimeError("Moving-gap collision rates became non-finite.")
+        return gain, loss
+
+    @staticmethod
+    def _lift_energy_rates_to_material(
+        coordinates: _PersistentGapCoordinates,
+        occupation: np.ndarray,
+        f: np.ndarray,
+        energy_weights: np.ndarray,
+        overlap: np.ndarray,
+        collision_gain: np.ndarray,
+        collision_loss: np.ndarray,
+        external_flux: ExternalFlux | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        r"""Lift work-grid events to ``xi`` without feeding ``P_Delta g`` back.
+
+        Internal collision gain already contains the target Pauli factor
+        ``1-f_i``.  Recover its non-negative bare rate and deposit it uniformly
+        over the holes in each overlapping material cell.  Loss is local per
+        particle and is averaged as a coefficient.  This event-level lift
+        exactly aggregates back to ``w_i (gain_i-loss_i f_i)`` while retaining
+        a diagonal gain/loss form and the bounds.  ``ExternalFlux.gain`` keeps
+        its documented additive (not Pauli-limited) fixed-E-cell semantics.
+        """
+        xi_widths = np.diff(coordinates.xi_edges)
+        g = np.asarray(occupation, dtype=float)
+        holes = np.maximum(1.0 - g, 0.0)
+        energy_hole_mass = overlap.T @ holes
+        expected_hole_mass = energy_weights * np.maximum(1.0 - f, 0.0)
+        scale = max(float(np.max(energy_weights)), 1.0)
+        if not np.allclose(
+            energy_hole_mass,
+            expected_hole_mass,
+            rtol=2e-13,
+            atol=256.0 * np.finfo(float).eps * scale,
+        ):
+            raise RuntimeError("The xi/E transfer does not preserve hole capacity.")
+
+        collision_gain_mass = energy_weights * collision_gain
+        bare_gain = np.divide(
+            collision_gain_mass,
+            energy_hole_mass,
+            out=np.zeros_like(collision_gain_mass),
+            where=energy_hole_mass > _GAP_SUPPORT_EPS,
+        )
+        unresolved_gain = (energy_hole_mass <= _GAP_SUPPORT_EPS) & (
+            collision_gain_mass > 256.0 * np.finfo(float).eps
+        )
+        if np.any(unresolved_gain):
+            raise RuntimeError("A collision requested gain in an energy cell with no holes.")
+
+        gain = holes * (overlap @ bare_gain) / xi_widths
+        loss = (overlap @ collision_loss) / xi_widths
+        if external_flux is not None:
+            gain = gain + (overlap @ external_flux.gain) / xi_widths
+            loss = loss + (overlap @ external_flux.loss_rate) / xi_widths
+
+        expected_gain = float(energy_weights @ collision_gain)
+        expected_sink = float(energy_weights @ (collision_loss * f))
+        if external_flux is not None:
+            expected_gain += float(energy_weights @ external_flux.gain)
+            expected_sink += float(energy_weights @ (external_flux.loss_rate * f))
+        lifted_gain = float(xi_widths @ gain)
+        lifted_sink = float(xi_widths @ (loss * g))
+        balance_scale = max(
+            abs(expected_gain),
+            abs(expected_sink),
+            abs(lifted_gain),
+            abs(lifted_sink),
+            np.finfo(float).tiny,
+        )
+        balance_tolerance = 2e-12 * balance_scale
+        if (
+            abs(lifted_gain - expected_gain) > balance_tolerance
+            or abs(lifted_sink - expected_sink) > balance_tolerance
+        ):
+            raise RuntimeError("The xi/E collision lift violated event balance.")
+        return gain, loss
+
+    def _remap_gap_state_once(
+        self,
+        state: T3DiffusionState,
+        new_gap: float,
+    ) -> T3DiffusionState:
+        """Conservatively remap one state from its current gap to ``new_gap``."""
         E = state.spectral.E
         dE = state.spectral.dE
         # The conserved finite-volume variable is the cell integral of
@@ -1052,9 +1627,13 @@ class T3DiffusionBackend:
         old_dos_weights = bcs_dos_cell_weights(E, dE, state.gap)
         new_dos_weights = bcs_dos_cell_weights(E, dE, new_gap)
         rho_cell_average_new = new_dos_weights / dE
-        mass_before = float(np.sum(old_dos_weights * f_state))
+        mass_before = float(np.sum(old_dos_weights * state.f))
         remapped_cell_mass, escaped_mass = _remap_bcs_frozen_xi_cell_mass(
-            f_state, E, dE, state.gap, new_gap,
+            state.f,
+            E,
+            dE,
+            state.gap,
+            new_gap,
         )
 
         # A rising gap lowers the represented xi_max at fixed E_max.  The
@@ -1082,9 +1661,7 @@ class T3DiffusionBackend:
                     )
             else:
                 tail_index = int(support_indices[-1])
-                tail_capacity = (
-                    new_dos_weights[tail_index] - remapped_cell_mass[tail_index]
-                )
+                tail_capacity = new_dos_weights[tail_index] - remapped_cell_mass[tail_index]
                 if escaped_mass > tail_capacity + tail_tolerance:
                     raise RuntimeError(
                         "The finite-E_max characteristic tail does not fit "
@@ -1106,13 +1683,16 @@ class T3DiffusionBackend:
         # Preserve every non-gap configuration from the incoming
         # SpectralContext: the caller may have set a custom
         # diffusion_coefficient (not just material.D_0), dynes_gamma,
-        # rebuild_tolerance, or active_margin_factor. Only Δ changes.
+        # rebuild_tolerance, or active_margin_factor. Only Delta changes.
         new_spectral = self._rebuild_spectral_context(
-            state.spectral, new_gap=new_gap,
+            state.spectral,
+            new_gap=new_gap,
         )
 
         f_new, remapped_mass, n_touched = _recover_conservative_gap_occupation(
-            u_new, rho_cell_average_new, dE,
+            u_new,
+            rho_cell_average_new,
+            dE,
         )
 
         # Audit the physical finite-volume invariant, including non-uniform
@@ -1141,6 +1721,116 @@ class T3DiffusionBackend:
 
         return replace(state, gap=new_gap, spectral=new_spectral, f=f_new)
 
+    def apply_gap_update(
+        self,
+        state: T3DiffusionState,
+        dt: float,
+    ) -> T3DiffusionState:
+        r"""Advance ``Delta`` and remap BCS cell mass at frozen ``xi``.
+
+        Solve the reference-subtracted BCS gap equation and, when the gap
+        moves, map the ideal-BCS finite-volume mass exactly along frozen-
+        ``xi`` characteristics. This is the characteristic solution of the
+        conservative spectral-flow equation because ``rho(E) dE = dxi``.
+        Rebuild the :class:`SpectralContext`, recover a bounded ``f``, and
+        repeat the solve/remap cycle because the remapped occupation changes
+        the gap equation. A state is returned only after its own occupation
+        satisfies the gap constraint to ``atol + rtol * gap_scale``. Failure
+        to reach that fixed point within the iteration cap is explicit.
+
+        Moving-gap flow is currently supported only for ideal BCS spectra.
+        The grid cells must cover the new gap edge.  A finite upper energy
+        boundary may truncate rising-gap characteristics; material loss at
+        that boundary is diagnosed rather than silently discarded.
+
+        ``dt`` is retained for backend-interface compatibility and as a
+        positive/no-op gate only. For every positive value this routine
+        performs the same complete algebraic gap solve and frozen-``xi``
+        remap. It is therefore a projection, not a ``dt``-scaled evolution
+        operator; in particular, passing ``dt / 2`` does not produce a
+        half-gap flow suitable for Strang splitting.
+        """
+        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=_GAP_STATE_MATCH_RTOL,
+            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match before a gap "
+                f"update; got {state.gap:g} and {state.spectral.gap:g}."
+            )
+        if not np.isfinite(state.gap) or state.gap <= 0.0:
+            raise ValueError(f"apply_gap_update requires a finite positive gap; got {state.gap}.")
+        if not np.isfinite(dt):
+            raise ValueError(f"dt must be finite; got {dt}.")
+        if dt <= 0:
+            return state
+
+        f_state = np.asarray(state.f, dtype=float)
+        if f_state.shape != state.spectral.E.shape:
+            raise ValueError(
+                "state.f must have the same one-dimensional shape as the spectral energy grid."
+            )
+        if np.any(~np.isfinite(f_state)) or np.any((f_state < 0.0) | (f_state > 1.0)):
+            raise ValueError("state.f must contain finite occupations in [0, 1].")
+
+        if state.spectral.dynes_gamma > 0.0:
+            raise ValueError(
+                "Moving-gap spectral flow is implemented only for an ideal "
+                "BCS spectrum (dynes_gamma == 0). A Dynes DOS requires the "
+                "complex anomalous spectral flux, not (Delta/E)*rho."
+            )
+
+        calibration = calibrate_gap(
+            T_c=state.material.T_c,
+            T_bath=state.T_bath,
+            Delta_0=state.material.Delta_0,
+        )
+        current = state
+        last_gap_error = float("inf")
+        last_gap_tolerance = float("nan")
+        for iteration in range(1, _GAP_PROJECTION_MAX_ITER + 1):
+            constrained_gap = float(
+                solve_gap(
+                    calibration,
+                    current.f,
+                    current.spectral.E,
+                    dE_bins=current.spectral.dE,
+                    reference_gap=current.gap,
+                    xtol=_GAP_PROJECTION_SOLVE_XTOL_UEV,
+                )
+            )
+            if not np.isfinite(constrained_gap) or constrained_gap <= 0.0:
+                raise RuntimeError(
+                    "solve_gap returned a collapsed or non-finite gap "
+                    f"({constrained_gap}); normal-state moving-gap dynamics "
+                    "are not implemented."
+                )
+
+            last_gap_error = abs(constrained_gap - current.gap)
+            last_gap_tolerance = _GAP_PROJECTION_ATOL_UEV + _GAP_PROJECTION_RTOL * max(
+                abs(constrained_gap), abs(current.gap)
+            )
+            if last_gap_error <= last_gap_tolerance:
+                # ``current`` is the state whose occupation produced
+                # ``constrained_gap``. Returning it certifies the final
+                # algebraic constraint. Remapping once more here would
+                # recreate the former one-pass inconsistency.
+                return current
+
+            if iteration == _GAP_PROJECTION_MAX_ITER:
+                break
+            current = self._remap_gap_state_once(current, constrained_gap)
+
+        raise RuntimeError(
+            "apply_gap_update algebraic projection did not converge in "
+            f"{_GAP_PROJECTION_MAX_ITER} iterations: final "
+            f"|Delta_gap(f) - Delta|={last_gap_error:.3e} micro-eV exceeds "
+            f"the tolerance {last_gap_tolerance:.3e} micro-eV."
+        )
+
     def step(
         self,
         state: T3DiffusionState,
@@ -1150,29 +1840,134 @@ class T3DiffusionBackend:
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
     ) -> T3DiffusionState:
-        """One symmetric-Strang time step.
+        r"""Advance collisions and a self-consistent gap to second order.
 
-        Three-operator split with gap/transport as the "outer"
-        half-step operators and collisions as the "inner" full-step
-        operator:
+        The authoritative unknown is a cell-average occupation ``g(xi)`` on a
+        persistent material grid, ``xi=sqrt(E**2-Delta**2)``.  It is retained
+        privately in the returned state and is never reconstructed from the
+        public fixed-E materialization on the next accepted step.  At each ETD2
+        stage, exact ``d xi`` overlaps expose ``g`` on the existing uniform
+        energy work grid, the coupled discrete constraint
+        ``G(P_Delta g, Delta)=0`` is solved, and all collision channels are
+        evaluated on that work grid.  Event gain/loss is then conservatively
+        lifted back to material cells before the predictor/corrector advances.
 
-            gap/2, transport/2, collisions(dt), transport/2, gap/2
-
-        For ``N_spatial = 1`` (Gate 2 scope), ``apply_transport`` is a
-        no-op so the effective step reduces to
-        ``gap/2, collisions(dt), gap/2``.
+        This is ETD2 applied to the reduced index-one DAE
+        ``g_dot=C(g, Delta), G(g, Delta)=0``.  It is not a composition of full
+        algebraic projections.  Frozen phonons remain on their original
+        uniform pair-frequency lattice; sub-gap/PB photon partners and an
+        array-valued ``ExternalFlux`` retain their fixed-E-cell semantics.
+        ``apply_collisions`` remains the unchanged fixed-gap ETD2 path.
         """
-        s = self.apply_gap_update(state, dt / 2)
-        s = self.apply_transport(s, dt / 2)
-        s = self.apply_collisions(
-            s, dt,
-            photon_params=photon_params,
-            pb_photon_params=pb_photon_params,
-            external_flux=external_flux,
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError(f"step requires a finite positive dt; got {dt}.")
+        gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
+        if not np.isclose(
+            state.gap,
+            state.spectral.gap,
+            rtol=_GAP_STATE_MATCH_RTOL,
+            atol=_GAP_STATE_MATCH_RTOL * gap_scale,
+        ):
+            raise ValueError(
+                "state.gap and state.spectral.gap must match before a moving-gap "
+                f"step; got {state.gap:g} and {state.spectral.gap:g}."
+            )
+        if not np.isfinite(state.gap) or state.gap <= 0.0:
+            raise ValueError(f"step requires a finite positive gap; got {state.gap}.")
+        f_state = np.asarray(state.f, dtype=float)
+        if f_state.shape != state.spectral.E.shape:
+            raise ValueError(
+                "state.f must have the same one-dimensional shape as the spectral energy grid."
+            )
+        if np.any(~np.isfinite(f_state)) or np.any((f_state < 0.0) | (f_state > 1.0)):
+            raise ValueError("state.f must contain finite occupations in [0, 1].")
+        if state.spectral.dynes_gamma > 0.0:
+            raise ValueError(
+                "Second-order moving-gap dynamics require an ideal BCS spectrum (dynes_gamma == 0)."
+            )
+
+        self._validate_gate2_scope(state.phonon)
+        self._validate_phonon_on_physics_grid(state)
+        if external_flux is not None:
+            external_flux._validate_for_NE(int(state.spectral.E.size))
+
+        coordinates = self._persistent_coordinates_for_state(state)
+        calibration = calibrate_gap(
+            T_c=state.material.T_c,
+            T_bath=state.T_bath,
+            Delta_0=state.material.Delta_0,
         )
-        s = self.apply_transport(s, dt / 2)
-        s = self.apply_gap_update(s, dt / 2)
-        return s
+        _, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(state.spectral.E)
+        n_ph = state.phonon.n_ph[0, :, 0]
+        N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
+            n_ph,
+            idx_diff,
+            idx_sum,
+            diff_sign,
+        )
+        reference_gap = float(state.gap)
+
+        def material_rhs(g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            _, spectral, f, overlap = self._constrain_persistent_occupation(
+                state,
+                coordinates,
+                g,
+                calibration,
+                reference_gap=reference_gap,
+            )
+            if external_flux is not None:
+                external_flux._validate_gain_support(spectral.active_mask)
+            collision_gain, collision_loss = self._moving_gap_energy_collision_rates(
+                state,
+                spectral,
+                f,
+                N_p=N_p,
+                N_emit=N_emit,
+                N_abs=N_abs,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+            )
+            return self._lift_energy_rates_to_material(
+                coordinates,
+                g,
+                f,
+                spectral.cell_weights,
+                overlap,
+                collision_gain,
+                collision_loss,
+                external_flux,
+            )
+
+        xi_widths = np.diff(coordinates.xi_edges)
+        occupation_new = etd2_step(
+            coordinates.occupation,
+            material_rhs,
+            dt,
+            balance_weights=xi_widths,
+            max_loss_step=0.25,
+        )
+        final_gap, final_spectral, final_f, _ = self._constrain_persistent_occupation(
+            state,
+            coordinates,
+            occupation_new,
+            calibration,
+            reference_gap=reference_gap,
+        )
+        persistent = _PersistentGapCoordinates(
+            xi_edges=coordinates.xi_edges,
+            occupation=occupation_new,
+            energy_grid=final_spectral.E,
+            energy_widths=final_spectral.dE,
+            synchronized_gap=final_gap,
+            public_f=final_f,
+        )
+        return replace(
+            state,
+            gap=final_gap,
+            spectral=final_spectral,
+            f=final_f,
+            _moving_gap_coordinates=persistent,
+        )
 
     @staticmethod
     def _validate_gate2_scope(phonon: PhononState) -> None:
@@ -1182,6 +1977,12 @@ class T3DiffusionBackend:
         constant-``τ_l`` case. Multi-branch (v3), spatially-resolved
         (Ph1/Ph2), and ω-dependent ``τ_l`` land in later gates.
         """
+        if phonon.model is not PhononModel.PH0_LOCAL:
+            raise ValueError(
+                "T3DiffusionBackend implements only the PH0_LOCAL phonon "
+                f"model; got {phonon.model.value!r}. PH1/PH2 transport must "
+                "use a backend that evolves those models explicitly."
+            )
         if phonon.n_branch != 1:
             raise ValueError(
                 "T3DiffusionBackend (Gate 2) supports single-branch phonons only; "

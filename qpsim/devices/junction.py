@@ -116,27 +116,28 @@ class SymmetricGapTunnelingJunction(Junction):
     r"""Energy-conserving tunneling between two regions with matched gaps.
 
     The simplest physically-meaningful junction: at each energy ``E``,
-    quasiparticles tunnel between regions A and B at rate
-    ``α(E)`` proportional to ``[f_a(E) - f_b(E)]`` (the chemical-
-    potential-difference drive at the bin level). For the v1
-    implementation ``α`` is a scalar tunneling rate ``α_per_ns``
-    (units 1/ns).
+    quasiparticles tunnel between regions A and B in proportion to
+    ``[f_a(E) - f_b(E)]`` (the chemical-potential-difference drive at the
+    bin level). For the v1 implementation the rates are scalar in energy.
 
     Decomposition into the ``(gain, loss_rate)`` ``ExternalFlux`` form:
 
     .. math::
 
-        \text{net } \dot{f_a}(E) = α [f_b(E) - f_a(E)]
-                                = α f_b(E) - α f_a(E)
+        \dot{f_a}(E) &= α_a [f_b(E) - f_a(E)],\\
+        \dot{f_b}(E) &= α_b [f_a(E) - f_b(E)].
 
     so
 
     .. math::
 
-        \text{gain}_a(E) &= α\, f_b(E),\\
-        \text{loss\_rate}_a(E) &= α,
+        \text{gain}_a(E) &= α_a\, f_b(E),\\
+        \text{loss\_rate}_a(E) &= α_a,
 
-    and symmetrically for region B.
+    with the analogous ``α_b`` decomposition for region B.  The rates obey
+    ``C_a α_a = C_b α_b``; consequently the weighted population
+    ``C_a f_a + C_b f_b`` is conserved even when the two matched-gap
+    electrodes have unequal volumes or normal-state densities of states.
 
     The (1 − f) Pauli-blocking factors that appear in the full
     tunneling matrix element are absorbed into the cross-region
@@ -146,8 +147,11 @@ class SymmetricGapTunnelingJunction(Junction):
     complete junction would carry full ``α(E) (1 - f_partner)`` into
     loss_rate; deferred for v1.
 
-    Both regions must share an energy grid. The constructor checks
-    this; ``evaluate`` re-checks at runtime.
+    Both regions must share the complete finite-volume spectral
+    discretization: energy centers, cell widths, gap, broadening model, and
+    represented DOS capacities. ``evaluate`` checks this at runtime. A single
+    scalar material/volume capacity ratio cannot repair an energy-dependent
+    mismatch between the two discrete measures.
 
     Parameters
     ----------
@@ -156,19 +160,36 @@ class SymmetricGapTunnelingJunction(Junction):
     region_a, region_b
         Names of the two coupled regions in the parent Device.
     alpha_per_ns
-        Per-bin tunneling rate ``α`` in 1/ns. Constant in energy for
-        v1; a future extension can take an E-resolved array.
+        Per-bin tunneling rate out of region A, ``α_a``, in 1/ns.
+        Constant in energy for v1; a future extension can take an
+        E-resolved array.
+    capacity_ratio_a_to_b
+        Ratio ``C_a / C_b`` of the two regions' quasiparticle capacities
+        (for matched spectra, proportional to ``rho_F * volume``).  Region
+        B's rate is ``α_b = α_a C_a/C_b``, so the junction conserves
+        ``C_a f_a + C_b f_b``.  The default ``1`` retains the historical
+        equal-capacity model.
     """
 
     name: str
     region_a: str
     region_b: str
     alpha_per_ns: float
+    capacity_ratio_a_to_b: float = 1.0
 
     def __post_init__(self) -> None:
-        if self.alpha_per_ns < 0.0:
+        if not np.isfinite(self.alpha_per_ns) or self.alpha_per_ns < 0.0:
             raise ValueError(
-                f"alpha_per_ns must be non-negative; got {self.alpha_per_ns}"
+                "alpha_per_ns must be finite and non-negative; got "
+                f"{self.alpha_per_ns}"
+            )
+        if (
+            not np.isfinite(self.capacity_ratio_a_to_b)
+            or self.capacity_ratio_a_to_b <= 0.0
+        ):
+            raise ValueError(
+                "capacity_ratio_a_to_b must be finite and positive; got "
+                f"{self.capacity_ratio_a_to_b}"
             )
         if self.region_a == self.region_b:
             raise ValueError(
@@ -184,15 +205,60 @@ class SymmetricGapTunnelingJunction(Junction):
     ) -> JunctionResult:
         # qubit_state is unused — this Junction has no qubit coupling.
         del qubit_state
+        for label, state in (("a", state_a), ("b", state_b)):
+            gap_scale = max(
+                abs(float(state.gap)),
+                abs(float(state.spectral.gap)),
+                1.0,
+            )
+            if not np.isclose(
+                state.gap,
+                state.spectral.gap,
+                rtol=1e-12,
+                atol=1e-12 * gap_scale,
+            ):
+                raise ValueError(
+                    "SymmetricGapTunnelingJunction requires each state's "
+                    "public gap to match its spectral gap; "
+                    f"state_{label} has {state.gap} vs "
+                    f"{state.spectral.gap}."
+                )
+            occupation = np.asarray(state.f, dtype=float)
+            if occupation.shape != state.spectral.E.shape:
+                raise ValueError(
+                    f"state_{label}.f must match its spectral energy-grid "
+                    f"shape {state.spectral.E.shape}; got {occupation.shape}."
+                )
+            if np.any(~np.isfinite(occupation)) or np.any(
+                (occupation < 0.0) | (occupation > 1.0)
+            ):
+                raise ValueError(
+                    f"state_{label}.f must contain finite occupations in [0, 1]."
+                )
         if state_a.spectral.E.size != state_b.spectral.E.size:
             raise ValueError(
                 f"SymmetricGapTunnelingJunction requires matching E grids; "
                 f"got {state_a.spectral.E.size} vs {state_b.spectral.E.size}."
             )
-        if not np.allclose(state_a.spectral.E, state_b.spectral.E, rtol=1e-12):
+        if not np.allclose(
+            state_a.spectral.E,
+            state_b.spectral.E,
+            rtol=1e-12,
+            atol=0.0,
+        ):
             raise ValueError(
                 "SymmetricGapTunnelingJunction requires identical E grids "
                 "between the two regions; got different values."
+            )
+        if not np.allclose(
+            state_a.spectral.dE,
+            state_b.spectral.dE,
+            rtol=1e-12,
+            atol=0.0,
+        ):
+            raise ValueError(
+                "SymmetricGapTunnelingJunction requires identical finite-volume "
+                "cell widths between the two regions."
             )
         # The "symmetric gap" name is contractual — reject mismatched
         # gaps explicitly so callers don't get silent wrong physics.
@@ -210,24 +276,60 @@ class SymmetricGapTunnelingJunction(Junction):
                 f"gaps; got {state_a.spectral.gap} vs {state_b.spectral.gap}."
             )
 
-        alpha = float(self.alpha_per_ns)
+        if not np.isclose(
+            state_a.spectral.dynes_gamma,
+            state_b.spectral.dynes_gamma,
+            rtol=1e-12,
+            atol=0.0,
+        ):
+            raise ValueError(
+                "SymmetricGapTunnelingJunction requires identical Dynes "
+                "broadening in both regions; got "
+                f"{state_a.spectral.dynes_gamma} vs "
+                f"{state_b.spectral.dynes_gamma}."
+            )
+        if not np.allclose(
+            state_a.spectral.cell_weights,
+            state_b.spectral.cell_weights,
+            rtol=1e-12,
+            atol=0.0,
+        ):
+            raise ValueError(
+                "SymmetricGapTunnelingJunction requires identical per-bin "
+                "finite-volume spectral capacities; a scalar "
+                "capacity_ratio_a_to_b cannot represent an energy-dependent "
+                "measure mismatch."
+            )
+
+        alpha_a = float(self.alpha_per_ns)
+        alpha_b = alpha_a * float(self.capacity_ratio_a_to_b)
         f_a = state_a.f
         f_b = state_b.f
 
-        gain_a = alpha * f_b
-        loss_a = np.full_like(f_b, alpha)
-        gain_b = alpha * f_a
-        loss_b = np.full_like(f_a, alpha)
+        gain_a = alpha_a * f_b
+        loss_a = np.full_like(f_b, alpha_a)
+        gain_b = alpha_b * f_a
+        loss_b = np.full_like(f_a, alpha_b)
+
+        diagnostics: dict[str, str | float] = {
+            "junction": self.name,
+            # Retain the historical diagnostic key as an alias for the
+            # region-A rate while exposing both rates explicitly.
+            "alpha_per_ns": alpha_a,
+            "alpha_a_per_ns": alpha_a,
+            "alpha_b_per_ns": alpha_b,
+            "capacity_ratio_a_to_b": float(self.capacity_ratio_a_to_b),
+        }
 
         return JunctionResult(
             external_flux_a=ExternalFlux(
                 gain=gain_a,
                 loss_rate=loss_a,
-                diagnostics={"junction": self.name, "alpha_per_ns": alpha},
+                diagnostics=diagnostics,
             ),
             external_flux_b=ExternalFlux(
                 gain=gain_b,
                 loss_rate=loss_b,
-                diagnostics={"junction": self.name, "alpha_per_ns": alpha},
+                diagnostics=diagnostics,
             ),
         )

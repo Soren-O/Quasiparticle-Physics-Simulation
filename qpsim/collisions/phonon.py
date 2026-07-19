@@ -30,8 +30,12 @@ from enum import Enum
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
-from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
+from qpsim.collisions._validation import (
+    validated_occupation,
+    validated_rate_matrix,
+)
 from qpsim.physics.kaplan_pair_breaking import kaplan_S_plus
+from qpsim.physics.kernels import _thermal_bose_occupation
 from qpsim.physics.kernels import recombination_kernel_base as _recombination_kernel_base
 from qpsim.physics.kernels import scattering_kernel_base as _scattering_kernel_base
 from qpsim.physics.spectral import SpectralContext
@@ -49,6 +53,16 @@ class CoherenceAssignment(Enum):
     PHOTON = "photon"
 
 
+def _require_ideal_bcs_context(ctx: SpectralContext, operation: str) -> None:
+    """Reject broadened DOS with the ideal-BCS collision coherence model."""
+    if ctx.dynes_gamma > 0.0:
+        raise ValueError(
+            f"{operation} does not support dynes_gamma > 0: the collision "
+            "kernels use ideal-BCS coherence factors and cannot be combined "
+            "consistently with a Dynes-broadened density of states."
+        )
+
+
 def build_scattering_kernel_base(
     ctx: SpectralContext,
     tau_0: float,
@@ -62,6 +76,7 @@ def build_scattering_kernel_base(
     pulls the precomputed coherence matrix from ``ctx`` and honors the
     photon-convention swap.
     """
+    _require_ideal_bcs_context(ctx, "Electron-phonon scattering")
     coh = ctx.K_minus if coherence is CoherenceAssignment.PHONON else ctx.K_plus
     return _scattering_kernel_base(ctx.E, ctx.gap, tau_0, T_c, coherence_factor=coh)
 
@@ -79,6 +94,7 @@ def build_scattering_kernel_phonon_side(
     This is distinct from :func:`build_scattering_kernel_base`, whose
     ``ω²/(τ₀ T_c³)`` prefactor belongs to the QP equation.
     """
+    _require_ideal_bcs_context(ctx, "Phonon-side scattering")
     coh = ctx.K_minus if coherence is CoherenceAssignment.PHONON else ctx.K_plus
     if tau_0_pb_ns <= 0.0:
         raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
@@ -95,6 +111,7 @@ def build_recombination_kernel_base(
     coherence: CoherenceAssignment = CoherenceAssignment.PHONON,
 ) -> np.ndarray:
     """Base recombination kernel K₀ʳ(E_i, E_j), shape (NE, NE)."""
+    _require_ideal_bcs_context(ctx, "Electron-phonon recombination")
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
     return _recombination_kernel_base(ctx.E, ctx.gap, tau_0, T_c, coherence_factor=coh)
 
@@ -138,6 +155,7 @@ def build_recombination_kernel_phonon_side(
         opt into the paper-faithful phonon-side prefactor; the QP-side
         ``K_r0`` argument is unchanged.
     """
+    _require_ideal_bcs_context(ctx, "Phonon-side recombination")
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
     if tau_0_pb_ns <= 0.0:
         raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
@@ -156,16 +174,17 @@ def _thermal_phonon_scattering_occupation(
     * Diagonal: 0.
     """
     E_diff = E[:, None] - E[None, :]
-    kBT = _KB_UEV_PER_K * T_bath if T_bath > 0 else 0.0
     N_p = np.zeros_like(E_diff)
 
-    if kBT > 0:
+    if T_bath > 0:
         emission = E_diff > 0
         absorption = E_diff < 0
-        exp_em = np.minimum(E_diff[emission] / kBT, 500.0)
-        exp_abs = np.minimum(-E_diff[absorption] / kBT, 500.0)
-        N_p[emission] = 1.0 + 1.0 / (np.exp(exp_em) - 1.0)
-        N_p[absorption] = 1.0 / (np.exp(exp_abs) - 1.0)
+        N_p[emission] = 1.0 + _thermal_bose_occupation(
+            E_diff[emission], T_bath
+        )
+        N_p[absorption] = _thermal_bose_occupation(
+            -E_diff[absorption], T_bath
+        )
     else:
         N_p[E_diff > 0] = 1.0
         N_p[E_diff < 0] = 0.0
@@ -182,13 +201,11 @@ def _thermal_phonon_recombination_occupations(
     * ``N_abs  = n_BE(E_i + E_j)``: pair-breaking absorption.
     """
     E_sum = E[:, None] + E[None, :]
-    kBT = _KB_UEV_PER_K * T_bath if T_bath > 0 else 0.0
-
-    if kBT > 0:
-        exp_sum = np.minimum(E_sum / kBT, 500.0)
-        N_BE = 1.0 / (np.exp(exp_sum) - 1.0)
-    else:
-        N_BE = np.zeros_like(E_sum)
+    N_BE = (
+        _thermal_bose_occupation(E_sum, T_bath)
+        if T_bath > 0
+        else np.zeros_like(E_sum)
+    )
 
     return 1.0 + N_BE, N_BE
 
@@ -342,7 +359,11 @@ def compute_phonon_source_sink(
         :func:`phonon_collision_rates`. Backend callers opt into this
         path with ``use_phonon_side_kernel=True``.
     """
-    rho = ctx.rho
+    _require_ideal_bcs_context(ctx, "Dynamic-phonon source/sink assembly")
+    # The phonon equation is a line integral over QP pairs.  On its required
+    # uniform lattice, dE*rho_bar_i*rho_bar_j = w_i*w_j/dE.  This is the same
+    # event measure obtained by weighting the QP equation with capacity w_i.
+    rho = ctx.cell_density
     dE = ctx.dE
     # Each (i, j) emission/recombination pair below is weighted by dE[j] (dE
     # broadcasts over the final-state/column axis). That is the correct
@@ -445,7 +466,7 @@ def _pair_breaking_quadrature_correction(
     if tau_0_pb <= 0.0 or not np.isfinite(tau_0_pb):
         return np.ones(n_omega)
 
-    rho = ctx.rho
+    rho = ctx.cell_density
     dE = ctx.dE
     empty_weights = dE * (rho[:, None] * K * rho[None, :])
     discrete = np.bincount(
@@ -528,8 +549,9 @@ def phonon_source_sink_jacobian_f(
     f-independent (``= dE ρ_i ρ_j K_rec`` in both columns i and j), while
     ``∂a_ph^rec/∂f_i = dE ρ_i ρ_j f_j K_rec`` and ``…/∂f_j = … f_i K_rec``.
     """
+    _require_ideal_bcs_context(ctx, "Dynamic-phonon source/sink Jacobian")
     NE = int(f.size)
-    rho = ctx.rho
+    rho = ctx.cell_density
     dE = ctx.dE
     uniform_grid_spacing(ctx.E, dE, "phonon_source_sink_jacobian_f")
     one_minus_f = np.maximum(1.0 - f, 0.0)
@@ -600,9 +622,40 @@ def phonon_collision_rates(
     Used by the dynamic-phonon backend when ``n_ph`` is evolved
     self-consistently.
     """
+    _require_ideal_bcs_context(ctx, "Electron-phonon collision rates")
     E = ctx.E
-    rho = ctx.rho
-    dE = ctx.dE
+    f = validated_occupation(f, E.shape, "Electron-phonon collision rates")
+    if not np.isfinite(T_bath) or T_bath < 0.0:
+        raise ValueError(
+            f"Electron-phonon collision rates require a finite non-negative "
+            f"T_bath; got {T_bath}."
+        )
+    matrix_shape = (E.size, E.size)
+    K_s0 = validated_rate_matrix(K_s0, matrix_shape, "K_s0")
+    K_r0 = validated_rate_matrix(K_r0, matrix_shape, "K_r0")
+    if (N_emit_override is None) != (N_abs_override is None):
+        raise ValueError(
+            "N_emit_override and N_abs_override must be supplied together or "
+            "both omitted."
+        )
+    for name, override in (
+        ("N_p_override", N_p_override),
+        ("N_emit_override", N_emit_override),
+        ("N_abs_override", N_abs_override),
+    ):
+        if override is None:
+            continue
+        override_arr = np.asarray(override, dtype=float)
+        if override_arr.shape != matrix_shape:
+            raise ValueError(
+                f"{name} must have shape {matrix_shape}; got "
+                f"{override_arr.shape}."
+            )
+        if np.any(~np.isfinite(override_arr)) or np.any(override_arr < 0.0):
+            raise ValueError(
+                f"{name} must contain only finite non-negative occupations."
+            )
+    w = ctx.cell_weights
     one_minus_f = np.maximum(1.0 - f, 0.0)
 
     gain = np.zeros_like(f)
@@ -615,28 +668,15 @@ def phonon_collision_rates(
             else _thermal_phonon_scattering_occupation(E, T_bath)
         )
         K_s_eff = K_s0 * N_p
-        # DISCRETE-MEASURE INCONSISTENCY (finding G1, docs/AUDIT-2026-07-13-
-        # gpt-reconciliation.md): the collision integrals here contract with the
-        # midpoint measure ρ·dE, whereas the observables (observables/density.py)
-        # integrate the same singular BCS DOS with the EXACT per-cell weights
-        # (bcs_dos_cell_weights). The gap edge is sqrt-integrable, so the
-        # midpoint rule converges only ~1/√NE there: the collision-conserved
-        # number (Σ ρ f dE) and the reported x_qp (Σ f · exact_weights) disagree
-        # by ~10-15% at the default NE=400 low-T, shrinking with NE. A strictly
-        # number-conserving relaxation thus shows a spurious drift in reported
-        # x_qp. Exact weights are the physically correct value; unifying both
-        # onto one SpectralContext cell-weight vector is the fix — deferred
-        # because it is baseline-moving and needs paper-faithfulness review.
-        n_qp = rho * f
-        gain += one_minus_f * (K_s_eff.T @ (n_qp * dE))
-        loss_rate += K_s_eff @ (rho * one_minus_f * dE)
+        gain += one_minus_f * (K_s_eff.T @ (w * f))
+        loss_rate += K_s_eff @ (w * one_minus_f)
 
     if enable_recombination and K_r0 is not None:
         if N_emit_override is not None and N_abs_override is not None:
             N_emit, N_abs = N_emit_override, N_abs_override
         else:
             N_emit, N_abs = _thermal_phonon_recombination_occupations(E, T_bath)
-        partner = rho * one_minus_f
+        partner = w * one_minus_f
         # Kaplan Eq. (8) normalization: the per-QP recombination loss is
         # 1/τ_r(E) = Σ_j K_r0[i,j] N_emit ρ_j f_j dE_j — no leading 2.
         # Each recombination event removes one QP *at this energy*; the
@@ -646,8 +686,19 @@ def phonon_collision_rates(
         # envelope; it cancelled out of detailed balance and of
         # thermal-dominated steady states, which is why figure-level
         # validations never caught it.)
-        loss_rate += (K_r0 * N_emit) @ (rho * f * dE)
-        gain += one_minus_f * ((K_r0 * N_abs) @ (partner * dE))
+        loss_rate += (K_r0 * N_emit) @ (w * f)
+        gain += one_minus_f * ((K_r0 * N_abs) @ partner)
+
+    # ``f`` is an occupation of represented quasiparticle states.  Pure BCS
+    # grids often retain cells below a moving gap, where rho is exactly zero;
+    # those cells are numerical storage, not collision targets.  Partner
+    # contractions already vanish through their rho_j weight, but the target
+    # row has no such factor and used to acquire unphysical sub-gap gain.
+    # Mask by spectral support rather than E > gap so a broadened Dynes DOS
+    # keeps its non-zero sub-gap states active.
+    unsupported = ~ctx.active_mask
+    gain[unsupported] = 0.0
+    loss_rate[unsupported] = 0.0
 
     return gain, loss_rate
 
@@ -688,11 +739,10 @@ def phonon_collision_jacobian_nph(
     * recombination: ``∂R_i/∂n_ph,m = Σ_{j: idx_sum=m} K_r0[i,j] ρ_j dE
       [(1−f_i)(1−f_j) − f_i f_j]``.
     """
+    _require_ideal_bcs_context(ctx, "Electron-phonon collision Jacobian")
     NE = int(f.size)
-    rho = ctx.rho
-    dE = ctx.dE
+    w_j = ctx.cell_weights
     one_minus_f = np.maximum(1.0 - f, 0.0)
-    w_j = rho * dE  # ρ_j dE, shape (NE,)
 
     J_fn = np.zeros((NE, n_omega))
     row_i = np.broadcast_to(np.arange(NE)[:, None], (NE, NE))
@@ -712,6 +762,7 @@ def phonon_collision_jacobian_nph(
         )
         np.add.at(J_fn, (row_i, omega_idx_sum), rec_w)
 
+    J_fn[~ctx.active_mask, :] = 0.0
     return J_fn
 
 
@@ -741,4 +792,10 @@ def apply_phonon_collision(
             enable_recombination=enable_recombination,
         )
 
-    return etd2_step(f, rhs, dt)
+    return etd2_step(
+        f,
+        rhs,
+        dt,
+        balance_weights=ctx.cell_weights,
+        max_loss_step=0.25,
+    )

@@ -21,6 +21,16 @@ def _single_branch_state(n_omega: int = 5, n_spatial: int = 1) -> PhononState:
 
 
 class TestPhononState:
+    def test_rejects_non_enum_model(self) -> None:
+        with pytest.raises(ValueError, match="PhononModel enum"):
+            PhononState(
+                n_ph=np.zeros((1, 5, 1)),
+                omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
+                tau_l=np.full((1, 5), 0.25),
+                model="ph0_local",  # type: ignore[arg-type]
+                branches=[PhononBranchSpec(name="x")],
+            )
+
     def test_single_branch_homogeneous_construction(self) -> None:
         state = _single_branch_state(n_omega=5, n_spatial=1)
         assert state.n_branch == 1

@@ -33,7 +33,10 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
-from qpsim.phonon_models.ph0_local import phonon_steady_state
+from qpsim.phonon_models.ph0_local import (
+    phonon_balance_diagnostics,
+    phonon_steady_state,
+)
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.anderson import anderson_extrapolate
@@ -47,7 +50,7 @@ def _picard_convergence_ratio(
     rtol: float,
     atol: float,
 ) -> float:
-    """Largest normalized Picard change for an ``atol + rtol`` criterion.
+    """Combined local and normwise Picard fixed-point convergence ratio.
 
     A phonon bin is converged when
 
@@ -61,8 +64,17 @@ def _picard_convergence_ratio(
     hide tiny above-gap pair-breaking bins that are dynamically decisive even
     though a large low-energy bin exists elsewhere (Fischer Fig. 5).
 
-    The returned ratio is converged at ``<= 1``. Identical all-zero iterates
-    return zero.
+    The per-bin test alone is unsafe when *every* occupation is below the
+    absolute floor: a globally unresolved update can then pass merely because
+    each component is smaller than ``atol``.  A second, normwise relative
+    fixed-point guard therefore requires
+
+    ``sum(|n_new - n|) / sum(|n| + |n_new|) <= rtol``.
+
+    This guard is insensitive to the overall occupation amplitude, while the
+    local test still prevents a large low-energy bin from hiding a dynamically
+    important small bin.  The returned value is the larger of the two ratios
+    and is converged at ``<= 1``. Identical all-zero iterates return zero.
     """
     if not np.isfinite(rtol) or rtol <= 0.0:
         raise ValueError(f"rtol must be positive; got {rtol}.")
@@ -85,8 +97,66 @@ def _picard_convergence_ratio(
     ratio = np.zeros_like(change, dtype=float)
     np.divide(change, allowed, out=ratio, where=allowed > 0.0)
     if np.any((allowed == 0.0) & (change > 0.0)):
-        return float("inf")
-    return float(np.max(ratio))
+        local_ratio = float("inf")
+    else:
+        local_ratio = float(np.max(ratio))
+
+    normwise_denominator = float(np.sum(np.abs(n_ph) + np.abs(n_ph_new)))
+    if normwise_denominator > 0.0:
+        normwise_ratio = (
+            float(np.sum(change)) / normwise_denominator / rtol
+        )
+    else:
+        normwise_ratio = 0.0 if not np.any(change) else float("inf")
+    return max(local_ratio, normwise_ratio)
+
+
+def _phonon_balance_backward_error(
+    n_ph: np.ndarray,
+    a_ph: np.ndarray,
+    b_ph: np.ndarray,
+    n_th: np.ndarray,
+    *,
+    tau_l: float,
+) -> float:
+    """Representability-aware normwise error of the affine Ph0 balance.
+
+    The shared diagnostic retains the raw direct-form error separately while
+    this production gate certifies the nearest floating-point occupation.  A
+    sub-ULP bath correction therefore cannot pin Picard, but a resolvable
+    physical imbalance still fails on the usual L1 physical-term scale.
+    """
+    return phonon_balance_diagnostics(
+        n_ph,
+        a_ph,
+        b_ph,
+        n_th,
+        tau_l=tau_l,
+    ).certified_backward_error
+
+
+def _resolve_picard_balance_tol(
+    picard_tol: float,
+    requested: float | None,
+) -> float:
+    """Resolve the physical-balance limit without overfitting roundoff.
+
+    The affine phonon terms are independently accumulated O(NE^2) sums. Their
+    normwise cancellation commonly floors around 1e-7 even after the fixed-
+    point change is smaller, so the generic default keeps one decade of
+    headroom at 1e-6. Paper validations can and do pass explicit limits.
+    """
+    if not np.isfinite(picard_tol) or picard_tol <= 0.0:
+        raise ValueError(f"picard_tol must be finite and positive; got {picard_tol}.")
+    if requested is None:
+        return max(10.0 * picard_tol, 1e-6)
+    resolved = float(requested)
+    if not np.isfinite(resolved) or resolved <= 0.0:
+        raise ValueError(
+            "picard_balance_tol must be finite and positive when provided; "
+            f"got {requested}."
+        )
+    return resolved
 
 
 def solve_steady_state(
@@ -101,12 +171,15 @@ def solve_steady_state(
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
     initial_guess: np.ndarray | None = None,
+    initial_phonon_guess: np.ndarray | None = None,
     tol: float = 1e-14,
+    newton_backward_error_tol: float = 1e-6,
     max_iter: int = 200,
     phonon_escape_time: float | None = None,
     max_picard_iter: int = 200,
     picard_tol: float = 1e-10,
     picard_atol: float = 1e-11,
+    picard_balance_tol: float | None = None,
     picard_mixing: float = 0.3,
     anderson_depth: int = 0,
     phonon_out: dict[str, np.ndarray] | None = None,
@@ -122,7 +195,9 @@ def solve_steady_state(
     Parameters
     ----------
     ctx
-        SpectralContext with current Δ.
+        Pure-BCS SpectralContext with current Δ. Dynes-broadened collision
+        kernels are not implemented and are rejected when any collision
+        channel is enabled.
     K_s0, K_r0
         Base e-ph kernel matrices or ``None`` to disable the channel.
     K_s0_phonon_side, K_r0_phonon_side
@@ -147,18 +222,29 @@ def solve_steady_state(
         source/sink. Forwards to the Newton inner solve.
     initial_guess
         Starting ``f(E)``. Defaults to the Fermi-Dirac at ``T_bath``.
-    tol, max_iter
-        Newton convergence tolerance and iteration cap.
+    initial_phonon_guess
+        Starting ``n_ph(omega)`` for the finite-escape-time Picard loop.
+        Defaults to the thermal Bose-Einstein occupation. The array must be
+        one-dimensional and live on the QP-derived phonon frequency grid.
+        It is rejected on the thermal-phonon shortcut, where ``n_ph`` is
+        pinned by definition.
+    tol, newton_backward_error_tol, max_iter
+        Newton dimensional residual tolerance, scale-independent gain/loss
+        backward-error limit, and iteration cap.
     phonon_escape_time
         ``None`` (default) → thermal phonon shortcut; phonons fixed at
         Bose-Einstein and no Picard loop.
         ``0.0`` → Picard solve with no bath coupling (``n_ph`` balances
         purely against the e-ph source).
         ``> 0`` → finite escape time τ_l in ns.
-    max_picard_iter, picard_tol, picard_atol, picard_mixing, anderson_depth
+    max_picard_iter, picard_tol, picard_atol, picard_balance_tol,
+    picard_mixing, anderson_depth
         Picard-loop controls. ``picard_tol`` is the per-bin relative tolerance;
         ``picard_atol`` is an absolute tolerance on the dimensionless phonon
         occupation and is independent of the inner Newton residual tolerance.
+        A candidate fixed point must also satisfy a normwise physical phonon-
+        balance certificate. ``picard_balance_tol=None`` derives its limit as
+        ``max(10*picard_tol, 1e-6)``; pass a finite positive value to override.
     phonon_out
         Optional dict that receives ``"n_ph"`` and ``"omega_bins"`` on
         successful convergence (finite-τ_l path).
@@ -170,8 +256,95 @@ def solve_steady_state(
     """
     NE = ctx.E.size
 
+    if not np.isfinite(T_bath) or T_bath < 0.0:
+        raise ValueError(f"T_bath must be finite and non-negative; got {T_bath}.")
+    if not np.isfinite(tol) or tol <= 0.0:
+        raise ValueError(f"tol must be finite and positive; got {tol}.")
+    if (
+        not np.isfinite(newton_backward_error_tol)
+        or newton_backward_error_tol <= 0.0
+    ):
+        raise ValueError(
+            "newton_backward_error_tol must be finite and positive; "
+            f"got {newton_backward_error_tol}."
+        )
+    if (
+        isinstance(max_iter, (bool, np.bool_))
+        or not isinstance(max_iter, (int, np.integer))
+        or max_iter <= 0
+    ):
+        raise ValueError(f"max_iter must be a positive integer; got {max_iter}.")
+    if phonon_escape_time is not None and (
+        not np.isfinite(phonon_escape_time) or phonon_escape_time < 0.0
+    ):
+        raise ValueError(
+            "phonon_escape_time must be finite and non-negative when provided; "
+            f"got {phonon_escape_time}."
+        )
+    if initial_phonon_guess is not None and phonon_escape_time is None:
+        raise ValueError(
+            "initial_phonon_guess is only valid when phonon_escape_time is "
+            "provided; thermal-phonon solves pin n_ph at Bose-Einstein."
+        )
+    if (
+        isinstance(max_picard_iter, (bool, np.bool_))
+        or not isinstance(max_picard_iter, (int, np.integer))
+        or max_picard_iter <= 0
+    ):
+        raise ValueError(
+            "max_picard_iter must be a positive integer; "
+            f"got {max_picard_iter}."
+        )
+    if not np.isfinite(picard_tol) or picard_tol <= 0.0:
+        raise ValueError(
+            f"picard_tol must be finite and positive; got {picard_tol}."
+        )
+    if not np.isfinite(picard_atol) or picard_atol < 0.0:
+        raise ValueError(
+            f"picard_atol must be finite and non-negative; got {picard_atol}."
+        )
+    if picard_balance_tol is not None and (
+        not np.isfinite(picard_balance_tol) or picard_balance_tol <= 0.0
+    ):
+        raise ValueError(
+            "picard_balance_tol must be finite and positive when provided; "
+            f"got {picard_balance_tol}."
+        )
+    if not np.isfinite(picard_mixing) or not 0.0 < picard_mixing <= 1.0:
+        raise ValueError(
+            "picard_mixing must be finite and lie in (0, 1]; "
+            f"got {picard_mixing}."
+        )
+    if (
+        isinstance(anderson_depth, (bool, np.bool_))
+        or not isinstance(anderson_depth, (int, np.integer))
+        or anderson_depth < 0
+    ):
+        raise ValueError(
+            "anderson_depth must be a non-negative integer; "
+            f"got {anderson_depth}."
+        )
+
+    collision_enabled = any(
+        kernel is not None
+        for kernel in (
+            K_s0,
+            K_r0,
+            K_s0_phonon_side,
+            K_r0_phonon_side,
+        )
+    ) or photon_params is not None or pb_photon_params is not None
+    if ctx.dynes_gamma > 0.0 and collision_enabled:
+        raise ValueError(
+            "Dynes-broadened collision solves are not supported: the current "
+            "electron-phonon and photon coherence kernels are ideal-BCS while "
+            "the density of states is broadened. Set dynes_gamma=0 until "
+            "consistent broadened kernels are implemented."
+        )
+
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
+        external_flux._validate_gain_support(ctx.active_mask)
 
     # Mirror the backend-level Picard-stability guard: unaccelerated
     # Picard (anderson_depth=0) is brittle when external_flux is
@@ -199,13 +372,30 @@ def solve_steady_state(
             )
 
     if initial_guess is not None:
-        f = np.array(initial_guess, dtype=float).ravel()
-        if f.shape != (NE,):
+        initial = np.asarray(initial_guess, dtype=float)
+        if initial.ndim != 1 or initial.shape != (NE,):
             raise ValueError(
-                f"initial_guess shape {f.shape} does not match grid size {NE}"
+                f"initial_guess shape {initial.shape} must be one-dimensional "
+                f"and match grid shape ({NE},)"
             )
+        f = initial.copy()
     else:
         f = _fermi_dirac(ctx.E, T_bath)
+
+    initial_phonon_arr: np.ndarray | None = None
+    if initial_phonon_guess is not None:
+        candidate = np.asarray(initial_phonon_guess, dtype=float)
+        if candidate.ndim != 1:
+            raise ValueError(
+                "initial_phonon_guess must be one-dimensional; got "
+                f"shape {candidate.shape}."
+            )
+        if np.any(~np.isfinite(candidate)) or np.any(candidate < 0.0):
+            raise ValueError(
+                "initial_phonon_guess must contain only finite non-negative "
+                "occupations."
+            )
+        initial_phonon_arr = candidate.copy()
 
     active = ctx.active_mask
     if int(np.sum(active)) == 0:
@@ -214,6 +404,14 @@ def solve_steady_state(
         # non-finite / out-of-range initial guess back as a "solution", and
         # honor the phonon_out contract so a finite-τ_l caller does not KeyError
         # on a missing "n_ph".
+        if initial_phonon_arr is not None:
+            expected_omega = build_phonon_frequency_map(ctx.E)[0]
+            if initial_phonon_arr.shape != expected_omega.shape:
+                raise ValueError(
+                    "initial_phonon_guess must match the derived phonon grid "
+                    f"shape {expected_omega.shape}; got "
+                    f"{initial_phonon_arr.shape}."
+                )
         if np.any(~np.isfinite(f)) or np.any(f < 0.0) or np.any(f > 1.0):
             raise ValueError(
                 "solve_steady_state: no active energy bins (every above-gap bin is "
@@ -235,14 +433,30 @@ def solve_steady_state(
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
             external_flux=external_flux,
-            tol=tol, max_iter=max_iter,
+            tol=tol,
+            backward_error_tol=newton_backward_error_tol,
+            max_iter=max_iter,
         )
 
     # Finite-τ_l path: Picard over (f, n_ph).
     omega_bins, omega_idx_diff, omega_idx_sum, diff_sign = build_phonon_frequency_map(
         ctx.E
     )
-    n_ph = thermal_phonon_occupation(omega_bins, T_bath)
+    n_th = thermal_phonon_occupation(omega_bins, T_bath)
+    if initial_phonon_arr is None:
+        n_ph = n_th.copy()
+    else:
+        if initial_phonon_arr.shape != omega_bins.shape:
+            raise ValueError(
+                "initial_phonon_guess must be one-dimensional and match the "
+                f"derived phonon grid shape {omega_bins.shape}; got "
+                f"{initial_phonon_arr.shape}."
+            )
+        n_ph = initial_phonon_arr
+    resolved_balance_tol = _resolve_picard_balance_tol(
+        picard_tol,
+        picard_balance_tol,
+    )
 
     use_anderson = anderson_depth > 0
     X_hist: list[np.ndarray] = []
@@ -251,12 +465,13 @@ def solve_steady_state(
     # Branch-collapse detection: if Anderson accelerates into the
     # thermal branch (x_qp drops far below the initial value), we reset
     # to the last known physical-branch phonon state and continue.
-    rho, dE_ctx = ctx.rho, ctx.dE
-    x_qp_ref = float(np.sum(rho * f * dE_ctx)) if use_anderson else 0.0
+    weights = ctx.cell_weights
+    x_qp_ref = float(np.sum(weights * f)) if use_anderson else 0.0
     n_ph_physical: np.ndarray | None = None
     f_physical: np.ndarray | None = None
 
     convergence_ratio = float("inf")
+    balance_error = float("inf")
     for _ in range(max_picard_iter):
         # Step 1: N_p, N_emit, N_abs from current n_ph.
         N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
@@ -270,22 +485,26 @@ def solve_steady_state(
             N_p_override=N_p, N_emit_override=N_emit, N_abs_override=N_abs,
             photon_params=photon_params, pb_photon_params=pb_photon_params,
             external_flux=external_flux,
-            tol=tol, max_iter=max_iter,
+            tol=tol,
+            backward_error_tol=newton_backward_error_tol,
+            max_iter=max_iter,
         )
 
         # Step 3: n_ph steady state from converged f.
+        coefficients: dict[str, np.ndarray] = {}
         n_ph_new = phonon_steady_state(
             f, ctx, K_s0, K_r0,
             omega_bins, omega_idx_diff, omega_idx_sum, diff_sign,
             T_bath, phonon_escape_time,
             K_s0_phonon_side=K_s0_phonon_side,
             K_r0_phonon_side=K_r0_phonon_side,
+            coefficients_out=coefficients,
         )
 
         # Track branch state.
         on_physical = True
         if use_anderson and x_qp_ref > 0:
-            x_qp_now = float(np.sum(rho * f * dE_ctx))
+            x_qp_now = float(np.sum(weights * f))
             on_physical = x_qp_now >= 0.1 * x_qp_ref
             if on_physical:
                 n_ph_physical = n_ph.copy()
@@ -299,6 +518,35 @@ def solve_steady_state(
         )
 
         if convergence_ratio <= 1.0:
+            balance_error = _phonon_balance_backward_error(
+                n_ph,
+                coefficients["a_ph"],
+                coefficients["b_ph"],
+                n_th,
+                tau_l=phonon_escape_time,
+            )
+            if balance_error > resolved_balance_tol:
+                mapped_balance_error = _phonon_balance_backward_error(
+                    n_ph_new,
+                    coefficients["a_ph"],
+                    coefficients["b_ph"],
+                    n_th,
+                    tau_l=phonon_escape_time,
+                )
+                if mapped_balance_error <= resolved_balance_tol:
+                    # ``n_ph_new`` is the nearest representable affine root for
+                    # this converged f, while under-relaxed/Anderson ``n_ph``
+                    # can remain several ULPs away after the ordinary Picard
+                    # change metric has passed. Project to that exact map, then
+                    # run one more inner Newton iteration so the returned f is
+                    # certified against the same occupation. Returning the map
+                    # immediately would leave a mismatched (f, n_ph) pair.
+                    n_ph = n_ph_new
+                    X_hist.clear()
+                    G_hist.clear()
+                    balance_error = mapped_balance_error
+                    continue
+        if convergence_ratio <= 1.0 and balance_error <= resolved_balance_tol:
             if use_anderson and x_qp_ref > 0 and not on_physical:
                 # Anderson accelerated into the thermal branch. Fall back to
                 # the last known physical-branch (f, n_ph) and finish on plain
@@ -346,7 +594,9 @@ def solve_steady_state(
     raise RuntimeError(
         f"Picard iteration did not converge in {max_picard_iter} iterations. "
         "Final max |G(n_ph) − n_ph| / "
-        f"(Picard atol + rtol × scale) = {convergence_ratio:.2e}"
+        f"(Picard atol + rtol × scale) = {convergence_ratio:.2e}; "
+        "last candidate phonon balance backward error = "
+        f"{balance_error:.2e} (limit {resolved_balance_tol:.2e})."
     )
 
 

@@ -26,6 +26,26 @@ class TestThermalPhononOccupation:
         got = thermal_phonon_occupation(omega, T)
         np.testing.assert_allclose(got, kT / omega, rtol=1e-3)
 
+    def test_tiny_positive_frequency_does_not_collapse_to_zero(self) -> None:
+        omega = np.array([1e-18])
+        temperature = 1.0
+        expected = 1.0 / np.expm1(omega / (KB_UEV_PER_K * temperature))
+        got = thermal_phonon_occupation(omega, temperature)
+        np.testing.assert_allclose(got, expected, rtol=2e-15)
+        assert np.isfinite(got[0])
+        assert got[0] > 0.0
+
+    def test_exact_zero_frequency_is_decoupled_bookkeeping_mode(self) -> None:
+        got = thermal_phonon_occupation(np.array([0.0]), 1.0)
+        np.testing.assert_array_equal(got, np.array([0.0]))
+
+    def test_finite_extreme_temperature_saturates_without_overflow(self) -> None:
+        got = thermal_phonon_occupation(
+            np.array([1.0]),
+            np.finfo(float).max,
+        )
+        np.testing.assert_array_equal(got, np.array([np.finfo(float).max]))
+
     def test_non_negative(self) -> None:
         occ = thermal_phonon_occupation(np.linspace(0.0, 10.0, 50), 1.0)
         assert np.all(occ >= 0)
@@ -38,6 +58,10 @@ class TestThermalPhononOccupation:
     def test_rejects_non_finite_temperature(self, temperature: float) -> None:
         with pytest.raises(ValueError, match="temperature must be finite"):
             thermal_phonon_occupation(np.array([1.0]), temperature)
+
+    def test_rejects_negative_temperature(self) -> None:
+        with pytest.raises(ValueError, match="temperature must be non-negative"):
+            thermal_phonon_occupation(np.array([1.0]), -1.0)
 
 
 class TestKernelsBase:
@@ -78,6 +102,11 @@ class TestKernelsBase:
         with pytest.raises(ValueError, match="E_bins must contain only finite"):
             builder(np.array([2.0, float("nan")]), gap=1.0, tau_0=1.0, T_c=1.2)
 
+    @pytest.mark.parametrize("E", [np.array([]), np.array([[2.0]])])
+    def test_rejects_invalid_energy_grid_shape(self, E: np.ndarray) -> None:
+        with pytest.raises(ValueError, match="E_bins must be"):
+            recombination_kernel_base(E, gap=1.0, tau_0=1.0, T_c=1.2)
+
     @pytest.mark.parametrize("name", ["gap", "tau_0", "T_c"])
     def test_rejects_non_finite_scalar_parameters(self, name: str) -> None:
         kwargs = {"gap": 1.0, "tau_0": 1.0, "T_c": 1.2}
@@ -113,6 +142,16 @@ class TestKernelsBase:
                 coherence_factor=np.array([[float("nan")]]),
             )
 
+    def test_rejects_wrong_precomputed_coherence_shape(self) -> None:
+        with pytest.raises(ValueError, match="coherence_factor must have shape"):
+            scattering_kernel_base(
+                np.array([2.0, 3.0]),
+                gap=1.0,
+                tau_0=1.0,
+                T_c=1.2,
+                coherence_factor=np.ones(2),
+            )
+
 
 class TestKernelsWithPhonon:
     def test_zero_T_recombination_matches_base(self) -> None:
@@ -138,6 +177,20 @@ class TestKernelsWithPhonon:
         assert np.all(K_r >= K_r0 - 1e-14)
         assert np.any(K_r > K_r0 + 1e-12)
 
+    def test_nearly_degenerate_scattering_energies_remain_finite(self) -> None:
+        E = np.array([2.0, np.nextafter(2.0, np.inf)])
+        K_s = scattering_kernel(
+            E,
+            gap=1.0,
+            tau_0=1.0,
+            T_c=1.2,
+            bath_temperature=1.0,
+        )
+        assert np.all(np.isfinite(K_s))
+        assert np.all(K_s >= 0.0)
+        assert K_s[1, 0] > 0.0
+        assert K_s[0, 1] > 0.0
+
     @pytest.mark.parametrize("builder", [recombination_kernel, scattering_kernel])
     def test_rejects_non_finite_bath_temperature(self, builder) -> None:
         with pytest.raises(ValueError, match="bath_temperature must be finite"):
@@ -147,4 +200,15 @@ class TestKernelsWithPhonon:
                 tau_0=1.0,
                 T_c=1.2,
                 bath_temperature=float("nan"),
+            )
+
+    @pytest.mark.parametrize("builder", [recombination_kernel, scattering_kernel])
+    def test_rejects_negative_bath_temperature(self, builder) -> None:
+        with pytest.raises(ValueError, match="bath_temperature must be non-negative"):
+            builder(
+                np.array([2.0]),
+                gap=1.0,
+                tau_0=1.0,
+                T_c=1.2,
+                bath_temperature=-0.1,
             )

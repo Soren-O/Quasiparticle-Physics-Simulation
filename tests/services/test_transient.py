@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
@@ -102,15 +102,89 @@ class TestRelaxationToSteadyState:
 class TestEarlyStopping:
     def test_stop_tol_triggers_early_exit(self) -> None:
         state = _build_state(T_bath=0.1, num_energy=30)
+        constant_flux = ExternalFlux.zero(state.f.size)
         # Already at steady state: first substep's rate of change
         # should be below any reasonable tol.
         result = run_time_dependent(
             state, dt=1.0, total_time=10000.0,
             snapshot_interval=1.0, stop_tol=1e-6,
+            external_flux=constant_flux,
         )
         assert result.converged
         # Should exit after essentially 1 step (at most 2 for safety).
         assert result.n_steps <= 2
+
+    def test_saturated_clipped_state_does_not_claim_convergence(self) -> None:
+        state = replace(_build_state(T_bath=0.1, num_energy=12), f=np.ones(12))
+        source = ExternalFlux(
+            gain=np.full(12, 1.0e6),
+            loss_rate=np.zeros(12),
+        )
+        result = run_time_dependent(
+            state,
+            dt=0.1,
+            total_time=0.3,
+            snapshot_interval=0.3,
+            stop_tol=1.0,
+            external_flux=source,
+        )
+
+        assert not result.converged
+        assert result.n_steps == 3
+        np.testing.assert_array_equal(result.snapshots[-1].f, 1.0)
+
+    def test_stop_residual_reuses_built_collision_operators(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.backends import t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.1, num_energy=12)
+        original = backend_module.build_scattering_kernel_base
+        calls = 0
+
+        def counted_builder(*args: object, **kwargs: object) -> np.ndarray:
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            backend_module, "build_scattering_kernel_base", counted_builder,
+        )
+        result = run_time_dependent(
+            state,
+            dt=1.0,
+            total_time=10.0,
+            snapshot_interval=10.0,
+            stop_tol=1.0e6,
+        )
+
+        assert result.converged
+        assert result.n_steps == 1
+        assert calls == 1
+
+    def test_subclass_without_diagnostics_uses_bound_safe_fallback(self) -> None:
+        state = replace(_build_state(T_bath=0.1, num_energy=8), f=np.ones(8))
+
+        class OverrideBackend(T3DiffusionBackend):
+            def apply_collisions(
+                self,
+                state_arg: T3DiffusionState,
+                dt: float,
+                **kwargs: object,
+            ) -> T3DiffusionState:
+                return state_arg
+
+        result = run_time_dependent(
+            state,
+            dt=0.1,
+            total_time=0.2,
+            snapshot_interval=0.2,
+            stop_tol=1.0,
+            backend=OverrideBackend(),
+        )
+
+        assert not result.converged
+        assert result.n_steps == 2
 
 
 class TestSnapshotCadence:
@@ -141,6 +215,25 @@ class TestSnapshotCadence:
         assert result.total_time == pytest.approx(1.0)
         assert result.snapshots[-1].t == pytest.approx(1.0)
         assert result.n_steps == 4
+        assert result.n_etd_substeps >= result.n_steps
+
+    def test_reports_internal_rate_limited_etd_substeps(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=12)
+        drain = ExternalFlux(
+            gain=np.zeros(state.f.size),
+            loss_rate=np.full(state.f.size, 100.0),
+        )
+
+        result = run_time_dependent(
+            state,
+            dt=0.1,
+            total_time=0.1,
+            snapshot_interval=0.1,
+            external_flux=drain,
+        )
+
+        assert result.n_steps == 1
+        assert result.n_etd_substeps >= 40
 
     def test_dt_larger_than_interval_still_hits_every_snapshot(self) -> None:
         state = _build_state(T_bath=0.1, num_energy=10)
@@ -205,7 +298,7 @@ class TestTimeVaryingExternalFlux:
         def linear_flux(t: float) -> ExternalFlux:
             sampled_times.append(t)
             return ExternalFlux(
-                gain=np.full(state.f.size, t),
+                gain=np.where(state.spectral.rho > 0.0, t, 0.0),
                 loss_rate=np.zeros(state.f.size),
             )
 
@@ -219,8 +312,56 @@ class TestTimeVaryingExternalFlux:
         )
 
         np.testing.assert_allclose(sampled_times, [0.25, 0.75])
+        assert not result.converged
         # Midpoint quadrature integrates df/dt=t exactly over [0, 1].
-        np.testing.assert_allclose(result.snapshots[-1].f, 0.5)
+        np.testing.assert_allclose(
+            result.snapshots[-1].f[state.spectral.rho > 0.0], 0.5,
+        )
+
+    def test_stop_tol_rejects_callable_with_isolated_zero_drive(self) -> None:
+        state = _build_state(T_bath=0.1, num_energy=3)
+        state = replace(state, f=np.zeros_like(state.f))
+        supported = state.spectral.rho > 0.0
+
+        class FluxOnlyBackend:
+            @staticmethod
+            def apply_collisions(
+                state_arg: T3DiffusionState, dt: float, **kwargs: object,
+            ) -> T3DiffusionState:
+                flux = kwargs["external_flux"]
+                assert isinstance(flux, ExternalFlux)
+                return replace(state_arg, f=state_arg.f + dt * flux.gain)
+
+        def isolated_zero_flux(t: float) -> ExternalFlux:
+            # The first midpoint is an isolated zero; the next midpoint has
+            # nonzero drive. Stopping after the first step would therefore be
+            # a false convergence claim about the future problem.
+            return ExternalFlux(
+                gain=np.where(supported, abs(t - 0.5), 0.0),
+                loss_rate=np.zeros(state.f.size),
+            )
+
+        with pytest.raises(ValueError, match="non-autonomous problem"):
+            run_time_dependent(
+                state,
+                dt=1.0,
+                total_time=2.0,
+                snapshot_interval=1.0,
+                external_flux=isolated_zero_flux,
+                stop_tol=1.0e-12,
+                backend=FluxOnlyBackend(),  # type: ignore[arg-type]
+            )
+
+        continued = run_time_dependent(
+            state,
+            dt=1.0,
+            total_time=2.0,
+            snapshot_interval=1.0,
+            external_flux=isolated_zero_flux,
+            backend=FluxOnlyBackend(),  # type: ignore[arg-type]
+        )
+        np.testing.assert_allclose(continued.snapshots[1].f, 0.0)
+        np.testing.assert_allclose(continued.snapshots[-1].f[supported], 1.0)
 
 
 class TestObservables:
@@ -340,7 +481,11 @@ class TestDriveKick:
 
     def test_subgap_drive_heats_distribution(self) -> None:
         state = _build_state(T_bath=0.1, num_energy=40)
-        drive = {"omega_0": 20.0, "n_bar": 1e8, "c_phot": 1e-9}
+        drive = {
+            "omega_0": float(state.spectral.dE[0]),
+            "n_bar": 1e8,
+            "c_phot": 1e-9,
+        }
 
         result = run_time_dependent(
             state,

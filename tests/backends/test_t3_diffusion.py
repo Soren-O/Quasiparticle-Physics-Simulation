@@ -11,7 +11,9 @@ import numpy as np
 import pytest
 from qpsim.backends.base import Tier
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
@@ -55,6 +57,118 @@ def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
 
 
 class TestT3DiffusionBackendSteadyState:
+    def test_rejects_gap_inconsistent_with_spectral_context(self) -> None:
+        state = _build_state(T_bath=0.3, num_energy=12)
+        state.gap *= 0.9
+
+        with pytest.raises(ValueError, match=r"state\.gap.*spectral\.gap"):
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+            )
+
+    def test_picard_threads_same_grid_phonon_seed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.backends.t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        omega = build_phonon_frequency_map(state.spectral.E)[0]
+        seed = np.linspace(0.0, 0.25, omega.size)
+        state.phonon = PhononState(
+            n_ph=seed.reshape(1, -1, 1),
+            omega_bins=omega.reshape(1, -1),
+            tau_l=np.full((1, omega.size), 0.25),
+            model=PhononModel.PH0_LOCAL,
+            branches=[PhononBranchSpec(name="debye_average")],
+        )
+        observed: dict[str, np.ndarray | None] = {}
+
+        def capture_solve(*args, initial_phonon_guess=None, phonon_out, **kwargs):
+            observed["seed"] = initial_phonon_guess
+            phonon_out["n_ph"] = np.asarray(initial_phonon_guess).copy()
+            phonon_out["omega_bins"] = omega.copy()
+            return state.f.copy()
+
+        monkeypatch.setattr(backend_module, "solve_steady_state", capture_solve)
+        result = T3DiffusionBackend().steady_state(state)
+
+        np.testing.assert_array_equal(observed["seed"], seed)
+        np.testing.assert_array_equal(result.phonon.n_ph[0, :, 0], seed)
+
+    def test_dynamic_phonons_build_phonon_side_kernels_by_default(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.backends.t3_diffusion as backend_module
+
+        state = _build_state(T_bath=0.3, num_energy=12)
+        original_scattering = backend_module.build_scattering_kernel_phonon_side
+        original_recombination = backend_module.build_recombination_kernel_phonon_side
+        observed: list[tuple[str, float]] = []
+
+        def capture_scattering(*args, **kwargs):
+            observed.append(("scattering", float(kwargs["tau_0_pb_ns"])))
+            return original_scattering(*args, **kwargs)
+
+        def capture_recombination(*args, **kwargs):
+            observed.append(("recombination", float(kwargs["tau_0_pb_ns"])))
+            return original_recombination(*args, **kwargs)
+
+        monkeypatch.setattr(
+            backend_module,
+            "build_scattering_kernel_phonon_side",
+            capture_scattering,
+        )
+        monkeypatch.setattr(
+            backend_module,
+            "build_recombination_kernel_phonon_side",
+            capture_recombination,
+        )
+
+        T3DiffusionBackend().steady_state(state)
+
+        assert sorted(observed) == [
+            ("recombination", state.material.tau_0_pb_ns),
+            ("scattering", state.material.tau_0_pb_ns),
+        ]
+
+    def test_dynamic_default_requires_pair_breaking_time_and_legacy_opt_out(
+        self,
+    ) -> None:
+        state = _build_state(T_bath=0.3, num_energy=12)
+        state.material.tau_0_pb_ns = None
+
+        thermal = T3DiffusionBackend().steady_state(
+            state,
+            use_thermal_phonons=True,
+        )
+        assert thermal.f.shape == state.f.shape
+
+        with pytest.raises(ValueError, match=r"tau_0_pb_ns.*finite and positive"):
+            T3DiffusionBackend().steady_state(state)
+
+        legacy = T3DiffusionBackend().steady_state(
+            state,
+            use_phonon_side_kernel=False,
+        )
+        assert legacy.f.shape == state.f.shape
+
+    def test_rejects_dynes_collision_solve(self) -> None:
+        state = _build_state(T_bath=0.3, num_energy=12)
+        state.spectral = SpectralContext(
+            E_bins=state.spectral.E,
+            dE_bins=state.spectral.dE,
+            gap=state.gap,
+            dynes_gamma=0.1,
+        )
+
+        with pytest.raises(ValueError, match="Dynes-broadened collision solves"):
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+            )
+
     def test_thermal_equilibrium_is_fixed_point(self) -> None:
         # Start at Fermi-Dirac at T_bath; the steady-state solve should
         # barely move it, since f_FD(T_bath) is the fixed point of the
@@ -131,6 +245,57 @@ class TestT3DiffusionBackendSteadyState:
 
 
 class TestT3DiffusionBackendScopeValidation:
+    def test_rejects_non_ph0_phonon_model(self) -> None:
+        state = _build_state()
+        state.phonon.model = PhononModel.PH1_BALLISTIC
+
+        with pytest.raises(ValueError, match="only the PH0_LOCAL"):
+            T3DiffusionBackend().steady_state(state)
+
+    def test_transient_and_steady_reject_gain_on_zero_capacity_row(self) -> None:
+        state = _build_state(num_energy=10)
+        E = np.linspace(0.8 * state.gap, 2.0 * state.gap, state.f.size)
+        spectral = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=state.gap,
+        )
+        omega, _, _, _ = build_phonon_frequency_map(E)
+        state.spectral = spectral
+        state.f = np.zeros(E.size)
+        state.phonon = PhononState(
+            n_ph=np.zeros((1, omega.size, 1)),
+            omega_bins=omega.reshape(1, -1),
+            tau_l=np.full((1, omega.size), 0.25),
+            model=PhononModel.PH0_LOCAL,
+            branches=[PhononBranchSpec(name="debye_average")],
+        )
+        gain = np.zeros(E.size)
+        gain[0] = 1e-4
+        flux = ExternalFlux(gain=gain, loss_rate=np.zeros(E.size))
+
+        backend = T3DiffusionBackend()
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            backend.apply_collisions(
+                state, 0.01, external_flux=flux,
+            )
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            backend.steady_state(
+                state,
+                use_thermal_phonons=True,
+                external_flux=flux,
+            )
+
+        state.f[0] = 0.7
+        loss_only = ExternalFlux(
+            gain=np.zeros(E.size),
+            loss_rate=np.concatenate(([3.0], np.zeros(E.size - 1))),
+        )
+        updated = backend.apply_collisions(
+            state, 0.01, external_flux=loss_only,
+        )
+        assert updated.f[0] == state.f[0]
+
     def test_rejects_multi_branch(self) -> None:
         state = _build_state()
         state.phonon = PhononState(  # type: ignore[misc]

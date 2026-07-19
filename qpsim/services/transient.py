@@ -57,7 +57,8 @@ class TransientResult:
 
     snapshots: list[TransientSnapshot]
     total_time: float           # last snapshot time actually reached (ns)
-    n_steps: int                # total ETD2 substeps taken
+    n_steps: int                # driver-level steps (ETD2 may rate-subcycle internally)
+    n_etd_substeps: int         # actual ETD2 substeps when backend exposes diagnostics
     converged: bool             # True iff stop_tol was met mid-run
 
 
@@ -102,7 +103,9 @@ def run_time_dependent(
         every substep, or a callable ``f(t) -> ExternalFlux`` that
         returns the flux at the midpoint of the current substep (for
         time-varying junction couplings). Midpoint sampling preserves the
-        second-order time centering of ETD2. ``None`` disables.
+        second-order time centering of ETD2. A callable cannot be combined
+        with ``stop_tol`` because an instantaneous residual cannot certify
+        future convergence of a non-autonomous problem. ``None`` disables.
     snapshot_interval
         Time between saved snapshots (ns). Defaults to
         ``total_time / 50``. When a substep crosses one or more interval
@@ -115,16 +118,22 @@ def run_time_dependent(
         useful for plotting ``x_qp(t)``, ``Q_i(t)``, etc. without
         retaining the full ``f`` array at every snapshot.
     stop_tol
-        Optional early-termination threshold on
-        ``max|f_new - f_old| / dt``. When the instantaneous rate-of-
-        change falls below this value, the driver returns early with
-        ``converged=True``. ``None`` disables early stopping.
+        Optional early-termination threshold on the raw instantaneous
+        collision residual ``max|df/dt|``.  Inspecting the raw RHS prevents
+        clipping at ``f=0`` or ``f=1`` from masquerading as convergence.
+        This convergence certificate is defined only for an autonomous
+        problem, so ``external_flux`` must be ``None`` or a constant
+        :class:`ExternalFlux`, not a callable. Custom backends can provide an
+        exact certificate via
+        ``apply_collisions_with_diagnostics``; otherwise a conservative finite-
+        difference fallback is used.
+        ``None`` disables early stopping.
     backend
         T3 backend instance. Defaults to a fresh
         :class:`T3DiffusionBackend`.
     progress_hook
         Optional physics-neutral driver hook, called after every
-        substep with ``(t, total_time)``. Return ``True`` to continue;
+        driver-level step with ``(t, total_time)``. Return ``True`` to continue;
         returning ``False`` stops the run cleanly at the current time,
         exactly as if ``total_time`` had been reached there (the final
         state is still snapshotted; ``converged`` stays ``False``
@@ -142,7 +151,8 @@ def run_time_dependent(
     ------
     ValueError
         For non-physical inputs (``dt ≤ 0``, ``total_time ≤ 0``,
-        ``snapshot_interval ≤ 0``, or ``stop_tol < 0``).
+        ``snapshot_interval ≤ 0``, or ``stop_tol < 0``), or when
+        ``stop_tol`` is combined with a callable ``external_flux``.
     """
     if not np.isfinite(dt) or dt <= 0:
         raise ValueError("dt must be positive.")
@@ -154,6 +164,13 @@ def run_time_dependent(
         raise ValueError("snapshot_interval must be positive when provided.")
     if stop_tol is not None and (not np.isfinite(stop_tol) or stop_tol < 0):
         raise ValueError("stop_tol must be non-negative when provided.")
+    if stop_tol is not None and callable(external_flux):
+        raise ValueError(
+            "stop_tol cannot be used with callable external_flux: an "
+            "instantaneous residual cannot certify convergence of a "
+            "non-autonomous problem. Supply a constant ExternalFlux for "
+            "autonomous convergence, or omit stop_tol."
+        )
 
     if backend is None:
         backend = T3DiffusionBackend()
@@ -172,6 +189,7 @@ def run_time_dependent(
     t = 0.0
     next_snap = snapshot_interval
     n_steps = 0
+    n_etd_substeps = 0
     converged = False
     current = state
 
@@ -186,6 +204,7 @@ def run_time_dependent(
             return None
         ef = external_flux(t_now) if callable(external_flux) else external_flux
         ef._validate_for_NE(NE)
+        ef._validate_gain_support(state.spectral.active_mask)
         return ef
 
     for _ in range(max_steps):
@@ -195,14 +214,39 @@ def run_time_dependent(
         step_dt = min(dt, remaining)
         t_previous = t
         prev_f = current.f.copy()
-        current = backend.apply_collisions(
-            current, step_dt,
-            photon_params=photon_params,
-            pb_photon_params=pb_photon_params,
-            external_flux=_flux_at(t + 0.5 * step_dt),
+        step_flux = _flux_at(t + 0.5 * step_dt)
+        raw_rate: np.ndarray | None = None
+        diagnostics_method = getattr(
+            backend, "apply_collisions_with_diagnostics", None,
         )
+        method_owner = getattr(
+            type(backend), "apply_collisions_with_diagnostics", None,
+        )
+        has_trustworthy_diagnostics = callable(diagnostics_method) and (
+            type(backend) is T3DiffusionBackend
+            or method_owner is not T3DiffusionBackend.apply_collisions_with_diagnostics
+        )
+        if has_trustworthy_diagnostics:
+            assert callable(diagnostics_method)
+            current, raw_rate, step_etd_substeps = diagnostics_method(
+                current,
+                step_dt,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                external_flux=step_flux,
+                evaluate_residual=stop_tol is not None,
+            )
+        else:
+            current = backend.apply_collisions(
+                current, step_dt,
+                photon_params=photon_params,
+                pb_photon_params=pb_photon_params,
+                external_flux=step_flux,
+            )
+            step_etd_substeps = 1
         t += step_dt
         n_steps += 1
+        n_etd_substeps += int(step_etd_substeps)
 
         # Emit every crossed cadence boundary. Linear dense output between
         # second-order step endpoints avoids dropping intervals when dt is
@@ -233,7 +277,19 @@ def run_time_dependent(
             next_snap += snapshot_interval
 
         if stop_tol is not None:
-            rate = float(np.max(np.abs(current.f - prev_f)) / step_dt)
+            if raw_rate is not None:
+                rate = float(np.max(np.abs(raw_rate)))
+            else:
+                # A custom backend has no public raw-RHS contract.  Retain the
+                # finite-difference fallback only for interior states; at a
+                # clipped bound it cannot certify complementarity and must not
+                # claim convergence.
+                rate = float(np.max(np.abs(current.f - prev_f)) / step_dt)
+                bound_tol = 32.0 * np.finfo(float).eps
+                if np.any(
+                    (current.f <= bound_tol) | (current.f >= 1.0 - bound_tol)
+                ):
+                    rate = np.inf
             if rate < stop_tol:
                 converged = True
                 if snapshots[-1].t < t - 1e-12:
@@ -251,5 +307,6 @@ def run_time_dependent(
         snapshots=snapshots,
         total_time=t,
         n_steps=n_steps,
+        n_etd_substeps=n_etd_substeps,
         converged=converged,
     )

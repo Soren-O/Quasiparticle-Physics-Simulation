@@ -17,20 +17,50 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import RequestResponseEndpoint
 
 from qpsim import __version__
 from qpsim.materials import list_materials, load_material
 from qpsim.webui.builders import validate_setup
+from qpsim.webui.hosts import is_loopback_host
 from qpsim.webui.plots import available_csvs, available_plots, render_csv, render_plot
 from qpsim.webui.runner import JobRunner
 from qpsim.webui.schemas import MODE_CLASSES, MODE_LABELS, SetupEnvelope
 from qpsim.webui.store import Workspace
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ``testserver`` is TestClient's reserved in-process host. The CLI refuses a
+# non-loopback bind, while this Host check is defence in depth against browser
+# DNS rebinding. It is not authentication: a direct HTTP client can choose its
+# Host header, which is why the bind restriction is the primary boundary.
+_TEST_HOSTS = frozenset({"testserver"})
+
+
+def _hostname_from_header(host_header: str | None) -> str | None:
+    """Parse an HTTP Host header, including a bracketed IPv6 literal."""
+    if not host_header:
+        return None
+    try:
+        parsed = urlsplit(f"//{host_header}")
+        # Accessing ``port`` validates malformed/non-numeric port suffixes.
+        _ = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return parsed.hostname.lower() if parsed.hostname is not None else None
 
 
 def _material_payload(name: str) -> dict[str, Any]:
@@ -69,6 +99,17 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     )
     app.state.workspace = workspace
     app.state.runner = runner
+
+    @app.middleware("http")
+    async def require_local_host(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        hostname = _hostname_from_header(request.headers.get("host"))
+        if hostname not in _TEST_HOSTS and (
+            hostname is None or not is_loopback_host(hostname)
+        ):
+            return PlainTextResponse("Invalid host header", status_code=400)
+        return await call_next(request)
 
     # -- pages --------------------------------------------------------
 
@@ -178,13 +219,14 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     @app.delete("/api/runs/{run_id}")
     def runs_delete(run_id: str) -> dict[str, bool]:
         live = runner.live_state(run_id)
-        if live is not None and live.status not in ("queued", "running"):
-            # Terminal jobs remain in memory only while their final manifest
-            # is being written or retried. Deleting in that window lets the
-            # worker recreate a one-file zombie run directory.
-            raise HTTPException(409, "Run is still finalizing; retry shortly.")
         if live is not None and live.status in ("queued", "running"):
             raise HTTPException(409, "Run is active — cancel it first.")
+        if live is not None and not runner.release_terminal_for_delete(run_id):
+            # Status becomes terminal just before the worker makes its final
+            # persistence attempt. Do not race that attempt, but allow a
+            # finished job with a permanently unwritable manifest to discard
+            # its pending snapshot and be deleted without a server restart.
+            raise HTTPException(409, "Run is still finalizing; retry shortly.")
         try:
             workspace.delete_run(run_id)
         except ValueError as exc:  # unsafe run_id

@@ -54,10 +54,15 @@ from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.gap_suppression import (
+    edge_samples_from_centers,
     gap_from_distribution_direct,
     gap_integral_from_distribution_direct,
 )
-from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.physics.bcs_quadrature import (
+    bcs_dos_cell_weights,
+    cell_edges_from_widths,
+)
+from qpsim.physics.spectral import SpectralContext
 from qpsim.transport.diffusion.base import DiffusionModel
 
 from validation.diffusion_operators import (
@@ -66,6 +71,15 @@ from validation.diffusion_operators import (
     results_dir,
     write_csv,
 )
+
+GAP_FLOOR_FACTOR = 0.5
+"""Lowest gap represented by the benchmark's energy grid and closure."""
+
+GAP_FIXED_POINT_RTOL = 1e-12
+"""Maximum raw-map residual relative to the bulk gap."""
+
+GAP_FIXED_POINT_MAX_ITERATIONS = 64
+"""Hard iteration cap for the undamped self-consistent gap map."""
 
 
 @dataclass(frozen=True)
@@ -88,10 +102,30 @@ class FeedbackResult:
     fit_steps: int
 
 
-def _n1_columns(E: np.ndarray, gap_profile: np.ndarray) -> np.ndarray:
-    """Per-cell BCS DOS ``N_1(E_i, x_j)``, shape ``(NE, NX)``."""
+def _n1_columns(
+    E: np.ndarray,
+    dE: np.ndarray,
+    gap_profile: np.ndarray,
+) -> np.ndarray:
+    """Represented cell-average BCS DOS, shape ``(NE, NX)``.
+
+    The transport state stores a cell-constant occupation against the exact
+    finite-volume BCS measure. Using point DOS values here would define a
+    different conserved density and manufacture center-of-mass motion even
+    for the undressed ``q = 0`` flux.
+    """
+    first_edge = float(cell_edges_from_widths(E, dE)[0])
     return np.column_stack(
-        [bcs_density_of_states(E, float(g)) for g in gap_profile]
+        [
+            bcs_dos_cell_weights(
+                E,
+                dE,
+                float(g),
+                lower_bound=max(float(g), first_edge),
+            )
+            / dE
+            for g in gap_profile
+        ]
     )
 
 
@@ -100,18 +134,29 @@ def _suppressed_gap(
     E: np.ndarray,
     gap_profile: np.ndarray,
     gap0: float,
-    floor_factor: float = 0.5,
+    floor_factor: float = GAP_FLOOR_FACTOR,
 ) -> np.ndarray:
     """One per-cell direct gap update ``Delta_j = Delta_0 exp(-I[f(., x_j)])``.
 
     The spectral weight inside ``I`` is evaluated at the supplied local gap
-    (Picard form); the suppression is floored at ``floor_factor * gap0`` as
-    a safety net (the benchmark operates far above it).
+    (Picard form). Unlike a general kinetic state, this benchmark deliberately
+    extends a bounded occupation plateau through its inactive guard cells so
+    those samples become meaningful as the local gap falls. Reconstruct that
+    controlled center profile onto fixed edge nodes before iterating; changing
+    the reconstruction stencil whenever a cell gains support would make the
+    discrete gap map jump at cell faces and can eliminate its fixed point.
+    The suppression is floored at ``floor_factor * gap0`` as a safety net (the
+    benchmark operates far above it).
     """
     out = np.empty_like(gap_profile)
     for j, g in enumerate(gap_profile):
+        edge_occupation = edge_samples_from_centers(f_heavy[:, j], E)
         out[j] = gap_from_distribution_direct(
-            f_heavy[:, j], E, gap=float(g), delta0=gap0
+            edge_occupation,
+            E,
+            gap=float(g),
+            delta0=gap0,
+            samples="edges",
         )
     return np.maximum(out, floor_factor * gap0)
 
@@ -121,14 +166,81 @@ def dig_well(
     E: np.ndarray,
     gap0: float,
     *,
-    picard_iterations: int = 8,
+    initial_gap: np.ndarray | None = None,
+    max_iterations: int = GAP_FIXED_POINT_MAX_ITERATIONS,
 ) -> np.ndarray:
-    """Self-consistent well: iterate the gap update to its fixed point."""
+    """Iterate the raw gap map to a certified fixed point or fail loudly."""
+    if not isinstance(max_iterations, int) or max_iterations < 1:
+        raise ValueError("max_iterations must be a positive integer.")
     NX = f_heavy.shape[1]
-    gap_profile = np.full(NX, gap0)
-    for _ in range(picard_iterations):
-        gap_profile = _suppressed_gap(f_heavy, E, gap_profile, gap0)
-    return gap_profile
+    if initial_gap is None:
+        gap_profile = np.full(NX, gap0)
+    else:
+        gap_profile = np.asarray(initial_gap, dtype=float).copy()
+        if gap_profile.shape != (NX,):
+            raise ValueError(
+                f"initial_gap must have shape {(NX,)}, got {gap_profile.shape}."
+            )
+        if (
+            np.any(~np.isfinite(gap_profile))
+            or np.any(gap_profile < GAP_FLOOR_FACTOR * gap0)
+            or np.any(gap_profile > gap0)
+        ):
+            raise ValueError(
+                "initial_gap must be finite and lie within the represented "
+                f"interval [{GAP_FLOOR_FACTOR}*gap0, gap0]."
+            )
+    residual = float("inf")
+    for _ in range(max_iterations):
+        updated = _suppressed_gap(f_heavy, E, gap_profile, gap0)
+        residual = float(np.max(np.abs(updated - gap_profile)))
+        if residual <= GAP_FIXED_POINT_RTOL * gap0:
+            return updated
+        gap_profile = updated
+    raise RuntimeError(
+        "Self-consistent diffusion-benchmark gap map did not converge after "
+        f"{max_iterations} iterations: relative raw-map residual="
+        f"{residual / gap0:.3e}, limit={GAP_FIXED_POINT_RTOL:.3e}."
+    )
+
+
+def _calibrate_heavy_amplitude(
+    seed_weight: np.ndarray,
+    E: np.ndarray,
+    gap0: float,
+    well_depth: float,
+) -> float:
+    """Choose the seed amplitude from the realized self-consistent well.
+
+    The direct closure is linear in the distribution at a fixed trial gap.
+    Evaluating the unit-amplitude integral at the requested target gap therefore
+    gives the amplitude whose raw gap-map image is exactly that target. This
+    avoids searching through discrete-grid amplitudes where the active-cell map
+    can be discontinuous.
+    """
+    if not np.isfinite(well_depth) or not 0.0 < well_depth < 0.5:
+        raise ValueError("well_depth must be finite and lie in (0, 0.5).")
+
+    target_gap = gap0 * (1.0 - well_depth)
+    edge_seed_weight = edge_samples_from_centers(seed_weight, E)
+    target_integral = gap_integral_from_distribution_direct(
+        edge_seed_weight,
+        E,
+        gap=target_gap,
+        samples="edges",
+    )
+    if not np.isfinite(target_integral) or target_integral <= 0.0:
+        raise RuntimeError(
+            "The diffusion-benchmark seed has no finite positive direct-gap "
+            f"weight at target gap {target_gap:.6g}."
+        )
+    amplitude = float(-np.log1p(-well_depth) / target_integral)
+    if not np.isfinite(amplitude) or amplitude > 0.5:
+        raise ValueError(
+            f"well_depth={well_depth} needs seed amplitude {amplitude:.6g}; "
+            "the benchmark requires a finite amplitude no greater than 0.5."
+        )
+    return amplitude
 
 
 def _com_per_energy(
@@ -136,7 +248,11 @@ def _com_per_energy(
 ) -> np.ndarray:
     """Per-energy first moment of the conserved density ``N_1**p f``."""
     u = np.power(N1, p) * f
-    return np.sum(x[None, :] * u, axis=1) / np.sum(u, axis=1)
+    numerator = np.sum(x[None, :] * u, axis=1)
+    denominator = np.sum(u, axis=1)
+    out = np.zeros_like(numerator)
+    np.divide(numerator, denominator, out=out, where=denominator > 0.0)
+    return out
 
 
 def run(
@@ -160,21 +276,30 @@ def run(
     """Evolve a probe packet in a self-consistently dug gap well, all models.
 
     ``well_depth`` is the target initial fractional gap suppression at the
-    heavy-population center (calibrated through the direct closure at
-    ``Delta_0``; the Picard fixed point lands close to it). Static mode
-    (default) holds the well fixed;
+    heavy-population center, calibrated directly at that fixed point and then
+    independently reached by the raw Picard map. Static mode (default) holds
+    the well fixed;
     ``dynamic=True`` lets the heavy population spread with the gap
     tracking it. Drift velocities are fitted over the first ``fit_steps``
     steps; the analytic prediction ``D_N q N_1^{q-p-1} d_x N_1`` is
     averaged over the initial probe's conserved density.
     """
+    if not np.isfinite(well_depth) or not 0.0 < well_depth < 0.5:
+        raise ValueError("well_depth must be finite and lie in (0, 0.5).")
     if not 1 <= fit_steps <= n_steps:
         raise ValueError(
             f"fit_steps={fit_steps} must satisfy 1 <= fit_steps <= n_steps={n_steps}."
         )
     gap0 = float(load_material("Al").Delta_0)
+    # The direct closure may lower the gap as far as its configured safety
+    # floor. Keep represented guard cells over that entire interval; omitting
+    # the singular support between a lowered gap and the first cell face used
+    # to make the benchmark depend on an implicit truncated integral.
     E, _ = build_energy_grid(
-        gap=gap0, energy_min_factor=1.02, energy_max_factor=4.0, num_energy_bins=NE
+        gap=gap0,
+        energy_min_factor=GAP_FLOOR_FACTOR,
+        energy_max_factor=4.0,
+        num_energy_bins=NE,
     )
     dE = integration_widths_from_centers(E)
     spectral = SpectralContext(
@@ -186,18 +311,21 @@ def run(
 
     heavy_shape = np.exp(-(((x - heavy_center_um) / heavy_sigma_um) ** 2))
     probe_shape = np.exp(-(((x - probe_center_um) / probe_sigma_um) ** 2))
-    seed_weight = np.exp(-(E - gap0) / (seed_E_scale * gap0))
+    # Continue the gap-edge occupation as a bounded plateau into inactive
+    # guard storage. Those values acquire meaning only if a suppressed local
+    # gap gives the cells positive spectral capacity.
+    seed_weight = np.exp(
+        -np.maximum(E - gap0, 0.0) / (seed_E_scale * gap0)
+    )
 
-    # Calibrate the heavy amplitude so the direct gap closure at Delta_0
-    # gives the requested well depth at the heavy-population center:
-    # depth = 1 - exp(-amp * I[seed]).
-    I_unit = gap_integral_from_distribution_direct(seed_weight, E, gap=gap0)
-    amp_heavy = float(-np.log1p(-well_depth) / I_unit)
-    if amp_heavy > 0.5:
-        raise ValueError(
-            f"well_depth={well_depth} needs seed amplitude {amp_heavy:.3f} > 0.5; "
-            "deepen seed_E_scale or lower well_depth."
-        )
+    # Calibrate against the realized self-consistent closure, rather than only
+    # its first fixed-gap update.
+    amp_heavy = _calibrate_heavy_amplitude(
+        seed_weight,
+        E,
+        gap0,
+        well_depth,
+    )
     f_heavy0 = amp_heavy * seed_weight[:, None] * heavy_shape[None, :]
     f_probe0 = 0.5 * amp_heavy * seed_weight[:, None] * probe_shape[None, :]
 
@@ -216,16 +344,28 @@ def run(
         gap_profile = well0.copy()
         gap_initial[model.name] = gap_profile.copy()
 
-        N1_x = _n1_columns(E, gap_profile)
+        N1_x = _n1_columns(E, dE, gap_profile)
         # Analytic drift on the realized initial profile, averaged over the
         # probe's conserved density (finite-packet prediction).
         dN1_dx = np.gradient(N1_x, x, axis=1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            v_field = D0 * q * np.power(N1_x, q - p - 1) * dN1_dx
-        v_field = np.nan_to_num(v_field)
+        v_field = np.zeros_like(N1_x)
+        if q != 0:
+            positive_capacity = N1_x > 0.0
+            v_field[positive_capacity] = (
+                D0
+                * q
+                * np.power(N1_x[positive_capacity], q - p - 1)
+                * dN1_dx[positive_capacity]
+            )
         u0 = np.power(N1_x, p) * f_probe0
-        drift_analytic[model.name] = np.sum(v_field * u0, axis=1) / np.sum(
-            u0, axis=1
+        drift_numerator = np.sum(v_field * u0, axis=1)
+        drift_denominator = np.sum(u0, axis=1)
+        drift_analytic[model.name] = np.zeros_like(drift_numerator)
+        np.divide(
+            drift_numerator,
+            drift_denominator,
+            out=drift_analytic[model.name],
+            where=drift_denominator > 0.0,
         )
 
         def make_state(
@@ -248,7 +388,7 @@ def run(
         probe = make_state(f_probe0)
 
         def conserved_total(state: T3Spatial1DState, p: int = p) -> float:
-            N1 = _n1_columns(E, state.gap_profile)
+            N1 = _n1_columns(E, dE, state.gap_profile)
             return float(np.sum(dE[:, None] * np.power(N1, p) * state.f))
 
         total0 = conserved_total(heavy)
@@ -265,12 +405,15 @@ def run(
                 heavy = backend.apply_transport(heavy, dt)
             probe = backend.apply_transport(probe, dt)
             if dynamic:
-                gap_profile = _suppressed_gap(
-                    heavy.f, E, heavy.gap_profile, gap0
+                gap_profile = dig_well(
+                    heavy.f,
+                    E,
+                    gap0,
+                    initial_gap=heavy.gap_profile,
                 )
                 heavy = replace(heavy, gap_profile=gap_profile)
                 probe = replace(probe, gap_profile=gap_profile)
-                N1_now = _n1_columns(E, gap_profile)
+                N1_now = _n1_columns(E, dE, gap_profile)
             com_t[step + 1] = _com_per_energy(N1_now, p, probe.f, x)
 
         gap_final[model.name] = gap_profile.copy()

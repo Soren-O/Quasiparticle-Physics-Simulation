@@ -86,9 +86,9 @@ Usage --- generate baseline + PDF::
 
 from __future__ import annotations
 
-import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
@@ -101,13 +101,25 @@ from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
+from validation.fischer_2024._artifact import (
+    ArtifactValidationError,
+    QPCertificate,
+    bind_certificate,
+    qp_certificate,
+    read_artifact,
+    source_hashes,
+    thermal_occupations_match,
+    validated_numeric_array,
+    write_artifact,
+)
+
 # ── F24 Sec. IV parameters ───────────────────────────────────────────
 
-DELTA_0 = 189.0            # μeV
-TAU_0 = 63.0               # ns
+DELTA_0 = 189.0  # μeV
+TAU_0 = 63.0  # ns
 T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
-T_BATH = 0.1               # K (paper Fig. 5 bath)
-OMEGA_PB = 2.8 * DELTA_0   # 529.2 μeV
+T_BATH = 0.1  # K (paper Fig. 5 bath)
+OMEGA_PB = 2.8 * DELTA_0  # 529.2 μeV
 # F&C 2024 paper coordinate: γ = (E − Δ) / ξ, where ξ = ω_PB − 2Δ.
 # γ = 1 marks the pair-breaking endpoint at which the partner energy
 # E_partner = ω_PB − E hits the gap from above. For ω_PB = 2.8Δ this
@@ -115,8 +127,8 @@ OMEGA_PB = 2.8 * DELTA_0   # 529.2 μeV
 # the partner-below-gap mask transition at γ = 0.8 in code coords,
 # producing a vertical-cliff plot artifact when matplotlib connects
 # the last active bin to the first masked bin on log y.
-XI = OMEGA_PB - 2.0 * DELTA_0   # 151.2 μeV
-N_BAR_PB = 1e6             # photon population (only c·n̄ matters for f shape)
+XI = OMEGA_PB - 2.0 * DELTA_0  # 151.2 μeV
+N_BAR_PB = 1e6  # photon population (only c·n̄ matters for f shape)
 
 # Paper grid: 810 bins gives ω_PB/dE = 252 exactly. dE = 9·Δ/810 = 2.1 μeV.
 E_MIN_FACTOR = 1.0
@@ -134,9 +146,7 @@ HZ_TO_NS_INV: float = 1.0e-9
 
 # Drive products applied to the qpsim PB-photon kernel, in ns⁻¹. These
 # are the paper Hz values multiplied by HZ_TO_NS_INV.
-PAPER_DRIVES_NS_INV: tuple[float, ...] = tuple(
-    p * HZ_TO_NS_INV for p in PAPER_DRIVES_HZ
-)
+PAPER_DRIVES_NS_INV: tuple[float, ...] = tuple(p * HZ_TO_NS_INV for p in PAPER_DRIVES_HZ)
 
 # Sanity: existing figs_5_7_fe_pb.POWER_LEVELS sweep covers
 # {1e-6, …, 1e-2} ns⁻¹, which corresponds to {1e3, …, 1e7} Hz under the
@@ -146,6 +156,11 @@ PAPER_DRIVES_NS_INV: tuple[float, ...] = tuple(
 # kernel prefactor audit.
 EXISTING_F24_NATIVE_RANGE_NS_INV = (1e-6, 1e-2)
 
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig5_qpsim_native.v2"
+NEWTON_TOL = 1.0e-14
+NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
+NEWTON_MAX_ITER = 500
+
 
 @dataclass(frozen=True)
 class Fig5PaperResult:
@@ -154,12 +169,55 @@ class Fig5PaperResult:
     E: np.ndarray
     drives_hz: tuple[float, ...]
     drives_ns_inv: tuple[float, ...]
-    f_thermal: np.ndarray                 # shape (NE,); f_FD at T_bath
-    f_by_drive: dict[float, np.ndarray]    # drive_hz → numerical f
-    x_qp_by_drive: dict[float, float]      # drive_hz → scalar x_qp
-    f0_by_drive: dict[float, np.ndarray]   # drive_hz → f^(0) (placeholder)
+    f_thermal: np.ndarray  # shape (NE,); f_FD at T_bath
+    f_by_drive: dict[float, np.ndarray]  # drive_hz → numerical f
+    x_qp_by_drive: dict[float, float]  # drive_hz → scalar x_qp
+    f0_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) (placeholder)
     f01_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) + f^(1)
     f012_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) + f^(1) + f^(2)
+    qp_backward_error_by_drive: dict[float, float]
+    qp_residual_inf_by_drive: dict[float, float]
+
+
+def solver_fingerprint() -> dict[str, Any]:
+    return {
+        "delta_0_uev": DELTA_0,
+        "drives_hz": list(PAPER_DRIVES_HZ),
+        "drives_ns_inv": list(PAPER_DRIVES_NS_INV),
+        "e_max_factor": E_MAX_FACTOR,
+        "e_min_factor": E_MIN_FACTOR,
+        "hz_to_ns_inv": HZ_TO_NS_INV,
+        "n_bar_pb": N_BAR_PB,
+        "newton_backward_error_tol": NEWTON_BACKWARD_ERROR_TOL,
+        "newton_max_iter": NEWTON_MAX_ITER,
+        "newton_tol": NEWTON_TOL,
+        "num_bins": NUM_BINS,
+        "omega_pb_uev": OMEGA_PB,
+        "source_sha256": source_hashes(Path(__file__)),
+        "t_bath_k": T_BATH,
+        "t_c_k": T_C,
+        "tau_0_ns": TAU_0,
+        "use_thermal_phonons": True,
+    }
+
+
+def _point_id(drive_hz: float) -> str:
+    return f"drive_hz={drive_hz:.17e}"
+
+
+def _columns() -> list[str]:
+    columns = ["E_uev", "f_thermal"]
+    for drive_hz in PAPER_DRIVES_HZ:
+        suffix = f"{drive_hz:.17e}_hz"
+        columns.extend(
+            [
+                f"f_num_{suffix}",
+                f"f0_{suffix}",
+                f"f01_{suffix}",
+                f"f012_{suffix}",
+            ]
+        )
+    return columns
 
 
 def _material() -> Material:
@@ -186,8 +244,8 @@ def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]
     if frac_err > 1e-10:
         raise RuntimeError(
             f"F24 Fig. 5 paper grid not commensurate: "
-            f"ω_PB={OMEGA_PB} μeV, m·dE={m * dE_scalar} μeV, frac_err={frac_err}. "
-            f"Choose NUM_BINS such that ω_PB/dE is integer."
+            f"omega_PB={OMEGA_PB} micro-eV, m*dE={m * dE_scalar} micro-eV, "
+            f"frac_err={frac_err}. Choose NUM_BINS such that omega_PB/dE is integer."
         )
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
     return E, dE, spectral
@@ -203,23 +261,22 @@ def _assert_unit_audit() -> None:
     """
     # Strict assertion on the conversion factor itself.
     assert HZ_TO_NS_INV == 1.0e-9, (
-        f"Hz → ns⁻¹ conversion drifted: HZ_TO_NS_INV={HZ_TO_NS_INV} "
-        "must be 1e-9 (1 Hz = 1 s⁻¹ = 10⁻⁹ ns⁻¹)."
+        f"Hz -> ns^-1 conversion drifted: HZ_TO_NS_INV={HZ_TO_NS_INV} "
+        "must be 1e-9 (1 Hz = 1 s^-1 = 1e-9 ns^-1)."
     )
     for hz, ns_inv in zip(PAPER_DRIVES_HZ, PAPER_DRIVES_NS_INV, strict=True):
         expected = hz * 1.0e-9
         assert abs(ns_inv - expected) < 1e-30, (
-            f"Drive conversion mismatch: {hz} Hz mapped to {ns_inv} ns⁻¹, "
-            f"expected {expected}."
+            f"Drive conversion mismatch: {hz} Hz mapped to {ns_inv} ns^-1, expected {expected}."
         )
     # Soft warning on the magnitude regime.
     paper_min, paper_max = min(PAPER_DRIVES_NS_INV), max(PAPER_DRIVES_NS_INV)
     native_min, native_max = EXISTING_F24_NATIVE_RANGE_NS_INV
     if paper_max < native_min or paper_min > native_max:
         print(
-            "  ⚠ Hz → ns⁻¹ unit-audit warning:\n"
-            f"    Paper-quoted drives  : {paper_min:.2e} - {paper_max:.2e} ns⁻¹\n"
-            f"    Existing F24 sweep   : {native_min:.2e} - {native_max:.2e} ns⁻¹\n"
+            "  WARNING: Hz -> ns^-1 unit-audit mismatch:\n"
+            f"    Paper-quoted drives  : {paper_min:.2e} - {paper_max:.2e} ns^-1\n"
+            f"    Existing F24 sweep   : {native_min:.2e} - {native_max:.2e} ns^-1\n"
             "    Drive products are several orders of magnitude apart.\n"
             "    Resolution requires auditing the pair-breaking kernel\n"
             "    prefactor (qpsim.collisions.pair_breaking_photon) against\n"
@@ -254,7 +311,8 @@ def _build_state(material: Material, spectral: SpectralContext) -> T3DiffusionSt
 
 
 def _neumann_f0(
-    spectral: SpectralContext, drive_ns_inv: float,
+    spectral: SpectralContext,
+    drive_ns_inv: float,
 ) -> np.ndarray:
     """Zeroth-order Neumann term $f^{(0)}$ (PLACEHOLDER).
 
@@ -272,7 +330,8 @@ def _neumann_f0(
 
 
 def _neumann_f1(
-    spectral: SpectralContext, drive_ns_inv: float,
+    spectral: SpectralContext,
+    drive_ns_inv: float,
 ) -> np.ndarray:
     """First-order Neumann correction $f^{(1)}$ (PLACEHOLDER).
 
@@ -305,7 +364,8 @@ def _neumann_f1(
 
 
 def _neumann_f2(
-    spectral: SpectralContext, drive_ns_inv: float,
+    spectral: SpectralContext,
+    drive_ns_inv: float,
 ) -> np.ndarray:
     """Second-order Neumann correction $f^{(2)}$ (PLACEHOLDER).
 
@@ -324,7 +384,7 @@ def _neumann_f2(
     if drive_ns_inv > 0:
         gamma = (E - DELTA_0) / XI
         # Near-gap bump: peaked at γ ≈ 0, decay length ~0.04.
-        bump = np.exp(-(gamma / 0.04) ** 2)
+        bump = np.exp(-((gamma / 0.04) ** 2))
         increment = (drive_ns_inv * 1e9) ** 2 * bump * 1e-2
         increment = np.where(gamma >= 0.0, increment, 0.0)
     return increment
@@ -334,17 +394,18 @@ def run() -> Fig5PaperResult:
     """Solve F24 Fig. 5 — three drive levels at fixed T_B = 0.1 K."""
     print("F24 Fig. 5 paper-target reproduction ...")
     print(
-        f"  Δ_0={DELTA_0} μeV, τ_0={TAU_0} ns, ω_PB={OMEGA_PB:.2f} μeV, "
-        f"T_B={T_BATH} K, τ_ℓ=0"
+        f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
+        f"omega_PB={OMEGA_PB:.2f} micro-eV, T_B={T_BATH} K, tau_l=0"
     )
     print(
         f"  Grid: NE={NUM_BINS}, "
-        f"dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS:.4f} μeV "
-        f"(ω_PB/dE = {round(OMEGA_PB / ((E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS))})"
+        f"dE={(E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS:.4f} micro-eV "
+        f"(omega_PB/dE = "
+        f"{round(OMEGA_PB / ((E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS))})"
     )
     print(
         f"  Drive levels (paper Hz): {list(PAPER_DRIVES_HZ)}\n"
-        f"  Drive levels (ns⁻¹)    : "
+        f"  Drive levels (ns^-1)   : "
         f"{[f'{p:.2e}' for p in PAPER_DRIVES_NS_INV]}"
     )
 
@@ -362,9 +423,13 @@ def run() -> Fig5PaperResult:
     f0_by_drive: dict[float, np.ndarray] = {}
     f01_by_drive: dict[float, np.ndarray] = {}
     f012_by_drive: dict[float, np.ndarray] = {}
+    qp_backward: dict[float, float] = {}
+    qp_residual: dict[float, float] = {}
 
     for drive_hz, drive_ns_inv in zip(
-        PAPER_DRIVES_HZ, PAPER_DRIVES_NS_INV, strict=True,
+        PAPER_DRIVES_HZ,
+        PAPER_DRIVES_NS_INV,
+        strict=True,
     ):
         # ω_PB and n̄_PB held fixed; only c_phot_PB · n̄_PB matters for the
         # f-shape, so distribute the product into c_phot_PB at fixed n̄_PB.
@@ -377,12 +442,20 @@ def run() -> Fig5PaperResult:
             state,
             use_thermal_phonons=True,
             pb_photon_params=pb_params,
-            newton_tol=1e-14,
-            newton_max_iter=500,
+            newton_tol=NEWTON_TOL,
+            newton_backward_error_tol=NEWTON_BACKWARD_ERROR_TOL,
+            newton_max_iter=NEWTON_MAX_ITER,
         )
         f_by_drive[drive_hz] = driven.f.copy()
         x_qp = float(qp_fraction(driven.f, driven.spectral, delta_0=DELTA_0))
         x_qp_by_drive[drive_hz] = x_qp
+        certificate = qp_certificate(
+            driven,
+            pb_photon_params=pb_params,
+            residual_inf_limit=NEWTON_TOL,
+        )
+        qp_backward[drive_hz] = certificate.backward_error
+        qp_residual[drive_hz] = certificate.residual_inf
 
         f0 = _neumann_f0(spectral, drive_ns_inv)
         f1 = _neumann_f1(spectral, drive_ns_inv)
@@ -392,8 +465,7 @@ def run() -> Fig5PaperResult:
         f012_by_drive[drive_hz] = f0 + f1 + f2
 
         print(
-            f"    c·n̄ = {drive_hz:g} Hz ({drive_ns_inv:.2e} ns⁻¹): "
-            f"x_qp = {x_qp:.4e}",
+            f"    c*nbar = {drive_hz:g} Hz ({drive_ns_inv:.2e} ns^-1): x_qp = {x_qp:.4e}",
             flush=True,
         )
 
@@ -407,6 +479,8 @@ def run() -> Fig5PaperResult:
         f0_by_drive=f0_by_drive,
         f01_by_drive=f01_by_drive,
         f012_by_drive=f012_by_drive,
+        qp_backward_error_by_drive=qp_backward,
+        qp_residual_inf_by_drive=qp_residual,
     )
 
 
@@ -426,10 +500,7 @@ def baseline_path() -> Path:
     Rename to ``fischer2024_fig5_paper.csv`` once both gaps close.
     """
     root = Path(__file__).resolve().parents[2]
-    return (
-        root / "validation" / "baselines" / "ph0_constant"
-        / "fischer2024_fig5_qpsim_native.csv"
-    )
+    return root / "validation" / "baselines" / "ph0_constant" / "fischer2024_fig5_qpsim_native.csv"
 
 
 def plot_path() -> Path:
@@ -440,99 +511,147 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
     """Write the three drive-level f(E) arrays + Neumann overlays to CSV."""
     if path is None:
         path = baseline_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp)
-        writer.writerow([
-            "# Fischer & Catelani 2024 Fig. 5 — qpsim-native characterization "
-            "at paper topology"
-        ])
-        writer.writerow([
-            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_PB={OMEGA_PB} "
-            f"n_bar_PB={N_BAR_PB} T_bath={T_BATH}"
-        ])
-        writer.writerow([
-            f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta "
-            f"E_max={E_MAX_FACTOR}*Delta"
-        ])
-        drives_hz_csv = ",".join(f"{d:g}" for d in result.drives_hz)
-        drives_ns_csv = ",".join(f"{d:.17e}" for d in result.drives_ns_inv)
-        writer.writerow([f"# drives_hz={drives_hz_csv}"])
-        writer.writerow([f"# drives_ns_inv={drives_ns_csv}"])
-        x_qp_csv = ",".join(
-            f"{result.x_qp_by_drive[d]:.17e}" for d in result.drives_hz
+    expected_E, _, spectral = _build_grid_and_spectral()
+    if not np.array_equal(result.E, expected_E):
+        raise ValueError("Fig. 5 energy axis must exactly match the live grid.")
+    if result.drives_hz != PAPER_DRIVES_HZ:
+        raise ValueError("Fig. 5 drive axis must exactly match PAPER_DRIVES_HZ.")
+    if result.drives_ns_inv != PAPER_DRIVES_NS_INV:
+        raise ValueError("Fig. 5 converted drive axis is stale.")
+    mapping_keys = (
+        ("f_by_drive", set(result.f_by_drive)),
+        ("x_qp_by_drive", set(result.x_qp_by_drive)),
+        ("f0_by_drive", set(result.f0_by_drive)),
+        ("f01_by_drive", set(result.f01_by_drive)),
+        ("f012_by_drive", set(result.f012_by_drive)),
+        ("qp_backward_error_by_drive", set(result.qp_backward_error_by_drive)),
+        ("qp_residual_inf_by_drive", set(result.qp_residual_inf_by_drive)),
+    )
+    for name, keys in mapping_keys:
+        if keys != set(PAPER_DRIVES_HZ):
+            raise ArtifactValidationError(f"Fig. 5 {name} keys must exactly match PAPER_DRIVES_HZ.")
+    base_state = _build_state(_material(), spectral)
+    f_thermal = validated_numeric_array(
+        result.f_thermal,
+        context="Fig. 5 thermal occupation",
+        expected_shape=(NUM_BINS,),
+        lower=0.0,
+        upper=1.0,
+    )
+    if not thermal_occupations_match(f_thermal, base_state.f):
+        raise ArtifactValidationError(
+            "Fig. 5 thermal occupation does not match the live Fermi-Dirac state."
         )
-        writer.writerow([f"# x_qp_by_drive={x_qp_csv}"])
-
-        header = ["E_uev", "f_thermal"]
-        for d in result.drives_hz:
-            header.append(f"f_num_{d:g}Hz")
-            header.append(f"f0_{d:g}Hz")
-            header.append(f"f01_{d:g}Hz")
-            header.append(f"f012_{d:g}Hz")
-        writer.writerow(header)
-
-        for i in range(result.E.size):
-            row = [f"{result.E[i]:.17e}", f"{result.f_thermal[i]:.17e}"]
-            for d in result.drives_hz:
-                row.append(f"{result.f_by_drive[d][i]:.17e}")
-                row.append(f"{result.f0_by_drive[d][i]:.17e}")
-                row.append(f"{result.f01_by_drive[d][i]:.17e}")
-                row.append(f"{result.f012_by_drive[d][i]:.17e}")
-            writer.writerow(row)
-    return path
+    f_by_drive: dict[float, np.ndarray] = {}
+    certificates: dict[str, QPCertificate] = {}
+    for drive_hz, drive_ns_inv in zip(
+        PAPER_DRIVES_HZ,
+        PAPER_DRIVES_NS_INV,
+        strict=True,
+    ):
+        f = validated_numeric_array(
+            result.f_by_drive[drive_hz],
+            context=f"Fig. 5 occupation at drive={drive_hz:g} Hz",
+            expected_shape=(NUM_BINS,),
+            lower=0.0,
+            upper=1.0,
+        )
+        expected_x_qp = float(qp_fraction(f, spectral, delta_0=DELTA_0))
+        if not np.isclose(
+            float(result.x_qp_by_drive[drive_hz]),
+            expected_x_qp,
+            rtol=1.0e-12,
+            atol=0.0,
+        ):
+            raise ArtifactValidationError(
+                f"Fig. 5 x_qp at drive={drive_hz:g} Hz is inconsistent with f(E)."
+            )
+        pb_params = {
+            "omega_PB": OMEGA_PB,
+            "n_bar_PB": N_BAR_PB,
+            "c_phot_PB": drive_ns_inv / N_BAR_PB,
+        }
+        reassembled = qp_certificate(
+            replace(base_state, f=f.copy()),
+            pb_photon_params=pb_params,
+            residual_inf_limit=NEWTON_TOL,
+        )
+        stamped = QPCertificate(
+            backward_error=float(result.qp_backward_error_by_drive[drive_hz]),
+            residual_inf=float(result.qp_residual_inf_by_drive[drive_hz]),
+        )
+        certificates[_point_id(drive_hz)] = bind_certificate(
+            stamped,
+            reassembled,
+            context=f"Fig. 5 drive={drive_hz:g} Hz",
+            residual_inf_limit=NEWTON_TOL,
+        )
+        f_by_drive[drive_hz] = f
+    rows: list[list[float]] = []
+    for i, energy in enumerate(result.E):
+        row = [float(energy), float(f_thermal[i])]
+        for drive_hz in result.drives_hz:
+            row.extend(
+                [
+                    float(f_by_drive[drive_hz][i]),
+                    float(result.f0_by_drive[drive_hz][i]),
+                    float(result.f01_by_drive[drive_hz][i]),
+                    float(result.f012_by_drive[drive_hz][i]),
+                ]
+            )
+        rows.append(row)
+    return write_artifact(
+        path,
+        schema=ARTIFACT_SCHEMA,
+        fingerprint=solver_fingerprint(),
+        columns=_columns(),
+        rows=rows,
+        certificates=certificates,
+        target_qp_residual_inf=NEWTON_TOL,
+    )
 
 
 def read_baseline(path: Path | None = None) -> Fig5PaperResult:
     """Read a pinned baseline CSV back into a :class:`Fig5PaperResult`."""
     if path is None:
         path = baseline_path()
-    rows: list[list[float]] = []
-    drives_hz: tuple[float, ...] = ()
-    drives_ns_inv: tuple[float, ...] = ()
-    x_qp_list: list[float] = []
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line:
-                continue
-            first = line[0]
-            if first.startswith("# drives_hz"):
-                drives_hz = tuple(
-                    float(x) for x in first.split("=", 1)[1].split(",")
-                )
-                continue
-            if first.startswith("# drives_ns_inv"):
-                drives_ns_inv = tuple(
-                    float(x) for x in first.split("=", 1)[1].split(",")
-                )
-                continue
-            if first.startswith("# x_qp_by_drive"):
-                x_qp_list = [
-                    float(x) for x in first.split("=", 1)[1].split(",")
-                ]
-                continue
-            if first.startswith("#") or first == "E_uev":
-                continue
-            rows.append([float(x) for x in line])
-    if not drives_hz:
-        raise RuntimeError(f"Baseline at {path} missing '# drives_hz=' metadata.")
-    if not drives_ns_inv or len(drives_ns_inv) != len(drives_hz):
-        raise RuntimeError(
-            f"Baseline at {path} missing/inconsistent '# drives_ns_inv=' metadata."
+    artifact = read_artifact(
+        path,
+        schema=ARTIFACT_SCHEMA,
+        fingerprint=solver_fingerprint(),
+        columns=_columns(),
+        expected_row_count=NUM_BINS,
+        expected_certificate_ids=[_point_id(d) for d in PAPER_DRIVES_HZ],
+        target_qp_residual_inf=NEWTON_TOL,
+    )
+    data = artifact.data
+    expected_E, _, spectral = _build_grid_and_spectral()
+    if not np.array_equal(data[:, 0], expected_E):
+        raise ArtifactValidationError(f"Artifact at {path} has a stale energy axis.")
+    if np.any(np.diff(data[:, 0]) <= 0.0):
+        raise ArtifactValidationError(f"Artifact at {path} energy axis is not strictly increasing.")
+    numerical_columns = [1] + [2 + 4 * i for i in range(len(PAPER_DRIVES_HZ))]
+    validated_numeric_array(
+        data[:, numerical_columns],
+        context=f"Artifact at {path} occupations",
+        expected_shape=(NUM_BINS, 1 + len(PAPER_DRIVES_HZ)),
+        lower=0.0,
+        upper=1.0,
+    )
+    if not thermal_occupations_match(
+        data[:, 1],
+        _build_state(_material(), spectral).f,
+    ):
+        raise ArtifactValidationError(
+            f"Artifact at {path} thermal occupation is not the live Fermi-Dirac state."
         )
-    if len(x_qp_list) != len(drives_hz):
-        raise RuntimeError(
-            f"Baseline at {path} missing '# x_qp_by_drive=' metadata."
-        )
-    data = np.array(rows, dtype=float)
     f_by_drive: dict[float, np.ndarray] = {}
     f0_by_drive: dict[float, np.ndarray] = {}
     f01_by_drive: dict[float, np.ndarray] = {}
     f012_by_drive: dict[float, np.ndarray] = {}
     # Column layout: E_uev, f_thermal, then for each drive:
     # f_num, f0, f01, f012 (4 cols per drive).
-    for i, d in enumerate(drives_hz):
+    for i, d in enumerate(PAPER_DRIVES_HZ):
         col0 = 2 + 4 * i
         f_by_drive[d] = data[:, col0]
         f0_by_drive[d] = data[:, col0 + 1]
@@ -540,14 +659,22 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
         f012_by_drive[d] = data[:, col0 + 3]
     return Fig5PaperResult(
         E=data[:, 0],
-        drives_hz=drives_hz,
-        drives_ns_inv=drives_ns_inv,
+        drives_hz=PAPER_DRIVES_HZ,
+        drives_ns_inv=PAPER_DRIVES_NS_INV,
         f_thermal=data[:, 1],
         f_by_drive=f_by_drive,
-        x_qp_by_drive=dict(zip(drives_hz, x_qp_list, strict=True)),
+        x_qp_by_drive={
+            d: float(qp_fraction(f_by_drive[d], spectral, delta_0=DELTA_0)) for d in PAPER_DRIVES_HZ
+        },
         f0_by_drive=f0_by_drive,
         f01_by_drive=f01_by_drive,
         f012_by_drive=f012_by_drive,
+        qp_backward_error_by_drive={
+            d: artifact.certificates[_point_id(d)].backward_error for d in PAPER_DRIVES_HZ
+        },
+        qp_residual_inf_by_drive={
+            d: artifact.certificates[_point_id(d)].residual_inf for d in PAPER_DRIVES_HZ
+        },
     )
 
 
@@ -600,8 +727,12 @@ def write_plot(result: Fig5PaperResult, path: Path | None = None) -> Path:
     for ax, gamma_max in ((ax_l, 1.0), (ax_r, 0.10)):
         mask = active & (gamma <= gamma_max + 1e-12)
         for d in result.drives_hz:
-            ax.semilogy(gamma[mask], result.f_by_drive[d][mask], **style_num,
-                        label=rf"$c\,\bar n_{{PB}}={d:g}$ Hz")
+            ax.semilogy(
+                gamma[mask],
+                result.f_by_drive[d][mask],
+                **style_num,
+                label=rf"$c\,\bar n_{{PB}}={d:g}$ Hz",
+            )
         ax.set_xlabel(r"$\gamma$", fontsize=13)
         ax.set_ylabel(r"$f(\gamma)$", fontsize=13)
         ax.set_xlim(0.0, gamma_max)

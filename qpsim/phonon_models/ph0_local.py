@@ -30,14 +30,271 @@ task 11).
 
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass
+
 import numpy as np
 
 from qpsim.collisions.phonon import compute_phonon_source_sink
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
-_SINGULAR_TOL = 1e-30
-_NEGATIVE_TOL = 1e-12
+
+@dataclass(frozen=True)
+class PhononBalanceDiagnostics:
+    """Raw and representability-aware diagnostics for the affine Ph0 balance.
+
+    ``raw_backward_error`` evaluates the physical three-term equation directly.
+    ``certified_backward_error`` removes only the residual that can be caused by
+    rounding the exact affine root to the nearest representable occupation (plus
+    a conservative floating-arithmetic allowance).  Keeping both values makes a
+    genuine imbalance distinguishable from an unrepresentable bath correction.
+    """
+
+    residual: np.ndarray
+    physical_scale: np.ndarray
+    representability_allowance: np.ndarray
+    raw_backward_error: float
+    certified_backward_error: float
+
+
+def _normwise_error(residual_magnitude: np.ndarray, scale: np.ndarray) -> float:
+    residual_magnitude = np.asarray(residual_magnitude, dtype=float)
+    scale = np.asarray(scale, dtype=float)
+    if np.any(~np.isfinite(residual_magnitude)) or np.any(~np.isfinite(scale)):
+        raise ValueError("Residual magnitudes and scales must be finite.")
+    common = float(
+        max(
+            np.max(residual_magnitude, initial=0.0),
+            np.max(scale, initial=0.0),
+        )
+    )
+    if common == 0.0:
+        return 0.0
+    denominator = float(np.sum(scale / common))
+    numerator = float(np.sum(residual_magnitude / common))
+    return numerator / denominator if denominator > 0.0 else float("inf")
+
+
+def _half_ulp(values: np.ndarray) -> np.ndarray:
+    """Half the larger adjacent binary64 spacing, including zero."""
+    values = np.asarray(values, dtype=float)
+    with np.errstate(over="ignore", invalid="ignore"):
+        up_spacing = np.nextafter(values, np.inf) - values
+        down_spacing = values - np.nextafter(values, -np.inf)
+    up_spacing = np.where(np.isfinite(up_spacing), up_spacing, 0.0)
+    down_spacing = np.where(np.isfinite(down_spacing), down_spacing, 0.0)
+    spacing = np.maximum(up_spacing, down_spacing)
+    half = 0.5 * spacing
+    # Half the smallest subnormal underflows to zero; one whole subnormal is a
+    # conservative representability bound at that single boundary case.
+    return np.where((spacing > 0.0) & (half == 0.0), spacing, half)
+
+
+def _two_sum_error(
+    left: np.ndarray,
+    right: np.ndarray,
+    rounded_sum: np.ndarray,
+) -> np.ndarray:
+    """Exact residual of a non-overflowing binary64 addition (TwoSum)."""
+    virtual_right = rounded_sum - left
+    return (left - (rounded_sum - virtual_right)) + (right - virtual_right)
+
+
+def phonon_balance_diagnostics(
+    n_ph: np.ndarray,
+    a_ph: np.ndarray,
+    b_ph: np.ndarray,
+    n_th: np.ndarray,
+    *,
+    tau_l: float,
+) -> PhononBalanceDiagnostics:
+    """Certify the nearest representable solution of the affine Ph0 balance.
+
+    The physical equation is
+
+    ``a_ph + b_ph*n_ph + (n_th - n_ph)/tau_l = 0``.
+
+    At weak drive the required displacement from ``n_th`` can be much smaller
+    than one binary64 ULP of ``n_th``.  The nearest floating-point occupation is
+    then the best representable solution even though direct evaluation of the
+    bath subtraction has an O(1) *relative* residual against the tiny e-ph
+    terms.  Per bin, this routine bounds that unavoidable residual by half the
+    larger adjacent ULP times the magnitude of the affine slope.  A small,
+    explicit arithmetic bound covers the two fused multiply-add evaluations.
+
+    The allowance is disabled when the float-input affine equation has no
+    non-negative finite root.  Thus a clipped negative occupation cannot be
+    certified as a physical fixed point.  ``tau_l=0`` retains qpsim's established
+    no-substrate sentinel and certifies ``a_ph + b_ph*n_ph = 0``.
+    """
+    n = np.asarray(n_ph, dtype=float)
+    a = np.asarray(a_ph, dtype=float)
+    b = np.asarray(b_ph, dtype=float)
+    nth = np.asarray(n_th, dtype=float)
+    if not (n.shape == a.shape == b.shape == nth.shape):
+        raise ValueError(
+            "n_ph, a_ph, b_ph, and n_th must have the same shape; got "
+            f"{n.shape}, {a.shape}, {b.shape}, and {nth.shape}."
+        )
+    if np.any(~np.isfinite(np.stack((n, a, b, nth), axis=0))):
+        raise ValueError("Phonon balance terms must contain only finite values.")
+    if np.any(n < 0.0) or np.any(nth < 0.0):
+        raise ValueError("Phonon occupations must be non-negative.")
+    if not np.isfinite(tau_l) or tau_l < 0.0:
+        raise ValueError(f"tau_l must be finite and non-negative; got {tau_l}.")
+
+    residual = np.empty_like(n)
+    arithmetic_allowance = np.zeros_like(n)
+    assembly_allowance = np.zeros_like(n)
+    if tau_l == 0.0:
+        with np.errstate(over="ignore", invalid="ignore"):
+            driven = b * n
+        bath = np.zeros_like(n)
+        slope = b
+        numerator = -a
+        denominator = b
+        if np.any(
+            ~np.isfinite(np.stack((driven, slope, numerator, denominator), axis=0))
+        ):
+            raise ValueError("Derived phonon balance terms must be finite.")
+        for index in np.ndindex(n.shape):
+            residual[index] = math.fma(
+                float(b[index]),
+                float(n[index]),
+                float(a[index]),
+            )
+        numerator_exact = numerator
+        denominator_exact = denominator
+        arithmetic_allowance = _half_ulp(residual)
+    else:
+        inv_tau = 1.0 / tau_l
+        if not np.isfinite(inv_tau):
+            raise ValueError(
+                "1/tau_l must be representable as a finite float; "
+                f"got tau_l={tau_l}."
+            )
+        with np.errstate(over="ignore", invalid="ignore"):
+            driven = b * n
+            bath_difference = nth - n
+            bath = inv_tau * bath_difference
+            slope = b - inv_tau
+            thermal_product = inv_tau * nth
+            numerator = a + thermal_product
+            denominator = inv_tau - b
+        if np.any(
+            ~np.isfinite(
+                np.stack(
+                    (driven, bath, slope, numerator, denominator),
+                    axis=0,
+                )
+            )
+        ):
+            raise ValueError("Derived phonon balance terms must be finite.")
+
+        product_error = np.empty_like(n)
+        qp_terms = np.empty_like(n)
+        for index in np.ndindex(n.shape):
+            product_error[index] = math.fma(
+                inv_tau,
+                float(nth[index]),
+                -float(thermal_product[index]),
+            )
+            qp_terms[index] = math.fma(
+                float(b[index]),
+                float(n[index]),
+                float(a[index]),
+            )
+            residual[index] = math.fma(
+                inv_tau,
+                float(bath_difference[index]),
+                float(qp_terms[index]),
+            )
+
+        numerator_error = product_error + _two_sum_error(
+            a,
+            thermal_product,
+            numerator,
+        )
+        denominator_error = _two_sum_error(
+            np.full_like(b, inv_tau),
+            -b,
+            denominator,
+        )
+        bath_difference_error = _two_sum_error(
+            nth,
+            -n,
+            bath_difference,
+        )
+        numerator_exact = np.empty_like(numerator)
+        denominator_exact = np.empty_like(denominator)
+        try:
+            for index in np.ndindex(n.shape):
+                numerator_exact[index] = math.fsum(
+                    (float(numerator[index]), float(numerator_error[index]))
+                )
+                denominator_exact[index] = math.fsum(
+                    (float(denominator[index]), float(denominator_error[index]))
+                )
+        except OverflowError as error:
+            raise ValueError(
+                "Exact reconstructed phonon balance coefficients overflow."
+            ) from error
+        assembly_allowance = (
+            np.abs(numerator_error) + np.abs(n) * np.abs(denominator_error)
+        )
+        arithmetic_allowance = (
+            np.abs(inv_tau * bath_difference_error)
+            + _half_ulp(qp_terms)
+            + _half_ulp(residual)
+        )
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        physical_scale = np.abs(a) + np.abs(driven) + np.abs(bath)
+    if np.any(~np.isfinite(physical_scale)):
+        raise ValueError("Assembled phonon physical scale must be finite.")
+    raw_backward_error = _normwise_error(np.abs(residual), physical_scale)
+
+    # The exact affine root is numerator / denominator in both branches.  Test
+    # its sign without forming the quotient, which could under/overflow.  A
+    # zero numerator is the physical root n=0; a zero denominator is singular.
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        affine_root = numerator_exact / denominator_exact
+    nonnegative_sign = (numerator_exact == 0.0) | (
+        np.signbit(numerator_exact) == np.signbit(denominator_exact)
+    )
+    finite_nonnegative_root = (
+        np.isfinite(affine_root)
+        & (affine_root >= 0.0)
+        & nonnegative_sign
+    )
+
+    representability = _half_ulp(n) * np.abs(denominator_exact)
+    representability = np.where(finite_nonnegative_root, representability, 0.0)
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        total_allowance = (
+            representability + assembly_allowance + arithmetic_allowance
+        )
+    if np.any(finite_nonnegative_root & ~np.isfinite(total_allowance)):
+        raise ValueError("Phonon representability allowance must be finite.")
+    total_allowance = np.where(
+        finite_nonnegative_root,
+        total_allowance,
+        0.0,
+    )
+    excess = np.maximum(
+        np.abs(residual) - total_allowance,
+        0.0,
+    )
+    certified_backward_error = _normwise_error(excess, physical_scale)
+    return PhononBalanceDiagnostics(
+        residual=residual,
+        physical_scale=physical_scale,
+        representability_allowance=total_allowance,
+        raw_backward_error=raw_backward_error,
+        certified_backward_error=certified_backward_error,
+    )
 
 
 def _solve_affine_balance(
@@ -47,8 +304,8 @@ def _solve_affine_balance(
     label: str,
 ) -> np.ndarray:
     """Solve ``denominator * n = numerator`` and reject unphysical states."""
-    singular = np.abs(denominator) <= _SINGULAR_TOL
-    inconsistent = singular & (np.abs(numerator) > _SINGULAR_TOL)
+    singular = denominator == 0.0
+    inconsistent = singular & (numerator != 0.0)
     if np.any(inconsistent):
         bad = np.flatnonzero(inconsistent)[:5].tolist()
         raise RuntimeError(
@@ -60,7 +317,10 @@ def _solve_affine_balance(
     regular = ~singular
     n_ph[regular] = numerator[regular] / denominator[regular]
 
-    invalid = (~np.isfinite(n_ph)) | (n_ph < -_NEGATIVE_TOL)
+    negative_exact_root = regular & (numerator != 0.0) & (
+        np.signbit(numerator) != np.signbit(denominator)
+    )
+    invalid = (~np.isfinite(n_ph)) | (n_ph < 0.0) | negative_exact_root
     if np.any(invalid):
         bad = np.flatnonzero(invalid)[:5].tolist()
         raise RuntimeError(
@@ -69,7 +329,6 @@ def _solve_affine_balance(
             "This indicates phonon runaway or no non-negative fixed point."
         )
 
-    n_ph[n_ph < 0.0] = 0.0
     return n_ph
 
 
@@ -87,6 +346,7 @@ def phonon_steady_state(
     *,
     K_s0_phonon_side: np.ndarray | None = None,
     K_r0_phonon_side: np.ndarray | None = None,
+    coefficients_out: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Solve the Ph0 phonon-balance equation for ``n_ph(ω)`` given ``f``.
 
@@ -121,11 +381,17 @@ def phonon_steady_state(
         the phonon-equation rates use the F&C 2023 Eq. 12 prefactors
         instead of the QP-side ``K_s0`` / ``K_r0``. ``None`` (default)
         preserves legacy behavior bit-for-bit.
+    coefficients_out
+        Optional diagnostics mapping populated with the already assembled
+        affine coefficients ``"a_ph"`` and ``"b_ph"``.  This lets the Picard
+        orchestrator certify the physical phonon balance at a candidate fixed
+        point without repeating the O(NE^2) source/sink contraction.
 
     Returns
     -------
     n_ph
-        1D array of shape ``(len(omega_bins),)``, clipped to ``≥ 0``.
+        1D array of shape ``(len(omega_bins),)``. A negative or non-finite
+        affine root is rejected rather than clipped.
     """
     n_omega = len(omega_bins)
     a_ph, b_ph = compute_phonon_source_sink(
@@ -134,6 +400,9 @@ def phonon_steady_state(
         K_s0_phonon_side=K_s0_phonon_side,
         K_r0_phonon_side=K_r0_phonon_side,
     )
+    if coefficients_out is not None:
+        coefficients_out["a_ph"] = a_ph
+        coefficients_out["b_ph"] = b_ph
 
     if tau_l < 0.0:
         raise ValueError("tau_l must be non-negative.")

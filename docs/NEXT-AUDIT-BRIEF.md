@@ -8,12 +8,17 @@ independently rather than assuming the areas they touched are now flawless. This
 brief exists so a fresh pass need not re-derive settled false alarms — not to
 tell you what is or isn't a bug.
 
-## Current state (2026-07-13)
+## Current state (2026-07-18)
 
-- Active branch `codex/reaudit-fixes-2026-07-13` (open as PR #2); **not merged to main**.
-- Green baseline: `pytest` (fast gate) **1060 passed / 15 slow deselected**;
-  `ruff check` clean; `mypy qpsim` strict clean (73 files); the seven
-  `papers/qp-diffusion` symbolic verifiers pass.
+- Active audit branch `codex/qpsim-deep-audit-fixes` (draft PR #5); **not merged
+  to main**.
+- The last recorded exact pre-follow-up tree passed **1513 tests / 17 slow or
+  manual deselected / 4 warnings**. Treat that as historical evidence for that
+  tree, not as a test result for later Fig. 5/6 edits; use the current numerical
+  audit for the integrated validation handoff.
+- The integrated follow-up tree passes **1549 tests / 17 slow or manual
+  deselected / 4 warnings in 525.03 s**. Collection contains 1566 nodes: 16
+  non-manual `slow` tests and one `manual_slow` test.
 - Highest-churn areas (where a new regression would most likely hide — scrutinize):
   the M25 rate-equation acceptance layer (`services/rate_equation.py`), the
   moving-gap remap (`backends/t3_diffusion.py`), the BCS gap-edge quadrature
@@ -25,9 +30,19 @@ tell you what is or isn't a bug.
   fast gate green while breaking a self-pinned *slow* baseline. CI runs
   `pytest -m "slow and not manual_slow"` as a separate step — run that (or read
   CI) before trusting green.
-- Fischer **Fig. 6** is `manual_slow` (~14 h). Excluded from CI; don't run it by accident.
+- Fischer **Fig. 6** is `manual_slow` and excluded from CI. Measured production
+  rows total `6.04 h` serial (`2.11 h` concurrent), not the stale 14-hour
+  estimate. Running the old wrapper does not close the newly diagnosed default-
+  observable mismatch; a full repaired fixed-gap/direct campaign, including
+  refinement of its corrected negative low-drive point, is the useful expensive run.
+  Direct-mode generation must keep using the explicit `_direct` path contract;
+  never route a parameterized direct result through the canonical default pin.
 - Fischer/Marchegiani figure CSVs are **self-pinned regression baselines**, not
   digitized paper data. Passing them proves code stability, *not* paper fidelity.
+- Direct gap integrals now fail if the grid omits the superconducting edge.
+  Sub-gap guard storage is valid only when the grid face covers every gap the
+  caller permits; only roundoff-sized positive face offsets are aligned to the
+  gap, and inactive values must not be extrapolated into active support.
 
 ## False positives — look like bugs, are intentional (don't re-file)
 
@@ -47,28 +62,29 @@ tell you what is or isn't a bug.
   (diffusion number `D₀·dt/dx²` too large) by design — fail-loud, not a crash to
   "fix". Keep that number ≲ 5 (validate_setup warns above ~8).
 
-## Real gaps — tests won't catch these (worth examining)
+## Current qualified numerical items
 
-- Transient self-consistent-gap **trajectory** accuracy is capped at ~0.1% by
-  `solve_gap`'s edge interpolation of `f` (`_gap_integral_f`'s `np.interp`), NOT
-  by the moving-gap remap (which is exact per update). Logical next fix: a
-  cell-exact gap residual.
-- `validation/baselines/ph0_constant/fischer_fig3_paper.csv` `f_ratio_10` column
-  is **all zeros** (unphysical); `test_fig3_paper` compares it at `atol=1e-6`
-  while the signal is ≤ 1.5e-8, so that assertion is **vacuous**. Green ≠ correct there.
-- Known-minor, flagged not fixed: duplicate terminal snapshot (1 ulp apart) in
-  transient/spatial output; webui `kind="step"` with equal gaps + `interface_G_N`
-  fails at runtime instead of returning a 400; a run whose manifest write keeps
-  failing stays undeletable until restart.
-- **fig7 (fischer_2023) Picard chain is non-deterministic at low-occupancy
-  points** (found landing PR #3, 2026-07-14/15): across repeated ubuntu CI runs
-  of identical code, `run()` results at losses 1/Q_qp ≲ 1e-9 vary by up to
-  ~2.5e-11 absolute loss (up to ~2.4% relative), and the 3.13/3.14 legs disagree
-  with each other; points at loss ≥ 3e-8 reproduce to ≤ 2e-4. The pinned test
-  now gates losses at rtol=1e-3 / atol=1e-10, which absorbs the noise, but the
-  underlying run-to-run irreproducibility (thread-order/BLAS-reduction dependent
-  accumulation in the Picard chain?) is an unexplained engine finding worth a
-  root-cause pass.
+- **F23 Fig. 5:** the apparent continuation hysteresis was loose-Newton
+  pseudo-root acceptance, now resolved with a `1e-10` inner gate and `1e-9`
+  final certificates. The tested `T*/Delta=0.60` split is not evidence of a
+  physical branch ambiguity; the legacy pin still needs a full tight-contract
+  regeneration/refinement campaign before broader branch behavior is settled.
+- **F23 Fig. 6:** the 66-point run certified a loose solver contract, but the
+  default suppression pin is much tighter than its accepted gap-map error.
+  The repaired fixed-gap/direct path has a strictly certified full-grid point,
+  but its corrected low-drive observable is `-0.01680568`; it still needs a
+  full canonical sweep and observable refinement.
+- **F23 Figs. 9--13:** `Q_i` is still nonconverged at aligned `NE=6480`.
+  Exact-cell/FV variants, modest cancellation, and an overlap-aware photon
+  prototype do not support rewriting the photon operator. A proposed
+  conservative promotion policy—not a derived error budget—requires `<=1%`
+  maximum `Q_i` change on two consecutive commensurate rungs and `<=0.25%`
+  exact-cell/FV observable discrepancy so quadrature error stays subdominant.
+- **Diffusion feedback benchmark:** its grid now covers the direct closure down
+  to `0.5*Delta_0`, seed amplitude is calibrated at the requested fixed point,
+  and the raw map has a fail-loud `1e-12`/64-iteration convergence contract.
+  Its deliberately bounded guard plateau is reconstructed on fixed edge nodes;
+  changing the center stencil with gap support can jump over the fixed point.
 
 ## Orthogonal: paper physics
 
