@@ -18,6 +18,7 @@ import csv
 import json
 import sys
 import time
+import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -86,6 +87,9 @@ class ReadoutPhotonDrive:
     c_phot: float
     spatial_profile: np.ndarray
     label: str = "readout"
+    #: Nominal (pre-snap) photon energy when ``omega_0`` was snapped to the
+    #: energy grid; ``None`` when ``omega_0`` is the physical mode energy.
+    omega_nominal_uev: float | None = None
 
     def __post_init__(self) -> None:
         profile = np.asarray(self.spatial_profile, dtype=float)
@@ -114,6 +118,45 @@ class ReadoutPhotonDrive:
         return float(self.n_bar * self.spatial_profile[ix])
 
 
+#: Refuse to snap a readout mode whose grid-commensurate neighbor is more
+#: than this far away (relative to the mode energy) — the grid cannot
+#: honestly represent the drive and NE must be refined instead.
+_OMEGA_SNAP_MAX_REL_SHIFT = 0.05
+
+
+def snap_omega_to_grid(omega_uev: float, dE_uev: float) -> tuple[float, int, float]:
+    """Snap a photon energy to the nearest integer grid harmonic ``m*dE``.
+
+    ``sub_gap_photon_collision_rates`` fail-louds on frequencies that are not
+    grid-commensurate within ``|omega - m*dE|/dE <= 1%``; physical resonator
+    modes generally are not commensurate (the prelim 5.142857 GHz mode is
+    1.64% of a cell off at NE=101). Snapping must therefore happen explicitly
+    at the drive-construction boundary, with the shift recorded — never
+    silently inside the kernel.
+
+    Returns ``(omega_snapped, m, rel_shift)`` where ``rel_shift`` is
+    ``|omega_snapped - omega| / omega``.
+    """
+    if omega_uev <= 0.0 or dE_uev <= 0.0:
+        raise ValueError("omega_uev and dE_uev must both be positive.")
+    m = int(round(omega_uev / dE_uev))
+    if m < 1:
+        raise ValueError(
+            f"omega={omega_uev:g} ueV is below one grid spacing "
+            f"dE={dE_uev:g} ueV; the grid cannot represent this mode."
+        )
+    snapped = m * dE_uev
+    rel_shift = abs(snapped - omega_uev) / omega_uev
+    if rel_shift > _OMEGA_SNAP_MAX_REL_SHIFT:
+        raise ValueError(
+            f"Snapping omega={omega_uev:g} ueV to the nearest grid harmonic "
+            f"{m}*dE={snapped:g} ueV shifts it by {rel_shift:.2%} > "
+            f"{_OMEGA_SNAP_MAX_REL_SHIFT:.0%} of the mode energy; refine the "
+            "energy grid instead of accepting a misrepresented drive."
+        )
+    return snapped, m, rel_shift
+
+
 def readout_drive_from_resonator(
     state: T3Spatial1DState,
     resonator: PrelimResonator,
@@ -121,17 +164,36 @@ def readout_drive_from_resonator(
     n_bar: float,
     c_phot: float = 1e-9,
 ) -> ReadoutPhotonDrive:
-    """Build an ``I^2``-weighted sub-gap readout drive for one prelim mode."""
+    """Build an ``I^2``-weighted sub-gap readout drive for one prelim mode.
+
+    The mode energy is snapped to the nearest grid harmonic (see
+    :func:`snap_omega_to_grid`); the nominal energy is preserved on
+    ``omega_nominal_uev`` and a warning quantifies the shift.
+    """
     weights = current_squared_profile(state.x, resonator.total_length_um)
     peak = float(np.max(weights))
     if peak <= 0.0:
         raise RuntimeError("Current profile vanished on the simulated strip.")
+    omega_nominal = float(resonator.probe_energy_uev)
+    omega_used, harmonic, rel_shift = snap_omega_to_grid(
+        omega_nominal, float(state.spectral.dE[0])
+    )
+    if omega_used != omega_nominal:
+        warnings.warn(
+            f"Readout mode {resonator.frequency_ghz:.6f} GHz "
+            f"({omega_nominal:.4f} ueV) snapped to grid harmonic "
+            f"{harmonic}*dE = {omega_used:.4f} ueV "
+            f"(shift {rel_shift:.3%} of the mode energy).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return ReadoutPhotonDrive(
-        omega_0=resonator.probe_energy_uev,
+        omega_0=omega_used,
         n_bar=n_bar,
         c_phot=c_phot,
         spatial_profile=weights / peak,
         label=f"mode_{resonator.index}_{resonator.frequency_ghz:.3f}GHz",
+        omega_nominal_uev=omega_nominal,
     )
 
 

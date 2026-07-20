@@ -41,6 +41,7 @@ from qpsim.physics.spectral import SpectralContext
 from scripts.run_prelim_spatial_finite_phonon_one import (
     FinitePhononSpatialRunner,
     readout_drive_from_resonator,
+    snap_omega_to_grid,
 )
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
@@ -126,6 +127,9 @@ SUMMARY_FIELDS = [
     "readout_resonator_index",
     "readout_frequency_ghz",
     "readout_omega_uev",
+    "readout_omega_used_uev",
+    "readout_omega_grid_harmonic",
+    "readout_omega_snap_rel_shift",
     "readout_n_bar_peak",
     "readout_c_phot_ns_inv",
     "dt_ns",
@@ -287,6 +291,11 @@ def _run_case(
         sigma_delta=config.source_sigmas_delta[0],
     )
     resonator = PRELIM_RESONATORS[readout_index - 1]
+    # Record the grid snap for every case (including the undriven baseline)
+    # so nominal-vs-used photon energies are always in the output rows.
+    omega_used, omega_harmonic, omega_shift = snap_omega_to_grid(
+        float(resonator.probe_energy_uev), float(state.spectral.dE[0])
+    )
     readout_drive = (
         None
         if n_bar == 0.0
@@ -377,6 +386,9 @@ def _run_case(
         "readout_resonator_index": readout_index,
         "readout_frequency_ghz": resonator.frequency_ghz,
         "readout_omega_uev": resonator.probe_energy_uev,
+        "readout_omega_used_uev": omega_used,
+        "readout_omega_grid_harmonic": float(omega_harmonic),
+        "readout_omega_snap_rel_shift": omega_shift,
         "readout_n_bar_peak": n_bar,
         "readout_c_phot_ns_inv": C_PHOT_NS_INV,
         "dt_ns": config.dt_ns,
@@ -439,9 +451,14 @@ def _write_metadata(out_dir: Path, config: ReadoutOvernightConfig) -> None:
                 "T_bath_K": T_BATH_K,
                 "readout_c_phot_ns_inv": C_PHOT_NS_INV,
                 "energy_grid_note": (
-                    "NE=101 with the prelim Al grid keeps the 5.14 GHz "
-                    "readout within the 1% sub-gap photon commensurability "
-                    "tolerance."
+                    "The 5.142857 GHz readout mode is NOT grid-commensurate "
+                    "at NE=101 (|omega - m*dE|/dE ~ 1.64%, above the kernel's "
+                    "1% fail-loud tolerance). readout_drive_from_resonator "
+                    "snaps the drive to the nearest grid harmonic m*dE and "
+                    "each run row records readout_omega_uev (nominal) vs "
+                    "readout_omega_used_uev (snapped) plus the relative "
+                    "shift. An earlier note falsely claimed the mode was "
+                    "within the 1% tolerance."
                 ),
                 "model_note": (
                     "Fixed peak nbar, local sub-gap photon scattering weighted "

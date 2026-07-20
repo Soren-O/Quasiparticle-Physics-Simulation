@@ -91,3 +91,79 @@ def test_readout_photon_drive_uses_local_current_weight(monkeypatch: pytest.Monk
     )
 
     assert float(np.mean(out[:, 0])) > float(np.mean(out[:, -1]))
+
+
+def _build_probe_grid_state() -> T3Spatial1DState:
+    """The exact NE=101 prelim probe grid (Al, E_min_factor=1.0, E_max=5Δ)."""
+    material = load_material("Al")
+    E, _ = build_energy_grid(
+        gap=material.Delta_0,
+        energy_min_factor=1.0,
+        energy_max_factor=5.0,
+        num_energy_bins=101,
+    )
+    spectral = SpectralContext(
+        E_bins=E,
+        dE_bins=integration_widths_from_centers(E),
+        gap=material.Delta_0,
+        diffusion_coefficient=20.0,
+    )
+    x = np.linspace(0.0, 100.0, 11)
+    return T3Spatial1DState(
+        f=np.repeat(_fermi_dirac(E, 0.007)[:, None], 11, axis=1),
+        x=x,
+        gap=material.Delta_0,
+        spectral=spectral,
+        material=material,
+        T_bath=0.007,
+    )
+
+
+def test_prelim_mode_needs_snapping_on_probe_grid() -> None:
+    """Documents WHY the drive builder snaps: the physical 5.142857 GHz mode
+    is ~1.64% of a cell off-grid at NE=101, above the kernel's 1% tolerance,
+    so the raw mode energy would be rejected by the real kernel."""
+    from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
+
+    state = _build_probe_grid_state()
+    dE = float(state.spectral.dE[0])
+    omega_nominal = float(PRELIM_RESONATORS[0].probe_energy_uev)
+    m = round(omega_nominal / dE)
+    frac_err_vs_cell = abs(omega_nominal - m * dE) / dE
+    assert 0.01 < frac_err_vs_cell < 0.05  # off-grid beyond kernel tolerance
+
+    snapped, harmonic, rel_shift = finite_phonon.snap_omega_to_grid(omega_nominal, dE)
+    assert harmonic == m
+    assert snapped == m * dE
+    assert 0.0 < rel_shift < 0.01  # ~0.55% of the mode energy
+
+
+def test_readout_drive_from_resonator_passes_real_kernel() -> None:
+    """Regression guard for the 2026-07-19 audit H2 finding: the drive built
+    from the physical resonator must be accepted by the REAL sub-gap photon
+    kernel (no monkeypatching) on the shipped NE=101 probe grid."""
+    from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
+
+    state = _build_probe_grid_state()
+    with pytest.warns(RuntimeWarning, match="snapped to grid harmonic"):
+        drive = finite_phonon.readout_drive_from_resonator(
+            state,
+            PRELIM_RESONATORS[0],
+            n_bar=1e5,
+            c_phot=1e-9,
+        )
+    assert drive.omega_nominal_uev == pytest.approx(
+        PRELIM_RESONATORS[0].probe_energy_uev
+    )
+    assert drive.omega_0 != drive.omega_nominal_uev
+
+    gain, loss = finite_phonon.sub_gap_photon_collision_rates(
+        state.f[:, 0],
+        state.spectral,
+        drive.omega_0,
+        drive.n_bar,
+        drive.c_phot,
+    )
+    assert np.all(np.isfinite(gain))
+    assert np.all(np.isfinite(loss))
+    assert float(np.max(np.abs(gain))) > 0.0
