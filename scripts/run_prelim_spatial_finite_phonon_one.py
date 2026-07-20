@@ -32,7 +32,9 @@ from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
@@ -222,6 +224,8 @@ class FinitePhononSpatialRunner:
         )
         self.n_th = thermal_phonon_occupation(self.omega, state.T_bath)
         self.n_ph = np.repeat(self.n_th[:, None], state.x.size, axis=1)
+        # QP-side kernels (omega^2/(tau_0 T_c^3) prefactor) drive the QP
+        # collision integral only.
         self.K_s0 = build_scattering_kernel_base(
             state.spectral,
             tau_0=state.material.tau_0,
@@ -231,6 +235,25 @@ class FinitePhononSpatialRunner:
             state.spectral,
             tau_0=state.material.tau_0,
             T_c=state.material.T_c,
+        )
+        # The PHONON equation must use the phonon-side kernels
+        # K+-/(pi*Delta*tau_0^PB) — the paper-faithful F&C 2023 Eq. 12
+        # discretization that the T3 backend defaults to. Reusing the QP-side
+        # kernels there under-weighted phonon emission/pair-breaking by 4-17x
+        # across 2-6*Delta (2026-07-19 audit H1), which corrupted every prelim
+        # finite-phonon campaign number while leaving thermal equilibrium
+        # (detailed balance) exact.
+        tau_0_pb_ns = state.material.tau_0_pb_ns
+        if tau_0_pb_ns is None:
+            raise ValueError(
+                "material.tau_0_pb_ns is required for the finite-phonon "
+                "runner's phonon-side kernels (F&C 2023 Eq. 12/13)."
+            )
+        self.K_s0_phonon_side = build_scattering_kernel_phonon_side(
+            state.spectral, tau_0_pb_ns
+        )
+        self.K_r0_phonon_side = build_recombination_kernel_phonon_side(
+            state.spectral, tau_0_pb_ns
         )
 
     def step(
@@ -334,6 +357,8 @@ class FinitePhononSpatialRunner:
                 self.idx_sum,
                 self.diff_sign,
                 self.omega.size,
+                K_s0_phonon_side=self.K_s0_phonon_side,
+                K_r0_phonon_side=self.K_r0_phonon_side,
             )
             A = a_ph + inv_tau * self.n_th
             B = b_ph - inv_tau

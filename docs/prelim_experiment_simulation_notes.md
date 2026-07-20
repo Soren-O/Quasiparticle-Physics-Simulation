@@ -1,5 +1,17 @@
 # Preliminary Experiment Simulation Notes
 
+> **STALE NUMBERS — regeneration required (2026-07-19 audit, findings H1/H2).**
+> Every finite-phonon quantitative result below (7 mK sweeps, temperature
+> sweep, convergence checks, readout-heating percentages) was produced with
+> the legacy QP-side kernels in the PHONON equation, which under-weight
+> phonon emission/pair-breaking by 4–17× across 2–6Δ. At the nominal case the
+> corrected kernels move δf_r by ~65%, Q_i by −40%, x_qp by +54%, and
+> n_ph,max by ×307 — far above the 1–2% convergence budget quoted below.
+> The readout-heating rows additionally used a silently snapped photon
+> energy. `FinitePhononSpatialRunner` now uses the phonon-side kernels and
+> snaps the readout mode explicitly, so rerunning the scripts regenerates
+> honest numbers; until then, treat every number below as qualitative only.
+
 This is the compact source-of-truth file for the 100 um Al-strip simulations
 supporting the preliminary-exam experiment.
 
