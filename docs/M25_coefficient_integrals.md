@@ -316,9 +316,21 @@ a bug in the first draft.
 2. **erf/erfc**: `scipy.special.erf`, `erfc` — robust for arguments up
    to ~6 then underflow is fine because `Γ̃^α_{...}` quantities are
    multiplied by `e^{-ω_LR/T}` anyway (numerator/denominator tracking).
-3. **Low-T approximations** in §8 (S50) should be used as the primary
-   implementation for `τ_R⁻¹`; the full `I(a, b)` is a fallback for
-   higher-T regimes or for unit tests.
+3. **`τ_R⁻¹` implementation (updated 2026-07-19/20):** the full exact
+   `I(a, b)` quadrature (S48/S49) IS the shipped evaluation path — the
+   Fig 3a/4a sweeps reach `T/ω_LR ≈ 0.4–6`, far outside S50's
+   `T ≪ ω_LR` domain, where the series is low by up to ~5x. The S50
+   series is retained only as the in-domain regression reference
+   (`_tau_R_inverse_series_s50`). An earlier revision of this note
+   recommended S50 as primary; that recommendation predates the
+   domain-violation discovery and is superseded.
+   Normalization note (2026-07-20 adjudication): the conversion
+   `2π b_R Δ_R³ = r^{R<}/4` is exact under the paper's own definition —
+   M25 v2 Appendix D.3 derives `r^α = 8π b_α Δ_α³` with the electrode's
+   OWN gap (the `≃` in §6 relates the three R-side coefficients to each
+   other, not to a `Δ̄`-based form). A proposed `(Δ_R/Δ̄)³` correction
+   was checked against the paper text and refuted; `Δ̄` enters only the
+   tunneling prefactor `R_T = g_T Δ̄/e²`.
 4. **Detailed-balance tests** (self-consistent checks):
    * `Γ̃^{ee}_{01} / Γ̃^{ee}_{10} = e^{-ω_10/T}` (paper imposes)
    * `g^{pn}_α / (r^α (x_α^{eq})²) → 1` (at full thermal equilibrium)

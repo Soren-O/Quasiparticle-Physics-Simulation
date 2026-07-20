@@ -196,3 +196,50 @@ class TestPhysicalConsistency:
         )
         assert np.all(np.isfinite(gain))
         assert np.all(np.isfinite(loss))
+
+
+class TestOffGridPartnerGuards:
+    """2026-07-19/20 audit: partners outside the represented window must
+    fail loud, matching the kernel's misalignment guard — silent skips
+    lost ~42% (upper) / ~27% (lower) of pair generation in reproduced
+    short-grid cases. Partners at or below Δ remain a physical exclusion."""
+
+    def _uniform_ctx(self, gap: float, e_lo: float, e_hi: float, num: int):
+        E = np.linspace(e_lo, e_hi, num)
+        dE = integration_widths_from_centers(E)
+        return SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+
+    def test_partner_above_grid_top_raises(self) -> None:
+        # gap=180, grid to 472.5, omega=700: gap-edge cells' partners
+        # (700-181 = 519 ueV) land above the top -> raise, not silent loss.
+        ctx = self._uniform_ctx(180.0, 181.25, 471.25, 117)  # dE=2.5
+        dE = float(ctx.dE[0])
+        omega = round(700.0 / dE) * dE  # exactly commensurate
+        f = np.zeros_like(ctx.E)
+        with pytest.raises(ValueError, match="above the grid top"):
+            pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
+
+    def test_partner_below_first_face_but_above_gap_raises(self) -> None:
+        # Grid starts well above the gap (first face ~230 ueV, gap 180):
+        # partners of the upper cells land in the physical-but-
+        # unrepresented window (180, 230) -> raise.
+        ctx = self._uniform_ctx(180.0, 232.5, 432.5, 81)  # dE=2.5, face 231.25
+        dE = float(ctx.dE[0])
+        omega = round(500.0 / dE) * dE  # 2.78*gap, commensurate
+        f = np.zeros_like(ctx.E)
+        with pytest.raises(ValueError, match="physical-but-unrepresented"):
+            pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
+
+    def test_subgap_partner_exclusion_stays_silent(self) -> None:
+        # Full-coverage grid (face at the gap): partners below Δ are the
+        # documented physical exclusion — no raise, finite rates.
+        ctx = _setup(gap=180.0, num=160)
+        dE = float(ctx.dE[0])
+        # omega just above 2*gap: some partners fall below Δ (excluded),
+        # every physical partner is representable.
+        omega = round(365.0 / dE) * dE
+        f = np.zeros_like(ctx.E)
+        gain, loss = pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
+        assert np.all(np.isfinite(gain))
+        assert np.all(np.isfinite(loss))
+        assert float(np.max(gain)) > 0.0

@@ -810,17 +810,22 @@ class T3DiffusionBackend:
                     xtol=gap_solve_xtol,
                 )
             except GapBelowGridSupportError as exc:
-                # The solved gap (root or normal-state decision) fell below
-                # the represented grid support. On every shipped BCS grid the
-                # first cell face is far above zero, so this — not a literal
-                # <= 0 return — is the reachable form of superconducting
-                # collapse (2026-07-19 audit: the <= 0 branch below was dead
-                # code on physical grids and a genuine collapse aborted the
-                # sweep unclassified).
-                raise SelfConsistentGapCollapseError(
-                    iteration=iteration,
-                    max_occupation=float(solved.f.max()),
-                ) from exc
+                # Classify ONLY the genuine normal-state decision
+                # (candidate_gap == 0.0: the residual admitted no
+                # superconducting solution) as collapse — on every shipped
+                # BCS grid the first cell face is far above zero, so this,
+                # not a literal <= 0 return, is the reachable collapse form
+                # (2026-07-19 audit). A POSITIVE root below the grid face is
+                # a different failure — a superconducting state the grid
+                # cannot resolve (extend E_min) — and folding it to
+                # "collapsed" would mislabel an under-resolved SC state
+                # (2026-07-20 review); let it propagate as the domain error.
+                if exc.candidate_gap == 0.0:
+                    raise SelfConsistentGapCollapseError(
+                        iteration=iteration,
+                        max_occupation=float(solved.f.max()),
+                    ) from exc
+                raise
             if delta_raw <= 0.0:
                 # The current occupation no longer supports a superconducting
                 # solution; collapse to the normal state directly. Under-relaxing

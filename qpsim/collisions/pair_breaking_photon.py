@@ -136,6 +136,29 @@ def pair_breaking_photon_collision_rates(
                 f"energy grid to E_max >= ω_PB − Δ = "
                 f"{omega_PB_snapped - ctx.gap:.6g} μeV."
             )
+        # Mirror guard for the LOWER boundary (2026-07-20 review): a grid
+        # whose first face starts above Δ leaves physical partners in
+        # [Δ, first_face) unrepresented — a measured 26.8% generation loss
+        # in a reproduced case. Partners at or below Δ remain the physical
+        # sub-gap exclusion and are still skipped silently.
+        bottom_edge = E[0] - 0.5 * dE_scalar
+        E_partner_all = omega_PB_snapped - E
+        partner_below_bottom = (
+            supported
+            & (E_partner_all < bottom_edge)
+            & (E_partner_all > ctx.gap)
+        )
+        if np.any(partner_below_bottom):
+            n_dropped = int(np.count_nonzero(partner_below_bottom))
+            raise ValueError(
+                f"Pair-breaking photon partners are off-grid: {n_dropped} "
+                "supported cells have their reflection partner ω−E in the "
+                f"physical-but-unrepresented window (Δ={ctx.gap:.6g}, "
+                f"first face {bottom_edge:.6g}) μeV for "
+                f"ω_PB={omega_PB_snapped:.6g} μeV. Extend the energy grid "
+                "down to the gap edge (energy_min_factor <= 1.0) so "
+                "generation/recombination partners are representable."
+            )
 
     gain = np.zeros(NE)
     loss_rate = np.zeros(NE)

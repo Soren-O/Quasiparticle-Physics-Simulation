@@ -2,7 +2,7 @@
 # Delta_0=189.0 tau_0=63.0 T_c=1.243341227308963 omega_0=22.0 alpha=0.13 c_phot=6e-11 tau_l=0.17 tau_0_pb=0.04
 # Grid: NE=1701 E_min=1.0*Delta E_max=10.0*Delta
 # certificate_metric_version='qp-l1-v1_ph0-nearest-binary64-v1' target_backward_error_limit=2e-08
-# solve_contract_digest=21cd91c68a863e8c9bfff843ca1fa15beb25270a8edb4dbc48c1a695ede7bf15 generator_platform='Windows-11-10.0.26100-SP0' generator_python='3.14.3' generator_numpy='2.4.2' generator_scipy='1.17.0'
+# solve_contract_digest=3125126403d0ef7fa9412e5daebb3a0941fd772dde460183e3c845ffcdd2111b generator_platform='Windows-11-10.0.26100-SP0' generator_python='3.14.3' generator_numpy='2.4.2' generator_scipy='1.17.0'
 "# p_read_dbm=-100,-90,-80,-72,-68,-64"
 T_bath_K,P_read_dbm,n_bar,Q_qp,Q_tot,sigma1,qp_residual_inf,qp_backward_error,phonon_residual_inf,phonon_raw_backward_error,phonon_backward_error
 5.99999999999999978e-02,-1.00000000000000000e+02,1.95056461048178375e+05,3.32054884476831104e+17,2.49999999998117797e+06,6.25224187311001220e-16,4.41609717716916971e-34,2.60945075084352440e-14,6.80517678622595203e-16,4.29422428033948200e-01,0.00000000000000000e+00

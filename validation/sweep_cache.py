@@ -51,6 +51,7 @@ import platform
 import re
 import shutil
 import tempfile
+import warnings
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -322,7 +323,17 @@ def store(
         raise
 
     if provenance is not None:
-        meta_path.write_text(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
+        # Same temp+rename discipline as the .npz: an interrupted or
+        # concurrent write must not leave truncated provenance beside a
+        # valid cache entry (2026-07-19 audit).
+        meta_fd, meta_tmp = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
+        try:
+            with os.fdopen(meta_fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
+            os.replace(meta_tmp, meta_path)
+        except BaseException:
+            Path(meta_tmp).unlink(missing_ok=True)
+            raise
     return npz_path
 
 
@@ -363,7 +374,22 @@ def cached_solve(
         "versions": _lib_versions(),
         "solve_source": solve_source_digest(qpsim_root),
     }
-    store(figure, key, arrays, provenance=provenance, cache_dir=cache_dir)
+    try:
+        store(figure, key, arrays, provenance=provenance, cache_dir=cache_dir)
+    except OSError as exc:
+        # The module contract is that the cache must never break a solve:
+        # solve_fn() has already succeeded, and on Windows os.replace onto
+        # an entry held open by any concurrent reader (second regen,
+        # np.load, AV/indexer) raises PermissionError — losing a
+        # potentially hours-long result over a cache write (2026-07-19
+        # audit). Surface the miss loudly and return the computed payload.
+        warnings.warn(
+            f"sweep_cache: failed to store the '{figure}' solve payload "
+            f"({exc!r}); returning the freshly computed result without "
+            "caching. The next run will recompute.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return arrays
 
 

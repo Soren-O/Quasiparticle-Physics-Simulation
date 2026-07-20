@@ -95,9 +95,19 @@ Q_EXT_BY_DBM: dict[float, float] = {
 # remained below 2e-8.  A tighter inner Newton gate was rejected because it
 # selects a different low-occupation branch at T=0.14 K.  Keep the measured
 # wider limits restricted to Windows/Linux comparisons; the absolute loss
-# floor still covers only the numerically tiny T=0.06 K tail.
+# floor still covers only the numerically tiny cold-tail points.
+#
+# Floor calibration: the former 2e-19 floor had ZERO margin against
+# measured hosted host-to-host jitter — CI run 29706352205 (Linux 3.14,
+# identical code/library versions to earlier green runs) drifted the
+# coldest -64 dBm point from the pinned 4.608e-19 to 6.737e-19, i.e.
+# an absolute deviation of 2.129e-19 that breached the floor by 6%.
+# Losses at this scale correspond to Q ~ 2e18 and are numerically
+# indistinguishable from zero; 1e-18 keeps the floor ~5x above the
+# worst observed jitter while remaining eight orders below the tightest
+# physically meaningful pinned loss.
 QP_LOSS_REGRESSION_RTOL = 4e-3
-QP_LOSS_REGRESSION_ATOL = 2e-19
+QP_LOSS_REGRESSION_ATOL = 1e-18
 Q_TOTAL_REGRESSION_RTOL = 1e-4
 QP_LOSS_CROSS_PLATFORM_RTOL = 8e-3
 Q_TOTAL_CROSS_PLATFORM_RTOL = 2e-4

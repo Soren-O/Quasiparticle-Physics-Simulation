@@ -4,7 +4,18 @@ Branch `codex/audit-fixes-2026-07-19` (on top of `codex/qpsim-deep-audit-fixes`
 @ `03ee1df`). Audit method: 123-agent multi-stage workflow — 16 independent
 finders, dedup, two-lens adversarial verification per finding
 (refute-by-execution + reachability/intent), completeness critic, gap finders.
-Tally: 64 confirmed (5 high / 19 medium / 40 low), 3 plausible, 5 refuted.
+Tally: 64 confirmed items (5 high / 19 medium / 40 low), 3 plausible,
+5 refuted. **Errata (2026-07-20 external review):** the confirmed tally
+double-counts duplicate roots that entered after the dedup stage (the Fig. 6
+factor-2 finding twice at high; the dashed-curve τ_l finding twice at medium;
+the M25 S50 domain issue at both high and low) — there are **four distinct
+high-severity defects**, as the fix table below records. The "19
+missing-baseline tests" figure was an estimate; the existence manifest
+guards the 18 committed canonical CSVs. The Fig. 3 amplitude-certificate
+criticism is narrower than filed: the certificate itself is not
+amplitude-bound, but a fast reduced-grid test does pin a nonzero physical
+amplitude. The machine-readable findings are committed at
+[`audit-2026-07-19-findings.json`](audit-2026-07-19-findings.json).
 The audited tree's gates were independently reproduced before fixing (fast
 1549 passed; slow gate 14 passed + 2 documented xfails; ruff/mypy clean; CI
 run 29667989929 green).
@@ -83,8 +94,47 @@ are the certified artifacts.
 4. Pre-existing known-open items (Fig. 5 regeneration, Fig. 6 canonical
    sweep, Figs. 9–13 refinement) — unchanged.
 
+## 2026-07-20 external-review round (GPT 5.6 Sol)
+
+An independent external review of the fix branch confirmed the core H1–H4
+diagnoses and the H3 correction, and filed six findings. Adjudication:
+
+- **CONFIRMED + fixed:** (1) hosted CI flake — PR #5's docs-only run
+  29706352205 breached the Fig. 7 near-zero loss floor by 6% on a Linux
+  3.14 host with identical code/library versions (host-to-host jitter with
+  zero floor margin); `QP_LOSS_REGRESSION_ATOL` recalibrated 2e-19 → 1e-18
+  with the measured evidence inline. (2) Collapse conflation — the
+  2026-07-19 repair folded a POSITIVE superconducting root below the grid
+  face (grid under-resolution; reproduced root 155.85 μeV under a
+  162.06 μeV face) into the collapse/NaN path;
+  `GapBelowGridSupportError.candidate_gap` now distinguishes the cases and
+  only the genuine normal-state decision (0.0) classifies as collapse.
+  (3) Pair-breaking lower boundary — partners in the physical window
+  `(Δ, first_face)` on grids starting above Δ were still silently dropped
+  (reproduced 26.8% loss); a mirror fail-loud guard closes it, with focused
+  regression tests for BOTH guards. (4) Campaign resume safety — run ids
+  now carry a `_PHYSICS_REV` token (bumped to rev2 for the H1/H2 physics
+  change) so stale rows are never accepted as complete; `--no-resume`
+  truncates aggregate CSVs; "resume-safe" doc claims qualified. Plus the
+  H1 kernel-wiring regression test the fix round lacked. (5) The confirmed
+  Windows `sweep_cache.store()` failure mode is now fixed (a failed cache
+  write warns and returns the computed payload instead of destroying an
+  hours-long solve; the provenance sidecar is written atomically).
+  (6) `Moving_Gap_Time_Integration.md` updated to the adopted 1e-3 frozen-
+  tail contract with the number-vs-energy caveat stated.
+- **REFUTED:** the proposed `(Δ_R/Δ̄)³` factor in the τ_R normalization.
+  M25 v2 Appendix D.3 derives `r^α = 8π b_α Δ_α³` with the electrode's OWN
+  gap (verified against the paper text); `Δ̄` enters only the tunneling
+  prefactor. The S50-as-primary doc note was stale and is corrected, and
+  an absolute-normalization pin test now exists (the ratio tests cancel
+  the prefactor and could not have caught a change).
+- **Stale at review time:** the "no clean committed revision" state was
+  mid-session; the branch was subsequently committed and pushed, and a
+  draft PR now provides hosted 3.13/3.14 CI.
+
 ## Full audit record
 
 Complete findings (incl. 40 lows and 5 newly refuted false positives):
-machine-readable results in the audit session; human summary at
-`C:\tmp\qpsim-audit-2026-07-19-fable-report.md` (off-repo).
+machine-readable record committed at
+[`audit-2026-07-19-findings.json`](audit-2026-07-19-findings.json); human
+summary at `C:\tmp\qpsim-audit-2026-07-19-fable-report.md` (off-repo).

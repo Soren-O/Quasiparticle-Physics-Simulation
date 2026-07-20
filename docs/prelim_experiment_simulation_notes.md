@@ -231,8 +231,11 @@ Queued deeper fixed-`nbar` overnight sweep:
 - Source rates: `3.132e11`, `6.264e10`, `6.264e11 QP/s` on the
   `NX=21` source-cell calibration
 - Phonon escape times: `tau_l = 1, 0.3, 3 ns`
-- Runner is resume-safe and wall-time-limited; it prioritizes the nominal
-  `D0=20`, source `5e-4/ns`, `tau_l=1 ns` block before broader sweeps.
+- Runner is wall-time-limited and resume-safe within one physics revision
+  (run ids carry a `_PHYSICS_REV` token; pre-fix rows are never accepted
+  as complete by a corrected model — regeneration re-runs them). It
+  prioritizes the nominal `D0=20`, source `5e-4/ns`, `tau_l=1 ns` block
+  before broader sweeps.
 
 ## Inputs Still Needed
 

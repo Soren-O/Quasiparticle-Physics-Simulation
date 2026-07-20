@@ -559,6 +559,11 @@ def _tau_R_inverse(params: M25PhysicalParameters) -> float:
     T = params.T_kelvin
     omega_LR = params.omega_LR_kelvin
     Delta_R = params.Delta_R_kelvin
+    # Exact under the paper's own definition: M25 v2 Appendix D.3 derives
+    # r^alpha = 8*pi*b_alpha*Delta_alpha^3 with the electrode's OWN gap,
+    # so r^{R<}/4 = 2*pi*b_R*Delta_R^3 with no (Delta_R/Delta_bar)^3
+    # factor (proposed in a 2026-07-20 review; refuted against the paper
+    # text — Delta_bar enters only the tunneling prefactor R_T).
     two_pi_bR_DeltaR_cubed = params.r_Rlt_Hz / 4.0
     reduced = _tau_R_reduced_exact(Delta_R / T, omega_LR / Delta_R)
     return float(two_pi_bR_DeltaR_cubed * reduced)

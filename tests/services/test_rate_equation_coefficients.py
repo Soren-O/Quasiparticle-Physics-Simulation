@@ -265,6 +265,21 @@ class TestDetailedBalance:
         series = _tau_R_inverse_series_s50(params)
         assert series / exact == pytest.approx(1.0, abs=0.02)
 
+    def test_tau_R_absolute_normalization_pinned(self) -> None:
+        # The series/exact ratio tests cancel the shared r^{R<}/4 prefactor
+        # and cannot detect a normalization change (2026-07-20 review). Pin
+        # the ABSOLUTE rate at the Fig 3a parameter set: the conversion
+        # 2*pi*b_R*Delta_R^3 = r^{R<}/4 is exact under M25 v2 App. D.3
+        # (r^alpha = 8*pi*b_alpha*Delta_alpha^3, the electrode's OWN gap);
+        # a proposed (Delta_R/Delta_bar)^3 factor (0.985 here) was refuted
+        # against the paper text and would trip these pins.
+        assert _tau_R_inverse(_fig3a_params(T_kelvin=0.030)) == pytest.approx(
+            4.121591098486147, rel=1e-6
+        )
+        assert _tau_R_inverse(_fig3a_params(T_kelvin=0.150)) == pytest.approx(
+            210.7014493084424, rel=1e-6
+        )
+
     def test_tau_R_exact_departs_from_series_out_of_domain(self) -> None:
         # 2026-07-19 audit H4 regression guard: on the shipped Fig 3a
         # sweep the series is evaluated far outside T ≪ ω_LR; at

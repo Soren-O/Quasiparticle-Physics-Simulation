@@ -9,9 +9,14 @@ This batch is intentionally deeper than the quick readout probe:
 * injected QP source near 2 Delta_Al
 * fixed-nbar sub-gap readout photon scattering weighted by I^2
 
-The script is resume-safe at the run-id level and can stop cleanly after a
-wall-clock limit.  It does not yet run the Fischer-style self-consistent
-nbar(P_read, Q_i, Q_c) loop; the overnight sweep uses fixed peak nbar values.
+Resume is safe only WITHIN one physics revision: run ids carry a
+``_PHYSICS_REV`` token, so rows produced by an older model revision are
+never silently accepted as complete — they are re-run (bump the token
+whenever runner physics or the summary schema changes). ``--no-resume``
+truncates the aggregate CSVs for a genuinely fresh start. The script can
+stop cleanly after a wall-clock limit.  It does not yet run the
+Fischer-style self-consistent nbar(P_read, Q_i, Q_c) loop; the overnight
+sweep uses fixed peak nbar values.
 """
 
 # ruff: noqa: E402, I001
@@ -201,6 +206,17 @@ def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:
     )
 
 
+# Physics/schema revision folded into every run id. BUMP THIS whenever the
+# runner's physics model or output schema changes, so resume cannot silently
+# accept rows computed with invalidated physics (2026-07-20 review: rev-less
+# ids let pre-fix rows — legacy QP-side phonon kernels, silently snapped
+# readout omega — satisfy the resume gate for the corrected model).
+#   rev2 (2026-07-20): phonon-side kernels in the phonon equation (audit H1)
+#     + explicit readout-omega grid snap with recorded shift (audit H2)
+#     + readout_omega_* summary columns.
+_PHYSICS_REV = "rev2"
+
+
 def _run_id(
     D0: float,
     source_rate: float,
@@ -214,7 +230,7 @@ def _run_id(
     # ids for the same physics point, and a resumed smoke result would silently
     # substitute for an overnight case.
     return (
-        f"D0_{D0:g}_rate_{source_rate:.0e}_taul_{tau_l_ns:g}_"
+        f"{_PHYSICS_REV}_D0_{D0:g}_rate_{source_rate:.0e}_taul_{tau_l_ns:g}_"
         f"nbar_{n_bar:.0e}_mode_{readout_index}_"
         f"nx{config.NX}_ne{config.NE}_dt{config.dt_ns:g}_"
         f"tmax{config.max_time_ns:g}_tol{config.stop_tol:.0e}"
@@ -489,7 +505,16 @@ def main() -> None:
 
     summary_path = out_dir / "summary.csv"
     shifts_path = out_dir / "resonator_shifts.csv"
-    completed = set() if args.no_resume else _completed_run_ids(summary_path)
+    if args.no_resume:
+        # A fresh start must not append duplicate/wider rows beneath an old
+        # header (2026-07-20 review): truncate the aggregate CSVs instead of
+        # merely ignoring the resume gate. Per-run trace/profile files are
+        # already unlinked per run id before rewriting.
+        summary_path.unlink(missing_ok=True)
+        shifts_path.unlink(missing_ok=True)
+        completed: set[str] = set()
+    else:
+        completed = _completed_run_ids(summary_path)
     combinations = _combinations(config)
     if args.max_runs is not None:
         combinations = combinations[: args.max_runs]

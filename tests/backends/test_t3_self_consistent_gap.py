@@ -400,7 +400,8 @@ class TestBelowSupportCollapseClassification:
         def raise_below_support(*args: object, **kwargs: object) -> float:
             raise GapBelowGridSupportError(
                 "solve_gap: candidate gap Δ=0 μeV lies below the "
-                "reconstructed energy-grid support edge (test double)."
+                "reconstructed energy-grid support edge (test double).",
+                candidate_gap=0.0,
             )
 
         monkeypatch.setattr(t3_mod, "solve_gap", raise_below_support)
@@ -415,6 +416,39 @@ class TestBelowSupportCollapseClassification:
                 gap_max_iter=4,
             )
         assert isinstance(caught.value.__cause__, GapBelowGridSupportError)
+
+    def test_positive_root_below_support_is_not_classified_as_collapse(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """2026-07-20 review: a POSITIVE superconducting root the grid
+        cannot represent (e.g. root 155.85 μeV under a 162.06 μeV first
+        face) is grid under-resolution, not collapse — it must propagate
+        as the domain error, never fold to the collapse/NaN path."""
+        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.physics.gap_equation import GapBelowGridSupportError
+
+        state = _build_state(T_bath=0.3, num_energy=40)
+
+        def raise_positive_below_support(*args: object, **kwargs: object) -> float:
+            raise GapBelowGridSupportError(
+                "solve_gap: candidate gap Δ=155.85 μeV lies below the "
+                "reconstructed energy-grid support edge 162.06 μeV "
+                "(test double).",
+                candidate_gap=155.85,
+            )
+
+        monkeypatch.setattr(t3_mod, "solve_gap", raise_positive_below_support)
+        with pytest.raises(GapBelowGridSupportError) as caught:
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+                self_consistent_gap=True,
+                gap_tol=1e-6,
+                gap_max_iter=4,
+            )
+        assert not isinstance(caught.value, SelfConsistentGapCollapseError)
+        assert caught.value.candidate_gap == 155.85
 
     def test_solve_gap_normal_state_on_truncated_grid_is_classified(self) -> None:
         """End-to-end at the gap_equation level: a saturating hot occupation
@@ -437,3 +471,7 @@ class TestBelowSupportCollapseClassification:
         with pytest.raises(GapBelowGridSupportError) as caught:
             solve_gap(calibration, f_sat, E, reference_gap=delta_eq)
         assert isinstance(caught.value, ValueError)  # subclass contract
+        # Saturated f admits no superconducting solution: this is the
+        # genuine normal-state decision, the ONLY case sweeps may
+        # classify as collapse (2026-07-20 review).
+        assert caught.value.candidate_gap == 0.0

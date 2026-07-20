@@ -33,17 +33,24 @@ class GapBelowGridSupportError(ValueError):
     """The SOLVED gap fell below the represented energy-grid support edge.
 
     Raised when :func:`solve_gap`'s accepted root — or its normal-state
-    ``Delta = 0`` decision — lies below the reconstructed first cell face,
-    i.e. the physical solution left the domain the kinetic grid can
-    represent. On every shipped BCS grid (first face > 0) this is the
-    reachable form of superconducting collapse, and callers running
-    self-consistent sweeps classify it as such (the literal ``<= 0``
-    return is unreachable on those grids — 2026-07-19 audit). Input
-    validation of a caller-supplied ``reference_gap`` deliberately raises
-    plain :class:`ValueError` instead: a bad anchor is misuse, not
-    collapse. Subclasses ``ValueError`` so existing handlers keep
-    working.
+    ``Delta = 0`` decision — lies below the reconstructed first cell face.
+    ``candidate_gap`` distinguishes the two physically different cases
+    (2026-07-20 review): ``0.0`` means the residual admitted **no
+    superconducting solution** (a genuine normal-state/collapse decision);
+    a **positive** value means a superconducting root exists but the grid
+    cannot represent it — a numerical-domain failure that a larger grid
+    would resolve, NOT evidence of collapse. Self-consistent sweep callers
+    classify only the ``candidate_gap == 0.0`` case as collapse and must
+    let the positive-root case propagate (folding it to "collapsed" would
+    mislabel an under-resolved superconducting state). Input validation of
+    a caller-supplied ``reference_gap`` deliberately raises plain
+    :class:`ValueError` instead: a bad anchor is misuse, not collapse.
+    Subclasses ``ValueError`` so existing handlers keep working.
     """
+
+    def __init__(self, message: str, *, candidate_gap: float) -> None:
+        super().__init__(message)
+        self.candidate_gap = float(candidate_gap)
 
 
 @dataclass
@@ -454,14 +461,16 @@ def solve_gap(
                 "minimum candidate gap."
             )
             if not allow_gap_edge_extrapolation:
-                error_type = (
-                    GapBelowGridSupportError if solved_state else ValueError
-                )
-                raise error_type(
+                full_message = (
                     message
                     + " Set allow_gap_edge_extrapolation=True only to opt "
                     "into the historical constant-left extrapolation."
                 )
+                if solved_state:
+                    raise GapBelowGridSupportError(
+                        full_message, candidate_gap=candidate
+                    )
+                raise ValueError(full_message)
             warnings.warn(
                 message
                 + " Constant-left extrapolation was explicitly enabled by "

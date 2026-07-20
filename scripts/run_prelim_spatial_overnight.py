@@ -428,6 +428,14 @@ def _write_profile(path: Path, state: T3Spatial1DState) -> None:
             writer.writerow({"x_um": float(x_um), "xqp": float(xqp)})
 
 
+# Physics/schema revision folded into every run id — BUMP whenever the
+# runner's physics or summary schema changes so resume cannot silently
+# accept invalidated rows (2026-07-20 review).
+#   rev2 (2026-07-20): non-converged runs record status=max_time_reached
+#     (previously mislabeled "completed" and permanently resume-excluded).
+_PHYSICS_REV = "rev2"
+
+
 def _run_id(
     D0: float,
     rate: float,
@@ -435,7 +443,8 @@ def _run_id(
     sigma_delta: float,
 ) -> str:
     return (
-        f"D0_{D0:g}_rate_{rate:.0e}_center_{center_delta:g}_sigma_{sigma_delta:g}"
+        f"{_PHYSICS_REV}_D0_{D0:g}_rate_{rate:.0e}_center_{center_delta:g}"
+        f"_sigma_{sigma_delta:g}"
         .replace("+", "")
         .replace(".", "p")
     )
@@ -508,7 +517,15 @@ def main() -> None:
 
     summary_path = out_dir / "summary.csv"
     shifts_path = out_dir / "resonator_shifts.csv"
-    completed = set() if args.no_resume else _completed_run_ids(summary_path)
+    if args.no_resume:
+        # Fresh start: truncate the aggregate CSVs so a rerun cannot append
+        # duplicate or schema-shifted rows beneath an old header
+        # (2026-07-20 review).
+        summary_path.unlink(missing_ok=True)
+        shifts_path.unlink(missing_ok=True)
+        completed: set[str] = set()
+    else:
+        completed = _completed_run_ids(summary_path)
 
     summary_fields = [
         "run_id",

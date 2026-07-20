@@ -167,3 +167,31 @@ def test_readout_drive_from_resonator_passes_real_kernel() -> None:
     assert np.all(np.isfinite(gain))
     assert np.all(np.isfinite(loss))
     assert float(np.max(np.abs(gain))) > 0.0
+
+
+def test_runner_phonon_equation_uses_phonon_side_kernels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard for audit H1 wiring: the finite-phonon runner must
+    pass its phonon-side kernels into compute_phonon_source_sink for the
+    PHONON equation (the pre-fix runner reused the QP-side kernels there,
+    under-weighting phonon rates 4-17x)."""
+    state = _build_state(NE=18, NX=3)
+    runner = finite_phonon.FinitePhononSpatialRunner(state, tau_l_ns=1.0)
+
+    captured: list[dict] = []
+    real = finite_phonon.compute_phonon_source_sink
+
+    def capture(*args, **kwargs):
+        captured.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(finite_phonon, "compute_phonon_source_sink", capture)
+    runner._phonon_escape_step(state, dt_ns=0.1)
+
+    assert captured, "phonon escape step never called compute_phonon_source_sink"
+    for kwargs in captured:
+        assert kwargs.get("K_s0_phonon_side") is runner.K_s0_phonon_side
+        assert kwargs.get("K_r0_phonon_side") is runner.K_r0_phonon_side
+    assert runner.K_s0_phonon_side is not None
+    assert runner.K_r0_phonon_side is not None
