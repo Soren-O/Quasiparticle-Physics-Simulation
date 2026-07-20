@@ -38,7 +38,12 @@ from qpsim.physics.bcs_quadrature import (
     bcs_dos_cell_weights,
     cell_edges_from_widths,
 )
-from qpsim.physics.gap_equation import GapCalibration, calibrate_gap, solve_gap
+from qpsim.physics.gap_equation import (
+    GapBelowGridSupportError,
+    GapCalibration,
+    calibrate_gap,
+    solve_gap,
+)
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import solve_steady_state
@@ -53,8 +58,10 @@ class SelfConsistentGapCollapseError(RuntimeError):
         self.iteration = int(iteration)
         self.max_occupation = float(max_occupation)
         super().__init__(
-            "Self-consistent gap collapsed: solve_gap returned Delta=0 at "
-            f"iteration {self.iteration} with |f|_max={self.max_occupation:.3e}. "
+            "Self-consistent gap collapsed: solve_gap found no supported "
+            "superconducting gap (Delta=0 or below the represented grid "
+            f"support) at iteration {self.iteration} with "
+            f"|f|_max={self.max_occupation:.3e}. "
             "The drive has exceeded the pair-breaking threshold; this solver "
             "does not yet support the normal state."
         )
@@ -783,14 +790,27 @@ class T3DiffusionBackend:
                 coupled_newton_analytic_cross=coupled_newton_analytic_cross,
             )
 
-            delta_raw = solve_gap(
-                calibration,
-                solved.f,
-                solved.spectral.E,
-                dE_bins=solved.spectral.dE,
-                reference_gap=solved.gap,
-                xtol=gap_solve_xtol,
-            )
+            try:
+                delta_raw = solve_gap(
+                    calibration,
+                    solved.f,
+                    solved.spectral.E,
+                    dE_bins=solved.spectral.dE,
+                    reference_gap=solved.gap,
+                    xtol=gap_solve_xtol,
+                )
+            except GapBelowGridSupportError as exc:
+                # The solved gap (root or normal-state decision) fell below
+                # the represented grid support. On every shipped BCS grid the
+                # first cell face is far above zero, so this — not a literal
+                # <= 0 return — is the reachable form of superconducting
+                # collapse (2026-07-19 audit: the <= 0 branch below was dead
+                # code on physical grids and a genuine collapse aborted the
+                # sweep unclassified).
+                raise SelfConsistentGapCollapseError(
+                    iteration=iteration,
+                    max_occupation=float(solved.f.max()),
+                ) from exc
             if delta_raw <= 0.0:
                 # The current occupation no longer supports a superconducting
                 # solution; collapse to the normal state directly. Under-relaxing

@@ -311,41 +311,46 @@ class SpectralContext:
 
     def _rebuild(self, gap: float) -> None:
         gap = _non_negative_scalar("gap", gap)
-        self._gap = gap
         E = self._E
 
+        # Compute the complete replacement state into locals and commit
+        # only after every validation has passed. A failed rebuild must
+        # leave the object exactly as it was: committing gap/rho/weights
+        # before the positive-capacity check raises leaves a torn object
+        # mixing two gaps, and the pre-committed gap then makes a retry
+        # maybe_rebuild() near the failed gap silently no-op.
         if self._dynes_gamma > 0:
-            self._rho = dynes_density_of_states(E, gap, self._dynes_gamma)
-            self._cell_weights = self._rho * self._dE
-            self._cell_anomalous_density = bcs_anomalous_weight(E, gap)
+            rho = dynes_density_of_states(E, gap, self._dynes_gamma)
+            cell_weights = rho * self._dE
+            cell_anomalous_density = bcs_anomalous_weight(E, gap)
         else:
-            self._rho = bcs_density_of_states(E, gap)
+            rho = bcs_density_of_states(E, gap)
             # A kinetic grid represents only its own finite-volume domain.
             # If its lower edge starts above the physical gap, do not invent
             # the missing interval; integrate exactly from that represented
             # edge.  Observable APIs may impose a stricter full-gap coverage
             # contract when the missing singular interval matters.
             first_edge = float(cell_edges_from_widths(E, self._dE)[0])
-            self._cell_weights = bcs_dos_cell_weights(
+            cell_weights = bcs_dos_cell_weights(
                 E,
                 self._dE,
                 gap,
                 lower_bound=max(gap, first_edge),
             )
-        self._cell_density = self._cell_weights / self._dE
-        if not np.any(self._cell_weights > 0.0):
+        cell_density = cell_weights / self._dE
+        if not np.any(cell_weights > 0.0):
             raise ValueError(
                 "SpectralContext requires positive represented spectral "
                 "capacity above/broadened through the gap."
             )
 
         if self._dynes_gamma > 0.0:
-            self._K_plus = coherence_factor_plus(E, gap)
-            self._K_minus = coherence_factor_minus(E, gap)
+            K_plus = coherence_factor_plus(E, gap)
+            K_minus = coherence_factor_minus(E, gap)
         elif gap == 0.0:
-            self._cell_anomalous_density = np.zeros_like(E)
-            self._K_plus = np.ones((E.size, E.size))
-            self._K_minus = np.ones((E.size, E.size))
+            cell_anomalous_density = np.zeros_like(E)
+            K_plus = np.ones((E.size, E.size))
+            K_minus = np.ones((E.size, E.size))
         else:
             # K± = 1 ± (Delta/E_i)(Delta/E_j).  Under the product
             # finite-volume DOS measure the double-cell average therefore
@@ -359,24 +364,24 @@ class SpectralContext:
                 np.arccosh(np.maximum(hi / gap, 1.0))
                 - np.arccosh(np.maximum(lo / gap, 1.0))
             )
-            self._cell_anomalous_density = anomalous_weight / self._dE
+            cell_anomalous_density = anomalous_weight / self._dE
             ratio = np.zeros_like(E)
-            supported = self._cell_weights > 0.0
+            supported = cell_weights > 0.0
             ratio[supported] = (
-                anomalous_weight[supported] / self._cell_weights[supported]
+                anomalous_weight[supported] / cell_weights[supported]
             )
             ratio = np.clip(ratio, 0.0, 1.0)
             product = ratio[:, None] * ratio[None, :]
-            self._K_plus = 1.0 + product
-            self._K_minus = np.maximum(1.0 - product, 0.0)
+            K_plus = 1.0 + product
+            K_minus = np.maximum(1.0 - product, 0.0)
 
         if self._D0 > 0 and gap > 0:
-            ratio = np.minimum(gap / E, 1.0)
-            self._D_E = self._D0 * np.sqrt(np.maximum(0.0, 1.0 - ratio ** 2))
+            d_ratio = np.minimum(gap / E, 1.0)
+            D_E = self._D0 * np.sqrt(np.maximum(0.0, 1.0 - d_ratio ** 2))
         elif self._D0 > 0:
-            self._D_E = np.full_like(E, self._D0)
+            D_E = np.full_like(E, self._D0)
         else:
-            self._D_E = np.zeros_like(E)
+            D_E = np.zeros_like(E)
 
         # The support of the represented DOS measure is the only physically
         # meaningful active-set criterion.  A former ``0.1*dE`` gap-edge margin could
@@ -385,4 +390,15 @@ class SpectralContext:
         # Exact BCS cell capacity additionally preserves cells cut by a moving
         # gap even when their center is sub-gap.  Dynes midpoint capacity
         # preserves its intended broadened sub-gap semantics.
-        self._active_mask = self._cell_weights > 0.0
+        active_mask = cell_weights > 0.0
+
+        # Commit — nothing below this line may raise.
+        self._gap = gap
+        self._rho = rho
+        self._cell_weights = cell_weights
+        self._cell_anomalous_density = cell_anomalous_density
+        self._cell_density = cell_density
+        self._K_plus = K_plus
+        self._K_minus = K_minus
+        self._D_E = D_E
+        self._active_mask = active_mask

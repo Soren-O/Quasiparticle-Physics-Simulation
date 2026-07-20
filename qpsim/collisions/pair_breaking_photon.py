@@ -112,6 +112,31 @@ def pair_breaking_photon_collision_rates(
             f"(omega_PB - 2*E_min)/dE is an integer."
         )
 
+    # Every supported cell whose K⁻ reflection partner is physical must be
+    # able to represent it. Partners landing ABOVE the grid top are a
+    # representability hole, not physics: the affected sites are exactly
+    # the singular gap-edge cells (E_i < ω − E_top), and silently skipping
+    # them lost ~42% of the total pair-generation rate in a realistic
+    # short-grid case while the kernel hard-raised on a 2% partner
+    # misalignment (2026-07-19 audit). Fail loud like the alignment guard;
+    # sub-gap partners remain a physical exclusion and are still skipped.
+    if omega_PB_snapped >= 2.0 * ctx.gap:
+        top_edge = E[-1] + 0.5 * dE_scalar
+        partner_above_top = supported & (omega_PB_snapped - E > top_edge)
+        if np.any(partner_above_top):
+            n_dropped = int(np.count_nonzero(partner_above_top))
+            raise ValueError(
+                f"Pair-breaking photon partners are off-grid: {n_dropped} "
+                f"supported gap-edge cells (E <= "
+                f"{float(E[partner_above_top].max()):.6g} μeV) have their "
+                f"reflection partner ω−E above the grid top "
+                f"({float(E[-1]):.6g} μeV) for ω_PB={omega_PB_snapped:.6g} μeV. "
+                "Dropping them silently loses the dominant singular-DOS "
+                "share of the generation/recombination rate. Extend the "
+                f"energy grid to E_max >= ω_PB − Δ = "
+                f"{omega_PB_snapped - ctx.gap:.6g} μeV."
+            )
+
     gain = np.zeros(NE)
     loss_rate = np.zeros(NE)
     one_minus_f = np.maximum(1.0 - f, 0.0)

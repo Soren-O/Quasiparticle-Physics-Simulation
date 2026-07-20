@@ -381,3 +381,60 @@ class TestSelfConsistentGapPath:
                 self_consistent_gap=True,
                 use_thermal_phonons=True,
             )
+
+
+class TestBelowSupportCollapseClassification:
+    """2026-07-19 audit: on every shipped BCS grid (first face > 0) solve_gap
+    signals collapse via GapBelowGridSupportError, never a <= 0 return — the
+    classified chain must catch it."""
+
+    def test_below_support_solve_gap_raises_classified_collapse(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.physics.gap_equation import GapBelowGridSupportError
+
+        state = _build_state(T_bath=0.3, num_energy=40)
+
+        def raise_below_support(*args: object, **kwargs: object) -> float:
+            raise GapBelowGridSupportError(
+                "solve_gap: candidate gap Δ=0 μeV lies below the "
+                "reconstructed energy-grid support edge (test double)."
+            )
+
+        monkeypatch.setattr(t3_mod, "solve_gap", raise_below_support)
+        with pytest.raises(
+            SelfConsistentGapCollapseError, match="gap collapsed"
+        ) as caught:
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+                self_consistent_gap=True,
+                gap_tol=1e-6,
+                gap_max_iter=4,
+            )
+        assert isinstance(caught.value.__cause__, GapBelowGridSupportError)
+
+    def test_solve_gap_normal_state_on_truncated_grid_is_classified(self) -> None:
+        """End-to-end at the gap_equation level: a saturating hot occupation
+        on a grid whose first face sits above zero must raise the classified
+        GapBelowGridSupportError (which is still a ValueError), not return
+        0.0 and not raise a bare unclassified error."""
+        import numpy as np
+
+        from qpsim.physics.gap_equation import (
+            GapBelowGridSupportError,
+            calibrate_gap,
+            solve_gap,
+        )
+
+        calibration = calibrate_gap(T_c=1.2, T_bath=0.2)
+        delta_eq = calibration.delta_eq
+        # Grid starting well above zero (first face ~0.89*delta_eq), like the
+        # shipped fig6 grid; f = 0.5 saturates pair-breaking.
+        E = np.linspace(0.9 * delta_eq, 10.0 * delta_eq, 200)
+        f_sat = np.full_like(E, 0.5)
+        with pytest.raises(GapBelowGridSupportError) as caught:
+            solve_gap(calibration, f_sat, E, reference_gap=delta_eq)
+        assert isinstance(caught.value, ValueError)  # subclass contract

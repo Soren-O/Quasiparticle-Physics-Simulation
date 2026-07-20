@@ -29,6 +29,23 @@ from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 
 
+class GapBelowGridSupportError(ValueError):
+    """The SOLVED gap fell below the represented energy-grid support edge.
+
+    Raised when :func:`solve_gap`'s accepted root — or its normal-state
+    ``Delta = 0`` decision — lies below the reconstructed first cell face,
+    i.e. the physical solution left the domain the kinetic grid can
+    represent. On every shipped BCS grid (first face > 0) this is the
+    reachable form of superconducting collapse, and callers running
+    self-consistent sweeps classify it as such (the literal ``<= 0``
+    return is unreachable on those grids — 2026-07-19 audit). Input
+    validation of a caller-supplied ``reference_gap`` deliberately raises
+    plain :class:`ValueError` instead: a bad anchor is misuse, not
+    collapse. Subclasses ``ValueError`` so existing handlers keep
+    working.
+    """
+
+
 @dataclass
 class GapCalibration:
     """Frozen equilibrium constants for the reference-subtracted gap solver.
@@ -381,15 +398,46 @@ def solve_gap(
             stacklevel=2,
         )
 
+    # Resolution guard (2026-07-19 audit): the solved gap inherits a
+    # cell-constant discretization error ~O(dE/Δ_eq) that the flattening
+    # residual slope near T_c amplifies dramatically (measured ~175x
+    # amplification between T/T_c = 0.25 and 0.95: a dE ≈ 0.31·Δ_eq grid
+    # gave a silent +4.7% gap error at T/T_c = 0.95). This is distinct
+    # from the below-gap-support warning: the grid can cover the full
+    # support and still be too coarse for the collapsing gap scale. Warn
+    # on coarse-relative-to-Δ_eq cells; shipped grids (dE ≲ 0.03·Δ_eq)
+    # never trigger.
+    edge_idx = min(int(np.searchsorted(E, delta_eq)), widths.size - 1)
+    edge_width = float(widths[edge_idx])
+    if edge_width > 0.25 * delta_eq:
+        warnings.warn(
+            "solve_gap: the energy-cell width near the gap edge "
+            f"(dE={edge_width:.6g} μeV) is {edge_width / delta_eq:.0%} of the "
+            f"equilibrium gap Δ_eq={delta_eq:.6g} μeV "
+            f"(T_bath/T_c={calibration.T_bath / calibration.T_c:.2f}). The "
+            "solved gap carries a cell-constant discretization error of this "
+            "relative order, and the flattening residual slope near T_c "
+            "amplifies it to percent level. Refine the energy grid near the "
+            "gap edge before trusting the solved gap.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     lower_support_edge = float(cell_edges[0])
 
-    def enforce_grid_support(candidate: float) -> None:
+    def enforce_grid_support(candidate: float, *, solved_state: bool = True) -> None:
         # Coverage is a geometric input contract, not a root-accuracy test.
         # Accept only a sub-part-per-billion mismatch between two boundaries
         # that are numerically intended to coincide.  The fixed geometric
         # tolerance is deliberately independent of a caller-supplied (and
         # potentially very large) ``xtol`` so root accuracy cannot silently
         # opt into materially unsampled gap-edge support.
+        # ``solved_state=True`` marks a SOLVED gap (accepted root or the
+        # normal-state decision): failing support then raises the
+        # classified GapBelowGridSupportError so self-consistent callers
+        # can fold it into their collapse handling. ``solved_state=False``
+        # is input validation of a caller anchor and stays a plain
+        # ValueError.
         scale = max(abs(candidate), abs(lower_support_edge))
         support_tol = max(
             64.0 * np.finfo(float).eps * max(scale, 1.0),
@@ -406,7 +454,10 @@ def solve_gap(
                 "minimum candidate gap."
             )
             if not allow_gap_edge_extrapolation:
-                raise ValueError(
+                error_type = (
+                    GapBelowGridSupportError if solved_state else ValueError
+                )
+                raise error_type(
                     message
                     + " Set allow_gap_edge_extrapolation=True only to opt "
                     "into the historical constant-left extrapolation."
@@ -467,7 +518,7 @@ def solve_gap(
         # A continuation anchor outside the represented occupation domain can
         # steer the branch scan through invented gap-edge states even if a
         # later root happens to lie on-grid. Reject it before scanning.
-        enforce_grid_support(float(reference_gap))
+        enforce_grid_support(float(reference_gap), solved_state=False)
 
     if reference_gap is not None:
         continuation_roots = _continuation_roots(
