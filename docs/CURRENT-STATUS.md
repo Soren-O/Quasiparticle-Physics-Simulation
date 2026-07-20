@@ -1,5 +1,13 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-07-19 follow-up:** an independent 123-agent audit of this tree
+> confirmed the core engine and this document's claims, but found 5
+> high-severity defects in the `scripts/` campaign drivers and the
+> paper-anchor/M25 layer. All are fixed on branch
+> `codex/audit-fixes-2026-07-19` — see
+> [`AUDIT-2026-07-19-fixes.md`](AUDIT-2026-07-19-fixes.md). The tables
+> below describe the pre-fix tree `71c5f02`.
+
 Snapshot date: **2026-07-19**
 Audited code head: **`71c5f02310db0d65e7a9aa0bc5e09a4034d97bf3`**
 

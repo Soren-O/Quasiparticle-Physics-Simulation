@@ -422,7 +422,6 @@ class TestBelowSupportCollapseClassification:
         GapBelowGridSupportError (which is still a ValueError), not return
         0.0 and not raise a bare unclassified error."""
         import numpy as np
-
         from qpsim.physics.gap_equation import (
             GapBelowGridSupportError,
             calibrate_gap,

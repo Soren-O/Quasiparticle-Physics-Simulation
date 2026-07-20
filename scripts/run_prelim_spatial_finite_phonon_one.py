@@ -141,7 +141,7 @@ def snap_omega_to_grid(omega_uev: float, dE_uev: float) -> tuple[float, int, flo
     """
     if omega_uev <= 0.0 or dE_uev <= 0.0:
         raise ValueError("omega_uev and dE_uev must both be positive.")
-    m = int(round(omega_uev / dE_uev))
+    m = round(omega_uev / dE_uev)
     if m < 1:
         raise ValueError(
             f"omega={omega_uev:g} ueV is below one grid spacing "

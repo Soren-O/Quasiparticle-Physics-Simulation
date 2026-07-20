@@ -500,10 +500,8 @@ def _tau_R_reduced_exact(a: float, b: float) -> float:
         def f(v: float) -> float:
             y = v * v
             d = a * (x - y)
-            if d < 1e-8:
-                bose = 1.0 / d + 0.5  # 1/(1-e^{-d}) = 1/d + 1/2 + O(d)
-            else:
-                bose = 1.0 / (-np.expm1(-d))
+            # 1/(1-e^{-d}) = 1/d + 1/2 + O(d) guards the x -> y corner.
+            bose = 1.0 / d + 0.5 if d < 1e-8 else 1.0 / (-np.expm1(-d))
             return 2.0 * (y - x) ** 2 * (x * y + x + y) / np.sqrt(y + 2.0) * bose
 
         val, _ = quad(f, 0.0, sqrt_b, limit=200)
