@@ -243,3 +243,27 @@ class TestOffGridPartnerGuards:
         assert np.all(np.isfinite(gain))
         assert np.all(np.isfinite(loss))
         assert float(np.max(gain)) > 0.0
+
+    def test_gap_straddling_partner_cell_raises(self) -> None:
+        # 2026-07-20 review repro: gap=180, dE=2.5, omega=500, truncated
+        # grid starting at 182.5 (first face 181.25). The top cells'
+        # partners land in a cell centered AT the gap whose upper half
+        # [180, 181.25) is physical continuum; center-only reasoning
+        # skipped it silently (11.1% generation loss vs the covered grid).
+        ctx = self._uniform_ctx(180.0, 182.5, 320.0, 56)  # dE=2.5
+        dE = float(ctx.dE[0])
+        omega = round(500.0 / dE) * dE
+        f = np.zeros_like(ctx.E)
+        with pytest.raises(ValueError, match="physical-but-unrepresented"):
+            pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
+
+    def test_covered_grid_same_omega_does_not_raise(self) -> None:
+        # The covered counterpart of the straddling-cell repro: first face
+        # at the gap, same omega — every physical partner representable.
+        ctx = self._uniform_ctx(180.0, 181.25, 318.75, 56)  # dE=2.5, face 180.0
+        dE = float(ctx.dE[0])
+        omega = round(500.0 / dE) * dE
+        f = np.zeros_like(ctx.E)
+        gain, _loss = pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
+        assert np.all(np.isfinite(gain))
+        assert float(np.max(gain)) > 0.0

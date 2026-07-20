@@ -249,7 +249,7 @@ class TestFoldHandlingMachinery:
             residual_tol_relative=1e-3,
         )
         assert state is not None
-        assert state.x_L == pytest.approx(5.3017e-8, rel=1e-3)
+        assert state.x_L == pytest.approx(5.3127e-8, rel=1e-3)
 
     def test_relocation_reports_no_root_outside_window(self) -> None:
         coefs = _coefficients_at(0.5, 0.020)

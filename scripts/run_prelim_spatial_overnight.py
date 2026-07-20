@@ -394,6 +394,32 @@ def _resonator_shifts(
     return rows
 
 
+def require_matching_header(path: Path, fieldnames: list[str]) -> None:
+    """Refuse to append rows beneath a stale aggregate-CSV header.
+
+    Appending a wider/reordered row set under an old header silently
+    mislabels every later column (2026-07-20 review: 40-column rev2 rows
+    under a 37-column legacy header shifted values across fields, with
+    overflow landing in csv.DictReader's None key). A schema change
+    requires ``--no-resume`` (which truncates) or a fresh output
+    directory. Shared by the spatial and readout overnight runners.
+    """
+    if not path.exists():
+        return
+    with path.open("r", newline="") as fp:
+        first = fp.readline().strip()
+    if not first:
+        return
+    existing = first.split(",")
+    if existing != list(fieldnames):
+        raise SystemExit(
+            f"{path} has a {len(existing)}-column header that does not match "
+            f"the current {len(fieldnames)}-column schema. Appending would "
+            "silently mislabel columns. Rerun with --no-resume (truncates "
+            "the aggregate CSVs) or use a fresh --out-dir."
+        )
+
+
 def _append_csv(path: Path, row: dict[str, object], fieldnames: list[str]) -> None:
     exists = path.exists()
     with path.open("a", newline="") as fp:
@@ -587,6 +613,10 @@ def main() -> None:
         "frac_freq_shift_uniform_strip_average",
         "delta_fr_hz_uniform_strip_average",
     ]
+
+    if not args.no_resume:
+        require_matching_header(summary_path, summary_fields)
+        require_matching_header(shifts_path, shift_fields)
 
     combinations = list(
         product(

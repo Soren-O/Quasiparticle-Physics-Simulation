@@ -86,9 +86,11 @@ _MOVING_GAP_TAIL_RTOL = 5e-12
 # (2026-07-20 adjudication of the audit's split verdict): tolerate up to
 # the same 1e-3 fraction the projection path accepts, warn above 1e-9.
 # Unlike the projection path's irreversible top-cell deposit, the
-# persistent representation keeps the stranded mass at its true xi with
-# frozen (zero-overlap) dynamics, so it re-enters the represented window
-# if the gap falls again.
+# persistent representation keeps the stranded mass at its true xi, so
+# it re-enters the represented window if the gap falls again. Only rows
+# WHOLLY above the window are truly collisionless; a straddling row
+# shares one occupation between its visible and hidden portions (see
+# docs/Moving_Gap_Time_Integration.md for the stated caveats).
 _MOVING_GAP_TAIL_MAX_FRACTION = 1e-3
 _MOVING_GAP_TAIL_WARN_FRACTION = 1e-9
 _EDGE_REMAP_MIN_BINS = 4
@@ -1476,11 +1478,12 @@ class T3DiffusionBackend:
                 )
             if tail_fraction > _MOVING_GAP_TAIL_WARN_FRACTION:
                 warnings.warn(
-                    "Moving-gap materialization froze a finite-E_max "
+                    "Moving-gap materialization left a finite-E_max "
                     f"persistent-xi tail containing {tail_fraction:.0e} of "
                     "the quasiparticle mass above the represented window "
-                    "(collisionless until the gap falls again). Extend "
-                    "E_max to remove this boundary dependence.",
+                    "(hidden from observables/collisions; re-enters if the "
+                    "gap falls). Extend E_max to remove this boundary "
+                    "dependence.",
                     stacklevel=2,
                 )
         return spectral, f, overlap

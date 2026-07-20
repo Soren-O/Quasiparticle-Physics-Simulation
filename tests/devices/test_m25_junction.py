@@ -992,9 +992,9 @@ class TestM25NoDoubleCounting:
         # legacy Γ̄ = Γ̃ normalization plus the max-x_L picker; they
         # are gone with the normalization fix. 10% tolerance covers
         # the moment-extraction discretization of the region grid.
-        np.testing.assert_allclose(x_L,   5.302e-08, rtol=1e-1)
-        np.testing.assert_allclose(x_Rgt, 1.794e-08, rtol=1e-1)
-        np.testing.assert_allclose(x_Rlt, 5.147e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_L,   5.313e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rgt, 1.802e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rlt, 5.130e-08, rtol=1e-1)
         np.testing.assert_allclose(p_1,   8.330e-04, rtol=1e-1)
 
         # Plotted observable check: μ_L/Δ_L at T = 20 mK. The paper

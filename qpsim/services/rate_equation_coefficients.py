@@ -475,6 +475,31 @@ def _branching_fraction(params: M25PhysicalParameters) -> float:
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _two_pi_bR_DeltaR_cubed(params: M25PhysicalParameters) -> float:
+    r"""Convert the caption input ``r^{R<}`` to the S48/S50 prefactor.
+
+    M25 v2 Appendix D.3 (verified against the paper's own equation text,
+    2026-07-20 second review) defines the R-side recombination
+    coefficients with the AVERAGE gap:
+
+    .. math:: r^{R>} \simeq r^{<>} \simeq r^{R<} \simeq 8\pi b_R \bar\Delta^3,
+
+    while S48/S50 carry ``2\pi b_R \Delta_R^3``. Eliminating ``b_R``:
+
+    .. math:: 2\pi b_R \Delta_R^3 = \frac{r^{R<}}{4}
+              \left(\frac{\Delta_R}{\bar\Delta}\right)^3.
+
+    The ``(\Delta_R/\bar\Delta)^3`` factor is ~0.985 for the Fig 3a
+    parameter set and ~0.861 for Fig 3b. An earlier revision dropped it
+    (a truncated extract of D.3 hid the ``\bar\Delta^3`` tail and the
+    coefficient-integrals doc had transcribed ``\Delta_R^3``); the
+    2026-07-20 external review caught the omission.
+    """
+    Delta_R = params.Delta_R_kelvin
+    Delta_bar = 0.5 * (params.Delta_L_kelvin + params.Delta_R_kelvin)
+    return float(params.r_Rlt_Hz / 4.0 * (Delta_R / Delta_bar) ** 3)
+
+
 def _tau_R_reduced_exact(a: float, b: float) -> float:
     r"""Reduced exact intraband rate ``√(a/π)/erfc(√(ab)) · I(a, b)``.
 
@@ -531,7 +556,7 @@ def _tau_R_inverse_series_s50(params: M25PhysicalParameters) -> float:
     T = params.T_kelvin
     omega_LR = params.omega_LR_kelvin
     Delta_R = params.Delta_R_kelvin
-    two_pi_bR_DeltaR_cubed = params.r_Rlt_Hz / 4.0
+    two_pi_bR_DeltaR_cubed = _two_pi_bR_DeltaR_cubed(params)
     ratio = omega_LR / Delta_R
     correction = 1.0 + 3.5 * (T / omega_LR) + 7.0 * (T / omega_LR) ** 2
     return float(
@@ -546,8 +571,10 @@ def _tau_R_inverse(params: M25PhysicalParameters) -> float:
     r""":math:`\tau_R^{-1}` per the exact SI Eqs. S48/S49 quadrature.
 
     ``τ_R⁻¹ = 2π b_R Δ_R³ · √(Δ_R/(πT))/erfc(√(ω_LR/T)) · I(Δ_R/T, ω_LR/Δ_R)``,
-    using ``2π b_R Δ_R³ = r^{R<}/4`` to eliminate ``b_R`` in favor of the
-    caption input ``r^{R<}``.
+    using ``2π b_R Δ_R³ = (r^{R<}/4)·(Δ_R/Δ̄)³`` to eliminate ``b_R`` in
+    favor of the caption input ``r^{R<}`` (see
+    :func:`_two_pi_bR_DeltaR_cubed`; the paper defines ``r^{R<}`` with
+    the average gap ``Δ̄``).
 
     History (2026-07-19 audit H4): this previously evaluated only the
     low-T series S50 (valid for ``T ≪ ω_LR``) across the shipped Fig
@@ -559,12 +586,7 @@ def _tau_R_inverse(params: M25PhysicalParameters) -> float:
     T = params.T_kelvin
     omega_LR = params.omega_LR_kelvin
     Delta_R = params.Delta_R_kelvin
-    # Exact under the paper's own definition: M25 v2 Appendix D.3 derives
-    # r^alpha = 8*pi*b_alpha*Delta_alpha^3 with the electrode's OWN gap,
-    # so r^{R<}/4 = 2*pi*b_R*Delta_R^3 with no (Delta_R/Delta_bar)^3
-    # factor (proposed in a 2026-07-20 review; refuted against the paper
-    # text — Delta_bar enters only the tunneling prefactor R_T).
-    two_pi_bR_DeltaR_cubed = params.r_Rlt_Hz / 4.0
+    two_pi_bR_DeltaR_cubed = _two_pi_bR_DeltaR_cubed(params)
     reduced = _tau_R_reduced_exact(Delta_R / T, omega_LR / Delta_R)
     return float(two_pi_bR_DeltaR_cubed * reduced)
 

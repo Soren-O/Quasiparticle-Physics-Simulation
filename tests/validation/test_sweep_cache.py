@@ -348,3 +348,35 @@ class TestEnvAndLifecycle:
 
         sc.clear(cache_dir=cdir)
         assert sc.load("figB", "k2", cache_dir=cdir) is None
+
+
+def test_cached_solve_survives_store_failure(tmp_path, monkeypatch):
+    """2026-07-20 review regression: a failed cache write (e.g. Windows
+    PermissionError from os.replace onto a reader-held entry) must not
+    destroy the completed solve — cached_solve warns and returns the
+    freshly computed payload."""
+
+    import numpy as np
+    import pytest
+
+    from validation import sweep_cache
+
+    def failing_store(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(sweep_cache, "store", failing_store)
+    calls = {"n": 0}
+
+    def solve_fn():
+        calls["n"] += 1
+        return {"x": np.arange(3.0)}
+
+    with pytest.warns(RuntimeWarning, match="failed to store"):
+        result = sweep_cache.cached_solve(
+            "guard-test",
+            solve_fn,
+            fingerprint={"a": 1},
+            cache_dir=tmp_path,
+        )
+    assert calls["n"] == 1
+    np.testing.assert_array_equal(result["x"], np.arange(3.0))

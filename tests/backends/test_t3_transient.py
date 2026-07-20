@@ -929,7 +929,7 @@ class TestRisingGapRecoveryTolerance:
         # Rising gap 1.0 -> 1.005 strands ~6e-4 of the uniform mass above
         # the fixed E_max window: below the 1e-3 cap, above the 1e-9 warn
         # threshold. Pre-fix this raised RuntimeError.
-        with pytest.warns(UserWarning, match="froze a finite-E_max"):
+        with pytest.warns(UserWarning, match="left a finite-E_max"):
             spectral, f, overlap = backend._materialize_persistent_occupation(
                 state, coordinates, 1.005
             )

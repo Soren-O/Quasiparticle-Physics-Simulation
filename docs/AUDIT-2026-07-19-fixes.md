@@ -122,12 +122,15 @@ diagnoses and the H3 correction, and filed six findings. Adjudication:
   hours-long solve; the provenance sidecar is written atomically).
   (6) `Moving_Gap_Time_Integration.md` updated to the adopted 1e-3 frozen-
   tail contract with the number-vs-energy caveat stated.
-- **REFUTED:** the proposed `(Δ_R/Δ̄)³` factor in the τ_R normalization.
-  M25 v2 Appendix D.3 derives `r^α = 8π b_α Δ_α³` with the electrode's OWN
-  gap (verified against the paper text); `Δ̄` enters only the tunneling
-  prefactor. The S50-as-primary doc note was stale and is corrected, and
-  an absolute-normalization pin test now exists (the ratio tests cancel
-  the prefactor and could not have caught a change).
+- **`(Δ_R/Δ̄)³` normalization — reviewer RIGHT, first adjudication WRONG
+  (corrected in the follow-up round):** the paper's equation source reads
+  `r^{R>} ≃ r^{<>} ≃ r^{R<} ≃ 8π b_R Δ̄³` (average gap; MathML alt text
+  verified). The first-pass refutation relied on a text extraction that
+  truncated D.3 exactly before the `Δ̄³` tail, compounded by this repo's
+  coefficient doc having transcribed `Δ_R³`. The conversion now carries
+  `(Δ_R/Δ̄)³` (≈0.985 Fig 3a, ≈0.861 Fig 3b), the M25 baselines were
+  re-pinned again, the coefficient doc's transcription is fixed, and the
+  absolute-normalization pin test pins the corrected values.
 - **Stale at review time:** the "no clean committed revision" state was
   mid-session; the branch was subsequently committed and pushed, and a
   draft PR now provides hosted 3.13/3.14 CI.

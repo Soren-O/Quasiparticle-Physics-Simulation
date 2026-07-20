@@ -139,14 +139,23 @@ def pair_breaking_photon_collision_rates(
         # Mirror guard for the LOWER boundary (2026-07-20 review): a grid
         # whose first face starts above Δ leaves physical partners in
         # [Δ, first_face) unrepresented — a measured 26.8% generation loss
-        # in a reproduced case. Partners at or below Δ remain the physical
-        # sub-gap exclusion and are still skipped silently.
+        # in a reproduced case. The physicality test is CELL-OVERLAP, not
+        # the cell center: a partner cell centered at (or just below) Δ
+        # whose upper portion reaches above Δ still carries physical
+        # continuum weight (an 11.1% reproduced loss when only the center
+        # was tested). Partner cells wholly at or below Δ remain the
+        # physical sub-gap exclusion and are still skipped silently.
         bottom_edge = E[0] - 0.5 * dE_scalar
         E_partner_all = omega_PB_snapped - E
+        # Roundoff margin: on a face-at-the-gap grid the deepest off-grid
+        # partner sits exactly at gap - dE/2, and (omega - E_i) + dE/2 can
+        # land one ulp above the gap. A nano-bin of overlap carries no
+        # physical weight; require more than that before failing loud.
+        overlap_tol = 1e-9 * dE_scalar
         partner_below_bottom = (
             supported
             & (E_partner_all < bottom_edge)
-            & (E_partner_all > ctx.gap)
+            & (E_partner_all + 0.5 * dE_scalar > ctx.gap + overlap_tol)
         )
         if np.any(partner_below_bottom):
             n_dropped = int(np.count_nonzero(partner_below_bottom))

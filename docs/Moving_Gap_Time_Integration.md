@@ -129,13 +129,18 @@ general spectral solver:
   persistent characteristics above `E_max` stay a small correction. The
   backend measures this tail every materialization: up to `1e-3` of the
   quasiparticle NUMBER may sit above the window (warning above `1e-9`),
-  kept at its true `xi` in the persistent representation with frozen
-  (collisionless) dynamics and re-entering if the gap falls; beyond
-  `1e-3` it raises (2026-07-20 adjudication — previously any tail above
-  ~`5e-12` raised, which barred rising-gap/recovery trajectories).
-  Caveat: the bound is on QP number, not energy or collision-rate error
-  — the frozen tail is excluded from public observables, collisions,
-  and gap feedback while hidden. For quantitative recovery studies,
+  kept at its true `xi` in the persistent representation and re-entering
+  if the gap falls; beyond `1e-3` it raises (2026-07-20 adjudication —
+  previously any tail above ~`5e-12` raised, which barred
+  rising-gap/recovery trajectories). Caveats: (i) the bound is on QP
+  number, not energy or collision-rate error — the hidden tail is
+  excluded from public observables, collisions, and gap feedback;
+  (ii) only persistent rows lying WHOLLY above the window are truly
+  frozen — a straddling row shares one occupation value between its
+  visible and hidden portions, so the hidden portion co-evolves with
+  the visible dynamics (and the visible portion is correspondingly
+  mis-weighted). This is a bounded experimental approximation, not a
+  validated recovery method: for quantitative recovery studies,
   demonstrate `E_max`-independence of the observables (an error-budget
   study for this regime has not been performed).
 - Gap collapse to the normal state is not implemented; a non-positive stage

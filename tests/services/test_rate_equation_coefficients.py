@@ -7,7 +7,10 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from qpsim.services.rate_equation import solve_rate_equation_steady_state
+from qpsim.services.rate_equation import (
+    solve_rate_equation_steady_state,
+    solve_rate_equation_steady_state_multi_seed,
+)
 from qpsim.services.rate_equation_coefficients import (
     M25PhysicalParameters,
     _branching_fraction,
@@ -266,18 +269,19 @@ class TestDetailedBalance:
         assert series / exact == pytest.approx(1.0, abs=0.02)
 
     def test_tau_R_absolute_normalization_pinned(self) -> None:
-        # The series/exact ratio tests cancel the shared r^{R<}/4 prefactor
-        # and cannot detect a normalization change (2026-07-20 review). Pin
-        # the ABSOLUTE rate at the Fig 3a parameter set: the conversion
-        # 2*pi*b_R*Delta_R^3 = r^{R<}/4 is exact under M25 v2 App. D.3
-        # (r^alpha = 8*pi*b_alpha*Delta_alpha^3, the electrode's OWN gap);
-        # a proposed (Delta_R/Delta_bar)^3 factor (0.985 here) was refuted
-        # against the paper text and would trip these pins.
+        # The series/exact ratio tests cancel the shared prefactor and
+        # cannot detect a normalization change (2026-07-20 review). Pin the
+        # ABSOLUTE rate at the Fig 3a parameter set, including the
+        # (Delta_R/Delta_bar)^3 = 0.98486 conversion factor required by
+        # the paper's r^{R<} ~= 8*pi*b_R*Delta_bar^3 definition (M25 v2
+        # App. D.3, verified against the arXiv math source; a first-pass
+        # adjudication wrongly refuted the factor from a truncated
+        # extract). Dropping the factor inflates these by 1.54%.
         assert _tau_R_inverse(_fig3a_params(T_kelvin=0.030)) == pytest.approx(
-            4.121591098486147, rel=1e-6
+            4.059143818533248, rel=1e-6
         )
         assert _tau_R_inverse(_fig3a_params(T_kelvin=0.150)) == pytest.approx(
-            210.7014493084424, rel=1e-6
+            207.50905780791763, rel=1e-6
         )
 
     def test_tau_R_exact_departs_from_series_out_of_domain(self) -> None:
@@ -389,10 +393,17 @@ class TestBranchingFraction:
 
 class TestIntegrationWithSolver:
     def test_fig3a_low_T_steady_state_trapped_band_dominant(self) -> None:
-        """At T ≪ ω_LR, Fig 3a should have x_{R<} > x_L > x_{R>}."""
+        """At T ≪ ω_LR, Fig 3a should have x_{R<} > x_L > x_{R>}.
+
+        Uses the multi-seed production path: after the (Δ_R/Δ̄)³ tau_R
+        normalization fix the default single seed stalls at this point
+        with an in-tolerance residual (scipy no-progress status), and
+        multi-seed reseeding — what the shipped sweeps run — resolves it
+        without loosening the strict acceptance gate.
+        """
         params = _fig3a_params(T_kelvin=0.020)
         coefs = coefficients_from_physical_parameters(params)
-        ss = solve_rate_equation_steady_state(coefs)
+        ss = solve_rate_equation_steady_state_multi_seed(coefs)
         assert ss.x_Rlt > ss.x_L > ss.x_Rgt
         assert 0.0 < ss.p_1 < 1e-3  # negligible excitation at 20 mK
 

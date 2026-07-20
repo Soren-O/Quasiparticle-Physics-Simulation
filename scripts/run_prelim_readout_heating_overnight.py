@@ -51,6 +51,7 @@ from scripts.run_prelim_spatial_finite_phonon_one import (
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
     LENGTH_UM,
+    require_matching_header,
     _resonator_shifts,
     _source_calibration,
     _source_flux,
@@ -514,6 +515,7 @@ def main() -> None:
         shifts_path.unlink(missing_ok=True)
         completed: set[str] = set()
     else:
+        require_matching_header(summary_path, SUMMARY_FIELDS)
         completed = _completed_run_ids(summary_path)
     combinations = _combinations(config)
     if args.max_runs is not None:
