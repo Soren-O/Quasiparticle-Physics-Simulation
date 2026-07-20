@@ -110,7 +110,20 @@ def build_recombination_kernel_base(
     *,
     coherence: CoherenceAssignment = CoherenceAssignment.PHONON,
 ) -> np.ndarray:
-    """Base recombination kernel K₀ʳ(E_i, E_j), shape (NE, NE)."""
+    """Base recombination kernel K₀ʳ(E_i, E_j), shape (NE, NE).
+
+    Gap-cut-cell ω labeling (2026-07-20 review, adjudicated as a
+    DOCUMENTED approximation, not masked): a supported gap-cut cell
+    (center below Δ, active through its partial ``>= Δ`` capacity)
+    recombines through pairs whose center-sum ``E_i + E_j`` can label
+    the emitted phonon below ``2Δ``, although the pair's true
+    capacity-supported energies sum to ``>= 2Δ``. Emission and
+    absorption share the same discrete bin, so detailed balance is
+    exact; the mislabeling is bounded by the cut-cell width (one ``dE``)
+    and vanishes on fully covered grids. Zeroing such pairs instead was
+    tried and rejected: on the shipped Fig. 6 sub-gap-guard grid it
+    removed physical rate and shifted the derived ``τ_0^PB`` by ~21%.
+    """
     _require_ideal_bcs_context(ctx, "Electron-phonon recombination")
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
     return _recombination_kernel_base(ctx.E, ctx.gap, tau_0, T_c, coherence_factor=coh)
@@ -161,6 +174,8 @@ def build_recombination_kernel_phonon_side(
         raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
     if ctx.gap <= 0.0:
         raise ValueError(f"ctx.gap must be positive; got {ctx.gap}")
+    # Gap-cut-cell ω labeling: same documented approximation as
+    # build_recombination_kernel_base (no sub-threshold mask; see there).
     return np.asarray(coh, dtype=float) / (np.pi * ctx.gap * tau_0_pb_ns)
 
 

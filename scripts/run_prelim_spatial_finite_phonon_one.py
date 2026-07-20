@@ -440,7 +440,9 @@ def main() -> None:
             snapshots.append(_snapshot(t_ns, state, runner, last_dfdt, last_dnphdt))
             next_snapshot += CONFIG.snapshot_interval_ns
 
-        if last_dfdt < CONFIG.stop_tol:
+        # Converged only when BOTH residuals are quiet (2026-07-20 review:
+        # max|dn_ph/dt| lags max|df/dt| by up to ~8.7x on real trajectories).
+        if max(last_dfdt, last_dnphdt) < CONFIG.stop_tol:
             converged = True
             break
 

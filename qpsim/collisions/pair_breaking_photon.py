@@ -15,6 +15,8 @@ Ported from ``pair_breaking_photon_collision_rates`` in the old
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
@@ -91,6 +93,18 @@ def pair_breaking_photon_collision_rates(
             f"grid-commensurate (dE={dE_scalar:.6g} μeV, nearest m={m}, "
             f"fractional error={frac_err:.4f} > tol={_COMMENSURATE_TOL}). "
             f"Use m·dE={m * dE_scalar:.6g} μeV or refine the energy grid."
+        )
+    if frac_err > 1e-6:
+        # See sub_gap_photon: the accepted snap changes the SOLVED photon
+        # energy; occupancies chosen for the nominal omega (thermal Bose
+        # factors especially) must be evaluated at m*dE (2026-07-20 review).
+        warnings.warn(
+            f"pair_breaking_photon: omega_PB={omega_PB:.6g} μeV snapped to "
+            f"m·dE={m * dE_scalar:.6g} μeV ({frac_err:.2e} bins). Evaluate "
+            "any energy-dependent photon occupancy at the snapped energy, "
+            "not the nominal one.",
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     omega_PB_snapped = m * dE_scalar
@@ -191,6 +205,13 @@ def pair_breaking_photon_collision_rates(
             loss_rate[i] += c_phot_PB * U_plus * one_minus_f[j_down] * (n_bar_PB + 1)
 
         # --- 2 & 3. Generation + Recombination (K-, reflection partner) ---
+        # Hard pair threshold: a photon below 2Δ cannot create or absorb a
+        # QP pair, whatever cut-cell partners the grid happens to hold
+        # (2026-07-20 review: an exactly commensurate ω_PB = 1.6Δ on a
+        # gap-cut grid produced finite pair generation). Scattering above
+        # keeps operating at any ω.
+        if omega_PB_snapped < 2.0 * ctx.gap:
+            continue
         E_partner = omega_PB_snapped - E[i]
         j_r = round((E_partner - E[0]) / dE_scalar)
         if not (0 <= j_r < NE) or not supported[j_r]:

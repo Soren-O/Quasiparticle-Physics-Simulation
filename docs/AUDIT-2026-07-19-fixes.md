@@ -135,6 +135,61 @@ diagnoses and the H3 correction, and filed six findings. Adjudication:
   mid-session; the branch was subsequently committed and pushed, and a
   draft PR now provides hosted 3.13/3.14 CI.
 
+## 2026-07-20 second external-review round (GPT 5.6 Sol, round 3)
+
+Seven further findings, adjudicated and fixed on this branch:
+
+- **HIGH, confirmed:** the multi-region device outer loop (undamped
+  simultaneous updates, absolute 1e-8 tolerance) certified period-2
+  orbits and any cold-temperature state — at 100 mK the whole occupation
+  signal is ~8e-10, below the tolerance. Fixed with damped iteration
+  (θ=0.5 default) plus scale-aware relative fixed-point-defect
+  certification; the headline detailed-balance test now asserts 0.1%
+  agreement on the resolved head (its former atol exceeded the entire
+  signal), and the mismatched-T test's true physics (junction-dominated
+  cold region, ~1e5× above its bath FD) surfaced and is now asserted.
+- **Gap-cut sub-2Δ pairs, split adjudication:** the PHOTON pair block is
+  now hard-gated at ω ≥ 2Δ (a commensurate 1.6Δ photon produced finite
+  pair generation through cut-cell partners — unphysical, fixed, tested).
+  The PHONON kernel case is adjudicated as a DOCUMENTED ω-labeling
+  approximation instead: a supported cut cell's pair rate is physical
+  (capacity exists only ≥ Δ) and only its emitted-ω label is off by
+  ≤ one dE, with emission/absorption sharing the bin (detailed balance
+  exact). Masking those pairs was implemented, found to remove physical
+  rate — shifting Fig. 6's derived τ₀ᴾᴮ by ~21% on its shipped
+  sub-gap-guard grid — and reverted; tests pin the adjudicated
+  semantics.
+- **Accepted photon-frequency snaps** are now disclosed (RuntimeWarning
+  above 1e-6 bins) with the contract stated: occupancies chosen for the
+  nominal ω (thermal Bose factors especially) must be evaluated at the
+  snapped m·dE. No shipped caller pairs a thermal occupancy with a
+  snapped ω today.
+- **Fig. 7 dashed analytics rewritten to the paper's Eqs. 63 + 65**
+  (verified against the arXiv math source): the old overlay used
+  (Δ/T*)^{3/2} where Eq. 63 has power 3, and substituted an equilibrium
+  expression for the driven Eq. 65 branch — dashed curves were off by up
+  to ~6× at 0.30 K. Plot-time only; certified numerics untouched.
+- **Eq. 47 trapping correction** (paper Eq. 112 leading order) added to
+  the R̄ linear term in `_paper_envelope` and `fig5_paper` — the Fig. 6
+  plot derivation already applied it; the overlays were 1.5–7.4% low.
+  The fig6 CSV analytic columns were regenerated closed-form (input
+  reconstruction verified to 4e-16 first) and the previously
+  self-referential standalone-repro pins updated.
+- **Campaign runners:** all five finite-phonon scripts now gate
+  convergence on BOTH max|df/dt| and max|dn_ph/dt| (phonon residuals
+  lagged up to 8.7×); the readout runner writes shift rows before the
+  summary commit marker; appends refuse stale headers and re-write
+  headers over zero-byte files.
+- **Lows:** material YAML files now fold into `solve_source_digest`
+  (a sound-velocity edit invalidates cached solves); the cache writes
+  the provenance sidecar before promoting the payload (an accepted
+  payload always has provenance); Fig. 7's fixed-Δ₀/single-grid
+  convention is documented at `_build_grid` (~0.17% gap mismatch at
+  0.34 K); the findings JSON carries schema-caveat metadata.
+- **Deferred, documented:** WebUI run provenance, exhaustive public-API
+  input validation, M25 stamp-disappearance fallback semantics, and a
+  moving-gap recovery error-budget study.
+
 ## Full audit record
 
 Complete findings (incl. 40 lows and 5 newly refuted false positives):

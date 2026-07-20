@@ -421,10 +421,12 @@ def require_matching_header(path: Path, fieldnames: list[str]) -> None:
 
 
 def _append_csv(path: Path, row: dict[str, object], fieldnames: list[str]) -> None:
-    exists = path.exists()
+    # Header when the file is missing OR zero-byte: a truncated/empty file
+    # must not silently accumulate headerless rows (2026-07-20 review).
+    needs_header = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=fieldnames, extrasaction="ignore")
-        if not exists:
+        if needs_header:
             writer.writeheader()
         writer.writerow(row)
         fp.flush()

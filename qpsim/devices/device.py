@@ -18,7 +18,7 @@ For Phase 3 the inner per-region solve uses ``use_thermal_phonons=True``
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -120,11 +120,12 @@ class DeviceSolution:
     n_outer_iterations
         Number of outer Picard iterations consumed.
     final_max_delta_f
-        Largest ``max|Δf|`` across all regions on the last iteration.
-        Below ``outer_tol`` at success.
+        Largest UNDAMPED fixed-point defect ``max|F(f) - f|`` across
+        all regions on the last iteration. At success every region's
+        defect is below ``outer_tol * ||f||_inf`` (scale-aware).
     final_max_delta_p
-        Largest ``max|Δp|`` across the qubit state on the last
-        iteration. Zero when no qubit is present. Below ``outer_tol``
+        Qubit fixed-point defect ``max|Δp|`` on the last iteration.
+        Zero when no qubit is present; below ``outer_tol * ||p||_inf``
         at success.
     """
 
@@ -154,19 +155,34 @@ def solve_device_steady_state(
     backend: T3DiffusionBackend | None = None,
     use_thermal_phonons: bool = True,
     inner_anderson_depth: int = 3,
-    outer_tol: float = 1e-8,
+    outer_tol: float = 1e-6,
     outer_max_iter: int = 100,
+    outer_damping: float = 0.5,
     inner_newton_tol: float = 1e-12,
     inner_newton_max_iter: int = 200,
 ) -> DeviceSolution:
-    """Outer Picard loop on (junction fluxes ↔ per-region steady states).
+    """Damped outer Picard loop on (junction fluxes ↔ region states).
 
     Each outer iteration:
       1. Evaluate every Junction at the current region states; sum the
          per-region :class:`ExternalFlux` contributions.
       2. For each region, solve the steady-state ``f(E)`` at the
          aggregated boundary flux via the T3 backend.
-      3. Check convergence: max over regions of ``max|f_new - f_old|``.
+      3. Measure the UNDAMPED fixed-point defect ``max|F(x) - x|`` per
+         region, then take the damped step
+         ``x_next = x + outer_damping*(F(x) - x)``.
+      4. Certify convergence with a SCALE-AWARE tolerance: every
+         region's defect must satisfy
+         ``defect <= outer_tol * max(||f||_inf, tiny)`` (and the qubit
+         defect likewise against ``||p||_inf = O(1)``).
+
+    History (2026-07-20 external review): the previous undamped
+    simultaneous update certified successive-iterate deltas against an
+    ABSOLUTE 1e-8 tolerance. At 100 mK the entire occupation signal is
+    ~8e-10, so any state pair — including a 50%-wrong region swap on a
+    period-2 orbit of the Jacobi map — certified as converged. Damping
+    breaks two-cycles; the relative defect certification makes cold
+    regions as strict as warm ones.
 
     Parameters
     ----------
@@ -184,10 +200,18 @@ def solve_device_steady_state(
         Forwarded to the inner backend solve when relevant. Ignored
         when ``use_thermal_phonons=True``.
     outer_tol
-        Convergence threshold on the largest per-region ``|Δf|`` over
-        consecutive outer iterations.
+        RELATIVE convergence threshold: each region's undamped
+        fixed-point defect ``max|F(f) - f|`` must fall below
+        ``outer_tol * ||f||_inf`` (with a tiny absolute floor for
+        all-zero states). The qubit defect is certified the same way
+        against ``||p||_inf``.
     outer_max_iter
         Hard cap on the outer Picard iteration count.
+    outer_damping
+        Damping factor θ in ``x_next = x + θ(F(x) - x)``; ``1.0``
+        recovers the undamped update. The 0.5 default suppresses the
+        period-2 Jacobi oscillations of symmetric exchange-coupled
+        regions.
     inner_newton_tol, inner_newton_max_iter
         Inner backend solver controls.
 
@@ -291,20 +315,44 @@ def solve_device_steady_state(
                 all_qubit_channels, device.qubit,
             )
 
-        # Step 3: convergence check on regions AND qubit
-        last_delta_f = max(
-            float(np.max(np.abs(new_states[name].f - states[name].f)))
-            for name in states
-        )
-        last_delta_p = (
-            float(np.max(np.abs(new_qubit_state.p - qubit_state.p)))
-            if (qubit_state is not None and new_qubit_state is not None)
-            else 0.0
-        )
-        states = new_states
-        qubit_state = new_qubit_state
+        # Step 3: scale-aware fixed-point defect per region, BEFORE damping.
+        # A tiny absolute floor keeps an all-zero region from demanding
+        # defect == 0 exactly.
+        converged = True
+        last_delta_f = 0.0
+        for name in states:
+            defect = float(np.max(np.abs(new_states[name].f - states[name].f)))
+            scale = max(float(np.max(np.abs(new_states[name].f))), 1e-300)
+            last_delta_f = max(last_delta_f, defect)
+            if defect > outer_tol * scale:
+                converged = False
+        last_delta_p = 0.0
+        if qubit_state is not None and new_qubit_state is not None:
+            last_delta_p = float(np.max(np.abs(new_qubit_state.p - qubit_state.p)))
+            p_scale = max(float(np.max(np.abs(new_qubit_state.p))), 1e-300)
+            if last_delta_p > outer_tol * p_scale:
+                converged = False
 
-        if max(last_delta_f, last_delta_p) < outer_tol:
+        # Step 4: damped update x_next = x + θ(F(x) − x). Damping breaks
+        # the period-2 orbits of the undamped simultaneous (Jacobi) map.
+        damped_states: dict[str, T3DiffusionState] = {}
+        for name in states:
+            f_damped = states[name].f + outer_damping * (
+                new_states[name].f - states[name].f
+            )
+            damped_states[name] = replace(new_states[name], f=f_damped)
+        states = damped_states
+        if qubit_state is not None and new_qubit_state is not None:
+            p_damped = qubit_state.p + outer_damping * (
+                new_qubit_state.p - qubit_state.p
+            )
+            p_damped = np.maximum(p_damped, 0.0)
+            p_damped = p_damped / p_damped.sum()
+            qubit_state = QubitState(p=p_damped)
+        else:
+            qubit_state = new_qubit_state
+
+        if converged:
             return DeviceSolution(
                 states=states,
                 qubit_state=qubit_state,
@@ -315,6 +363,7 @@ def solve_device_steady_state(
 
     raise RuntimeError(
         f"Device outer Picard loop did not converge in {outer_max_iter} "
-        f"iterations. Final max |Δf| = {last_delta_f:.2e}, "
-        f"max |Δp| = {last_delta_p:.2e} (tol {outer_tol:.2e})."
+        f"iterations. Final fixed-point defect max |F(f)-f| = "
+        f"{last_delta_f:.2e}, max |Δp| = {last_delta_p:.2e} "
+        f"(relative tol {outer_tol:.2e}, damping {outer_damping:g})."
     )

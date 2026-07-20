@@ -239,10 +239,12 @@ def _run_id(
 
 
 def _append_rows(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
-    exists = path.exists()
+    # Header when the file is missing OR zero-byte: a truncated/empty file
+    # must not silently accumulate headerless rows (2026-07-20 review).
+    needs_header = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=fieldnames, extrasaction="ignore")
-        if not exists:
+        if needs_header:
             writer.writeheader()
         writer.writerows(rows)
         fp.flush()
@@ -562,8 +564,13 @@ def main() -> None:
             )
             if shift_fields is None:
                 shift_fields = list(shift_rows[0].keys())
-            _append_rows(summary_path, [summary_row], SUMMARY_FIELDS)
+            # Shift rows FIRST, the summary row LAST: the summary row is the
+            # commit marker resume gates on, so a crash between the two
+            # writes leaves an orphan shift attempt (harmless, superseded on
+            # re-run) rather than a "completed" summary with no shifts
+            # (2026-07-20 review). Readers take the LAST row per run_id.
             _append_rows(shifts_path, shift_rows, shift_fields)
+            _append_rows(summary_path, [summary_row], SUMMARY_FIELDS)
             completed.add(run_id)
             print(
                 f"[{run_number}/{len(combinations)}] done {run_id}: "

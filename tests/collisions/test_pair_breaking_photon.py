@@ -267,3 +267,22 @@ class TestOffGridPartnerGuards:
         gain, _loss = pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-9)
         assert np.all(np.isfinite(gain))
         assert float(np.max(gain)) > 0.0
+
+    def test_sub_2delta_photon_produces_no_pair_generation(self) -> None:
+        # 2026-07-20 review repro: an exactly commensurate omega_PB = 1.6*gap
+        # on a gap-cut grid produced finite pair generation through cut-cell
+        # partners. Below 2*gap the K- block must be inert entirely;
+        # with f = 0 and n_bar > 0 any nonzero gain is unphysical creation.
+        gap = 1.0
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1, cut cells at 0.85..0.95
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        omega = 1.6  # 16*dE: exactly commensurate, below 2*gap
+        f = np.zeros_like(E)
+        gain, loss = pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-2)
+        # Pair generation must vanish identically (pre-fix: gain[0]=0.0723).
+        assert np.all(gain == 0.0)
+        # The scattering channel legitimately keeps a finite loss-rate
+        # COEFFICIENT at any omega (absorption moving a QP up); with f=0
+        # no actual loss occurs.
+        assert np.all(np.isfinite(loss))

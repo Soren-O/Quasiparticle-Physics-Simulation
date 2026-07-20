@@ -11,6 +11,8 @@ Ported from ``photon_collision_rates`` in the old
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
@@ -83,6 +85,22 @@ def sub_gap_photon_collision_rates(
             f"commensurate (dE={dE_scalar:.6g} μeV, nearest m={m}, "
             f"fractional error={frac_err:.4f} > tol={_COMMENSURATE_TOL}). "
             f"Use m·dE={m * dE_scalar:.6g} μeV or refine the energy grid."
+        )
+    if frac_err > 1e-6:
+        # The accepted snap changes the SOLVED photon energy to m*dE while
+        # n_bar remains whatever the caller chose for the nominal omega_0.
+        # For a drive-set occupancy that is a labeling shift; for a
+        # THERMAL occupancy (Bose factor at omega_0) the mismatch breaks
+        # detailed balance measurably (2026-07-20 review: up to 5.4% at
+        # 50 mK for a 0.0099-bin offset). Disclose the snap so callers
+        # can evaluate occupancies at the energy actually solved.
+        warnings.warn(
+            f"sub_gap_photon: omega_0={omega_0:.6g} μeV snapped to "
+            f"m·dE={m * dE_scalar:.6g} μeV ({frac_err:.2e} bins). Evaluate "
+            "any energy-dependent photon occupancy (thermal Bose factors "
+            "especially) at the snapped energy, not the nominal one.",
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     # A fixed photon step maps one finite-volume cell to another.  The

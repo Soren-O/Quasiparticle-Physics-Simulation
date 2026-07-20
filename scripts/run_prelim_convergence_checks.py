@@ -183,7 +183,11 @@ def _run_case(
         state, max_dfdt, max_dnphdt = runner.step(state, config.dt_ns, source)
         t_ns += config.dt_ns
         n_steps += 1
-        if max_dfdt < config.stop_tol:
+        # Converged only when BOTH residuals are quiet: the phonon field's
+        # max|dn_ph/dt| lags max|df/dt| by up to ~8.7x on real
+        # trajectories (2026-07-20 review); gating on f alone declared
+        # convergence with the coupled phonons still moving.
+        if max(max_dfdt, max_dnphdt) < config.stop_tol:
             converged = True
             break
 

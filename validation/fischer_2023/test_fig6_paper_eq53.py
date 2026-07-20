@@ -65,16 +65,19 @@ def test_thermal_bracket_at_unit_xqp() -> None:
 #  expected_delta_drive_over_Delta_0). Computed at full float64 precision once and
 # pinned here. If these drift, either Eq. 47 (fig5) or Eq. 53 coefficients changed.
 # expected_delta_drive includes the ×2 qpsim→paper x_qp conversion the drive
-# helper applies internally (audit fix 2026-07-19; exactly double the pre-fix pins).
+# helper applies internally (audit fix 2026-07-19; exactly double the
+# pre-fix pins), and expected_x carries the finite-τ_l trapping correction
+# on Eq. 47's R̄ linear term (2026-07-20 review; ~1.8–6.5% above the
+# untrapped values at these points).
 _DRIVE_CHAIN_PIN = (
     (0.10, 1e6, 0.368, 0.255,
-     2.1390538027163498e-10, 0.34257088191155877, 3.773026895731878e-10),
+     2.178485107959453e-10, 0.34257088191155877, 3.842578851380265e-10),
     (0.10, 1e8, 0.368, 0.255,
-     0.00040445020425378006, 0.7380465917850781, 0.000655093853249429),
+     0.00043091703283618403, 0.7380465917850781, 0.0006979625588081977),
     (0.20, 1e7, 0.368, 0.255,
-     9.935729897452216e-06, 0.5028252895784324, 1.6780189897261048e-05),
+     1.0183895902459194e-05, 0.5028252895784324, 1.719931086099916e-05),
     (0.15, 5e7, 0.368, 0.255,
-     4.502280913067455e-05, 0.6575247625491724, 7.374323174420589e-05),
+     4.776641510300621e-05, 0.6575247625491724, 7.823700667604587e-05),
 )
 
 

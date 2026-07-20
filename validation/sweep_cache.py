@@ -116,7 +116,7 @@ def default_cache_dir() -> Path:
 
 
 def solve_source_digest(qpsim_root: Path | None = None) -> str:
-    """SHA-256 over all ``qpsim/**/*.py`` except the ``observables`` subpackage.
+    """SHA-256 over ``qpsim/**/*.py`` (minus ``observables``) plus ``qpsim/**/*.yaml``.
 
     The relative path is folded in alongside each file's newline-normalized
     bytes so that moving or renaming a module also changes the digest while LF
@@ -133,6 +133,11 @@ def solve_source_digest(qpsim_root: Path | None = None) -> str:
         for p in qpsim_root.rglob("*.py")
         if p.relative_to(qpsim_root).parts[0] != _OBSERVABLES_PKG
     )
+    # Material parameter tables are solve inputs exactly like source code:
+    # a sound-velocity or gap edit in a YAML must invalidate cached solves
+    # (2026-07-20 review: an acoustic-escape Fig. 6 run could previously
+    # reuse stale results after such a change).
+    files += sorted(qpsim_root.rglob("*.yaml")) + sorted(qpsim_root.rglob("*.yml"))
     for p in files:
         rel = p.relative_to(qpsim_root).as_posix()
         h.update(rel.encode())
@@ -311,6 +316,22 @@ def store(
     # redirect either file outside the configured cache root.
     npz_path, meta_path = _entry_paths(cache_dir, figure, key)
 
+    # Provenance sidecar FIRST, payload second (2026-07-20 review): the
+    # invariant is "an accepted payload always has provenance". An orphan
+    # sidecar without a payload is inert (load() keys on the .npz); the
+    # reverse — a promoted payload whose sidecar write then fails — would
+    # be served without provenance. Both writes use temp+rename so an
+    # interrupted write never leaves a truncated file (2026-07-19 audit).
+    if provenance is not None:
+        meta_fd, meta_tmp = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
+        try:
+            with os.fdopen(meta_fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
+            os.replace(meta_tmp, meta_path)
+        except BaseException:
+            Path(meta_tmp).unlink(missing_ok=True)
+            raise
+
     fd, tmp_name = tempfile.mkstemp(dir=npz_path.parent, suffix=".npz.tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -321,19 +342,6 @@ def store(
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
-
-    if provenance is not None:
-        # Same temp+rename discipline as the .npz: an interrupted or
-        # concurrent write must not leave truncated provenance beside a
-        # valid cache entry (2026-07-19 audit).
-        meta_fd, meta_tmp = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
-        try:
-            with os.fdopen(meta_fd, "w", encoding="utf-8") as fh:
-                fh.write(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
-            os.replace(meta_tmp, meta_path)
-        except BaseException:
-            Path(meta_tmp).unlink(missing_ok=True)
-            raise
     return npz_path
 
 

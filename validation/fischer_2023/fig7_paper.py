@@ -917,30 +917,47 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
     }
     fallback_cmap = matplotlib.colormaps["viridis_r"]
 
-    # Analytical Q_i overlay (paper-repro figures/fig7.py): combine Eq. F1
-    # thermal-equilibrium Q with Eq. 62 low-T non-equilibrium plateau in
-    # parallel with Q_ext (Eq. 65). Closed-form, no kinetic solve needed.
-    from scipy.special import k0 as _k0
+    # Analytical Q_i overlay, paper-faithful Eqs. 63 + 65 (2026-07-20
+    # review: the previous overlay used (Δ/T*)^{3/2} where Eq. 63 has
+    # power 3, and substituted the equilibrium Eq. F1 expression for the
+    # published DRIVEN high-T branch Eq. 65 — dashed curves were off by
+    # up to ~6x at 0.30 K). Verified against arXiv:2212.08155 v2:
+    #   Eq. 63: Q_{i,0} = (γ0 Δ/(α ω0)) (τ0^PB/τ_l) (Δ/T*,0)^3
+    #                       · exp(√(14/5) (Δ/T*,0)^3)
+    #   Eq. 65: Q_i = sqrt((Q_c/2)^2 + (2.1√2 π Δ/(2.3 α ω0))^2
+    #                       (T*,0/Δ)^3 x_th^{-2}) − Q_c/2,
+    #           x_th = N_qp^{T_B}/(2 ρ_F Δ) = sqrt(2π T_B/Δ) e^{−Δ/T_B}.
+    # The dashed curve adds the two loss channels harmonically and then
+    # parallels with Q_ext, as before.
+    GAMMA0 = 19.3  # γ0 = π 2^{1/3} 5 √7 (2.1)^2/(2.3·3^{3/2}), Eq. 63
 
-    GAMMA0 = 19.3
-
-    def _Qth(T_K: float) -> float:
+    def _x_th_paper(T_K: float) -> float:
         T_uev = T_K * KB_UEV_PER_K
         if T_uev <= 0:
-            return np.inf
-        x = OMEGA_0 / (2.0 * T_uev)
-        return np.pi / (4.0 * ALPHA_KI * np.sinh(x) * _k0(x)) * np.exp(DELTA_0 / T_uev)
+            return 0.0
+        return float(
+            np.sqrt(2.0 * np.pi * T_uev / DELTA_0) * np.exp(-DELTA_0 / T_uev)
+        )
 
-    def _Q_neq_lowT(p_dbm: float) -> float:
-        # Eq. 62: depends only on (Δ, ω0, α, τ_l, τ_0^PB, T*).
-        kBTs = (TSTAR_OVER_DELTA[float(p_dbm)] * DELTA_0)
+    def _Q_i0_eq63(p_dbm: float) -> float:
+        kBTs = TSTAR_OVER_DELTA[float(p_dbm)] * DELTA_0
         if TAU_L <= 0:
             return np.inf
         arg = float(np.sqrt(14.0 / 5.0)) * (DELTA_0 / kBTs) ** 3
         if arg > 700.0:
             return np.inf
         return (GAMMA0 * DELTA_0 / (ALPHA_KI * OMEGA_0)) * (TAU_0_PB / TAU_L) \
-            * (DELTA_0 / kBTs) ** 1.5 * np.exp(arg)
+            * (DELTA_0 / kBTs) ** 3 * np.exp(arg)
+
+    def _Q_i_eq65(p_dbm: float, T_K: float, Q_c: float) -> float:
+        x_th = _x_th_paper(T_K)
+        if x_th <= 0.0:
+            return np.inf
+        amplitude = 2.1 * np.sqrt(2.0) * np.pi * DELTA_0 / (2.3 * ALPHA_KI * OMEGA_0)
+        ts3 = TSTAR_OVER_DELTA[float(p_dbm)] ** 3
+        return float(
+            np.sqrt((Q_c / 2.0) ** 2 + amplitude**2 * ts3 / x_th**2) - Q_c / 2.0
+        )
 
     fig, ax = plt.subplots(figsize=(6.0, 4.4))
     T_dense = np.linspace(float(np.min(result.T_bath)),
@@ -954,10 +971,14 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
             "o-", lw=1.4, ms=3.0, color=color, label=f"{p:g} dBm",
         )
         if float(p) in TSTAR_OVER_DELTA:
-            Q_neq = _Q_neq_lowT(float(p))
+            Q_i0 = _Q_i0_eq63(float(p))
             Q_ext = Q_EXT_BY_DBM[float(p)]
             Qa = np.array([
-                1.0 / (1.0 / _Qth(T) + 1.0 / max(Q_neq, 1.0)) for T in T_dense
+                1.0 / (
+                    1.0 / max(_Q_i_eq65(float(p), T, Q_ext), 1.0)
+                    + 1.0 / max(Q_i0, 1.0)
+                )
+                for T in T_dense
             ])
             Qa = 1.0 / (1.0 / np.maximum(Qa, 1.0) + 1.0 / Q_ext)
             ax.semilogy(T_dense, Qa, color=color, ls="--", lw=1.0)

@@ -94,7 +94,11 @@ def _run_one_temperature(T_bath_K: float) -> dict[str, float | bool]:
         state, max_dfdt, max_dnphdt = runner.step(state, CONFIG.dt_ns, source)
         t_ns += CONFIG.dt_ns
         n_steps += 1
-        if max_dfdt < CONFIG.stop_tol:
+        # Converged only when BOTH residuals are quiet: the phonon field's
+        # max|dn_ph/dt| lags max|df/dt| by up to ~8.7x on real
+        # trajectories (2026-07-20 review); gating on f alone declared
+        # convergence with the coupled phonons still moving.
+        if max(max_dfdt, max_dnphdt) < CONFIG.stop_tol:
             converged = True
             break
 

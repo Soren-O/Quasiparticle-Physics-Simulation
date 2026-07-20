@@ -704,3 +704,59 @@ class TestKaplanRecombinationNormalization:
         # Keep a bounded continuum comparison in addition to the exact
         # discrete-form tests above.
         assert 0.85 < ratio < 1.15
+
+
+class TestGapCutCellPairLabeling:
+    """2026-07-20 review adjudication: supported gap-cut cells recombine
+    through pairs whose CENTER-sum can label the emitted phonon below 2Δ
+    although the capacity-supported pair energy is >= 2Δ. This is a
+    DOCUMENTED labeling approximation (bounded by one dE, vanishing on
+    covered grids), deliberately NOT masked: zeroing those pairs removed
+    physical rate and shifted Fig. 6's derived tau_0^PB by ~21%. These
+    tests pin the adjudicated semantics: the pair rate stays live, and
+    emission/absorption share the bin (detailed balance exact)."""
+
+    def _cut_ctx(self):
+        # gap INSIDE the [0.90, 1.00] cell: its center 0.95 sits below the
+        # gap while the [0.97, 1.00] sliver gives it finite capacity — a
+        # genuine supported gap-cut cell (a face-aligned gap has none).
+        gap = 0.97
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1
+        dE = integration_widths_from_centers(E)
+        return SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+
+    def test_supported_cut_cell_pairs_keep_finite_rate(self) -> None:
+        ctx = self._cut_ctx()
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        supported = ctx.cell_weights > 0.0
+        pair_sum = ctx.E[:, None] + ctx.E[None, :]
+        sub = pair_sum < 2.0 * ctx.gap - 1e-12
+        cut_pairs = sub & supported[:, None] & supported[None, :]
+        assert cut_pairs.any()  # the labeling case genuinely exists here
+        assert float(np.max(K_r0[cut_pairs])) > 0.0  # not masked
+
+    def test_emission_and_absorption_share_the_sub_label_bin(self) -> None:
+        # Detailed balance at the discrete level: the thermal fixed point of
+        # dn/dt = a + b n at every omega bin (including sub-2Delta-labeled
+        # ones) is the Bose-Einstein occupation, because both directions use
+        # the same kernel entry.
+        ctx = self._cut_ctx()
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+        T = 0.2
+        kT = KB_UEV_PER_K * T
+        f_th = np.where(
+            ctx.cell_weights > 0.0,
+            1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0),
+            0.0,
+        )
+        a_ph, b_ph = compute_phonon_source_sink(
+            f_th, ctx, None, K_r0, idx_diff, idx_sum, diff_sign, omega.size,
+            enable_scattering=False,
+        )
+        from qpsim.physics.kernels import thermal_phonon_occupation
+
+        n_th = thermal_phonon_occupation(omega, T)
+        act = (-b_ph) > 0
+        fixed_point = a_ph[act] / (-b_ph[act])
+        np.testing.assert_allclose(fixed_point, n_th[act], rtol=1e-10, atol=1e-30)

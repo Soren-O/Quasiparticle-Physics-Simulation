@@ -49,14 +49,18 @@ def test_thermal_closed_form_TB_020() -> None:
     assert got == pytest.approx(expected, rel=1e-12)
 
 
-# (T_B [K], n̄, τ_l [ns]) → x_qp from standalone repro nqp_steady at ρ_F=1
-# with Params.tau0_PB monkeypatched to 0.255 ns to match our extractor.
-# Bracketing weak/strong drive and τ_l = 0 / τ_l = τ_0^PB regimes.
+# (T_B [K], n̄, τ_l [ns]) → x_qp reference values. Originally pinned from
+# the standalone repro's nqp_steady (ρ_F=1, tau0_PB=0.255 ns); the τ_l>0
+# entries were UPDATED 2026-07-20 to include the finite-τ_l trapping
+# correction on R̄'s linear term (paper Eq. 112 leading order) that the
+# standalone repro also omitted — the old pins were self-referential to
+# the same untrapped helper (external review). τ_l = 0 entries are
+# trap-free and unchanged.
 _STANDALONE_REFERENCES = [
-    ((0.10, 1.0e6, 0.255), 2.139052e-10),
-    ((0.10, 1.0e7, 0.255), 7.079006e-09),
-    ((0.15, 1.0e7, 0.255), 2.681503e-07),
-    ((0.20, 1.0e8, 0.255), 2.805633e-04),
+    ((0.10, 1.0e6, 0.255), 2.172289e-10),
+    ((0.10, 1.0e7, 0.255), 7.379332e-09),
+    ((0.15, 1.0e7, 0.255), 2.738610e-07),
+    ((0.20, 1.0e8, 0.255), 2.959329e-04),
     ((0.10, 1.0e8, 0.000), 1.906886e-10),
     ((0.10, 0.0,   0.000), 2.325461e-10),
 ]

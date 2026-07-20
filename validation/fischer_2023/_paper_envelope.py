@@ -151,13 +151,22 @@ def G_drive(p: EnvelopeParams, x: float) -> float:
 
 
 def R_bar(p: EnvelopeParams, rhoF: float = 1.0) -> float:
-    """Eq. E2."""
+    """Eq. E2 with the finite-τ_l trapping correction on the linear term.
+
+    The ω-dependent phonon trapping factor ζ(ω) = 1 + τ_l/τ_PB(ω)
+    (paper Eq. 112) modifies the linear ε coefficient of R̄/R by
+    (1 + τ_l/(2τ₀ᴾᴮ))/(1 + τ_l/τ₀ᴾᴮ) — the same `_rbar_tau_linear`
+    factor the Fig. 6 plot derivation applies. Omitting it here left
+    the Fig. 3/5 Eq. 47 overlays low by 1.5–7.4% (2026-07-20 review).
+    """
     a_m12, a_p12, a_p32 = 2.1, 0.88, 0.77
     eps = Tstar(p) / p.Delta0
+    ratio = p.tau_l / p.tau0_PB if p.tau0_PB > 0 else 0.0
+    trap = (1.0 + 0.5 * ratio) / (1.0 + ratio) if ratio > 0 else 1.0
     c1 = a_p12 / a_m12
     c2 = 1.25 * (a_p32 / a_m12) - 0.75 * (a_p12 / a_m12) ** 2
     R = 2.0 * p.Delta0 ** 2 / (rhoF * _tau_bar(p) * p.Tc_uev ** 3)
-    return R * (1.0 + c1 * eps + c2 * eps ** 2)
+    return R * (1.0 + trap * c1 * eps + c2 * eps ** 2)
 
 
 def nqp_steady(p: EnvelopeParams, rhoF: float = 1.0) -> float:

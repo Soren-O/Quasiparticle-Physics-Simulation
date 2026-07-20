@@ -339,24 +339,28 @@ class TestDetailedBalanceMatchedTemperature:
             ],
         )
 
-        sol = solve_device_steady_state(device, outer_tol=1e-9)
+        sol = solve_device_steady_state(device)
         assert isinstance(sol, DeviceSolution)
-        assert sol.final_max_delta_f < 1e-9
 
-        # Both regions should land on the SAME f, and that f should
-        # match the bath Fermi-Dirac to within thermal-Newton tol.
+        # SCALE-AWARE assertions (2026-07-20 review): at 100 mK the whole
+        # occupation signal is ~8e-10, so the former absolute atol=1e-8/1e-9
+        # gates were larger than the signal and passed for ANY state —
+        # including a 50%-wrong region swap the undamped outer loop used to
+        # certify. Compare relatively on the resolved head of the
+        # distribution and absolutely only far below the signal.
         f_L_final = sol.states["L"].f
         f_R_final = sol.states["R"].f
-        np.testing.assert_allclose(f_L_final, f_R_final, atol=1e-9)
-
-        # Both should match the bath Fermi-Dirac.
         E = sol.states["L"].spectral.E
         kT = KB_UEV_PER_K * T_bath
         f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
-        # Generous tolerance: the T3 Newton uses 1e-12 internally,
-        # so the per-region answer is at machine precision but the
-        # outer Picard adds another few orders of slop.
-        np.testing.assert_allclose(f_L_final, f_FD, atol=1e-8)
+        signal = float(np.max(f_FD))
+        assert sol.final_max_delta_f < 1e-6 * signal
+
+        head = f_FD > 1e-16
+        assert head.any()
+        np.testing.assert_allclose(f_L_final[head], f_R_final[head], rtol=1e-6)
+        np.testing.assert_allclose(f_L_final[head], f_FD[head], rtol=1e-3)
+        np.testing.assert_allclose(f_L_final, f_FD, atol=1e-3 * signal)
 
     def test_junction_flux_vanishes_at_detailed_balance(self) -> None:
         # The net junction current at the converged state should be
@@ -417,12 +421,16 @@ class TestMismatchedTemperatures:
                 ),
             ],
         )
-        # Outer Picard convergence at 1e-5 — the detailed-balance test
-        # above pins 1e-9 in the matched-T case where the outer loop
-        # is effectively trivial. Mismatched T has slow outer modes the
-        # plain Picard takes many iterations to drain; outer Anderson
-        # acceleration is a Phase 4+ improvement.
-        sol = solve_device_steady_state(device, outer_tol=1e-5)
+        # Mismatched T has a genuinely slow outer mode: under the
+        # scale-aware relative certification (2026-07-20 review) the
+        # damped Picard needs ~1200 iterations (~5 s) to drain it to
+        # 1e-5 relative. The former absolute 1e-5 gate certified after
+        # far fewer iterations at up to ~30% relative slack on the warm
+        # region. Outer Anderson acceleration remains a Phase 4+
+        # improvement.
+        sol = solve_device_steady_state(
+            device, outer_tol=1e-5, outer_max_iter=2000,
+        )
 
         # Both regions reach valid distributions in [0, 1].
         for name in ("L", "R"):
@@ -430,14 +438,34 @@ class TestMismatchedTemperatures:
             assert np.all(f >= 0.0)
             assert np.all(f <= 1.0)
 
-        # Each region stays close to its own bath FD (weak tunneling).
+        # The former atol=1e-4 gate exceeded both signals (max f:
+        # L ~8e-6, R bath ~8e-10) and asserted "each region stays close
+        # to its own bath FD" — which is NOT the physics here: at
+        # 100 mK the cold region's e-ph relaxation is exponentially
+        # slow, so alpha=1e-4/ns tunneling DOMINATES it and the regions
+        # nearly equilibrate through the junction. Measured fixed
+        # point: L depressed 27-47% below its bath FD on the head; R
+        # elevated ~1e5x above its own bath FD, tracking L. Assert that
+        # real structure (2026-07-20 review).
         E = sol.states["L"].spectral.E
         f_FD_L = 1.0 / (np.exp(np.minimum(E / (KB_UEV_PER_K * T_L), 500.0)) + 1.0)
         f_FD_R = 1.0 / (np.exp(np.minimum(E / (KB_UEV_PER_K * T_R), 500.0)) + 1.0)
-        # Loose tol matching the outer-Picard residual; strict check
-        # is in the matched-T detailed-balance test above.
-        np.testing.assert_allclose(sol.states["L"].f, f_FD_L, atol=1e-4)
-        np.testing.assert_allclose(sol.states["R"].f, f_FD_R, atol=1e-4)
+        head_L = f_FD_L > 1e-16
+        f_L = sol.states["L"].f
+        f_R = sol.states["R"].f
+        # L: depleted below its bath FD by the drain into R, but within
+        # a factor of 2.
+        assert np.all(f_L[head_L] < f_FD_L[head_L])
+        assert np.all(f_L[head_L] > 0.5 * f_FD_L[head_L])
+        # R: far above its own bath FD (junction-dominated; ~1e4x at the
+        # gap edge). Near-equilibration with L holds only at the gap
+        # edge — at higher E the e-ph rates grow (Kaplan) and R's f
+        # decays away from L's (measured ratio 1.02 at the edge falling
+        # to ~1e-3 at the top of L's head).
+        assert np.all(f_R[head_L] > f_FD_R[head_L])
+        assert float(np.max(f_R)) > 1e3 * float(np.max(f_FD_R))
+        edge_ratio = float(f_R[head_L][0] / f_L[head_L][0])
+        assert 1.0 / 3.0 < edge_ratio < 3.0
 
 
 # ═══════════════════════════════════════════════════════════════════════

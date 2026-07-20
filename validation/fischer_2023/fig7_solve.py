@@ -163,6 +163,16 @@ def _validated_sweep_request(
 
 
 def _build_grid(num_bins: int = NUM_BINS) -> tuple[SpectralContext, np.ndarray]:
+    """One fixed-Δ₀ grid for the whole temperature sweep.
+
+    Documented limitation (2026-07-20 review): the solve uses the
+    zero-temperature gap ``DELTA_0`` and one energy grid for every
+    ``T_bath`` — the equilibrium gap Δ(T_B) is smaller by up to ~0.17%
+    at the hottest pinned point (0.34 K). The pinned artifact is a
+    self-consistent regression under exactly this convention, not a
+    Δ(T)-scaled reproduction; re-gridding per temperature would be a
+    baseline-moving change requiring a full re-pin.
+    """
     E, dE_scalar = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
