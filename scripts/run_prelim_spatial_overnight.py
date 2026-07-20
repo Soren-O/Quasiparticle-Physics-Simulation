@@ -657,9 +657,14 @@ def main() -> None:
 
             final_obs = result.snapshots[-1].observables
             delta_values = [row["delta_fr_hz_current_weighted"] for row in shift_rows]
+            # Don't overload "completed": a run that hit max_time without
+            # meeting stop_tol is not converged, and resume gates on
+            # status == "completed" — marking it completed would both
+            # misrepresent the row and permanently exclude the case from
+            # re-running on resume (2026-07-19 audit).
             summary_row = {
                 **base_row,
-                "status": "completed",
+                "status": "completed" if result.converged else "max_time_reached",
                 "total_time_ns": result.total_time,
                 "n_steps": result.n_steps,
                 "converged": result.converged,

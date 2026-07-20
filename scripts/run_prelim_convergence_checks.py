@@ -38,6 +38,21 @@ from scripts.run_prelim_spatial_overnight import (
 
 OUT_DIR = ROOT / "outputs" / "prelim_convergence_checks"
 
+# Acceptance budget: a refinement case that moves any tracked observable
+# (x_qp mean, res-1/res-6 frequency shift, res-1 Q_i) by more than this
+# fraction relative to the baseline resolution means the baseline is NOT
+# converged for campaign use. This is the stated 2% campaign budget, not
+# a derived error bound. Before 2026-07-19 this script wrote the deltas
+# to CSV and applied no criterion at all — a "convergence check" that
+# could not fail (audit finding).
+ACCEPTANCE_REL_TOL = 0.02
+_ACCEPTANCE_FIELDS = (
+    "rel_delta_xqp_mean_vs_baseline",
+    "rel_delta_res1_shift_vs_baseline",
+    "rel_delta_res6_shift_vs_baseline",
+    "rel_delta_res1_Qi_vs_baseline",
+)
+
 TARGET_SOURCE_QP_PER_S = 313_200_000_000.0
 D0_UM2_PER_NS = 20.0
 TAU_L_NS = 1.0
@@ -246,6 +261,7 @@ def main() -> None:
                 "source_center_delta": SOURCE_CENTER_DELTA,
                 "source_sigma_delta": SOURCE_SIGMA_DELTA,
                 "cases": [asdict(case) for case in CASES],
+                "acceptance_rel_tol": ACCEPTANCE_REL_TOL,
                 "model_note": (
                     "Dynamic local Ph0 phonons with finite escape to bath; "
                     "total injected QP/s held fixed as dx changes."
@@ -292,10 +308,40 @@ def main() -> None:
             float(baseline["res1_Qi"]),
         )
 
+    failures: list[str] = []
+    for row in summary_rows:
+        if row["case"] == "baseline":
+            row["acceptance"] = "baseline"
+            continue
+        worst = max(abs(float(row[field])) for field in _ACCEPTANCE_FIELDS)
+        row["acceptance"] = "pass" if worst <= ACCEPTANCE_REL_TOL else "FAIL"
+        verdict = row["acceptance"]
+        print(
+            f"    acceptance[{row['case']}]: max |rel delta| = {worst:.3%} "
+            f"vs budget {ACCEPTANCE_REL_TOL:.0%} -> {verdict}",
+            flush=True,
+        )
+        if verdict == "FAIL":
+            failures.append(str(row["case"]))
+
     _write_csv(OUT_DIR / "summary.csv", summary_rows)
     _write_csv(OUT_DIR / "resonator_shifts.csv", shift_rows_all)
     print(f"Completed {len(CASES)} convergence runs in {time.monotonic() - start_all:.1f}s")
     print(f"Wrote {OUT_DIR}")
+    if failures:
+        print(
+            "CONVERGENCE NOT ESTABLISHED: refinement cases "
+            f"{failures} moved observables beyond the {ACCEPTANCE_REL_TOL:.0%} "
+            "budget; the baseline resolution is not adequate for campaign "
+            "numbers.",
+            flush=True,
+        )
+        raise SystemExit(1)
+    print(
+        f"Convergence accepted: all refinement cases within the "
+        f"{ACCEPTANCE_REL_TOL:.0%} budget.",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

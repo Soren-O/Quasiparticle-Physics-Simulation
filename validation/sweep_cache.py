@@ -1,7 +1,7 @@
 """Config+code-hashed disk cache for expensive validation sweeps.
 
-The paper-track sweeps are slow (Fischer Fig. 6 ~14 h, Figs 3/5 tens of
-minutes). When nothing that affects the result has changed, recomputing is
+The paper-track sweeps are slow (Fischer Fig. 6 measured ~6.04 h serial /
+~2.11 h concurrent, Figs 3/5 tens of minutes). When nothing that affects the result has changed, recomputing is
 pure waste. This module caches a sweep's *raw solve output* on disk, keyed by
 a hash of everything that determines that output, so an unchanged rerun loads
 in milliseconds while any meaningful change recomputes.
