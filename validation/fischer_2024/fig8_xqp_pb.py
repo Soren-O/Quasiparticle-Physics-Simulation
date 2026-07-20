@@ -17,6 +17,15 @@ Grid: 810 bins so ω_PB/dE = 252 is integer commensurate (the old
 851-bin choice snapped ω_PB by ~0.3 %, below the 1% tolerance but
 sacrificing bit-reproducibility).
 
+Conventions: the stored CSV columns keep qpsim's Fischer-convention
+``qp_fraction`` :math:`x_\\mathrm{qp} = N_\\mathrm{qp}/(4\\rho_F\\Delta_0)`
+(:mod:`qpsim.observables.density`), preserving the certified artifact.
+F24 Eq. 7 defines :math:`x_\\mathrm{qp} = N_\\mathrm{qp}/(2\\rho_F\\Delta_0)`
+— exactly twice qpsim's — so :func:`write_plot` applies the ×2 conversion
+at the figure layer and labels the axis with the paper's definition
+(audit fix 2026-07-19; the pre-fix plot drew qpsim-convention values
+under an unqualified ``x_qp`` label, a factor 2 below paper convention).
+
 Usage::
 
     python -m validation.fischer_2024.fig8_xqp_pb
@@ -386,19 +395,26 @@ def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
         path = plot_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Stored columns are qpsim-convention N_qp/(4 rho_F Delta_0); F24 Eq. 7's
+    # x_qp is N_qp/(2 rho_F Delta_0), so the figure layer applies the ×2 here.
+    _XQP_QPSIM_TO_PAPER = 2.0
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.loglog(result.T_bath, result.x_qp_thermal, "k--", lw=1.5, label=r"thermal (no PB drive)")
+    ax.loglog(
+        result.T_bath,
+        _XQP_QPSIM_TO_PAPER * result.x_qp_thermal,
+        "k--", lw=1.5, label=r"thermal (no PB drive)",
+    )
     colors = plt.get_cmap("viridis")(np.linspace(0.15, 0.85, len(result.powers)))
     for power, color in zip(result.powers, colors, strict=True):
         ax.loglog(
             result.T_bath,
-            result.x_qp_by_power[power],
+            _XQP_QPSIM_TO_PAPER * result.x_qp_by_power[power],
             lw=2.0,
             color=color,
             label=rf"$c \cdot \bar n = {power:g}$ ns$^{{-1}}$",
         )
     ax.set_xlabel(r"$T_B$ [K]", fontsize=14)
-    ax.set_ylabel(r"$x_{qp}$", fontsize=14)
+    ax.set_ylabel(r"$x_{qp} = N_{qp}/(2\rho_F\Delta_0)$  (F24 Eq. 7)", fontsize=14)
     ax.set_title(
         "Fischer & Catelani 2024 Fig 8 — PB-photon drive\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\tau_0={TAU_0:.0f}$ ns, "
