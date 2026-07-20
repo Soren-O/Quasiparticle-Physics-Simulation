@@ -66,12 +66,20 @@ are the certified artifacts.
 2. **Fig. 6 canonical PDF** regen (legend label for the dashed overlay lands
    with the next full sweep; the stored-column fix does not alter the shipped
    PDF, whose dashed curves are plot-time re-derived).
-3. **Plausible/human-physics calls** from the audit: moving-gap rising-gap
-   (recovery) fail-loud asymmetry (5e-12 vs sibling 1e-3 tolerance — bug or
-   intentional conservatism?); marchegiani strict pins never exercised on CI
-   (all stamped win32, CI is ubuntu — consider a Linux-stamped twin); Fig. 5
-   low-drive atol vacuousness (subsumed by the documented Fig. 5 regeneration
-   campaign).
+3. **Plausible/human-physics calls — adjudicated 2026-07-20:**
+   (a) moving-gap rising-gap (recovery) asymmetry → RESOLVED permissive:
+   the persistent path now tolerates a stranded finite-E_max tail up to the
+   sibling's 1e-3 fraction (warn above 1e-9) instead of refusing recovery at
+   ~5e-12; the tail stays frozen in the persistent representation (zero
+   overlap, collisionless) and re-enters if the gap falls — strictly better
+   conservation than the sibling's irreversible top-cell deposit, and
+   bitwise-identical for all previously-green trajectories.
+   (b) marchegiani win32-only strict pins → ACCEPTED as-is and documented
+   (CI exercises the 1e-3 fallback; strict 1e-6 runs on the Windows dev
+   machine; Linux-stamped twin declined for now).
+   (c) Fig. 5 low-drive atol vacuousness → deferred to the Fig. 5
+   regeneration campaign, with signal-scaled tolerances recorded as a
+   required part of that re-pin (comment at the gate + NEXT-AUDIT-BRIEF).
 4. Pre-existing known-open items (Fig. 5 regeneration, Fig. 6 canonical
    sweep, Figs. 9–13 refinement) — unchanged.
 

@@ -81,6 +81,16 @@ _GAP_PROJECTION_ATOL_UEV = 1e-10
 _GAP_PROJECTION_SOLVE_XTOL_UEV = 1e-12
 _GAP_PROJECTION_MAX_ITER = 50
 _MOVING_GAP_TAIL_RTOL = 5e-12
+# Rising-gap (recovery) policy for persistent-xi mass stranded above the
+# fixed E_max boundary, aligned with _remap_gap_state_once's thresholds
+# (2026-07-20 adjudication of the audit's split verdict): tolerate up to
+# the same 1e-3 fraction the projection path accepts, warn above 1e-9.
+# Unlike the projection path's irreversible top-cell deposit, the
+# persistent representation keeps the stranded mass at its true xi with
+# frozen (zero-overlap) dynamics, so it re-enters the represented window
+# if the gap falls again.
+_MOVING_GAP_TAIL_MAX_FRACTION = 1e-3
+_MOVING_GAP_TAIL_WARN_FRACTION = 1e-9
 _EDGE_REMAP_MIN_BINS = 4
 _EDGE_REMAP_OCCUPATION_CEILING = 1.0 - 1e-12
 
@@ -1444,10 +1454,30 @@ class T3DiffusionBackend:
         if tail_mass < -tail_tolerance:
             raise RuntimeError("Persistent materialization created finite-volume mass.")
         if tail_mass > tail_tolerance:
-            raise RuntimeError(
-                "The moving gap would strand occupied persistent-xi mass "
-                "above the fixed E_max boundary. Extend the energy grid."
-            )
+            # A rising gap lowers the represented xi_max at fixed E_max and
+            # strands high-xi persistent mass outside the energy window. The
+            # mass stays in the persistent representation with frozen
+            # dynamics (its overlap rows are zero) and re-enters if the gap
+            # falls, so — per the 2026-07-20 adjudication — tolerate the
+            # same fraction as _remap_gap_state_once instead of refusing
+            # every recovery trajectory at ~5e-12.
+            tail_fraction = tail_mass / max(material_mass, np.finfo(float).tiny)
+            if tail_fraction > _MOVING_GAP_TAIL_MAX_FRACTION:
+                raise RuntimeError(
+                    "The moving gap would strand "
+                    f"{tail_fraction:.2%} of the persistent-xi quasiparticle "
+                    "mass above the fixed E_max boundary. Extend the energy "
+                    "grid before evolving this gap change."
+                )
+            if tail_fraction > _MOVING_GAP_TAIL_WARN_FRACTION:
+                warnings.warn(
+                    "Moving-gap materialization froze a finite-E_max "
+                    f"persistent-xi tail containing {tail_fraction:.0e} of "
+                    "the quasiparticle mass above the represented window "
+                    "(collisionless until the gap falls again). Extend "
+                    "E_max to remove this boundary dependence.",
+                    stacklevel=2,
+                )
         return spectral, f, overlap
 
     def _constrain_persistent_occupation(

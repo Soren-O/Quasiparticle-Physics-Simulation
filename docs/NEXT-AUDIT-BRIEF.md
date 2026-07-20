@@ -69,6 +69,10 @@ tell you what is or isn't a bug.
   final certificates. The tested `T*/Delta=0.60` split is not evidence of a
   physical branch ambiguity; the legacy pin still needs a full tight-contract
   regeneration/refinement campaign before broader branch behavior is settled.
+  Known + accepted meanwhile (2026-07-20, don't re-file): the slow-test x_qp
+  gates (`atol=1e-6`) are vacuous for the low-drive branch (signal
+  2.1e-10..1e-6); signal-scaled tolerances are a required part of the
+  regeneration campaign's re-pin.
 - **F23 Fig. 6:** the 66-point run certified a loose solver contract, but the
   default suppression pin is much tighter than its accepted gap-map error.
   The repaired fixed-gap/direct path has a strictly certified full-grid point,

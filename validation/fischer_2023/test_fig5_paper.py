@@ -181,6 +181,13 @@ def test_matches_pinned_baseline() -> None:
         result.upper_T_star, baseline.upper_T_star, rtol=1e-10, atol=0.0,
         err_msg="Upper-panel T_* drift",
     )
+    # KNOWN-VACUOUS for the low-drive/thermal branch (2026-07-19 audit,
+    # adjudicated 2026-07-20): the pinned signal there spans
+    # 2.1e-10..1e-6, so atol=1e-6 cannot fail on it. Deliberately left
+    # in place: this legacy pin is already quarantined pending the full
+    # tight-contract Fig. 5 regeneration campaign, and signal-scaled
+    # tolerances (the fig3 pattern) are a REQUIRED part of that re-pin —
+    # do not promote a replacement baseline with this atol.
     np.testing.assert_allclose(
         result.upper_x_qp_num, baseline.upper_x_qp_num, rtol=0.0, atol=1e-6,
         err_msg="Upper-panel numerical x_qp drift",

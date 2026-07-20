@@ -11,8 +11,14 @@ paper:
   suppression).
 - `transient/` — photon-kick demo output with four slow regression tests.
 - `marchegiani_2025/` — M25 rate-equation figures. Fixed-point selection
-  is platform-dependent, so these CSVs carry a `# pinned_on:` stamp and
-  their strict pin tests run only on the generating platform.
+  is platform-dependent, so these CSVs carry a `# pinned_on:` stamp. The
+  pin tests run on **every** platform: strict `rtol = 1e-6` on the
+  stamped platform, `rtol = 1e-3` cross-platform fallback elsewhere.
+  All current stamps are `win32`, so hosted CI (ubuntu) only ever
+  exercises the 1e-3 fallback and the strict gate runs on the Windows
+  dev machine — an accepted trade-off (2026-07-20 adjudication of the
+  audit finding; a Linux-stamped twin set was considered and declined
+  for now to avoid a second artifact set to keep in sync).
 
 Fischer 2023 Fig. 3 also carries `# pinned_on: win32`, but its regression runs
 on every platform. The stamp scopes only the ratio-10 Windows/Linux OS-family
