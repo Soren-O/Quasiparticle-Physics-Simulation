@@ -17,8 +17,10 @@ Coverage:
   external_dissipation_only, multiple-owner rejection
   (TestM25NoDoubleCounting)
 * Phase 5c quantitative pin: M25 Fig 3a x_L / x_R< / x_R> / p_1
-  match published values to ≤5% rtol via the cached moment-solver
-  fixed point (test_fig3a_quantitative_match)
+  match the correctly-normalized qpsim root to ≤10% rtol via the
+  cached moment-solver fixed point (test_fig3a_quantitative_match);
+  the reference values are qpsim roots consistent with the paper's
+  figure-reading precision, not digitized paper data
 
 Per the design doc §6.1 caveat the underlying Stage A evaluators
 remain a moment closure (Fermi-Dirac per-sub-band ansatz). A
@@ -979,7 +981,10 @@ class TestM25NoDoubleCounting:
 
         # Reference values: the unique physical root of the correctly
         # normalized M25 system (Γ̄ = Γ̃ / N_CP(R) in the density
-        # equations, M25 text below Eq. 6) at Fig 3a, T = 20 mK.
+        # equations, M25 text below Eq. 6) at Fig 3a, T = 20 mK, with
+        # the exact S48/S49 tau_R quadrature (2026-07-19 audit H4; the
+        # old 5.583/2.018/4.696e-8 pins were calibrated to the
+        # out-of-domain S50 series).
         # These match the paper's own small-asymmetry description
         # (Sec. II.4: x_L ≈ x_R> + x_R< ≈ √(g^ph_R / r^L) ≈ 6e-8).
         # The historical pins (x_L = 1.5e-5 etc.) were sub-1-Hz
@@ -987,9 +992,9 @@ class TestM25NoDoubleCounting:
         # legacy Γ̄ = Γ̃ normalization plus the max-x_L picker; they
         # are gone with the normalization fix. 10% tolerance covers
         # the moment-extraction discretization of the region grid.
-        np.testing.assert_allclose(x_L,   5.583e-08, rtol=1e-1)
-        np.testing.assert_allclose(x_Rgt, 2.018e-08, rtol=1e-1)
-        np.testing.assert_allclose(x_Rlt, 4.696e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_L,   5.302e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rgt, 1.794e-08, rtol=1e-1)
+        np.testing.assert_allclose(x_Rlt, 5.147e-08, rtol=1e-1)
         np.testing.assert_allclose(p_1,   8.330e-04, rtol=1e-1)
 
         # Plotted observable check: μ_L/Δ_L at T = 20 mK. The paper

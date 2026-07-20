@@ -53,6 +53,7 @@ from scipy.special import (
     ellipkinc,
     erf,
     erfc,
+    erfcx,
     k0,
     k1,
 )
@@ -474,11 +475,60 @@ def _branching_fraction(params: M25PhysicalParameters) -> float:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _tau_R_inverse(params: M25PhysicalParameters) -> float:
-    r""":math:`\tau_R^{-1}` per SI Eq. S50 leading order in ``T/ω_LR, ω_LR/Δ_R``.
+def _tau_R_reduced_exact(a: float, b: float) -> float:
+    r"""Reduced exact intraband rate ``√(a/π)/erfc(√(ab)) · I(a, b)``.
 
-    Uses the relation ``2π b_R Δ_R³ = r^{R<}/4`` to eliminate ``b_R``
-    in favor of the caption input ``r^{R<}``.
+    ``I(a, b)`` is SI Eq. S49 (``a = Δ_R/T``, ``b = ω_LR/Δ_R``):
+
+    .. math::
+        I(a,b) = \int_b^\infty dx\, \frac{e^{-ax}}{\sqrt{x}}
+                 \int_0^b dy\, \frac{(y-x)^2 (xy+x+y)}{\sqrt{y(y+2)}}
+                 \cdot \frac{1}{1 - e^{-a(x-y)}}.
+
+    The overall ``e^{-ab}`` suppression shared by ``I`` and
+    ``erfc(√(ab))`` is cancelled analytically (``x = b + u`` shift and
+    ``erfc(z) = erfcx(z)·e^{-z²}``), so the ratio stays representable at
+    arbitrarily low ``T``. The ``1/√y`` endpoint is removed by the
+    ``y = v²`` substitution; the ``x → y`` Bose corner is finite
+    (``(y-x)²/(a(x-y)) → 0``) and evaluated via a series guard.
+    """
+    if a <= 0.0 or b <= 0.0:
+        raise RuntimeError(f"tau_R exact integral needs a, b > 0; got a={a}, b={b}.")
+    sqrt_b = float(np.sqrt(b))
+
+    def inner(x: float) -> float:
+        def f(v: float) -> float:
+            y = v * v
+            d = a * (x - y)
+            if d < 1e-8:
+                bose = 1.0 / d + 0.5  # 1/(1-e^{-d}) = 1/d + 1/2 + O(d)
+            else:
+                bose = 1.0 / (-np.expm1(-d))
+            return 2.0 * (y - x) ** 2 * (x * y + x + y) / np.sqrt(y + 2.0) * bose
+
+        val, _ = quad(f, 0.0, sqrt_b, limit=200)
+        return val
+
+    def outer(u: float) -> float:
+        x = b + u
+        return np.exp(-a * u) / np.sqrt(x) * inner(x)
+
+    # e^{-a u} kills the tail: 60/a keeps a < 1e-26 relative truncation.
+    mid = 5.0 / a
+    high = 60.0 / a
+    v1, _ = quad(outer, 0.0, mid, limit=200)
+    v2, _ = quad(outer, mid, high, limit=200)
+    return float(np.sqrt(a / np.pi) * (v1 + v2) / erfcx(np.sqrt(a * b)))
+
+
+def _tau_R_inverse_series_s50(params: M25PhysicalParameters) -> float:
+    r"""Low-T series for :math:`\tau_R^{-1}` (SI Eq. S50).
+
+    Valid only for ``T ≪ ω_LR ≪ Δ_R``. Kept as the analytic in-domain
+    reference for :func:`_tau_R_inverse`'s exact quadrature (unit tests
+    pin their agreement at small ``T/ω_LR``); not used on the shipped
+    evaluation path — the Fig. 3a/4a sweeps reach ``T/ω_LR`` up to
+    ~6, where this series is wrong by up to ~5x (2026-07-19 audit H4).
     """
     T = params.T_kelvin
     omega_LR = params.omega_LR_kelvin
@@ -492,6 +542,28 @@ def _tau_R_inverse(params: M25PhysicalParameters) -> float:
         * ratio ** 3.5
         * correction
     )
+
+
+def _tau_R_inverse(params: M25PhysicalParameters) -> float:
+    r""":math:`\tau_R^{-1}` per the exact SI Eqs. S48/S49 quadrature.
+
+    ``τ_R⁻¹ = 2π b_R Δ_R³ · √(Δ_R/(πT))/erfc(√(ω_LR/T)) · I(Δ_R/T, ω_LR/Δ_R)``,
+    using ``2π b_R Δ_R³ = r^{R<}/4`` to eliminate ``b_R`` in favor of the
+    caption input ``r^{R<}``.
+
+    History (2026-07-19 audit H4): this previously evaluated only the
+    low-T series S50 (valid for ``T ≪ ω_LR``) across the shipped Fig
+    3a/4a sweeps, where ``T/ω_LR`` reaches ~6 and the series is low by
+    up to ~5x; docs/M25_coefficient_integrals.md §9.3 already mandated
+    the full ``I(a, b)`` fallback. The series remains available as
+    :func:`_tau_R_inverse_series_s50` for in-domain regression tests.
+    """
+    T = params.T_kelvin
+    omega_LR = params.omega_LR_kelvin
+    Delta_R = params.Delta_R_kelvin
+    two_pi_bR_DeltaR_cubed = params.r_Rlt_Hz / 4.0
+    reduced = _tau_R_reduced_exact(Delta_R / T, omega_LR / Delta_R)
+    return float(two_pi_bR_DeltaR_cubed * reduced)
 
 
 def _tau_E_inverse(params: M25PhysicalParameters) -> float:

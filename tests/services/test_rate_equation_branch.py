@@ -240,15 +240,16 @@ class TestFoldHandlingMachinery:
 
     def test_relocation_finds_root_from_off_center_seed(self) -> None:
         coefs = _coefficients_at(0.5, 0.020)
-        # Seed the search two decades below the true root x_L ≈ 5.6e-8
-        # with a deliberately wrong transverse state.
+        # Seed the search two decades below the true root x_L ≈ 5.3e-8
+        # (exact S48/S49 tau_R, audit H4) with a deliberately wrong
+        # transverse state.
         state = _relocate_root_1d(
-            coefs, 5.6e-10, np.array([1e-4, 1e-9, 1e-9]),
+            coefs, 5.3e-10, np.array([1e-4, 1e-9, 1e-9]),
             window_decades=6.0, n_samples=37,
             residual_tol_relative=1e-3,
         )
         assert state is not None
-        assert state.x_L == pytest.approx(5.583e-8, rel=1e-3)
+        assert state.x_L == pytest.approx(5.3017e-8, rel=1e-3)
 
     def test_relocation_reports_no_root_outside_window(self) -> None:
         coefs = _coefficients_at(0.5, 0.020)

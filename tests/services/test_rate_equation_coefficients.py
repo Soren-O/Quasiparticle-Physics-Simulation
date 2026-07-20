@@ -251,6 +251,36 @@ class TestDetailedBalance:
         tE = _tau_E_inverse(params)
         assert 0.0 < tE / tR < 1.0
 
+    def test_tau_R_exact_matches_s50_series_in_domain(self) -> None:
+        # The exact S48/S49 quadrature must reduce to the S50 series in
+        # its validity domain T ≪ ω_LR. At T/ω_LR ≈ 0.04 the residual
+        # difference (series truncation + the O(ω_LR/Δ_R) correction the
+        # series drops) is ~1%.
+        from qpsim.services.rate_equation_coefficients import (
+            _tau_R_inverse_series_s50,
+        )
+
+        params = _fig3a_params(T_kelvin=0.001)  # T/ω_LR ≈ 0.042
+        exact = _tau_R_inverse(params)
+        series = _tau_R_inverse_series_s50(params)
+        assert series / exact == pytest.approx(1.0, abs=0.02)
+
+    def test_tau_R_exact_departs_from_series_out_of_domain(self) -> None:
+        # 2026-07-19 audit H4 regression guard: on the shipped Fig 3a
+        # sweep the series is evaluated far outside T ≪ ω_LR; at
+        # T/ω_LR ≈ 6.25 (150 mK, ω_LR = 24 mK) it under-predicts the
+        # exact S48/S49 rate by ~5x. If this assert fires because the
+        # ratio moved toward 1, _tau_R_inverse has silently regressed
+        # to the series.
+        from qpsim.services.rate_equation_coefficients import (
+            _tau_R_inverse_series_s50,
+        )
+
+        params = _fig3a_params(T_kelvin=0.150)
+        exact = _tau_R_inverse(params)
+        series = _tau_R_inverse_series_s50(params)
+        assert series / exact == pytest.approx(0.203, abs=0.02)
+
     def test_thermal_generation_scales_with_boltzmann(self) -> None:
         # g^{pn}_L ∝ T × e^{-2Δ_L/T} — rises rapidly with T.
         coefs_cold = coefficients_from_physical_parameters(_fig3a_params(T_kelvin=0.020))

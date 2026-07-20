@@ -424,12 +424,14 @@ class TestSolverLimitingCases:
         assert coefs.cooper_pair_number_R == pytest.approx(1.61e10, rel=1e-2)
 
         # Default seed converges cleanly to the unique physical root
-        # (x_L ≈ 5.6e-8 at 20 mK; paper Fig 3a: x_L ≈ x_R> + x_R< ≈
-        # √(g^ph_R / r^L), see M25 Sec. II.4).
+        # (x_L ≈ 5.3e-8 at 20 mK; paper Fig 3a: x_L ≈ x_R> + x_R< ≈
+        # √(g^ph_R / r^L), see M25 Sec. II.4). Values are for the exact
+        # S48/S49 tau_R quadrature (2026-07-19 audit H4); the old pins
+        # (5.58/2.02/4.70e-8) belonged to the out-of-domain S50 series.
         state = solve_rate_equation_steady_state(coefs)
-        assert state.x_L == pytest.approx(5.58e-8, rel=5e-2)
-        assert state.x_Rgt == pytest.approx(2.02e-8, rel=5e-2)
-        assert state.x_Rlt == pytest.approx(4.70e-8, rel=5e-2)
+        assert state.x_L == pytest.approx(5.30e-8, rel=5e-2)
+        assert state.x_Rgt == pytest.approx(1.79e-8, rel=5e-2)
+        assert state.x_Rlt == pytest.approx(5.15e-8, rel=5e-2)
         assert 5e-4 < state.p_1 < 1.5e-3
         # The multi-seed helper (min_residual default) agrees.
         multi = solve_rate_equation_steady_state_multi_seed(coefs)
@@ -655,13 +657,16 @@ class TestBranchPickerModesOnFig3a:
         )
 
     def test_expected_ordering_consistent_keeps_root(self) -> None:
-        # Fig 3a at 30 mK: x_L > x_R< > x_R> (baseline: 5.28e-8,
-        # 4.89e-8, 2.07e-8). A consistent ordering filter must be a
-        # no-op on the unique root.
+        # Fig 3a at 30 mK with the exact S48/S49 tau_R (audit H4):
+        # x_R< > x_L > x_R> (5.25e-8, 5.05e-8, 1.87e-8). The ordering
+        # of the two largest densities flipped relative to the old
+        # out-of-domain S50 series (which gave x_L > x_R< within 8%).
+        # A consistent ordering filter must be a no-op on the unique
+        # root.
         coefs = _fig3a_coefficients()
         direct = solve_rate_equation_steady_state(coefs)
         picked = solve_rate_equation_steady_state_multi_seed(
-            coefs, expected_ordering=("x_L", "x_Rlt", "x_Rgt"),
+            coefs, expected_ordering=("x_Rlt", "x_L", "x_Rgt"),
         )
         assert picked.x_L == pytest.approx(direct.x_L, rel=1e-6)
         assert picked.x_Rgt == pytest.approx(direct.x_Rgt, rel=1e-6)
