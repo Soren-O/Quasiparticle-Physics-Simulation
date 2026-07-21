@@ -97,9 +97,11 @@ don't re-file as new bugs; re-open only with new evidence or a design.)
   the pin is a self-consistent regression under that convention, and
   re-gridding is a baseline-moving change. (2026-07-20 round 3)
 - **Device conserved-mode certificate is scoped** to symmetric ratio-1
-  matched-weight junctions (bin-wise cancellation provable); other
-  junction sets get a loud once-per-solve warning. Known open gap, not a
-  silent one. (2026-07-20 round 4)
+  matched-weight junctions (cancellation provable). Round-5 semantics:
+  same-family misconfiguration (ratio ≠ 1 / mismatched weights) REFUSES;
+  genuinely different junction families get a loud once-per-solve
+  warning, and finite-phonon solves are explicitly not certified. Known
+  open gap, not a silent one. (2026-07-20 round 4; tightened round 5)
 - **Sub-threshold photon `loss_rate` coefficient stays finite below 2Δ** —
   that is the scattering channel (physical at any ω); only pair
   *generation* is gated. A `loss == 0` expectation below 2Δ is wrong.
@@ -107,6 +109,17 @@ don't re-file as new bugs; re-open only with new evidence or a design.)
 - **Mismatched-T device fixture needs ~1200 outer iterations at
   non-default budgets** — genuine slow outer mode under honest
   scale-aware certification; defaults fail *safely*. (2026-07-20 round 4)
+
+- **The standalone pair-number certificate has ~1% granularity and is
+  scoped to `external_flux is None`** — common-mode number errors below
+  ~2% pass, and flux-coupled inner solves are certified at the DEVICE
+  level instead (number legitimately flows through junctions at
+  intermediate outer iterations; Newton's absolute floor sits above the
+  cold pair scale). Both scopes are deliberate contracts, not oversights.
+  (2026-07-21 round 5)
+- **Round 5 filed six findings; all six were confirmed real** — nothing
+  from that round belongs in §1. Recorded so a future reader doesn't
+  assume every review round must have produced false positives.
 
 ## 3. ⚠️ Traps: things that LOOKED like false positives but were real
 (The anti-overconfidence section. Read before refuting anything.)

@@ -26,6 +26,22 @@ from qpsim.physics.spectral import SpectralContext
 _COMMENSURATE_TOL = 0.01
 
 
+def pair_channel_open(omega_uev: float, gap_uev: float) -> bool:
+    """True iff the pair channel exists at this photon energy.
+
+    STRICTLY above threshold with a roundoff margin: the K⁻ pair rate is
+    zero AT ``ω = 2Δ`` exactly (vanishing pair phase space), and treating
+    equality as open let a gap-cut grid emit finite generation at exact
+    threshold and a snapped-to-threshold case come out ~7.4× too large
+    (2026-07-21 round-5 review). Shared by the rates, the
+    threshold-crossing guard, and the analytic Jacobian so all three use
+    identical semantics.
+    """
+    threshold = 2.0 * gap_uev
+    tol = 64.0 * float(np.finfo(float).eps) * max(threshold, 1.0)
+    return bool(omega_uev > threshold + tol)
+
+
 def pair_breaking_photon_collision_rates(
     f: np.ndarray,
     ctx: SpectralContext,
@@ -114,7 +130,7 @@ def pair_breaking_photon_collision_rates(
     # silently delete the channel (2026-07-20 round-4 review, both
     # directions reproduced). Fail loud; the caller must supply a
     # pre-snapped frequency on the intended side of the threshold.
-    if (omega_PB >= 2.0 * ctx.gap) != (omega_PB_snapped >= 2.0 * ctx.gap):
+    if pair_channel_open(omega_PB, ctx.gap) != pair_channel_open(omega_PB_snapped, ctx.gap):
         raise ValueError(
             f"Snapping omega_PB={omega_PB:.6g} μeV to m·dE="
             f"{omega_PB_snapped:.6g} μeV crosses the 2Δ={2.0 * ctx.gap:.6g} "
@@ -148,7 +164,7 @@ def pair_breaking_photon_collision_rates(
     # short-grid case while the kernel hard-raised on a 2% partner
     # misalignment (2026-07-19 audit). Fail loud like the alignment guard;
     # sub-gap partners remain a physical exclusion and are still skipped.
-    if omega_PB_snapped >= 2.0 * ctx.gap:
+    if pair_channel_open(omega_PB_snapped, ctx.gap):
         top_edge = E[-1] + 0.5 * dE_scalar
         partner_above_top = supported & (omega_PB_snapped - E > top_edge)
         if np.any(partner_above_top):
@@ -224,7 +240,7 @@ def pair_breaking_photon_collision_rates(
         # (2026-07-20 review: an exactly commensurate ω_PB = 1.6Δ on a
         # gap-cut grid produced finite pair generation). Scattering above
         # keeps operating at any ω.
-        if omega_PB_snapped < 2.0 * ctx.gap:
+        if not pair_channel_open(omega_PB_snapped, ctx.gap):
             continue
         E_partner = omega_PB_snapped - E[i]
         j_r = round((E_partner - E[0]) / dE_scalar)

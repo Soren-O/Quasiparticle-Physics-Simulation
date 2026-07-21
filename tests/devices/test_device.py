@@ -653,3 +653,90 @@ class TestControlValidation:
                 solve_device_steady_state(device, outer_damping=bad_damp)
         with pytest.raises(ValueError, match="outer_max_iter"):
             solve_device_steady_state(device, outer_max_iter=0)
+
+
+class TestConservedModeCertificateRound5:
+    """2026-07-21 round-5 review counterexamples: threshold scaling,
+    floating-point absorption at 50 mK, disconnected-component
+    cancellation, and same-family misconfiguration refusal."""
+
+    def _pair(self, T_bath: float, c_L: float, c_R: float, *, alpha=0.01):
+        states = {}
+        for name, c in (("L", c_L), ("R", c_R)):
+            s = _build_state(T_bath=T_bath, num_energy=30)
+            states[name] = T3DiffusionState(
+                f=np.clip(s.f * c, 0.0, 1.0), gap=s.gap, spectral=s.spectral,
+                phonon=s.phonon, material=s.material, T_bath=T_bath,
+            )
+        return Device(
+            regions={n: Region(name=n, state=st) for n, st in states.items()},
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="JJ", region_a="L", region_b="R", alpha_per_ns=alpha,
+                ),
+            ],
+        )
+
+    def test_cold_50mK_manifold_refused_not_absorbed(self) -> None:
+        # Round-5 hole (b): at 50 mK the collision residual (~1e-38) was
+        # absorbed by the balanced junction terms (~1e-12) in floating
+        # point; 0.5x/2x/10x f_FD all certified with defect zero. The
+        # collision-only per-component sum keeps the signal.
+        for c in (0.5, 2.0):
+            device = self._pair(0.05, c, c)
+            with pytest.raises(RuntimeError, match=r"conserved-QP-number|common-mode"):
+                solve_device_steady_state(device)
+
+    def test_five_percent_common_mode_refused_at_tight_tol(self) -> None:
+        # Round-5 hole (a): a fixed 0.05 detector threshold accepted
+        # ~5%-off common modes at any outer_tol. The threshold now
+        # scales as min(0.05, 1e3*outer_tol).
+        device = self._pair(0.1, 1.05, 1.05)
+        with pytest.raises(RuntimeError, match=r"conserved-QP-number|common-mode"):
+            solve_device_steady_state(device, outer_tol=1e-9, outer_max_iter=50)
+
+    def test_disconnected_components_cannot_cancel(self) -> None:
+        # Round-5 hole (c): one signed device-wide sum let two
+        # disconnected components cancel (0.5x against ~1.32x summed to
+        # ~4e-30). Components are now certified independently.
+        states = {}
+        for name, c in (("A1", 0.5), ("A2", 0.5), ("B1", 2.0), ("B2", 2.0)):
+            s = _build_state(T_bath=0.1, num_energy=30)
+            states[name] = T3DiffusionState(
+                f=np.clip(s.f * c, 0.0, 1.0), gap=s.gap, spectral=s.spectral,
+                phonon=s.phonon, material=s.material, T_bath=0.1,
+            )
+        device = Device(
+            regions={n: Region(name=n, state=st) for n, st in states.items()},
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="JA", region_a="A1", region_b="A2", alpha_per_ns=0.01,
+                ),
+                SymmetricGapTunnelingJunction(
+                    name="JB", region_a="B1", region_b="B2", alpha_per_ns=0.01,
+                ),
+            ],
+        )
+        with pytest.raises(RuntimeError, match=r"conserved-QP-number|common-mode"):
+            solve_device_steady_state(device)
+
+    def test_uncertifiable_capacity_ratio_refuses(self) -> None:
+        # Round-5: a symmetric junction with ratio != 1 previously warned
+        # and then returned a known-uncertified (potentially 2x-wrong)
+        # answer. Same-family misconfiguration now refuses outright.
+        s1 = _build_state(T_bath=0.1, num_energy=30)
+        s2 = _build_state(T_bath=0.1, num_energy=30)
+        device = Device(
+            regions={
+                "L": Region(name="L", state=s1),
+                "R": Region(name="R", state=s2),
+            },
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="JJ", region_a="L", region_b="R", alpha_per_ns=0.01,
+                    capacity_ratio_a_to_b=2.0,
+                ),
+            ],
+        )
+        with pytest.raises(ValueError, match="cannot cover this configuration"):
+            solve_device_steady_state(device)

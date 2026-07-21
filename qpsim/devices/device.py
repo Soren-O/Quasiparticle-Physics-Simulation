@@ -305,107 +305,128 @@ def solve_device_steady_state(
         )
 
     # The conserved-mode certificate needs the junction transfer to cancel
-    # bin-wise in the weighted number sum. That is provable here only for
+    # in the per-component number sum. That is provable here only for
     # SymmetricGapTunnelingJunction at capacity ratio 1 between regions
-    # with identical cell weights — exactly the configuration of the
-    # demonstrated failure. Outside that contract the certificate is
-    # skipped LOUDLY (once): the common-mode certification gap remains an
-    # open limitation for heterogeneous junction sets (needs a coupled
-    # multi-region solve / per-junction number-flux accounting).
+    # with identical cell weights. Round-5 semantics (2026-07-21 review):
+    # a SYMMETRIC junction that merely misconfigures that contract
+    # (ratio != 1 or mismatched weights) REFUSES — "warned but returned a
+    # known-uncertifiable answer" is not a safe contract for the same
+    # junction family the demonstrated failure lives in. Genuinely
+    # different junction families (their number accounting is different
+    # physics) keep the loud once-per-solve warning; the certification
+    # gap for them remains an open limitation. The certificate also
+    # requires thermal phonons: with use_thermal_phonons=False the
+    # thermal surrogate mis-measures a real finite-phonon solution
+    # (reviewer repro: surrogate 0.333 vs 0.001 with stored phonons).
     from qpsim.devices.junction import SymmetricGapTunnelingJunction
 
-    def _conserved_mode_certifiable() -> bool:
-        for j in device.junctions:
-            if not isinstance(j, SymmetricGapTunnelingJunction):
-                return False
-            if getattr(j, "capacity_ratio_a_to_b", 1.0) != 1.0:
-                return False
+    conserved_mode_in_scope = True
+    for j in device.junctions:
+        if not isinstance(j, SymmetricGapTunnelingJunction):
+            conserved_mode_in_scope = False
+            continue
+        misconfig: str | None = None
+        if getattr(j, "capacity_ratio_a_to_b", 1.0) != 1.0:
+            misconfig = f"capacity_ratio_a_to_b={j.capacity_ratio_a_to_b!r}"
+        else:
             w_a = device.regions[j.region_a].state.spectral.cell_weights
             w_b = device.regions[j.region_b].state.spectral.cell_weights
             if w_a.shape != w_b.shape or not np.array_equal(w_a, w_b):
-                return False
-        return True
-
-    conserved_mode_in_scope = _conserved_mode_certifiable()
-    if not conserved_mode_in_scope:
+                misconfig = "mismatched region cell weights"
+        if misconfig is not None:
+            raise ValueError(
+                f"Junction {j.name!r}: the conserved-QP-number certificate "
+                f"cannot cover this configuration ({misconfig}), and "
+                "returning an uncertified steady state is not safe — the "
+                "solver has been shown to accept states wrong by factors "
+                "of 2+ in exactly this regime. Use ratio-1 matched-weight "
+                "regions, or a junction class with its own number "
+                "accounting."
+            )
+    if not use_thermal_phonons:
+        conserved_mode_in_scope = False
+        warnings.warn(
+            "solve_device_steady_state: the conserved-mode certificate "
+            "requires use_thermal_phonons=True (the thermal surrogate "
+            "mis-measures finite-phonon solutions); this finite-phonon "
+            "solve is NOT conserved-mode certified.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    elif not conserved_mode_in_scope:
         warnings.warn(
             "solve_device_steady_state: the global conserved-mode "
-            "certificate is only implemented for symmetric ratio-1 "
-            "tunneling junctions with matched cell weights; this device "
-            "is outside that contract, so exchange-dominated common-mode "
-            "errors (all regions off by a shared factor) are NOT "
-            "certified against. Treat cold-temperature results with a "
-            "poor initial state with care.",
+            "certificate covers symmetric ratio-1 tunneling junctions "
+            "with matched cell weights; this device also contains other "
+            "junction families, so exchange-dominated common-mode errors "
+            "(all regions off by a shared factor) are NOT certified "
+            "against. Treat cold-temperature results with a poor initial "
+            "state with care.",
             RuntimeWarning,
             stacklevel=2,
         )
 
-    def _global_slow_mode_error(
-        current: dict[str, T3DiffusionState],
-        current_fluxes: dict[str, ExternalFlux | None],
-    ) -> float:
-        """Backward error of the conserved total-QP-number mode.
+    # Connected conservation components (union-find over junction edges):
+    # one SIGNED sum across disconnected components lets their residuals
+    # cancel (reviewer repro: components at 0.5x and 1.32x f_FD summed to
+    # ~4e-30); each component is certified independently.
+    _parent: dict[str, str] = {name: name for name in device.regions}
 
-        Junction exchange conserves total QP number (within the
-        certified contract above), so summing the FULL per-region number
-        balance (collisions + flux) cancels the internal transfer and
-        exposes the global slow mode the per-region frozen-flux solves
-        cannot see: exchange-dominated regions pin each other to a
-        common-mode manifold whose Picard defect is
-        ~(collision/exchange) x error — far below any defect tolerance —
-        while the state is arbitrarily far from equilibrium (2026-07-20
-        round-4 review: both regions at c*f_FD certified for any c).
-        Normalized by the COLLISION-ONLY number turnover so balanced
-        exchange cannot self-certify.
-        """
-        number_residual = 0.0
-        turnover = 0.0
-        for rname, rstate in current.items():
-            K_s0_r, K_r0_r = region_kernels[rname]
-            gain_c, loss_c = thermal_collision_gain_loss(
-                rstate.f, rstate.spectral, K_s0_r, K_r0_r, rstate.T_bath,
-            )
-            # Number-CHANGING (pair generation/recombination) turnover only:
-            # scattering dominates the raw turnover but conserves number
-            # exactly, and normalizing by it buries the conserved-mode
-            # signal under an e^{-Delta/kT} factor (a 0.5*f_FD manifold
-            # measured 2.9e-6 against full turnover vs 0.60 against pair
-            # turnover).
-            gain_p, loss_p = thermal_collision_gain_loss(
-                rstate.f, rstate.spectral, None, K_r0_r, rstate.T_bath,
-            )
-            gain = gain_c
-            loss = loss_c
-            ef = current_fluxes.get(rname)
-            if ef is not None:
-                gain = gain + ef.gain
-                loss = loss + ef.loss_rate
-            w = rstate.spectral.cell_weights
-            number_residual += float(np.sum(w * (gain - loss * rstate.f)))
-            turnover += float(
-                np.sum(w * (np.abs(gain_p) + np.abs(loss_p * rstate.f)))
-            )
-        return abs(number_residual) / max(turnover, 1e-300)
+    def _find(x: str) -> str:
+        while _parent[x] != x:
+            _parent[x] = _parent[_parent[x]]
+            x = _parent[x]
+        return x
 
-    def _accepted_state_slow_mode_error(
+    for j in device.junctions:
+        ra, rb = _find(j.region_a), _find(j.region_b)
+        if ra != rb:
+            _parent[ra] = rb
+    _components: dict[str, list[str]] = {}
+    for name in device.regions:
+        _components.setdefault(_find(name), []).append(name)
+    conservation_components = list(_components.values())
+
+    def _component_conserved_mode_error(
         accepted: dict[str, T3DiffusionState],
-        accepted_qubit: QubitState | None,
     ) -> float:
-        """Re-evaluate junction fluxes AT the accepted states and certify."""
-        accepted_fluxes: dict[str, ExternalFlux | None] = dict.fromkeys(
-            device.regions
-        )
-        for j in device.junctions:
-            result = j.evaluate(
-                accepted[j.region_a], accepted[j.region_b], accepted_qubit,
-            )
-            accepted_fluxes[j.region_a] = _aggregate_flux(
-                accepted_fluxes[j.region_a], result.external_flux_a
-            )
-            accepted_fluxes[j.region_b] = _aggregate_flux(
-                accepted_fluxes[j.region_b], result.external_flux_b
-            )
-        return _global_slow_mode_error(accepted, accepted_fluxes)
+        """Max conserved-QP-number backward error over conservation components.
+
+        COLLISION-ONLY residual: for number-conserving junctions the
+        exchange cancels ANALYTICALLY within a component, so it is
+        omitted rather than computed — adding ~1e-12-scale balanced
+        junction terms to a ~1e-38-scale cold collision residual erased
+        the signal in floating point (2026-07-21 round-5 review).
+        Normalized per component by the number-CHANGING (pair) turnover;
+        number-conserving scattering would bury the signal under
+        e^{-Delta/kT}. Calibration: wrong-number manifolds measure
+        |1-c^2|/(1+c^2) (~0.6 at c=0.5); converged fixtures measure at
+        or below the outer-tolerance tail.
+        """
+        worst = 0.0
+        for component in conservation_components:
+            number_residual = 0.0
+            turnover = 0.0
+            for rname in component:
+                rstate = accepted[rname]
+                K_s0_r, K_r0_r = region_kernels[rname]
+                gain_c, loss_c = thermal_collision_gain_loss(
+                    rstate.f, rstate.spectral, K_s0_r, K_r0_r, rstate.T_bath,
+                )
+                gain_p, loss_p = thermal_collision_gain_loss(
+                    rstate.f, rstate.spectral, None, K_r0_r, rstate.T_bath,
+                )
+                w = rstate.spectral.cell_weights
+                number_residual += float(
+                    np.sum(w * (gain_c - loss_c * rstate.f))
+                )
+                turnover += float(
+                    np.sum(
+                        w * (np.abs(gain_p) + np.abs(loss_p * rstate.f))
+                    )
+                )
+            worst = max(worst, abs(number_residual) / max(turnover, 1e-300))
+        return worst
 
     last_delta_f = float("inf")
     last_delta_p = 0.0
@@ -496,33 +517,26 @@ def solve_device_steady_state(
             qubit_state = new_qubit_state
 
         if converged and conserved_mode_in_scope:
-            # Certify the conserved global mode AT the accepted states
-            # with re-evaluated fluxes (exact cancellation, no snapshot
-            # lag). A quiet defect with an unbalanced conserved mode
-            # means the regions sit on an exchange-dominated common-mode
-            # manifold this frozen-flux Picard splitting cannot drain
-            # (drainage ~ collision/exchange per iteration): refuse.
-            # The conserved-mode certificate is a MANIFOLD DETECTOR with
-            # a fixed dimensionless threshold: measured calibration —
-            # 0.60 for regions on a common-factor manifold (any
-            # temperature), 1.0e-3 for the legitimately converged
-            # mismatched-T fixture, ~1e-11 at thermal equilibrium. 5%
-            # sits an order above accepted states and an order below the
-            # pathology.
-            last_slow_mode_error = _accepted_state_slow_mode_error(
-                states, qubit_state
-            )
-            if last_slow_mode_error > _CONSERVED_MODE_LIMIT:
+            # Threshold scales with outer_tol (capped at the manifold
+            # scale): a fixed detector threshold let ~5%-wrong common
+            # modes certify even at outer_tol=1e-12 (round-5 review).
+            # Converged fixtures measure a tail proportional to
+            # outer_tol in this norm (~1e-3 at 1e-5); wrong-number
+            # manifolds measure O(0.5-1).
+            limit = min(_CONSERVED_MODE_LIMIT, 1e3 * outer_tol)
+            last_slow_mode_error = _component_conserved_mode_error(states)
+            if last_slow_mode_error > limit:
                 raise RuntimeError(
                     "Device outer loop reached a quiet fixed-point defect "
-                    f"({last_delta_f:.2e}) while the global conserved-mode "
-                    f"backward error is {last_slow_mode_error:.2e} > "
-                    f"{outer_tol:.2e}: the regions are pinned on an "
-                    "exchange-dominated common-mode manifold away from "
-                    "collision equilibrium (e.g. all regions scaled by a "
-                    "common factor). The frozen-flux Picard splitting "
-                    "cannot drain this mode; use a coupled multi-region "
-                    "solve or start from a better initial state."
+                    f"({last_delta_f:.2e}) while a conservation "
+                    "component's conserved-QP-number backward error is "
+                    f"{last_slow_mode_error:.2e} > {limit:.2e}: its "
+                    "regions are pinned on an exchange-dominated "
+                    "common-mode manifold away from collision equilibrium "
+                    "(e.g. scaled by a shared factor). The frozen-flux "
+                    "Picard splitting cannot drain this mode; use a "
+                    "coupled multi-region solve or start from a better "
+                    "initial state."
                 )
         if converged:
             return DeviceSolution(

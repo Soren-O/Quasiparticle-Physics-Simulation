@@ -284,3 +284,51 @@ class TestGainLossBackwardError:
 
         assert reference == pytest.approx(3.0 / 7.0)
         assert scaled == pytest.approx(reference)
+
+
+class TestPairNumberCertificate:
+    """2026-07-21 round-5 review: the aggregate Newton metrics are
+    amplitude-blind at cold temperatures — c*f_FD returned unchanged at
+    50-80 mK even with tol=1e-30, because number-conserving scattering
+    dominates the certification turnover while the number-changing pair
+    channel scales as e^{-2*Delta/kT}. The standalone solver now
+    certifies the conserved-QP-number mode against the pair turnover."""
+
+    def _thermal_setup(self, T_bath: float):
+        from qpsim.materials.database import load_material
+
+        material = load_material("Al")
+        gap = 1.764 * KB_UEV_PER_K * material.T_c
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.01, energy_max_factor=6.0,
+            num_energy_bins=30,
+        )
+        dE = integration_widths_from_centers(E)
+        ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+        K_s0 = build_scattering_kernel_base(
+            ctx, tau_0=material.tau_0, T_c=material.T_c
+        )
+        K_r0 = build_recombination_kernel_base(
+            ctx, tau_0=material.tau_0, T_c=material.T_c
+        )
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+        return ctx, K_s0, K_r0, f_FD
+
+    @pytest.mark.parametrize("T_bath,c", [(0.05, 0.5), (0.05, 2.0), (0.08, 1.05)])
+    def test_wrong_number_cold_seed_fails_loud(
+        self, T_bath: float, c: float
+    ) -> None:
+        ctx, K_s0, K_r0, f_FD = self._thermal_setup(T_bath)
+        with pytest.raises(RuntimeError, match="conserved-QP-number"):
+            newton_solve_f(
+                ctx, np.clip(c * f_FD, 0.0, 1.0),
+                K_s0=K_s0, K_r0=K_r0, T_bath=T_bath,
+            )
+
+    @pytest.mark.parametrize("T_bath", [0.05, 0.1])
+    def test_thermal_seed_still_certifies(self, T_bath: float) -> None:
+        ctx, K_s0, K_r0, f_FD = self._thermal_setup(T_bath)
+        out = newton_solve_f(ctx, f_FD, K_s0=K_s0, K_r0=K_r0, T_bath=T_bath)
+        head = f_FD > 1e-16
+        np.testing.assert_allclose(out[head], f_FD[head], rtol=1e-6)

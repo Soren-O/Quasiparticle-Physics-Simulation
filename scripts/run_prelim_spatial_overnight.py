@@ -509,15 +509,53 @@ def _run_id(
     )
 
 
-def _completed_run_ids(summary_path: Path) -> set[str]:
+def _completed_run_ids(
+    summary_path: Path,
+    shifts_path: Path | None = None,
+    out_dir: Path | None = None,
+) -> set[str]:
+    """Run ids whose prior attempt is VERIFIED complete.
+
+    A summary row saying ``status=completed`` is not sufficient
+    (2026-07-21 round-5 review: a completed summary row with an empty
+    shifts file was accepted and skipped forever). Completion also
+    requires at least one shift row for the run id and, when the summary
+    row references trace/profile artifacts, that those files exist.
+    Unverifiable ids fall out of the set and are simply re-run (the
+    purge-on-retry path keeps that idempotent).
+    """
     if not summary_path.exists():
         return set()
+    shift_ids: set[str] | None = None
+    if shifts_path is not None:
+        shift_ids = set()
+        if shifts_path.exists() and shifts_path.stat().st_size > 0:
+            with shifts_path.open() as fp:
+                for row in csv.DictReader(fp):
+                    rid = row.get("run_id")
+                    if rid:
+                        shift_ids.add(rid)
+    completed: set[str] = set()
     with summary_path.open() as fp:
-        return {
-            row["run_id"]
-            for row in csv.DictReader(fp)
-            if row.get("status") == "completed"
-        }
+        for row in csv.DictReader(fp):
+            if row.get("status") != "completed":
+                continue
+            rid = row.get("run_id")
+            if not rid:
+                continue
+            if shift_ids is not None and rid not in shift_ids:
+                continue
+            if out_dir is not None:
+                artifacts_ok = True
+                for field in ("trace_csv", "profile_csv"):
+                    ref = (row.get(field) or "").strip()
+                    if ref and not (out_dir / ref).exists():
+                        artifacts_ok = False
+                        break
+                if not artifacts_ok:
+                    continue
+            completed.add(rid)
+    return completed
 
 
 def _write_metadata(out_dir: Path, config: SweepConfig) -> None:
@@ -584,7 +622,7 @@ def main() -> None:
         shifts_path.unlink(missing_ok=True)
         completed: set[str] = set()
     else:
-        completed = _completed_run_ids(summary_path)
+        completed = _completed_run_ids(summary_path, shifts_path, out_dir)
 
     summary_fields = [
         "run_id",

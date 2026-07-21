@@ -474,7 +474,15 @@ def _pair_breaking_quadrature_correction(
     if K.shape != ctx.K_plus.shape:
         return np.ones(n_omega)
 
-    valid = (ctx.K_plus > 0.0) & np.isfinite(ctx.K_plus) & np.isfinite(K)
+    # Detect canonicity on SUPPORTED pairs only: entries at zero-capacity
+    # cells are multiplied by rho = 0 in every rate and cannot change the
+    # physics, so they must not be able to disable the correction either
+    # (2026-07-21 round-5 review: editing only unsupported entries
+    # silently switched the Kaplan correction off globally, moving
+    # individual source bins by 26.3%).
+    sup = ctx.active_mask
+    pair_sup = sup[:, None] & sup[None, :]
+    valid = pair_sup & (ctx.K_plus > 0.0) & np.isfinite(ctx.K_plus) & np.isfinite(K)
     if not np.any(valid):
         return np.ones(n_omega)
     prefactor = float(np.median(K[valid] / ctx.K_plus[valid]))

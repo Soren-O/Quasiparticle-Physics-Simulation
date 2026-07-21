@@ -252,6 +252,48 @@ Seven further findings, adjudicated and fixed on this branch:
   representative case needs non-default budgets (~1200 iterations);
   WebUI provenance and exhaustive API validation.
 
+## 2026-07-21 fourth external-review round (GPT 5.6 Sol, round 5)
+
+Six findings; ALL confirmed and addressed:
+
+- **HIGH — the core standalone solver was amplitude-blind at cold
+  temperatures:** `newton_solve_f` certified `c·f_FD` unchanged at
+  50–80 mK even with `tol=1e-30` — number-conserving scattering
+  dominates every aggregate metric while the number-changing pair
+  channel scales as e^{−2Δ/kT} (numerically unresolvable below ~80 mK in
+  float64). A dedicated conserved-QP-number certificate (full number
+  residual over pair-channel turnover, 1% limit) now rejects
+  wrong-number states loudly at acceptance. Scope: standalone solves
+  (`external_flux is None`) — flux-coupled regions legitimately pass
+  number through junctions mid-iteration and are certified at the device
+  level. Granularity ~1–2% documented. All reviewer counterexamples
+  (0.5×/1.05×/2× at 50–100 mK) now raise; thermal seeds still certify.
+- **HIGH — three device-certificate holes, all fixed:** the threshold now
+  scales as `min(0.05, 1e3·outer_tol)` (a fixed detector accepted
+  5%-wrong modes at any tolerance); the certified sum is COLLISION-ONLY
+  (adding ~1e-12 balanced junction terms to a ~1e-38 cold collision
+  residual absorbed it in floating point — the exchange cancels
+  analytically, so it is omitted, not computed); certification is per
+  CONNECTED conservation component (one signed device-wide sum let
+  disconnected components cancel to ~4e-30). All three reviewer
+  counterexamples are regression tests.
+- Finite-phonon device solves are no longer mis-certified by a thermal
+  surrogate (certificate requires `use_thermal_phonons=True`; otherwise
+  a loud not-certified warning). Same-family junction misconfiguration
+  (symmetric with ratio ≠ 1 / mismatched weights) now REFUSES instead of
+  warn-then-answer.
+- **2Δ threshold is now strictly-above with a roundoff margin,
+  everywhere:** the K⁻ pair rate is zero AT equality; `pair_channel_open`
+  is shared by the rates, the crossing guard, and the analytic Jacobian
+  (a gap-cut grid emitted finite generation at exact threshold, and a
+  snap-to-threshold case came out ~7.4× large).
+- **Resume completion is verified, not trusted:** a `completed` summary
+  row also needs shift rows and existing trace/profile artifacts;
+  unverifiable ids simply re-run (purge keeps that idempotent).
+- **The Kaplan-correction detector ignores zero-capacity entries** (they
+  cannot affect rates, so they can no longer disable the correction —
+  the same fragility that produced the round-3 "21%" artifact).
+
 ## Full audit record
 
 Complete findings (incl. 40 lows and 5 newly refuted false positives):

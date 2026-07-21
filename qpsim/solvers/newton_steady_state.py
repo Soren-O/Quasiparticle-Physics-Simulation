@@ -21,7 +21,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
-from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
+from qpsim.collisions.pair_breaking_photon import (
+    pair_breaking_photon_collision_rates,
+)
+from qpsim.collisions.pair_breaking_photon import (
+    pair_channel_open as _pair_channel_open,
+)
 from qpsim.collisions.phonon import (
     _thermal_phonon_recombination_occupations,
     _thermal_phonon_scattering_occupation,
@@ -38,6 +43,15 @@ if TYPE_CHECKING:
     # isolation. PEP 563 keeps the annotations as strings, so the class object
     # is never needed at runtime here.
     from qpsim.devices.external_flux import ExternalFlux
+
+
+#: Dimensionless limit for the conserved-QP-number certificate in
+#: newton_solve_f. Wrong-number manifolds measure |1-c^2|/(1+c^2) of the
+#: pair turnover (~0.6 at c=0.5/2, ~0.049 at c=1.05); genuine roots
+#: measure at the roundoff/quadrature floor (<= ~1e-9). 1% rejects
+#: number errors down to ~2%; smaller common-mode errors are below this
+#: certificate's granularity (documented).
+_PAIR_NUMBER_CERTIFICATE_LIMIT = 0.01
 
 
 def thermal_collision_gain_loss(
@@ -261,6 +275,60 @@ def newton_solve_f(
         converged_abs = max_residual < tol
         converged_balance = backward_error <= backward_error_tol
         if converged_abs and converged_balance:
+            # PAIR-NUMBER certificate (2026-07-21 round-5 review): the
+            # aggregate metrics above normalize by turnover dominated by
+            # number-CONSERVING scattering, so at cold temperatures they
+            # accept states whose total QP number is wrong by factors of
+            # 2+ (c*f_FD returned unchanged at 50-80 mK even with
+            # tol=1e-30 — the pair channel scales as e^{-2Delta/kT} and
+            # is invisible to them). Certify the conserved-number mode
+            # separately: the weighted number residual against the
+            # number-CHANGING (recombination/pair) turnover. At any
+            # genuine root the number residual is ~0 bin-wise; on a
+            # wrong-number manifold this measures O(0.5-1).
+            # Scope: STANDALONE solves only. With an external_flux the QP
+            # number legitimately flows through the junction at every
+            # intermediate outer iteration (it balances only at the final
+            # COUPLED fixed point), and Newton's absolute residual floor
+            # sits orders above the cold pair scale — the number mode of
+            # flux-coupled regions is certified at the DEVICE level
+            # (per connected component) instead.
+            if K_r0 is not None and external_flux is None:
+                gain_pair, loss_pair = _gain_loss_sum(
+                    f_cur, ctx, None, K_r0, T_bath,
+                    photon_params, pb_photon_params,
+                    None, N_emit, N_abs,
+                    None,
+                )
+                w = ctx.cell_weights
+                number_residual = float(
+                    np.sum(w[active] * (gain[active] - loss_rate[active] * f_cur[active]))
+                )
+                pair_turnover = float(
+                    np.sum(
+                        w[active]
+                        * (
+                            np.abs(gain_pair[active])
+                            + np.abs(loss_pair[active] * f_cur[active])
+                        )
+                    )
+                )
+                pair_number_error = abs(number_residual) / max(
+                    pair_turnover, 1e-300
+                )
+                if pair_number_error > _PAIR_NUMBER_CERTIFICATE_LIMIT:
+                    raise RuntimeError(
+                        "Newton aggregate metrics converged but the "
+                        "conserved-QP-number mode is not balanced: pair-"
+                        f"number backward error {pair_number_error:.3e} > "
+                        f"{_PAIR_NUMBER_CERTIFICATE_LIMIT:g}. The state's "
+                        "total quasiparticle number is wrong and the pair "
+                        "channels are too slow (or numerically too small "
+                        "in float64) to correct it from this seed at this "
+                        "temperature. Seed with the correct number (e.g. "
+                        "a thermal or continuation state) instead of "
+                        "relying on frozen pair relaxation."
+                    )
             # Return exactly the feasible vector whose residual was certified.
             # The initial state is validated and accepted trials are projected
             # before their residual is evaluated, so no post-hoc clip is needed.
@@ -574,7 +642,7 @@ def _jacobian_analytical(
             # derivatives in while the rates zero them gave a 0.74%
             # Jacobian-vs-FD mismatch on gap-cut grids, feeding coupled
             # Newton a wrong Jacobian).
-            if omega_PB_snapped < 2.0 * ctx.gap:
+            if not _pair_channel_open(omega_PB_snapped, ctx.gap):
                 continue
             E_partner = omega_PB_snapped - E[i]
             j_r = round((E_partner - E[0]) / dE_scalar)
