@@ -51,6 +51,7 @@ from scripts.run_prelim_spatial_finite_phonon_one import (
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
     LENGTH_UM,
+    purge_run_id_rows,
     require_matching_header,
     _resonator_shifts,
     _source_calibration,
@@ -532,11 +533,11 @@ def main() -> None:
         flush=True,
     )
 
+    # The shifts schema is defined by the CURRENT code's rows, never
+    # adopted from disk: adopting a stale on-disk header silently dropped
+    # newer columns through extrasaction="ignore" (2026-07-20 round-4
+    # review). A mismatched existing header fails loud below instead.
     shift_fields: list[str] | None = None
-    if shifts_path.exists():
-        with shifts_path.open() as fp:
-            reader = csv.reader(fp)
-            shift_fields = next(reader, None)
 
     for run_number, (D0, source_rate, tau_l_ns, n_bar, readout_index) in enumerate(
         combinations,
@@ -552,6 +553,10 @@ def main() -> None:
             continue
 
         print(f"[{run_number}/{len(combinations)}] start {run_id}", flush=True)
+        # Idempotent re-run: drop stale rows from a prior failed or
+        # non-converged attempt of this run id (2026-07-20 round-4 review).
+        purge_run_id_rows(summary_path, run_id)
+        purge_run_id_rows(shifts_path, run_id)
         try:
             summary_row, shift_rows = _run_case(
                 config,
@@ -564,6 +569,7 @@ def main() -> None:
             )
             if shift_fields is None:
                 shift_fields = list(shift_rows[0].keys())
+                require_matching_header(shifts_path, shift_fields)
             # Shift rows FIRST, the summary row LAST: the summary row is the
             # commit marker resume gates on, so a crash between the two
             # writes leaves an orphan shift attempt (harmless, superseded on

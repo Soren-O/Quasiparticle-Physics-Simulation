@@ -269,20 +269,44 @@ class TestOffGridPartnerGuards:
         assert float(np.max(gain)) > 0.0
 
     def test_sub_2delta_photon_produces_no_pair_generation(self) -> None:
-        # 2026-07-20 review repro: an exactly commensurate omega_PB = 1.6*gap
-        # on a gap-cut grid produced finite pair generation through cut-cell
-        # partners. Below 2*gap the K- block must be inert entirely;
-        # with f = 0 and n_bar > 0 any nonzero gain is unphysical creation.
-        gap = 1.0
-        E = np.linspace(0.85, 3.05, 23)  # dE=0.1, cut cells at 0.85..0.95
+        # 2026-07-20 round-4 review: the previous version of this test used
+        # a face-aligned gap with no supported cut cell, so the pre-fix code
+        # also returned zero gain and the test was vacuous. This grid puts
+        # the gap INSIDE the [0.90, 1.00] cell (supported cut cell centered
+        # at 0.95 < gap = 0.97): pairs (0.95, 0.95) are supported with
+        # center-sum 1.90 < 2*gap = 1.94, so the pre-fix K- block produced
+        # finite pair generation from a photon below the 2*gap threshold.
+        gap = 0.97
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1
         dE = integration_widths_from_centers(E)
         ctx = SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
-        omega = 1.6  # 16*dE: exactly commensurate, below 2*gap
+        supported = ctx.cell_weights > 0.0
+        assert supported[1] and float(E[1]) < gap  # genuine supported cut cell
+        omega = 1.9  # 19*dE exactly; pairs (0.95, 0.95); below 2*gap = 1.94
         f = np.zeros_like(E)
         gain, loss = pair_breaking_photon_collision_rates(f, ctx, omega, 1.0, 1e-2)
-        # Pair generation must vanish identically (pre-fix: gain[0]=0.0723).
+        # Pair generation must vanish identically below the threshold.
         assert np.all(gain == 0.0)
         # The scattering channel legitimately keeps a finite loss-rate
         # COEFFICIENT at any omega (absorption moving a QP up); with f=0
         # no actual loss occurs.
         assert np.all(np.isfinite(loss))
+
+    def test_snap_may_not_cross_the_pair_threshold(self) -> None:
+        # 2026-07-20 round-4 review (both directions reproduced by the
+        # reviewer): an accepted snap must never CHANGE whether the pair
+        # channel exists. dE = 0.1, so the commensurability window is
+        # +-0.001 (1% of a bin) around each harmonic.
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1
+        dE = integration_widths_from_centers(E)
+        f = np.zeros_like(E)
+        # Downward crossing: 2*gap = 1.9005; nominal 1.9006 (> 2*gap)
+        # snaps to 1.90 (< 2*gap) at a 0.006-bin offset.
+        ctx_dn = SpectralContext(E_bins=E, dE_bins=dE, gap=0.95025)
+        with pytest.raises(ValueError, match="crosses the 2Δ"):
+            pair_breaking_photon_collision_rates(f, ctx_dn, 1.9006, 1.0, 1e-2)
+        # Upward crossing: 2*gap = 1.9995; nominal 1.9994 (< 2*gap)
+        # snaps to 2.0 (>= 2*gap) at a 0.006-bin offset.
+        ctx_up = SpectralContext(E_bins=E, dE_bins=dE, gap=0.99975)
+        with pytest.raises(ValueError, match="crosses the 2Δ"):
+            pair_breaking_photon_collision_rates(f, ctx_up, 1.9994, 1.0, 1e-2)

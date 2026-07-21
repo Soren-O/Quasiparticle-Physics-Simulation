@@ -40,6 +40,39 @@ if TYPE_CHECKING:
     from qpsim.devices.external_flux import ExternalFlux
 
 
+def thermal_collision_gain_loss(
+    f: np.ndarray,
+    ctx: SpectralContext,
+    K_s0: np.ndarray | None,
+    K_r0: np.ndarray | None,
+    T_bath: float,
+    *,
+    photon_params: dict[str, float] | None = None,
+    pb_photon_params: dict[str, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Internal (collision/photon) ``(gain, loss_rate)`` at thermal phonons.
+
+    Public wrapper for certification callers (the device outer loop's
+    global slow-mode certificate) that need the internal turnover with
+    NO external flux, matching exactly the assembly ``newton_solve_f``
+    certifies against.
+    """
+    N_p = (
+        _thermal_phonon_scattering_occupation(ctx.E, T_bath)
+        if K_s0 is not None
+        else None
+    )
+    N_emit = N_abs = None
+    if K_r0 is not None:
+        N_emit, N_abs = _thermal_phonon_recombination_occupations(ctx.E, T_bath)
+    return _gain_loss_sum(
+        f, ctx, K_s0, K_r0, T_bath,
+        photon_params, pb_photon_params,
+        N_p, N_emit, N_abs,
+        None,
+    )
+
+
 def newton_solve_f(
     ctx: SpectralContext,
     f: np.ndarray,
@@ -178,6 +211,30 @@ def newton_solve_f(
             N_p, N_emit, N_abs,
             external_flux,
         )
+        # Internal (collision/photon-channel) turnover for CERTIFICATION:
+        # a large but exactly balanced external-flux exchange must not
+        # inflate the acceptance denominator, or a state the internal
+        # channels have not equilibrated self-certifies (2026-07-20
+        # review: two identical device regions at c*f_FD were accepted
+        # unchanged for any c). The residual keeps the full physics.
+        if external_flux is not None:
+            gain_int, loss_int = _gain_loss_sum(
+                f_cur, ctx, K_s0, K_r0, T_bath,
+                photon_params, pb_photon_params,
+                N_p, N_emit, N_abs,
+                None,
+            )
+            if not (
+                np.any(gain_int[active] != 0.0)
+                or np.any(loss_int[active] != 0.0)
+            ):
+                # Flux-only system (no internal channels enabled): the
+                # external flux IS the entire equation, so it is the
+                # correct normalization — there is nothing internal left
+                # to equilibrate.
+                gain_int, loss_int = gain, loss_rate
+        else:
+            gain_int, loss_int = gain, loss_rate
         R = gain - loss_rate * f_cur
 
         R_abs = np.abs(R[active])
@@ -186,8 +243,8 @@ def newton_solve_f(
         rate_scale = float(
             np.max(
                 np.maximum(
-                    np.abs(gain[active]),
-                    np.abs(loss_rate[active] * f_cur[active]),
+                    np.abs(gain_int[active]),
+                    np.abs(loss_int[active] * f_cur[active]),
                 )
             )
         )
@@ -197,6 +254,8 @@ def newton_solve_f(
             loss_rate,
             f_cur,
             active,
+            scale_gain=gain_int,
+            scale_loss_rate=loss_int,
         )
 
         converged_abs = max_residual < tol
@@ -268,8 +327,21 @@ def _gain_loss_backward_error(
     loss_rate: np.ndarray,
     f: np.ndarray,
     active: np.ndarray,
+    *,
+    scale_gain: np.ndarray | None = None,
+    scale_loss_rate: np.ndarray | None = None,
 ) -> float:
-    """L1 normwise backward error of ``gain - loss_rate*f = 0``."""
+    """L1 normwise backward error of ``gain - loss_rate*f = 0``.
+
+    ``scale_gain``/``scale_loss_rate`` (when given) supply the turnover
+    used for NORMALIZATION while the residual keeps ``gain``/``loss_rate``.
+    Callers with an ``external_flux`` pass the internal (collision/photon)
+    turnover here: a large but exactly balanced exchange term must not
+    inflate the denominator and self-certify a state the internal
+    channels have not equilibrated (2026-07-20 review: two device
+    regions at ``c * f_FD`` certified for any ``c`` because the balanced
+    junction exchange dominated this denominator).
+    """
     gain_arr = np.asarray(gain, dtype=float)
     loss_arr = np.asarray(loss_rate, dtype=float)
     f_arr = np.asarray(f, dtype=float)
@@ -282,24 +354,33 @@ def _gain_loss_backward_error(
         ~np.isfinite(np.stack((gain_arr, loss_arr, f_arr), axis=0))
     ):
         raise ValueError("gain, loss_rate, and f must contain only finite values.")
+    sg_arr = gain_arr if scale_gain is None else np.asarray(scale_gain, dtype=float)
+    sl_arr = loss_arr if scale_loss_rate is None else np.asarray(scale_loss_rate, dtype=float)
+    if not (sg_arr.shape == sl_arr.shape == f_arr.shape):
+        raise ValueError("scale arrays must match the state shape.")
+    if np.any(~np.isfinite(np.stack((sg_arr, sl_arr), axis=0))):
+        raise ValueError("scale arrays must contain only finite values.")
     with np.errstate(over="ignore", invalid="ignore"):
         loss_term = loss_arr[active_arr] * f_arr[active_arr]
+        scale_loss_term = sl_arr[active_arr] * f_arr[active_arr]
     residual = gain_arr[active_arr] - loss_term
     if np.any(~np.isfinite(loss_term)) or np.any(~np.isfinite(residual)):
         raise ValueError("Assembled gain/loss balance terms must be finite.")
-    gain_active = gain_arr[active_arr]
+    if np.any(~np.isfinite(scale_loss_term)):
+        raise ValueError("Assembled scale terms must be finite.")
+    scale_gain_active = sg_arr[active_arr]
     common = float(
         max(
-            np.max(np.abs(gain_active), initial=0.0),
-            np.max(np.abs(loss_term), initial=0.0),
+            np.max(np.abs(scale_gain_active), initial=0.0),
+            np.max(np.abs(scale_loss_term), initial=0.0),
             np.max(np.abs(residual), initial=0.0),
         )
     )
     if common == 0.0:
         return 0.0
     denominator = float(
-        np.sum(np.abs(gain_active) / common)
-        + np.sum(np.abs(loss_term) / common)
+        np.sum(np.abs(scale_gain_active) / common)
+        + np.sum(np.abs(scale_loss_term) / common)
     )
     numerator = float(np.sum(np.abs(residual) / common))
     return numerator / denominator if denominator > 0.0 else float("inf")
@@ -488,6 +569,13 @@ def _jacobian_analytical(
                     J[i, i] -= c_pb * U * (n_bar_pb + 1.0 - f[j_dn])
                     J[i, j_dn] += c_pb * U * (n_bar_pb + f[i])
 
+            # Hard 2Δ pair threshold — the SAME gate the rate function
+            # applies (2026-07-20 round-4 review: leaving these
+            # derivatives in while the rates zero them gave a 0.74%
+            # Jacobian-vs-FD mismatch on gap-cut grids, feeding coupled
+            # Newton a wrong Jacobian).
+            if omega_PB_snapped < 2.0 * ctx.gap:
+                continue
             E_partner = omega_PB_snapped - E[i]
             j_r = round((E_partner - E[0]) / dE_scalar)
             if j_r < 0 or j_r >= NE or not supported[j_r]:

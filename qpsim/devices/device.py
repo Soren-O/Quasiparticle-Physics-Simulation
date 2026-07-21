@@ -18,6 +18,7 @@ For Phase 3 the inner per-region solve uses ``use_thermal_phonons=True``
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
@@ -149,6 +150,12 @@ def _aggregate_flux(
     )
 
 
+#: Dimensionless limit for the global conserved-number-mode certificate
+#: (see solve_device_steady_state). Manifold pathology measures ~0.6;
+#: accepted converged states measure <= ~1e-3.
+_CONSERVED_MODE_LIMIT = 0.05
+
+
 def solve_device_steady_state(
     device: Device,
     *,
@@ -225,6 +232,19 @@ def solve_device_steady_state(
     RuntimeError
         If the outer loop fails to converge within ``outer_max_iter``.
     """
+    # Control validation (2026-07-20 review: NaN/inf tolerances previously
+    # reported success and NaN damping returned non-finite occupations).
+    if not (np.isfinite(outer_tol) and outer_tol > 0.0):
+        raise ValueError(f"outer_tol must be finite and positive; got {outer_tol!r}.")
+    if not (np.isfinite(outer_damping) and 0.0 < outer_damping <= 1.0):
+        raise ValueError(
+            f"outer_damping must lie in (0, 1]; got {outer_damping!r}."
+        )
+    if not isinstance(outer_max_iter, (int, np.integer)) or outer_max_iter < 1:
+        raise ValueError(
+            f"outer_max_iter must be a positive integer; got {outer_max_iter!r}."
+        )
+
     if backend is None:
         # Lazy import to avoid circular dep with qpsim.backends.t3_diffusion
         # which itself imports qpsim.devices.external_flux.
@@ -265,8 +285,131 @@ def solve_device_steady_state(
                 )
             dissipation_owner[region_name] = j.name
 
+    # Per-region collision kernels for the global slow-mode certificate
+    # (grids/materials are fixed across outer iterations).
+    from qpsim.collisions.phonon import (
+        build_recombination_kernel_base,
+        build_scattering_kernel_base,
+    )
+    from qpsim.solvers.newton_steady_state import thermal_collision_gain_loss
+
+    region_kernels: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name, st in states.items():
+        region_kernels[name] = (
+            build_scattering_kernel_base(
+                st.spectral, tau_0=st.material.tau_0, T_c=st.material.T_c
+            ),
+            build_recombination_kernel_base(
+                st.spectral, tau_0=st.material.tau_0, T_c=st.material.T_c
+            ),
+        )
+
+    # The conserved-mode certificate needs the junction transfer to cancel
+    # bin-wise in the weighted number sum. That is provable here only for
+    # SymmetricGapTunnelingJunction at capacity ratio 1 between regions
+    # with identical cell weights — exactly the configuration of the
+    # demonstrated failure. Outside that contract the certificate is
+    # skipped LOUDLY (once): the common-mode certification gap remains an
+    # open limitation for heterogeneous junction sets (needs a coupled
+    # multi-region solve / per-junction number-flux accounting).
+    from qpsim.devices.junction import SymmetricGapTunnelingJunction
+
+    def _conserved_mode_certifiable() -> bool:
+        for j in device.junctions:
+            if not isinstance(j, SymmetricGapTunnelingJunction):
+                return False
+            if getattr(j, "capacity_ratio_a_to_b", 1.0) != 1.0:
+                return False
+            w_a = device.regions[j.region_a].state.spectral.cell_weights
+            w_b = device.regions[j.region_b].state.spectral.cell_weights
+            if w_a.shape != w_b.shape or not np.array_equal(w_a, w_b):
+                return False
+        return True
+
+    conserved_mode_in_scope = _conserved_mode_certifiable()
+    if not conserved_mode_in_scope:
+        warnings.warn(
+            "solve_device_steady_state: the global conserved-mode "
+            "certificate is only implemented for symmetric ratio-1 "
+            "tunneling junctions with matched cell weights; this device "
+            "is outside that contract, so exchange-dominated common-mode "
+            "errors (all regions off by a shared factor) are NOT "
+            "certified against. Treat cold-temperature results with a "
+            "poor initial state with care.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    def _global_slow_mode_error(
+        current: dict[str, T3DiffusionState],
+        current_fluxes: dict[str, ExternalFlux | None],
+    ) -> float:
+        """Backward error of the conserved total-QP-number mode.
+
+        Junction exchange conserves total QP number (within the
+        certified contract above), so summing the FULL per-region number
+        balance (collisions + flux) cancels the internal transfer and
+        exposes the global slow mode the per-region frozen-flux solves
+        cannot see: exchange-dominated regions pin each other to a
+        common-mode manifold whose Picard defect is
+        ~(collision/exchange) x error — far below any defect tolerance —
+        while the state is arbitrarily far from equilibrium (2026-07-20
+        round-4 review: both regions at c*f_FD certified for any c).
+        Normalized by the COLLISION-ONLY number turnover so balanced
+        exchange cannot self-certify.
+        """
+        number_residual = 0.0
+        turnover = 0.0
+        for rname, rstate in current.items():
+            K_s0_r, K_r0_r = region_kernels[rname]
+            gain_c, loss_c = thermal_collision_gain_loss(
+                rstate.f, rstate.spectral, K_s0_r, K_r0_r, rstate.T_bath,
+            )
+            # Number-CHANGING (pair generation/recombination) turnover only:
+            # scattering dominates the raw turnover but conserves number
+            # exactly, and normalizing by it buries the conserved-mode
+            # signal under an e^{-Delta/kT} factor (a 0.5*f_FD manifold
+            # measured 2.9e-6 against full turnover vs 0.60 against pair
+            # turnover).
+            gain_p, loss_p = thermal_collision_gain_loss(
+                rstate.f, rstate.spectral, None, K_r0_r, rstate.T_bath,
+            )
+            gain = gain_c
+            loss = loss_c
+            ef = current_fluxes.get(rname)
+            if ef is not None:
+                gain = gain + ef.gain
+                loss = loss + ef.loss_rate
+            w = rstate.spectral.cell_weights
+            number_residual += float(np.sum(w * (gain - loss * rstate.f)))
+            turnover += float(
+                np.sum(w * (np.abs(gain_p) + np.abs(loss_p * rstate.f)))
+            )
+        return abs(number_residual) / max(turnover, 1e-300)
+
+    def _accepted_state_slow_mode_error(
+        accepted: dict[str, T3DiffusionState],
+        accepted_qubit: QubitState | None,
+    ) -> float:
+        """Re-evaluate junction fluxes AT the accepted states and certify."""
+        accepted_fluxes: dict[str, ExternalFlux | None] = dict.fromkeys(
+            device.regions
+        )
+        for j in device.junctions:
+            result = j.evaluate(
+                accepted[j.region_a], accepted[j.region_b], accepted_qubit,
+            )
+            accepted_fluxes[j.region_a] = _aggregate_flux(
+                accepted_fluxes[j.region_a], result.external_flux_a
+            )
+            accepted_fluxes[j.region_b] = _aggregate_flux(
+                accepted_fluxes[j.region_b], result.external_flux_b
+            )
+        return _global_slow_mode_error(accepted, accepted_fluxes)
+
     last_delta_f = float("inf")
     last_delta_p = 0.0
+    last_slow_mode_error = float("inf")
     for outer_iter in range(outer_max_iter):
         # Step 1: aggregate junction fluxes per region + pool qubit channels
         fluxes: dict[str, ExternalFlux | None] = dict.fromkeys(device.regions)
@@ -352,6 +495,35 @@ def solve_device_steady_state(
         else:
             qubit_state = new_qubit_state
 
+        if converged and conserved_mode_in_scope:
+            # Certify the conserved global mode AT the accepted states
+            # with re-evaluated fluxes (exact cancellation, no snapshot
+            # lag). A quiet defect with an unbalanced conserved mode
+            # means the regions sit on an exchange-dominated common-mode
+            # manifold this frozen-flux Picard splitting cannot drain
+            # (drainage ~ collision/exchange per iteration): refuse.
+            # The conserved-mode certificate is a MANIFOLD DETECTOR with
+            # a fixed dimensionless threshold: measured calibration —
+            # 0.60 for regions on a common-factor manifold (any
+            # temperature), 1.0e-3 for the legitimately converged
+            # mismatched-T fixture, ~1e-11 at thermal equilibrium. 5%
+            # sits an order above accepted states and an order below the
+            # pathology.
+            last_slow_mode_error = _accepted_state_slow_mode_error(
+                states, qubit_state
+            )
+            if last_slow_mode_error > _CONSERVED_MODE_LIMIT:
+                raise RuntimeError(
+                    "Device outer loop reached a quiet fixed-point defect "
+                    f"({last_delta_f:.2e}) while the global conserved-mode "
+                    f"backward error is {last_slow_mode_error:.2e} > "
+                    f"{outer_tol:.2e}: the regions are pinned on an "
+                    "exchange-dominated common-mode manifold away from "
+                    "collision equilibrium (e.g. all regions scaled by a "
+                    "common factor). The frozen-flux Picard splitting "
+                    "cannot drain this mode; use a coupled multi-region "
+                    "solve or start from a better initial state."
+                )
         if converged:
             return DeviceSolution(
                 states=states,
@@ -364,6 +536,7 @@ def solve_device_steady_state(
     raise RuntimeError(
         f"Device outer Picard loop did not converge in {outer_max_iter} "
         f"iterations. Final fixed-point defect max |F(f)-f| = "
-        f"{last_delta_f:.2e}, max |Δp| = {last_delta_p:.2e} "
+        f"{last_delta_f:.2e}, max |Δp| = {last_delta_p:.2e}, global "
+        f"conserved-mode backward error = {last_slow_mode_error:.2e} "
         f"(relative tol {outer_tol:.2e}, damping {outer_damping:g})."
     )

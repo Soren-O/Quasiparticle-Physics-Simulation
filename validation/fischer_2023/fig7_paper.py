@@ -88,6 +88,85 @@ Q_EXT_BY_DBM: dict[float, float] = {
     -64.0: 0.7e6,
 }
 
+#: Table 2 coupling quality factor (verified against the paper source).
+#: The former overlay passed Q_EXT (~0.7-2.5e6) as Eq. 65's Q_c, inflating
+#: the dashed curves by up to ~55x at 0.30 K (2026-07-20 round-4 review).
+Q_C_PAPER = 20100.0
+
+_GAMMA0_EQ63 = 19.3  # gamma_0 = pi 2^{1/3} 5 sqrt(7) (2.1)^2/(2.3 * 3^{3/2})
+
+
+def _fig7_x_th_paper(T_K: float) -> float:
+    """x_th = N_qp^{T_B}/(2 rho_F Delta) = sqrt(2 pi T_B/Delta) e^{-Delta/T_B}."""
+    T_uev = T_K * KB_UEV_PER_K
+    if T_uev <= 0:
+        return 0.0
+    return float(np.sqrt(2.0 * np.pi * T_uev / DELTA_0) * np.exp(-DELTA_0 / T_uev))
+
+
+def _fig7_Q_thermal(T_K: float) -> float:
+    """Thermal-equilibrium Q_i (paper Eq. 113 / ref. [31] form)."""
+    from scipy.special import k0 as _k0
+
+    T_uev = T_K * KB_UEV_PER_K
+    if T_uev <= 0:
+        return np.inf
+    x = OMEGA_0 / (2.0 * T_uev)
+    return float(
+        np.pi / (4.0 * ALPHA_KI * np.sinh(x) * _k0(x)) * np.exp(DELTA_0 / T_uev)
+    )
+
+
+def _fig7_Q_i0_eq63(p_dbm: float) -> float:
+    """Low-T_B drive plateau, paper Eq. 63 (power 3 in prefactor AND exponent)."""
+    kBTs = TSTAR_OVER_DELTA[float(p_dbm)] * DELTA_0
+    if TAU_L <= 0:
+        return np.inf
+    arg = float(np.sqrt(14.0 / 5.0)) * (DELTA_0 / kBTs) ** 3
+    if arg > 700.0:
+        return np.inf
+    return (
+        (_GAMMA0_EQ63 * DELTA_0 / (ALPHA_KI * OMEGA_0))
+        * (TAU_0_PB / TAU_L)
+        * (DELTA_0 / kBTs) ** 3
+        * np.exp(arg)
+    )
+
+
+def _fig7_Q_i_eq65(p_dbm: float, T_K: float, Q_c: float) -> float:
+    """Driven high-T_B branch, paper Eq. 65."""
+    x_th = _fig7_x_th_paper(T_K)
+    if x_th <= 0.0:
+        return np.inf
+    amplitude = 2.1 * np.sqrt(2.0) * np.pi * DELTA_0 / (2.3 * ALPHA_KI * OMEGA_0)
+    ts3 = TSTAR_OVER_DELTA[float(p_dbm)] ** 3
+    return float(
+        np.sqrt((Q_c / 2.0) ** 2 + amplitude**2 * ts3 / x_th**2) - Q_c / 2.0
+    )
+
+
+def _fig7_dashed_Q_tot(p_dbm: float, T_K: float) -> float:
+    """Paper-faithful dashed overlay: Eqs. 63+65 (or thermal at -100 dBm).
+
+    Verified against the paper source (2026-07-20 round-4 review):
+    Q_c = 20100 from Table 2, combined with the extrinsic loss as an
+    effective coupling 1/Q_c_eff = 1/Q_c + 1/Q_ext; the paper compares
+    the -100 dBm curve "to the thermal equilibrium expression [31]"
+    because T_{*,0} ~ omega_0 there. The Eq. 63 plateau and Eq. 65
+    branch add harmonically (loss channels), then parallel with Q_ext.
+    """
+    Q_ext = Q_EXT_BY_DBM[float(p_dbm)]
+    if float(p_dbm) == -100.0:
+        Q_i = _fig7_Q_thermal(T_K)
+    else:
+        Q_c_eff = 1.0 / (1.0 / Q_C_PAPER + 1.0 / Q_ext)
+        Q_i = 1.0 / (
+            1.0 / max(_fig7_Q_i_eq65(p_dbm, T_K, Q_c_eff), 1.0)
+            + 1.0 / max(_fig7_Q_i0_eq63(p_dbm), 1.0)
+        )
+    return 1.0 / (1.0 / max(Q_i, 1.0) + 1.0 / Q_ext)
+
+
 # Same-system regression limits remain deliberately strict.  Exact
 # single-thread hosted-Linux runs of the Windows pin expose a larger, stable
 # same-root portability envelope: QP-loss drift reached 4.633e-3 and Q_tot
@@ -917,48 +996,6 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
     }
     fallback_cmap = matplotlib.colormaps["viridis_r"]
 
-    # Analytical Q_i overlay, paper-faithful Eqs. 63 + 65 (2026-07-20
-    # review: the previous overlay used (Δ/T*)^{3/2} where Eq. 63 has
-    # power 3, and substituted the equilibrium Eq. F1 expression for the
-    # published DRIVEN high-T branch Eq. 65 — dashed curves were off by
-    # up to ~6x at 0.30 K). Verified against arXiv:2212.08155 v2:
-    #   Eq. 63: Q_{i,0} = (γ0 Δ/(α ω0)) (τ0^PB/τ_l) (Δ/T*,0)^3
-    #                       · exp(√(14/5) (Δ/T*,0)^3)
-    #   Eq. 65: Q_i = sqrt((Q_c/2)^2 + (2.1√2 π Δ/(2.3 α ω0))^2
-    #                       (T*,0/Δ)^3 x_th^{-2}) − Q_c/2,
-    #           x_th = N_qp^{T_B}/(2 ρ_F Δ) = sqrt(2π T_B/Δ) e^{−Δ/T_B}.
-    # The dashed curve adds the two loss channels harmonically and then
-    # parallels with Q_ext, as before.
-    GAMMA0 = 19.3  # γ0 = π 2^{1/3} 5 √7 (2.1)^2/(2.3·3^{3/2}), Eq. 63
-
-    def _x_th_paper(T_K: float) -> float:
-        T_uev = T_K * KB_UEV_PER_K
-        if T_uev <= 0:
-            return 0.0
-        return float(
-            np.sqrt(2.0 * np.pi * T_uev / DELTA_0) * np.exp(-DELTA_0 / T_uev)
-        )
-
-    def _Q_i0_eq63(p_dbm: float) -> float:
-        kBTs = TSTAR_OVER_DELTA[float(p_dbm)] * DELTA_0
-        if TAU_L <= 0:
-            return np.inf
-        arg = float(np.sqrt(14.0 / 5.0)) * (DELTA_0 / kBTs) ** 3
-        if arg > 700.0:
-            return np.inf
-        return (GAMMA0 * DELTA_0 / (ALPHA_KI * OMEGA_0)) * (TAU_0_PB / TAU_L) \
-            * (DELTA_0 / kBTs) ** 3 * np.exp(arg)
-
-    def _Q_i_eq65(p_dbm: float, T_K: float, Q_c: float) -> float:
-        x_th = _x_th_paper(T_K)
-        if x_th <= 0.0:
-            return np.inf
-        amplitude = 2.1 * np.sqrt(2.0) * np.pi * DELTA_0 / (2.3 * ALPHA_KI * OMEGA_0)
-        ts3 = TSTAR_OVER_DELTA[float(p_dbm)] ** 3
-        return float(
-            np.sqrt((Q_c / 2.0) ** 2 + amplitude**2 * ts3 / x_th**2) - Q_c / 2.0
-        )
-
     fig, ax = plt.subplots(figsize=(6.0, 4.4))
     T_dense = np.linspace(float(np.min(result.T_bath)),
                           float(np.max(result.T_bath)), 200)
@@ -971,16 +1008,7 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
             "o-", lw=1.4, ms=3.0, color=color, label=f"{p:g} dBm",
         )
         if float(p) in TSTAR_OVER_DELTA:
-            Q_i0 = _Q_i0_eq63(float(p))
-            Q_ext = Q_EXT_BY_DBM[float(p)]
-            Qa = np.array([
-                1.0 / (
-                    1.0 / max(_Q_i_eq65(float(p), T, Q_ext), 1.0)
-                    + 1.0 / max(Q_i0, 1.0)
-                )
-                for T in T_dense
-            ])
-            Qa = 1.0 / (1.0 / np.maximum(Qa, 1.0) + 1.0 / Q_ext)
+            Qa = np.array([_fig7_dashed_Q_tot(float(p), T) for T in T_dense])
             ax.semilogy(T_dense, Qa, color=color, ls="--", lw=1.0)
     ax.set_xlabel("T (K)")
     ax.set_ylabel(r"$Q_{i,\mathrm{tot}}$")

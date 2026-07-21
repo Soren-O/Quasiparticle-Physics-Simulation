@@ -711,10 +711,13 @@ class TestGapCutCellPairLabeling:
     through pairs whose CENTER-sum can label the emitted phonon below 2Δ
     although the capacity-supported pair energy is >= 2Δ. This is a
     DOCUMENTED labeling approximation (bounded by one dE, vanishing on
-    covered grids), deliberately NOT masked: zeroing those pairs removed
-    physical rate and shifted Fig. 6's derived tau_0^PB by ~21%. These
-    tests pin the adjudicated semantics: the pair rate stays live, and
-    emission/absorption share the bin (detailed balance exact)."""
+    covered grids), deliberately NOT masked: zeroing those pairs deletes
+    physical rate in principle. (A previously cited ~21% Fig. 6 tau_0^PB
+    shift was a mask-experiment artifact — it broke the canonical-kernel
+    Kaplan-correction detector — per the round-4 review.) The proper fix
+    is a rate-preserving gap-aware omega remap (designed TODO). These
+    tests pin the interim semantics: the pair rate stays live, and
+    emission/absorption share the bin (discrete detailed balance exact)."""
 
     def _cut_ctx(self):
         # gap INSIDE the [0.90, 1.00] cell: its center 0.95 sits below the

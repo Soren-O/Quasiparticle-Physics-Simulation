@@ -108,6 +108,20 @@ def pair_breaking_photon_collision_rates(
         )
 
     omega_PB_snapped = m * dE_scalar
+    # A snap must never CHANGE whether the pair channel exists: nominally
+    # sub-threshold 2Δ−ε snapping above 2Δ would create pairs a photon
+    # cannot make, and nominally super-threshold snapping below would
+    # silently delete the channel (2026-07-20 round-4 review, both
+    # directions reproduced). Fail loud; the caller must supply a
+    # pre-snapped frequency on the intended side of the threshold.
+    if (omega_PB >= 2.0 * ctx.gap) != (omega_PB_snapped >= 2.0 * ctx.gap):
+        raise ValueError(
+            f"Snapping omega_PB={omega_PB:.6g} μeV to m·dE="
+            f"{omega_PB_snapped:.6g} μeV crosses the 2Δ={2.0 * ctx.gap:.6g} "
+            "μeV pair threshold and would change whether the pair channel "
+            "exists. Supply a grid-commensurate frequency on the intended "
+            "side of the threshold."
+        )
 
     # The K⁻ reflection partner j_r = round((ω − E_i − E[0])/dE) is exact
     # only when ω − 2·E[0] is grid-commensurate (the residual is the same

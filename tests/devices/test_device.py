@@ -590,3 +590,66 @@ class TestSolverForwardsJunctionFlux:
         np.testing.assert_allclose(
             sol_alpha0.states["R"].f, sol_no_j.states["R"].f, atol=1e-12,
         )
+
+
+class TestCommonModeCertification:
+    """2026-07-20 round-4 review: two regions at the SAME c*f_FD (zero
+    antisymmetric part) previously certified unchanged for any c — the
+    inner Newton's backward error was normalized by the large but exactly
+    balanced junction exchange, and the absolute residual tolerance is
+    below the cold collision scale. The certification now normalizes by
+    INTERNAL turnover only, so the common mode must genuinely relax."""
+
+    @pytest.mark.parametrize("c", [0.5, 10.0])
+    def test_common_mode_relaxes_to_thermal(self, c: float) -> None:
+        T_bath = 0.1
+        states = {}
+        for name in ("L", "R"):
+            s = _build_state(T_bath=T_bath, num_energy=30)
+            states[name] = T3DiffusionState(
+                f=np.clip(s.f * c, 0.0, 1.0),
+                gap=s.gap, spectral=s.spectral,
+                phonon=s.phonon, material=s.material,
+                T_bath=T_bath,
+            )
+        device = Device(
+            regions={n: Region(name=n, state=st) for n, st in states.items()},
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="JJ", region_a="L", region_b="R", alpha_per_ns=0.01,
+                ),
+            ],
+        )
+        # Pre-fix: returned c*f_FD unchanged (50%-1000% wrong) with defect
+        # exactly zero. The frozen-flux Picard splitting genuinely CANNOT
+        # drain this exchange-dominated common mode (drainage ~
+        # collision/exchange per iteration ~ 1e-7 here), so the honest
+        # post-fix behavior is a loud refusal via the global
+        # conserved-mode certificate — never a silently wrong answer.
+        with pytest.raises(RuntimeError, match=r"conserved-mode|common-mode"):
+            solve_device_steady_state(device)
+
+
+class TestControlValidation:
+    def test_rejects_nonfinite_tol_and_bad_damping(self) -> None:
+        state_L = _build_state(T_bath=0.1, num_energy=20)
+        state_R = _build_state(T_bath=0.1, num_energy=20)
+        device = Device(
+            regions={
+                "L": Region(name="L", state=state_L),
+                "R": Region(name="R", state=state_R),
+            },
+            junctions=[
+                SymmetricGapTunnelingJunction(
+                    name="JJ", region_a="L", region_b="R", alpha_per_ns=0.01,
+                ),
+            ],
+        )
+        for bad_tol in (float("nan"), float("inf"), 0.0, -1e-6):
+            with pytest.raises(ValueError, match="outer_tol"):
+                solve_device_steady_state(device, outer_tol=bad_tol)
+        for bad_damp in (float("nan"), 0.0, -0.5, 1.5):
+            with pytest.raises(ValueError, match="outer_damping"):
+                solve_device_steady_state(device, outer_damping=bad_damp)
+        with pytest.raises(ValueError, match="outer_max_iter"):
+            solve_device_steady_state(device, outer_max_iter=0)

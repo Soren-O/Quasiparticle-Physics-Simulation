@@ -420,6 +420,37 @@ def require_matching_header(path: Path, fieldnames: list[str]) -> None:
         )
 
 
+def purge_run_id_rows(path: Path, run_id: str) -> None:
+    """Atomically remove every row for ``run_id`` before a re-run.
+
+    A retried case (failed or max_time_reached) previously APPENDED a
+    second row set for the same run id, leaving duplicates and orphan
+    shift rows that no reader disambiguates (2026-07-20 round-4 review).
+    Purging first makes re-runs idempotent: the files contain exactly one
+    attempt per run id. Shared by the spatial and readout runners.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with path.open("r", newline="") as fp:
+        rows = list(csv.reader(fp))
+    if not rows:
+        return
+    header, data = rows[0], rows[1:]
+    try:
+        idx = header.index("run_id")
+    except ValueError:
+        return
+    kept = [r for r in data if len(r) <= idx or r[idx] != run_id]
+    if len(kept) == len(data):
+        return
+    tmp = path.with_suffix(path.suffix + ".purge.tmp")
+    with tmp.open("w", newline="") as fp:
+        writer = csv.writer(fp)
+        writer.writerow(header)
+        writer.writerows(kept)
+    tmp.replace(path)
+
+
 def _append_csv(path: Path, row: dict[str, object], fieldnames: list[str]) -> None:
     # Header when the file is missing OR zero-byte: a truncated/empty file
     # must not silently accumulate headerless rows (2026-07-20 review).
@@ -650,6 +681,10 @@ def main() -> None:
             continue
 
         print(f"[{run_number}/{len(combinations)}] start {run_id}", flush=True)
+        # Idempotent re-run: drop any stale rows from a prior failed or
+        # non-converged attempt of this run id (2026-07-20 round-4 review).
+        purge_run_id_rows(summary_path, run_id)
+        purge_run_id_rows(shifts_path, run_id)
         trace_path = out_dir / f"trace_{run_id}.csv"
         profile_path = out_dir / f"profile_{run_id}.csv"
         source_calibration = _source_calibration(config, rate)

@@ -536,3 +536,54 @@ class TestFig7CacheIntegration:
 
         with pytest.raises(AssertionError, match="qp_backward_error exceeds"):
             _assert_certified_baseline_balances(bad)
+
+
+class TestDashedAnalyticOverlay:
+    """2026-07-20 round-4 review: the plot-time dashed helpers were never
+    tested, used (Δ/T*)^{3/2} where Eq. 63 has power 3, substituted an
+    equilibrium expression for the driven Eq. 65 branch, and passed Q_EXT
+    (~1e6) as Eq. 65's Q_c where Table 2 gives Q_c = 20100 — dashed
+    curves were off by up to ~6x. These pins were cross-checked
+    independently against the reviewer's corrected values (exact
+    agreement at all four points)."""
+
+    def test_dashed_Q_tot_pins_at_030K(self) -> None:
+        import pytest
+
+        from validation.fischer_2023.fig7_paper import _fig7_dashed_Q_tot
+
+        expected = {
+            -100.0: 19286.0,  # thermal-equilibrium branch (T*,0 ~ omega_0)
+            -90.0: 24308.0,
+            -80.0: 47344.0,
+            -64.0: 115950.0,
+        }
+        for p, val in expected.items():
+            assert _fig7_dashed_Q_tot(p, 0.30) == pytest.approx(val, rel=1e-3)
+
+    def test_eq63_plateau_uses_cubed_power(self) -> None:
+        import numpy as np
+        import pytest
+
+        from validation.fischer_2023.fig7_paper import (
+            _GAMMA0_EQ63,
+            ALPHA_KI,
+            _fig7_Q_i0_eq63,
+        )
+        from validation.fischer_2023.fig7_solve import (
+            DELTA_0,
+            OMEGA_0,
+            TAU_0_PB,
+            TAU_L,
+            TSTAR_OVER_DELTA,
+        )
+
+        p = -64.0
+        ts = TSTAR_OVER_DELTA[p]
+        manual = (
+            (_GAMMA0_EQ63 * DELTA_0 / (ALPHA_KI * OMEGA_0))
+            * (TAU_0_PB / TAU_L)
+            * (1.0 / ts) ** 3
+            * np.exp(np.sqrt(14.0 / 5.0) * (1.0 / ts) ** 3)
+        )
+        assert _fig7_Q_i0_eq63(p) == pytest.approx(manual, rel=1e-12)

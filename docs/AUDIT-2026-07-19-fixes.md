@@ -151,14 +151,19 @@ Seven further findings, adjudicated and fixed on this branch:
 - **Gap-cut sub-2Δ pairs, split adjudication:** the PHOTON pair block is
   now hard-gated at ω ≥ 2Δ (a commensurate 1.6Δ photon produced finite
   pair generation through cut-cell partners — unphysical, fixed, tested).
-  The PHONON kernel case is adjudicated as a DOCUMENTED ω-labeling
-  approximation instead: a supported cut cell's pair rate is physical
-  (capacity exists only ≥ Δ) and only its emitted-ω label is off by
-  ≤ one dE, with emission/absorption sharing the bin (detailed balance
-  exact). Masking those pairs was implemented, found to remove physical
-  rate — shifting Fig. 6's derived τ₀ᴾᴮ by ~21% on its shipped
-  sub-gap-guard grid — and reverted; tests pin the adjudicated
-  semantics.
+  The PHONON kernel case remains a DOCUMENTED ω-labeling approximation:
+  a supported cut cell's pair rate is physical (capacity exists only
+  ≥ Δ) and only its emitted-ω label is off by ≤ one dE, with
+  emission/absorption sharing the bin (discrete detailed balance
+  exact). Masking those pairs was implemented and reverted. **Erratum
+  (round-4 review):** the ~21% Fig. 6 τ₀ᴾᴮ shift originally cited as
+  the revert evidence was an artifact — the experimental mask broke the
+  canonical-kernel detection behind the Kaplan endpoint correction, and
+  the same shift reproduces on grids with zero subthreshold pairs. The
+  principled revert reason stands (deletion removes physical rate); the
+  proper fix is a rate-preserving gap-aware ω-remap of cut-cell pair
+  events across QP rates, phonon rates, and all Jacobians (designed
+  TODO, deferred).
 - **Accepted photon-frequency snaps** are now disclosed (RuntimeWarning
   above 1e-6 bins) with the contract stated: occupancies chosen for the
   nominal ω (thermal Bose factors especially) must be evaluated at the
@@ -189,6 +194,63 @@ Seven further findings, adjudicated and fixed on this branch:
 - **Deferred, documented:** WebUI run provenance, exhaustive public-API
   input validation, M25 stamp-disappearance fallback semantics, and a
   moving-gap recovery error-budget study.
+
+## 2026-07-20 third external-review round (GPT 5.6 Sol, round 4)
+
+- **HIGH, confirmed — deeper than the round-3 repair:** the device solver
+  still falsely certified the COMMON mode (both regions at ``c*f_FD`` for
+  any ``c``, defect exactly zero): the inner Newton's backward error was
+  normalized by the large but exactly balanced junction exchange, and the
+  frozen-flux Picard splitting pins each region to the other's old state
+  (drainage ~ collision/exchange per iteration — practically never).
+  Two-part repair: (1) the inner Newton certificate now normalizes by
+  INTERNAL turnover only (external flux stays in the residual; flux-only
+  systems keep the full normalization); (2) the outer loop certifies the
+  GLOBAL conserved-number mode at the accepted states — pair-channel
+  (number-changing) normalized, since number-conserving scattering
+  buried the signal under e^{-Δ/kT} — with measured calibration
+  (manifold 0.60 at any temperature, converged mismatched-T fixture
+  1.0e-3, thermal ~1e-11; fixed 5% limit) and a LOUD refusal when the
+  manifold is detected. Scoped to symmetric ratio-1 matched-weight
+  junctions where bin-wise cancellation is provable; other junction sets
+  get a once-per-solve warning that this certification gap remains open
+  (needs per-junction number-flux accounting / a coupled solve).
+  Common-mode regression tests assert the refusal; device controls are
+  validated (finite tolerances, damping in (0,1]).
+- **Fig. 7 dashed overlay Q_c:** Eq. 65 was fed Q_EXT (~1e6) as its
+  coupling factor; the paper's Table 2 gives Q_c = 20100 (verified), with
+  the effective coupling 1/Q_c + 1/Q_ext, and the −100 dBm curve uses the
+  thermal-equilibrium expression (T*,0 ≈ ω₀). Rewritten with
+  module-level, unit-tested helpers; the corrected values agree with the
+  reviewer's independent computation EXACTLY at all four cross-checked
+  points (19286/24308/47344/115950 at 0.30 K).
+- **PB Jacobian gate:** the analytic Jacobian kept sub-2Δ pair
+  derivatives the rates now zero (0.74% J-vs-FD mismatch on cut grids) —
+  same ω ≥ 2Δ gate applied. The round-3 regression test was VACUOUS
+  (face-aligned gap, no supported cut cell; its quoted pre-fix value was
+  wrong) — rewritten with a genuine cut grid (gap inside a cell,
+  ω = 1.9 < 2Δ = 1.94 with supported cut-cell partners).
+- **Threshold-crossing snaps:** both photon kernels now fail loud when an
+  accepted snap would move ω across 2Δ (both directions reproduced by
+  the reviewer; a warning is not sufficient when snapping decides whether
+  a channel exists).
+- **Campaign persistence:** re-runs now PURGE stale rows for the run id
+  first (retry idempotence verified: two consecutive smoke runs leave
+  exactly one attempt per id); the shifts schema comes from current code
+  with a loud header check instead of adopting the on-disk header
+  (which silently dropped new columns via extrasaction="ignore").
+- **Erratum accepted:** the ~21% τ₀ᴾᴮ masking penalty cited in round 3
+  was an artifact (the experimental mask broke the canonical-kernel
+  detection behind the Kaplan endpoint correction; same shift on grids
+  with zero subthreshold pairs). Corrected at the kernel docstring, the
+  tests, and the round-3 record; the principled revert reason (deletion
+  removes physical rate) stands, and the rate-preserving gap-aware
+  ω-remap remains the designed TODO.
+- **Still open, documented:** sub-2Δ dynamic-phonon remap (above); cache
+  payload/sidecar pair atomicity (sidecar-first prevents provenance-less
+  payloads; a same-key stale-pair window remains); the mismatched-T
+  representative case needs non-default budgets (~1200 iterations);
+  WebUI provenance and exhaustive API validation.
 
 ## Full audit record
 

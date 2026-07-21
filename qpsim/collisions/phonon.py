@@ -112,17 +112,25 @@ def build_recombination_kernel_base(
 ) -> np.ndarray:
     """Base recombination kernel K₀ʳ(E_i, E_j), shape (NE, NE).
 
-    Gap-cut-cell ω labeling (2026-07-20 review, adjudicated as a
-    DOCUMENTED approximation, not masked): a supported gap-cut cell
-    (center below Δ, active through its partial ``>= Δ`` capacity)
-    recombines through pairs whose center-sum ``E_i + E_j`` can label
-    the emitted phonon below ``2Δ``, although the pair's true
-    capacity-supported energies sum to ``>= 2Δ``. Emission and
-    absorption share the same discrete bin, so detailed balance is
-    exact; the mislabeling is bounded by the cut-cell width (one ``dE``)
-    and vanishes on fully covered grids. Zeroing such pairs instead was
-    tried and rejected: on the shipped Fig. 6 sub-gap-guard grid it
-    removed physical rate and shifted the derived ``τ_0^PB`` by ~21%.
+    Gap-cut-cell ω labeling (2026-07-20 reviews, UNRESOLVED — documented
+    approximation): a supported gap-cut cell (center below Δ, active
+    through its partial ``>= Δ`` capacity) recombines through pairs
+    whose center-sum ``E_i + E_j`` can label the emitted phonon below
+    ``2Δ``, and the reverse path can break a pair from that
+    sub-threshold bin. Emission and absorption share the discrete bin,
+    so detailed balance of the DISCRETIZATION is exact, but the
+    nonequilibrium channel itself is mislabeled in ω (bounded by one
+    ``dE``; vanishes on fully covered grids). Simply zeroing such pairs
+    is NOT the fix — it deletes physical rate in principle. (An earlier
+    note here cited a measured ~21% Fig. 6 ``τ_0^PB`` shift as evidence
+    against masking; the round-4 review showed that number was an
+    artifact — the experimental mask broke the canonical-kernel
+    detection used by the Kaplan endpoint correction, and the same
+    shift reproduces on grids with zero subthreshold pairs.) The proper
+    fix is a RATE-PRESERVING, gap-aware remap of cut-cell pair events
+    into physical ``ω >= 2Δ`` bins, applied consistently across the QP
+    rates, phonon rates, and every analytic Jacobian — a designed TODO
+    beyond a review-response patch.
     """
     _require_ideal_bcs_context(ctx, "Electron-phonon recombination")
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus

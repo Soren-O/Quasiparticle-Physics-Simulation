@@ -86,6 +86,17 @@ def sub_gap_photon_collision_rates(
             f"fractional error={frac_err:.4f} > tol={_COMMENSURATE_TOL}). "
             f"Use m·dE={m * dE_scalar:.6g} μeV or refine the energy grid."
         )
+    if m * dE_scalar >= 2.0 * ctx.gap:
+        # The nominal omega_0 passed the < 2*gap contract above; a snap
+        # that lands at or above 2*gap would silently turn a sub-gap
+        # scattering drive into pair-breaking territory (2026-07-20
+        # round-4 review: threshold-crossing snaps must fail loud).
+        raise ValueError(
+            f"Snapping omega_0={omega_0:.6g} μeV to m·dE="
+            f"{m * dE_scalar:.6g} μeV crosses the 2Δ={2.0 * ctx.gap:.6g} "
+            "μeV threshold; use pair_breaking_photon_collision_rates or a "
+            "commensurate frequency below the threshold."
+        )
     if frac_err > 1e-6:
         # The accepted snap changes the SOLVED photon energy to m*dE while
         # n_bar remains whatever the caller chose for the nominal omega_0.
