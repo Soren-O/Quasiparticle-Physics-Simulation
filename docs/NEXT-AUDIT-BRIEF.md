@@ -46,6 +46,13 @@ tell you what is or isn't a bug.
 
 ## False positives — look like bugs, are intentional (don't re-file)
 
+> **Canonical ledger:** [`CODE-REVIEW-FALSE-POSITIVES.md`](CODE-REVIEW-FALSE-POSITIVES.md)
+> now holds the complete, maintained list (refuted findings, documented
+> approximations, and the traps section — claims that looked like false
+> positives but were real). Add every newly adjudicated false positive
+> there at the end of each audit round. The entries below predate it and
+> are kept for context.
+
 - `solve_gap` is biased high near `T_c` because the energy grid can't sample
   below-gap occupation. This is a documented domain-contract limitation and it
   now **warns** — not a quadrature bug.
