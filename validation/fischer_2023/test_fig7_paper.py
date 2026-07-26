@@ -303,10 +303,40 @@ def test_matches_pinned_baseline() -> None:
 
 @pytest.mark.slow
 def test_low_temperature_plateau_is_extrinsic_limited() -> None:
+    """Live cross-platform probe of one authenticated low-temperature point."""
     result = run(temperatures=(0.06,), powers_dbm=(-64.0,))
-    assert result.Q_qp_by_dbm[-64.0][0] > 1e12
-    assert result.Q_tot_by_dbm[-64.0][0] == pytest.approx(
-        Q_EXT_BY_DBM[-64.0], rel=1e-6,
+    q_qp = float(result.Q_qp_by_dbm[-64.0][0])
+    q_tot = float(result.Q_tot_by_dbm[-64.0][0])
+    q_ext = Q_EXT_BY_DBM[-64.0]
+
+    # "Extrinsic limited" means the QP loss is negligible beside the
+    # explicitly modeled extrinsic loss. The former hardcoded Q_qp > 1e12
+    # contradicted the authenticated pin (4.191e9) even though Q_qp/Q_ext is
+    # about 5,987 and the total-Q plateau is consequently extrinsic dominated.
+    assert q_qp > 1e3 * q_ext
+    assert q_tot > 0.999 * q_ext
+
+    baseline = read_baseline(baseline_path())
+    matching = np.flatnonzero(
+        np.isclose(baseline.T_bath, 0.06, rtol=0.0, atol=1e-14)
+    )
+    assert matching.size == 1
+    baseline_index = int(matching[0])
+    metadata = read_baseline_metadata(baseline_path())
+    loss_rtol, q_tot_rtol = fig7_regression_tolerances(
+        metadata.generator_platform
+    )
+    np.testing.assert_allclose(
+        1.0 / q_qp,
+        1.0 / baseline.Q_qp_by_dbm[-64.0][baseline_index],
+        rtol=loss_rtol,
+        atol=QP_LOSS_REGRESSION_ATOL,
+    )
+    np.testing.assert_allclose(
+        q_tot,
+        baseline.Q_tot_by_dbm[-64.0][baseline_index],
+        rtol=q_tot_rtol,
+        atol=0.0,
     )
 
 

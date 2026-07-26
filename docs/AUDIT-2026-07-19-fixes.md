@@ -870,6 +870,19 @@ then binds that record to the live solve-contract digest. Thus the canonical
 CSV/PDF/record triple cannot drift independently while the exact regeneration
 remains a release/manual gate.
 
+The first hosted matrix with that bounded selection completed its slow gates
+in 16m39s (Python 3.13) and 19m46s (Python 3.14), exposing two stale test
+premises rather than numerical drift. The live Fig. 7 low-temperature point
+matched the authenticated pin to about 2e-8 relative, but its old qualitative
+test still demanded an obsolete `Q_qp > 1e12`; the corrected test expresses
+the actual extrinsic-loss hierarchy and compares the point to the portable
+baseline envelope. Fischer-2024 Fig. 8 physical curves also matched, while
+roundoff-scale backward-error diagnostics near 1e-12 differed from the
+Windows pin despite remaining about six orders below their 1e-6 contract.
+That regression now pins the physical curves and thresholds both independently
+reassembled certificate quantities against their semantic acceptance bounds.
+Both adjudications are recorded in `CODE-REVIEW-FALSE-POSITIVES.md`.
+
 ## Full audit record
 
 Original 2026-07-19 workflow findings (including its 40 lows and five

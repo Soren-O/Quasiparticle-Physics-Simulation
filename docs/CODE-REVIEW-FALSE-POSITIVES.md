@@ -132,6 +132,32 @@ their implementation or assumptions have changed since the recorded date.
   dispatch. Regression:
   `tests/scripts/test_regenerate_fischer_fig7_parallel.py`.
   (2026-07-25 Round 7 hosted follow-up)
+- **R7-FIG7-PLATEAU-THRESHOLD / refuted / hosted Fig. 7 returned a
+  non-extrinsic-limited low-temperature plateau** → *Stale test premise.*
+  The live Linux result at 0.06 K and −64 dBm was
+  `Q_qp=4.191009106e9`, matching the authenticated Windows pin
+  `4.191009023e9` to about `2e-8` relative. The failed test instead demanded
+  an undocumented `Q_qp > 1e12`, directly contradicting that canonical
+  artifact. The physical claim is `Q_qp >> Q_ext`: here
+  `Q_qp/Q_ext ≈ 5987`, so the total quality factor is extrinsic dominated.
+  The live gate now asserts that loss hierarchy and compares both QP loss and
+  total Q against the authenticated pin with the measured cross-platform
+  envelopes. Re-open on failure of those comparisons, not the retired
+  absolute threshold. Regression:
+  `validation/fischer_2023/test_fig7_paper.py`.
+  (2026-07-25 Round 7 hosted follow-up)
+- **R7-F24-CERTIFICATE-PIN / refuted / Fischer-2024 Fig. 8 physics drifted
+  on hosted Linux** → *Diagnostic-roundoff false positive.* All physical
+  `x_qp` arrays matched before the failure; only three backward-error
+  certificates changed at approximately `1e-12`, still six orders below the
+  advertised `1e-6` acceptance limit. A normwise residual at the last accepted
+  floating-point iterate is a validity certificate, not a reproducible
+  observable. The slow regression continues to compare the physical curves
+  and now requires each freshly reassembled backward error and raw residual
+  to satisfy its actual contract. Re-open if a certificate exceeds its
+  threshold or a physical curve drifts. Regression:
+  `validation/fischer_2024/test_fig8_xqp_pb.py`.
+  (2026-07-25 Round 7 hosted follow-up)
 
 ## 2. Documented approximations & accepted limitations
 (These are **real physics/engineering gaps**, not false positives. Do not

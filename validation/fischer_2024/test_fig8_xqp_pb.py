@@ -242,9 +242,16 @@ def test_matches_pinned_baseline() -> None:
             atol=1e-14,
             err_msg=f"Mismatch at power={power}",
         )
-        np.testing.assert_allclose(
-            result.qp_backward_error_by_power[power],
-            baseline.qp_backward_error_by_power[power],
-            rtol=1e-6,
-            atol=1e-14,
+        # Certificates are acceptance bounds, not physical observables.
+        # Their tiny values depend on the last floating-point iterate and may
+        # vary by orders of magnitude around 1e-12 across platforms while the
+        # solved x_qp curves agree. Require the advertised contracts instead
+        # of bit-pinning diagnostic roundoff to the baseline producer.
+        backward = result.qp_backward_error_by_power[power]
+        residual = result.qp_residual_inf_by_power[power]
+        assert np.all(np.isfinite(backward))
+        assert np.all(np.isfinite(residual))
+        assert np.all(
+            (backward >= 0.0) & (backward <= TARGET_QP_BACKWARD_ERROR_LIMIT)
         )
+        assert np.all((residual >= 0.0) & (residual < NEWTON_TOL))
