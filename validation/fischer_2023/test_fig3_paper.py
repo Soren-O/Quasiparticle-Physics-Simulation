@@ -13,6 +13,8 @@ First-time generation::
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from dataclasses import replace
 from types import SimpleNamespace
@@ -176,6 +178,38 @@ def test_config_matches_baseline_metadata() -> None:
     if not path.exists():
         pytest.skip(f"Baseline not found at {path}.")
     _assert_config_matches_baseline(path)
+
+
+def test_canonical_validation_record_authenticates_promoted_pair() -> None:
+    """The promoted CSV/PDF must be the exact pair accepted by the verifier."""
+    csv_path = baseline_path()
+    pdf_path = csv_path.with_suffix(".pdf")
+    record_path = csv_path.with_suffix(".validation.json")
+
+    for path in (csv_path, pdf_path, record_path):
+        assert path.is_file(), f"Canonical Fig. 3 artifact is missing: {path}"
+        assert path.stat().st_size > 0, f"Canonical Fig. 3 artifact is empty: {path}"
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["schema"] == "qpsim-fig3-round7-validation-v3"
+    assert record["status"] == "pass"
+    assert record["verifier"]["source_unchanged"] is True
+
+    artifacts = record["candidate_artifacts"]
+    for name, path in (("csv", csv_path), ("pdf", pdf_path)):
+        attestation = artifacts[name]
+        assert attestation["size_bytes"] == path.stat().st_size
+        assert attestation["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+    cfg = config_metadata()
+    validated_digest = cfg.validated_solve_contract_digest
+    assert record["repository"]["solve_contract_digest"] == validated_digest
+    assert record["observables"]["validated_solve_contract_digest"] == validated_digest
+    assert artifacts["readback"]["strict_read_passed"] is True
+    assert (
+        artifacts["readback"]["metadata"]["validated_solve_contract_digest"]
+        == validated_digest
+    )
 
 
 def test_baseline_curves_are_nonvacuous() -> None:

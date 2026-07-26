@@ -864,7 +864,11 @@ suite, a live Fig. 7 low-temperature point, the remaining live paper pins, and
 transient validation. A fast repository-level guard prevents either
 multi-hour marker from silently drifting back into PR CI. This changes test
 scheduling only; production code, canonical artifacts, and their source
-identities are unchanged.
+identities are unchanged. A separate fast Fig. 3 gate authenticates the
+promoted CSV and PDF hashes and sizes against the passing validation record,
+then binds that record to the live solve-contract digest. Thus the canonical
+CSV/PDF/record triple cannot drift independently while the exact regeneration
+remains a release/manual gate.
 
 ## Full audit record
 
