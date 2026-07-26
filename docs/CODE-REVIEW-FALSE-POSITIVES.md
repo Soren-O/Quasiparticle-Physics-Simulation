@@ -118,6 +118,20 @@ their implementation or assumptions have changed since the recorded date.
   did **not** itself substitute for the later completed 1620-bin result. Re-open on
   grid/ladder/mixing changes or any full-grid branch/certificate disagreement.
   (2026-07-25 Round 7 follow-up)
+- **R7-FIG7-LOCK-FALLBACK / refuted / the Fig. 7 campaign lock returns a
+  Linux process identity on non-Linux hosts** → *Test-fixture false
+  positive.* `_process_identity` deliberately selects the robust
+  boot-ID/start-time identity when the Linux `/proc` creation-time
+  interfaces are present and otherwise uses the conservative stable-live
+  fallback. The hosted test changed `sys.platform` to `darwin` but left the
+  Linux runner's real `/proc` visible, so it never exercised the fallback it
+  claimed to test. The fixture now hides that capability as well; the
+  production driver and its attested SHA-256 remain unchanged. Re-open if a
+  real supported non-Linux host exposes those paths with incompatible
+  semantics, or if capability-based dispatch is replaced by platform-label
+  dispatch. Regression:
+  `tests/scripts/test_regenerate_fischer_fig7_parallel.py`.
+  (2026-07-25 Round 7 hosted follow-up)
 
 ## 2. Documented approximations & accepted limitations
 (These are **real physics/engineering gaps**, not false positives. Do not

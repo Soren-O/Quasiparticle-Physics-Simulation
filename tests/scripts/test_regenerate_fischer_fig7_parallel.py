@@ -155,7 +155,17 @@ def test_campaign_lock_recovers_a_stale_process_creation_identity(
 def test_campaign_lock_fallback_is_stable_and_conservative(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    class MissingProcPath:
+        """Model a POSIX host without Linux's process-creation API."""
+
+        def __init__(self, _raw: object) -> None:
+            pass
+
+        def is_file(self) -> bool:
+            return False
+
     monkeypatch.setattr(driver.sys, "platform", "darwin")
+    monkeypatch.setattr(driver, "Path", MissingProcPath)
     monkeypatch.setattr(driver.os, "kill", lambda _pid, _signal: None)
     first = driver._process_identity(os.getpid())
     second = driver._process_identity(os.getpid())
