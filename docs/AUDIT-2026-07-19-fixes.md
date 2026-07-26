@@ -837,6 +837,35 @@ After final Fig. 3 recertification and fresh F24 regeneration, the consolidated
 non-slow aggregate passed **2188 tests, 18 intentional deselections, and
 12 warnings with 0 failures in 716.22 s**.
 
+### Post-push hosted-CI runtime correction
+
+The first hosted run on the final Round-7 tree exposed one test-fixture false
+positive: the Fig. 7 lock fallback test changed `sys.platform` but left the
+Linux runner's real `/proc` creation-time interfaces visible. Production
+correctly selected the stronger available identity; the fixture now hides the
+capability it intends to test, and the adjudication is recorded in
+`CODE-REVIEW-FALSE-POSITIVES.md`.
+
+The follow-up run then exposed real CI classification errors. The exact
+`NE=1620` Fig. 3 pin test directly launches the producer measured at
+`10671.777 s`, yet it carried only `slow`, so the pull-request matrix started
+the same roughly three-hour solve on both Python versions. Both jobs passed
+all preceding gates and ordinary pytest, then were deliberately cancelled
+after 54/52 minutes rather than waste the remaining compute. The Fig. 7
+full-pin test had the same problem: its serial `run()` recomputes 48
+independent points whose hardened campaign measured `13292.818` aggregate
+worker-seconds, exceeding the hosted step budget before allowing for runner
+variance. Both exact nodes now also carry `manual_slow`, alongside the
+existing roughly six-hour Fig. 6 wrapper.
+
+PR CI retains 15 bounded slow tests: reduced Fig. 3 branch and ladder solves,
+strict Fig. 3/Fig. 7 artifact/configuration/certificate checks in the default
+suite, a live Fig. 7 low-temperature point, the remaining live paper pins, and
+transient validation. A fast repository-level guard prevents either
+multi-hour marker from silently drifting back into PR CI. This changes test
+scheduling only; production code, canonical artifacts, and their source
+identities are unchanged.
+
 ## Full audit record
 
 Original 2026-07-19 workflow findings (including its 40 lows and five

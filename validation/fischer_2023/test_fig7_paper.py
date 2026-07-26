@@ -234,7 +234,16 @@ def test_regression_tolerances_are_platform_scoped() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
+    """Recompute all 48 independent targets; intentionally manual, not PR CI.
+
+    The hardened parallel campaign measured 13,292.818 aggregate worker-seconds
+    for these points. The serial ``run()`` below therefore exceeds the hosted
+    slow-step budget. Pull-request CI instead validates the authenticated
+    48-payload promotion record and runs the live one-point low-temperature
+    plateau regression.
+    """
     path = baseline_path()
     if not path.exists():
         pytest.skip(
@@ -243,7 +252,7 @@ def test_matches_pinned_baseline() -> None:
         )
 
     # Cheap preflight first: reject a stale config/baseline pairing before the
-    # (slow, and currently Picard-fragile) run() below.
+    # multi-hour serial run() below.
     try:
         _assert_config_matches_baseline(path)
     except LegacyArtifactError as error:

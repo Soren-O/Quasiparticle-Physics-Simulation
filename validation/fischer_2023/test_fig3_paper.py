@@ -123,7 +123,7 @@ def _assert_config_matches_baseline(path) -> None:
     """Cheap preflight (~1 s, no solve): the live module config must match the
     pinned baseline's stamped header.
 
-    Gating :func:`run` (the several-minute continuation ladder) behind this
+    Gating :func:`run` (the multi-hour full-grid continuation ladder) behind this
     turns a stale config/baseline pairing — a grid change, a ratio-set edit, a
     τ_0^PB drift — into a seconds-long failure instead of one discovered only
     after the full run. (See ``fig6_paper`` for the same pattern, where
@@ -1033,7 +1033,17 @@ def test_reduced_ladder_refinement_preserves_nonzero_branch() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
+    """Recompute the exact 1620-bin pin; intentionally manual, not PR CI.
+
+    The corrected producer took 10,671.777 s on the audited Windows host.
+    Pull-request CI instead runs the reduced-grid branch/refinement solves and
+    the fast strict baseline metadata, non-vacuity, digest, and certificate
+    gates. Keeping this exact regeneration runnable but ``manual_slow`` avoids
+    launching the same approximately three-hour producer on every supported
+    Python interpreter for every commit.
+    """
     path = baseline_path()
     if not path.exists():
         pytest.skip(
@@ -1042,7 +1052,7 @@ def test_matches_pinned_baseline() -> None:
         )
 
     # Cheap preflight first (~1 s): reject a stale config/baseline pairing
-    # before the several-minute run() below, instead of after it.
+    # before the multi-hour run() below, instead of after it.
     _assert_config_matches_baseline(path)
 
     baseline = read_baseline(path)

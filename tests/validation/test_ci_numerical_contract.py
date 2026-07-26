@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import yaml
@@ -39,3 +40,29 @@ def test_ci_runs_the_slow_paper_validation_gate() -> None:
 
     fast_runs = [s.get("run", "") for s in steps if s.get("run", "").strip() == "pytest"]
     assert fast_runs, "ci.yml no longer runs the default pytest gate."
+
+
+def test_ci_excludes_multi_hour_full_figure_regenerations() -> None:
+    """Keep exact full-figure producers runnable without launching them per PR."""
+    root = Path(__file__).resolve().parents[2]
+    cases = {
+        "Fig. 3 exact 1620-bin regeneration (10,671.777 s)": (
+            root / "validation" / "fischer_2023" / "test_fig3_paper.py"
+        ),
+        "Fig. 7 serial 48-target regeneration (13,292.818 worker-s)": (
+            root / "validation" / "fischer_2023" / "test_fig7_paper.py"
+        ),
+    }
+    for label, source_path in cases.items():
+        module = ast.parse(source_path.read_text(encoding="utf-8"))
+        function = next(
+            node
+            for node in module.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "test_matches_pinned_baseline"
+        )
+        markers = {ast.unparse(decorator) for decorator in function.decorator_list}
+        assert {"pytest.mark.slow", "pytest.mark.manual_slow"} <= markers, (
+            f"{label} must remain manual_slow; PR CI covers reduced/live "
+            "probes and strict artifact currentness instead."
+        )
