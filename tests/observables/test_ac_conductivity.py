@@ -23,6 +23,18 @@ def _thermal_ctx_and_f(T_bath: float = 0.3, T_c: float = 1.2, num: int = 200):
 
 
 class TestComputeAcConductivity:
+    @pytest.mark.parametrize(
+        "bad_value",
+        (1.0j, complex(float("nan"), 0.0), float("inf"), -0.1, 1.1),
+    )
+    def test_rejects_invalid_occupation(self, bad_value: complex | float) -> None:
+        ctx, _ = _thermal_ctx_and_f()
+        dtype = complex if isinstance(bad_value, complex) else float
+        f = np.zeros_like(ctx.E, dtype=dtype)
+        f[0] = bad_value
+        with pytest.raises(ValueError, match=r"real-valued|finite|occupations"):
+            compute_ac_conductivity(f, ctx, omega_0=1.0)
+
     def test_rejects_zero_omega(self) -> None:
         ctx, f = _thermal_ctx_and_f()
         with pytest.raises(ValueError, match="omega_0"):

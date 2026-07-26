@@ -68,6 +68,13 @@ class ExternalFlux:
     diagnostics: dict[str, str | float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Reject complex-domain inputs before the float cast: NumPy otherwise
+        # discards the imaginary component (including an imaginary NaN) with
+        # only a ComplexWarning, allowing an invalid source through.
+        if np.iscomplexobj(self.gain):
+            raise ValueError("ExternalFlux.gain must be real-valued.")
+        if np.iscomplexobj(self.loss_rate):
+            raise ValueError("ExternalFlux.loss_rate must be real-valued.")
         gain = np.asarray(self.gain, dtype=float)
         loss_rate = np.asarray(self.loss_rate, dtype=float)
 

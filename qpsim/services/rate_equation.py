@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.optimize import brentq, least_squares, root
-from scipy.special import erf, erfc, lambertw
+from scipy.special import erf, erfc, wrightomega
 
 
 def crossover_temperature_kelvin(
@@ -83,25 +83,29 @@ def crossover_temperature_kelvin(
         If the Lambert-W argument lands outside its real-valued
         domain ``[−1/e, ∞)``.
     """
-    if Delta_R_kelvin <= 0:
-        raise ValueError("Delta_R_kelvin must be positive.")
-    if r_Rlt_rate_Hz <= 0:
-        raise ValueError("r_Rlt_rate_Hz must be positive.")
-    if g_photon_R_rate_Hz <= 0:
-        raise ValueError("g_photon_R_rate_Hz must be positive.")
+    inputs = {
+        "Delta_R_kelvin": Delta_R_kelvin,
+        "r_Rlt_rate_Hz": r_Rlt_rate_Hz,
+        "g_photon_R_rate_Hz": g_photon_R_rate_Hz,
+    }
+    for name, raw in inputs.items():
+        value = float(raw)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive.")
 
-    arg = 4.0 * np.pi * r_Rlt_rate_Hz / g_photon_R_rate_Hz
-    if arg < -1.0 / np.e:
+    # Evaluate W(4*pi*r/g) without ever forming the ratio: both rates can
+    # be finite while their quotient overflows or underflows binary64.
+    log_arg = (
+        math.log(4.0 * math.pi)
+        + math.log(float(r_Rlt_rate_Hz))
+        - math.log(float(g_photon_R_rate_Hz))
+    )
+    w = float(wrightomega(log_arg))  # wrightomega(x) == W(exp(x))
+    if not np.isfinite(w) or w <= 0.0:
         raise RuntimeError(
-            f"Lambert-W argument {arg} outside the real-valued domain "
-            "[-1/e, ∞). Check input signs."
+            f"Lambert-W evaluation was not finite and positive (W={w!r})."
         )
-    w = complex(lambertw(arg, k=0))
-    if abs(w.imag) > 1e-12 * max(abs(w.real), 1.0):
-        raise RuntimeError(
-            f"Lambert-W returned non-real value {w}; check inputs."
-        )
-    return 2.0 * Delta_R_kelvin / float(w.real)
+    return 2.0 * float(Delta_R_kelvin) / w
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1228,6 +1232,8 @@ def _log10_jump(a: M25SteadyState, b: M25SteadyState) -> float:
 
 def _states_agree(a: M25SteadyState, b: M25SteadyState, rtol: float) -> bool:
     """Componentwise relative agreement of two fixed points."""
+    if not np.isfinite(rtol) or rtol < 0.0:
+        raise ValueError(f"rtol must be finite and non-negative; got {rtol!r}.")
     for va, vb in (
         (a.p_1, b.p_1), (a.x_L, b.x_L), (a.x_Rgt, b.x_Rgt), (a.x_Rlt, b.x_Rlt),
     ):
@@ -1656,11 +1662,57 @@ def solve_rate_equation_branch(
         If some grid point is covered by neither pass, or the
         branches never merge and no exchange hint was provided.
     """
-    T_grid = np.asarray(T_grid_kelvin, dtype=float)
+    T_grid_input = np.asarray(T_grid_kelvin)
+    if np.iscomplexobj(T_grid_input):
+        raise ValueError("T_grid_kelvin must be real-valued.")
+    T_grid = np.asarray(T_grid_input, dtype=float)
     if T_grid.ndim != 1 or T_grid.size == 0:
         raise ValueError(f"T_grid_kelvin must be a nonempty 1-D grid; got shape {T_grid.shape}")
+    if np.any(~np.isfinite(T_grid)) or np.any(T_grid <= 0.0):
+        raise ValueError("T_grid_kelvin must contain only finite positive values.")
     if T_grid.size > 1 and not np.all(np.diff(T_grid) > 0.0):
         raise ValueError("T_grid_kelvin must be strictly increasing.")
+
+    finite_positive_controls = {
+        "merge_rtol": merge_rtol,
+        "jump_tol_decades": jump_tol_decades,
+        "residual_tol_relative": residual_tol_relative,
+        "scan_window_decades": scan_window_decades,
+    }
+    for name, raw in finite_positive_controls.items():
+        value = float(raw)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive; got {raw!r}.")
+    if (
+        not isinstance(max_step_bisections, (int, np.integer))
+        or isinstance(max_step_bisections, (bool, np.bool_))
+        or max_step_bisections < 0
+    ):
+        raise ValueError("max_step_bisections must be a non-negative integer.")
+    if (
+        not isinstance(max_function_evaluations, (int, np.integer))
+        or isinstance(max_function_evaluations, (bool, np.bool_))
+        or max_function_evaluations < 1
+    ):
+        raise ValueError("max_function_evaluations must be a positive integer.")
+    if T_exchange_hint_kelvin is not None and (
+        not np.isfinite(T_exchange_hint_kelvin) or T_exchange_hint_kelvin <= 0.0
+    ):
+        raise ValueError(
+            "T_exchange_hint_kelvin must be finite and positive when provided."
+        )
+    if len(full_scan_bounds) != 2:
+        raise ValueError("full_scan_bounds must contain exactly (lower, upper).")
+    scan_lo, scan_hi = map(float, full_scan_bounds)
+    if (
+        not np.isfinite(scan_lo)
+        or not np.isfinite(scan_hi)
+        or scan_lo <= 0.0
+        or scan_hi <= scan_lo
+    ):
+        raise ValueError(
+            "full_scan_bounds must be finite positive values with lower < upper."
+        )
 
     n = int(T_grid.size)
 

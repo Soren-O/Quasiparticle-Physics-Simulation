@@ -187,12 +187,17 @@ def _xqp_analytic_eq47(
     else:
         G_drive = 0.0
 
-    # Eq. 49 + Appendix E2: ε-corrected recombination
+    # Eq. 49 + Appendix E2: ε-corrected recombination, with the finite-τ_l
+    # trapping correction (paper Eq. 112 leading order) on the linear term —
+    # the same factor the Fig. 6 dashed derivation applies; omitting it left
+    # this overlay 1.5–5.9% low (2026-07-20 review).
     R0 = 2.0 * DELTA_0 ** 2 / (tau_bar * Tc_uev ** 3)
     a_m12, a_p12, a_p32 = 2.1, 0.88, 0.77
+    ratio = tau_l / tau_0_pb if tau_0_pb > 0.0 else 0.0
+    trap = (1.0 + 0.5 * ratio) / (1.0 + ratio) if ratio > 0.0 else 1.0
     c1 = a_p12 / a_m12
     c2 = 1.25 * (a_p32 / a_m12) - 0.75 * (a_p12 / a_m12) ** 2
-    R_bar = R0 * (1.0 + c1 * x + c2 * x * x)
+    R_bar = R0 * (1.0 + trap * c1 * x + c2 * x * x)
 
     if R_bar <= 0.0 or (G_drive == 0.0 and G_T == 0.0):
         return 0.0

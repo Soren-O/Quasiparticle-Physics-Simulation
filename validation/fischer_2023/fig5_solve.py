@@ -39,6 +39,8 @@ from qpsim.physics.spectral import SpectralContext
 from validation.fischer_2023.steady_state_certificate import (
     CERTIFICATE_FIELDS,
     CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_METRIC_VERSION,
+    QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
 )
 
@@ -360,17 +362,21 @@ def _require_certified_point(
 ) -> None:
     """Fail a solve point whose independently rebuilt balances are not roots."""
     qp_backward = float(certificate["qp_backward_error"])
+    qp_number_backward = float(certificate[QP_NUMBER_CERTIFICATE_FIELD])
     phonon_backward = float(certificate["phonon_backward_error"])
     if (
         not np.isfinite(qp_backward)
+        or not np.isfinite(qp_number_backward)
         or not np.isfinite(phonon_backward)
         or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
+        or qp_number_backward > TARGET_BACKWARD_ERROR_LIMIT
         or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
     ):
         raise RuntimeError(
             "Fischer Fig. 5 independent steady-state certificate failed at "
             f"{context} (limit={TARGET_BACKWARD_ERROR_LIMIT:g}): "
-            f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+            f"qp={qp_backward:.3e}, qp_number={qp_number_backward:.3e}, "
+            f"phonon={phonon_backward:.3e}."
         )
 
 
@@ -397,5 +403,8 @@ def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
         "picard_mixing": 0.30,
         "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
         "certificate_fields": list(CERTIFICATE_FIELDS),
+        "live_number_certificate_metric_version": (
+            NUMBER_CERTIFICATE_METRIC_VERSION
+        ),
         "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
     }

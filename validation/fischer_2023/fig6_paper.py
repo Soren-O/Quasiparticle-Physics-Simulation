@@ -740,10 +740,14 @@ def write_plot(
 
     # Dense dashed overlay computed at plot time, mirroring paper-repro
     # figures/fig6.py: τ_l/τ_0^PB = 2.0 with the Fig-6-specific trapping-
-    # modified Rbar (paper-repro `_rbar_tau_linear`). The CSV's stored Eq. 53
-    # column uses qpsim's standard τ_l + Rbar and trends off-chart at high
-    # T_*/Δ; this overlay re-derives the analytical curve in the regime
-    # where it actually tracks the solid family.
+    # modified Rbar (paper-repro `_rbar_tau_linear`). NOTE: this is a
+    # DELIBERATE DEVIATION from the paper's Fig. 6 caption (τ_l = τ_0^PB);
+    # the ratio-2 + trapping-Rbar variant is what tracks the solid family
+    # and is labeled as such in the legend. The CSV's stored Eq. 53 column
+    # is the independent overlay at qpsim's standard τ_l + Rbar with the
+    # paper's N_qp/(2ρ_F Δ_0) prefactor (audit fix 2026-07-19 restored the
+    # ×2 qpsim→paper x_qp conversion; the pre-fix column was halved and
+    # trended off-chart).
     Tc_uev = T_C * KB_UEV_PER_K
     DASHED_TAU_L_RATIO = 2.0
     tau_0_pb = result.tau_0_pb_ns
@@ -806,8 +810,12 @@ def write_plot(
             ax.plot(xs, ys, linestyle="none", marker="o", ms=2.5, color=color)
 
         x_a, y_a = _dashed_curve(float(T_bath))
+        dashed_label = (
+            r"Eq. 53 ($\tau_\ell = 2\tau_0^{PB}$, trap-$\bar R$)"
+            if i == 0 else None
+        )
         ax.plot(x_a, y_a, color=color, ls=(0, (5, 2)),
-                lw=1.6, alpha=0.95, zorder=4)
+                lw=1.6, alpha=0.95, zorder=4, label=dashed_label)
 
     ax.axhline(0.0, color="k", lw=0.4)
     if direct_gap_observable:

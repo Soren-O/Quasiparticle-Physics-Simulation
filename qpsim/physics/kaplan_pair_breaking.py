@@ -77,7 +77,7 @@ def kaplan_S_plus(x: float) -> float:
                    \frac{u(x-u) + 1}
                         {\sqrt{u^2 - 1}\,\sqrt{(x-u)^2 - 1}}\,du
                = x\,E\!\left(1 - 4/x^2\right)
-                 \quad (x > 2),
+                 \quad (x \ge 2),
 
     where ``E(m)`` is the complete elliptic integral of the second
     kind with parameter ``m = k²``.
@@ -90,10 +90,12 @@ def kaplan_S_plus(x: float) -> float:
     Returns
     -------
     float
-        ``S_+(x)`` for ``x > 2``; zero at or below the pair-breaking
-        threshold ``x = 2``.
+        ``S_+(x)`` for ``x >= 2``; zero below the pair-breaking threshold.
+        At ``x = 2`` the integration interval collapses onto the two BCS
+        singular endpoints, but their finite right-limit is
+        :math:`S_+(2) = \pi`.
     """
-    if x <= 2.0:
+    if x < 2.0:
         return 0.0
     # m = k² with k² = 1 - 4/x². For x → 2⁺, m → 0; for x → ∞, m → 1.
     m = 1.0 - 4.0 / (x * x)
@@ -106,8 +108,12 @@ def kaplan_S_plus_numerical(x: float) -> float:
     Used by the test suite to cross-check :func:`kaplan_S_plus`
     against a direct evaluation of the integrand.
     """
-    if x <= 2.0:
+    if x < 2.0:
         return 0.0
+    if x == 2.0:
+        # Direct quadrature over the zero-width interval cannot represent the
+        # integrable endpoint singularities. Match the analytic right-limit.
+        return float(np.pi)
 
     def integrand(u: float) -> float:
         denom = np.sqrt(u * u - 1.0) * np.sqrt((x - u) * (x - u) - 1.0)
@@ -135,7 +141,12 @@ def tau_PB_inverse_Hz(
         \frac{1}{\tau_B(\Omega, 0)}
         = \frac{\Delta}{\pi\,\Delta_0\,\tau_0^{ph}}\,S_+(\Omega/\Delta)
 
-    Below the pair-breaking threshold ``Ω ≤ 2Δ``, returns 0.
+    Below the pair-breaking threshold ``Ω < 2Δ``, returns 0. At exact
+    threshold the ideal-BCS ``K+`` endpoint singularity has the finite
+    right-limit :math:`1/\tau_B = \Delta/(\Delta_0 \tau_0^{ph})`. This is
+    distinct from
+    electromagnetic ``K-`` pair generation, whose channel remains strictly
+    closed at ``Ω = 2Δ``.
 
     Parameters
     ----------

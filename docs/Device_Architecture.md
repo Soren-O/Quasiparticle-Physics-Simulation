@@ -1,75 +1,70 @@
 ---
 title: Device Architecture (Region / Junction / Qubit / Device)
-description: Three-layer bottom-up architecture for multi-region superconducting devices with tunnel coupling, optional qubit coupling, and moment-closure reductions. Obsoletes the hand-coded M25 rate-equation service.
-status: design proposal, 2026-04-24
+description: Implemented T3 steady-state Device core, with a limited M25 adapter, historical design rationale, and current certification limits.
+status: core implemented; planned mixed-tier, transient, kinetic-junction, and full M25 Device validation remain open; updated 2026-07-21
 ---
 
 # Device Architecture
 
+> **Current-status banner (2026-07-21):** The repository contains the T3
+> steady-state Region/Junction/Device core, multiple Junction composition, and
+> one optional steady-state Qubit. `M25GapAsymmetricJJ` is a limited adapter
+> around the existing cached four-variable moment solve; it is not the planned
+> generic `MomentClosureJunction` or an E-resolved `KineticJunction`. Mixed-tier
+> Devices, multi-qubit Devices, Device time evolution, and the Phase-5/6 full
+> Device validation artifacts described below are not implemented. Sections
+> 1–7 preserve the April proposal as history; §3.5 and §7's status notes state
+> the live contract.
+
 ## 0. Summary
 
-The current backend hierarchy (T1/T2/T3) describes the QP kinetic
-equation in **one** superconducting region. Everything device-level
-— two electrodes coupled by a tunnel junction, a Josephson-qubit
-two-level system coupled to those tunneling events, parity selection
-rules — currently lives in a hand-coded 4-variable ODE system
-(`qpsim.services.rate_equation`). That worked for Gate 8 Strategy A
-but has architectural problems: physics baked in at the moment-closure
-level, M25-specific choices fused with general structure, and numerical
-pathologies from fast tunneling terms dominating the residual of a
-4-variable system that's really the moment image of a much
-better-conditioned kinetic equation.
+The within-region backend hierarchy (T1/T2/T3) describes the QP kinetic
+equation in **one** superconducting region. The implemented `qpsim.devices`
+layer composes those regions with Junctions and an optional Qubit. The older
+hand-coded 4-variable M25 service (`qpsim.services.rate_equation`) remains as
+a tested Layer-3 moment reduction, rather than the only device abstraction.
 
-This document proposes a three-layer replacement:
+The design is organized into three layers; implementation coverage differs:
 
 * **Layer 1 — Region.** One superconducting region. Owns material,
   geometry, backend, state. T1/T2/T3 are the three possible backends
   (v1 ships T3 only). Gains one new surface: an external flux
   ``G_ext(E, r, t)`` on the RHS of the kinetic equation.
-* **Layer 2 — Device.** Composition of 1+ Regions + 0+ Junctions +
-  0-or-1 Qubit. A Junction couples two named regions via an
-  E-resolved tunneling-rate evaluator. A Qubit is an optional TLS
-  whose transitions are driven by junction tunneling events. The
-  top-level Device solver iterates: evaluate junctions → push fluxes
-  into regions → step each region's backend → evolve qubit → repeat
-  to steady state or over time.
-* **Layer 3 — Moment-closure reductions.** Specific ansätze on the
-  Region state (e.g. Fermi-Dirac per sub-band) reduce Layer 2 to
-  algebraic rate equations. M25's 4-variable system is one specific
-  Layer-3 reduction; the mapping makes that explicit rather than
-  hard-coding.
+* **Layer 2 — Device.** The live implementation composes one or more T3
+  Regions, zero or more Junctions, and zero or one Qubit. The top-level solver
+  is steady-state only: evaluate junctions → push fluxes into regions → solve
+  each region → solve the optional qubit master equation → repeat. Mixed T1/
+  T2/T3 backends, multiple Qubits, and Device transient evolution remain
+  design extensions.
+* **Layer 3 — Moment-closure reductions.** The standalone M25 four-variable
+  service is implemented and tested. The Device-facing M25 adapter reuses and
+  caches that isolated closure; a general closure consuming each evolving
+  Region state has not landed.
 
-The M25 validation then runs as: compose a ``Device`` with two
-regions (L and R), one ``Junction``, one ``Qubit`` with parity, and
-a photon drive. The existing Stage A coefficient-integral machinery
-(``M25PhysicalParameters``, the S_ph / Γ̃ / r / τ_R/E evaluators)
-all **reuse** — they become the guts of a specific M25
-``Junction`` implementation, no physics re-derived.
+The M25 adapter composes two Regions, one Junction, and a parity-tracking
+Qubit in focused tests, while reusing the Stage-A coefficient machinery. The
+published Fig. 3/4 validation sweeps remain service-driven; the proposed
+`m25_fig3_device.{csv,pdf}` full Device artifact does not exist.
 
 Two honest notes on what this *does* and *does not* automatically
 fix:
 
-1. **Architectural separation: unambiguous win.** Multi-region,
-   multi-junction, multi-qubit, mixed-tier setups all become
-   first-class compositions instead of hand-coded services. M25 is
-   no longer a special-case 4-variable ODE; it's a specific
-   Device configuration.
-2. **Stage B numerical pathology: conditional win.** If v1 ships a
-   `MomentClosureJunction` wrapping the Stage A Γ̃ math, the
-   junction's internal moment solve still has the 19-order
-   coefficient-to-density pathology that stranded the standalone
-   rate-equation solver. Moving to a true `KineticJunction` that
+1. **Architectural separation: implemented within scope.** Multi-region,
+   multi-junction T3 steady-state setups and one optional Qubit are first-class
+   compositions. That does not imply mixed tiers, multiple Qubits, or Device
+   transients.
+2. **Stage B numerical pathology: not removed by the M25 adapter.** The
+   adapter calls the existing isolated moment solver, so it retains the
+   coefficient-to-density conditioning and does not respond to evolving f(E).
+   Moving to a true `KineticJunction` that
    operates on E-resolved f(E) on each region would cleanly side-
    step the cancellation (tunneling becomes a boundary
    ``ExternalFlux`` on well-conditioned region-local kinetic
    equations), but that's strictly more physics work than v1
-   ships. §6.1 lays out the decision tree; Phase 5 commits will
-   explicitly report which path converged and whether 5b
-   (KineticJunction) is required.
+   ships. §6.1 lays out the still-open decision tree.
 
-This doc is the design proposal only. The implementation plan is
-§7, phased across 5–6 sessions. Every phase lands green with
-intermediate checkpoints.
+This document began as the design proposal. Section 7 preserves its phased
+implementation plan for provenance; it is not the current task list.
 
 ---
 
@@ -298,12 +293,10 @@ A Device is just data. The solver is the `solve_device_steady_state`
 free function in §3.5. No "Device" class methods for evolution —
 keeps the data/behavior split clean.
 
-**Single-region Devices exist.** For Gate 3's existing Fischer
-reproductions, a `Device(regions={"main": region}, junctions=[])`
-is a trivial wrapper. All existing services
-(`solve_steady_state`, `solve_nbar_loop`, `run_time_dependent`)
-gain an internal `device = _wrap_single_region(state)` call and
-behave identically — backward compatible.
+**Single-region Devices exist.** A caller can explicitly construct
+`Device(regions={"main": region}, junctions=[])`. Existing Fischer services
+continue to call their original single-region solver paths directly; there is
+no `_wrap_single_region_device()` compatibility layer.
 
 ### 3.2 Junction
 
@@ -619,12 +612,21 @@ architectural escape hatch the user asked for.
 
 ### 3.5 Top-level solver
 
+The following block is the original design sketch. The current callable uses
+the controls shown here (names abbreviated only by the ellipsis):
+
 ```python
 def solve_device_steady_state(
     device: Device,
     *,
-    residual_tol: float | None = None,
-    max_outer_iterations: int = 50,
+    backend: T3DiffusionBackend | None = None,
+    use_thermal_phonons: bool = True,
+    inner_anderson_depth: int = 3,
+    outer_tol: float = 1e-6,
+    outer_max_iter: int = 100,
+    outer_damping: float = 0.5,
+    inner_newton_tol: float = 1e-12,
+    inner_newton_max_iter: int = 200,
     ...
 ) -> DeviceSolution:
     """Fixed-point iteration on (region states, qubit state).
@@ -639,19 +641,46 @@ def solve_device_steady_state(
          is region-local; the per-region Newton is well-conditioned.
       4. If a qubit exists, evolve its master equation using the
          aggregated rate matrix.
-      5. Check convergence: max fractional change in region states,
-         qubit populations, junction fluxes < tol.
+      5. Check scale-aware fixed-point defects in region occupations and
+         qubit populations; certify supported conservative components with a
+         capacity-weighted QP-number backward error.
 
-    Returns converged Device state + per-junction flux diagnostics.
+    Returns the certified region/qubit snapshot and convergence diagnostics.
     """
     ...
 ```
 
-The **outer iteration** is a Picard fixed-point on
-(region states, qubit state). The **inner** per-region Newton
-operates on a single-region kinetic equation with known external
-fluxes — well-conditioned, fast, converges at the source-rate
-accuracy the Stage A guard already enforces.
+The **outer iteration** is a Picard fixed-point on (region states, qubit
+state). The **inner** per-region Newton operates on a single-region kinetic
+equation with frozen external flux. It is usually much better scaled than the
+four-variable closure, but that is not an unconditional convergence promise:
+cold number modes can be unrepresentable in float64 and fail loudly.
+
+**Current certification contract (2026-07-21).** The implemented solver
+certifies the fixed-point defect and, for every supported conservative
+component, a capacity-weighted QP-number backward error against the same
+public `outer_tol`. An active conservative Junction declares its scalar
+`C_a/C_b` ratio through the public safety contract, and the solver checks the
+evaluated weighted transfer. `SymmetricGapTunnelingJunction` additionally
+requires matched finite-volume spectral measures; a zero-rate instance is a
+true inert edge and does not join components. Unknown state-dependent flux
+must declare a prescribed-source or conservative-capacity contract;
+otherwise the solve refuses. Exclusive dissipation-owning M25 closures are
+certified locally by Newton. `use_thermal_phonons=False` is allowed for
+independent/disabled-edge Devices, but refuses when an active conservative
+cross-region component would require the still-missing nonequilibrium-
+phonon component certificate. Exact absorbing vacuum states are accepted;
+unresolved finite-temperature number modes still fail loudly. Prescribed
+sources retain their own turnover in the Newton normalizer; only explicitly
+identified conservative exchange is excluded from that scale. A returned
+state is the same snapshot at which its defect was measured. An injected
+backend must act as a pure map (in-place mutation refuses), and its complete
+returned T3 state -- occupation, positive matching gap/spectral context,
+fixed finite grid, bath temperature, and PH0 phonons -- is validated before
+convergence arithmetic. Conservative-transfer verification scales raw rates
+and finite-volume weights separately before multiplication, so large finite
+inputs cannot overflow into a NaN that bypasses the contract. Invalid qubit
+outputs are rejected at the same boundary.
 
 ---
 
@@ -713,20 +742,15 @@ general reduction of Layer 2 — **not the primary object**.
   bath): unchanged. A Device wrapping one Region is a no-op over
   the existing solver.
 * **`qpsim.services.steady_state.solve_steady_state`,
-  `nbar_loop.solve_nbar_loop`,
-  `transient.run_time_dependent`**: add internal
-  `_wrap_single_region_device()` calls. External API stable. All
-  360 Gate-3 tests pass.
+  `nbar_loop.solve_nbar_loop`, and `transient.run_time_dependent`** remain
+  direct single-region APIs. They do not internally construct a Device.
 * **Stage A M25 machinery** (`M25PhysicalParameters`,
   `coefficients_from_physical_parameters`, the `_S_ph_*` and `_gamma_*`
   evaluators): retained as the internals of `M25GapAsymmetricJJ`
   and the Layer-3 reduction path. Zero math re-derivation.
-* **`qpsim.services.rate_equation.solve_rate_equation_steady_state`**:
-  retained as the Layer-3 reduction entry point. Gains a
-  docstring note: "this is the Fermi-Dirac moment closure of
-  `solve_device_steady_state`; prefer the Device path unless you
-  have a reason to pre-compute the coefficient bundle". Existing
-  22 tests (Strategy A limiting cases + roundtrips) still pass.
+* **`qpsim.services.rate_equation.solve_rate_equation_steady_state`** remains
+  the primary implemented M25 moment-reduction entry point. The repository
+  does not currently add the proposed Device-preference docstring or wrapper.
 * **Gate 3 baselines** (`validation/baselines/ph0_*/`) untouched.
 
 No deprecations in Phase 1–4. Phase 5 (M25 Fig 3 reproduction via
@@ -849,14 +873,23 @@ names `"L"` / `"R"` by convention; the framework doesn't care.
 
 ---
 
-## 7. Implementation plan
+## 7. Historical implementation plan (partially implemented)
+
+The scopes below are the original proposal, not a completion ledger. Current
+status: Phases 1–2 are implemented; Phase 3's T3 steady-state core is
+implemented; Phase 4 has steady-state qubit support but not Device/qubit
+transients; Phase 5 has a limited cached-closure M25 adapter but neither the
+generic `MomentClosureJunction`, an E-resolved `KineticJunction`, nor the named
+full Device sweep artifact; Phase 6's validation “via the same Device setup”
+is not implemented (separate service-driven M25 figure validations do exist).
 
 ### Phase 1 — Design (this doc)
 Scope: write this document, review with GPT, fix structural
 issues before any code changes.
-**Status: in progress.**
+**Status: completed.**
 
 ### Phase 2 — ExternalFlux contract through T3 solver stack
+**Status: implemented.** Historical target follows.
 Introduce the new ``ExternalFlux(gain, loss_rate, target_cells,
 diagnostics)`` dataclass per §2.2.1. Thread it through:
 * ``T3DiffusionBackend.step`` (adds gain to the explicit piece,
@@ -879,6 +912,8 @@ The Phase 2 scope is the surface change only, plus its tests.
 **Est: 1–2 sessions. Ships green.**
 
 ### Phase 3 — Region / Junction / Device, no qubit
+**Status: implemented for T3 steady-state composition.** Historical target
+follows.
 * Create `qpsim.devices.region.Region` wrapping
   `T3DiffusionState`.
 * Create `qpsim.devices.junction.Junction` protocol + one test
@@ -893,6 +928,8 @@ The Phase 2 scope is the surface change only, plus its tests.
 **Est: 1–2 sessions. Ships green.**
 
 ### Phase 4 — Qubit + parity + JunctionQubitCoupling
+**Status: partially implemented (steady-state master equation only; no Device
+transient evolution).** Historical target follows.
 * Create `qpsim.devices.qubit.Qubit` + `QubitState` + master-
   equation evolution (both steady-state algebraic + transient
   ODE paths).
@@ -903,6 +940,9 @@ The Phase 2 scope is the surface change only, plus its tests.
 **Est: 1 session. Ships green.**
 
 ### Phase 5 — M25 Fig 3 via MomentClosureJunction (Layer-3-in-Layer-2-harness)
+**Status: partially implemented by `M25GapAsymmetricJJ`, which adapts a cached
+isolated moment solve. The generic/kinetic Junctions and named full Device
+baseline below remain open.** Historical target follows.
 * Implement `M25GapAsymmetricJJ(MomentClosureJunction)` internally
   calling the Stage A Γ̃ / r / τ evaluators, returning per-region
   ``ExternalFlux`` with the boundary-current normalization of
@@ -930,6 +970,8 @@ decision tree is transparent.
 **Est: 1–2 sessions depending on whether 5b is needed. Ships green.**
 
 ### Phase 6 — M25 Fig 4/5 + closure
+**Status: not implemented through the Device setup described here.** Separate
+service-based Fig. 3/4 validations must not be counted as this deliverable.
 * Fig 4 (density ratios or transition-rate ratios) and Fig 5
   (parity-switching rate Γ_P vs T) reproductions via same
   Device setup.
@@ -958,8 +1000,11 @@ layer and keeps the existing behavior intact.
 
 ---
 
-## 9. Next action
+## 9. Current next actions
 
-After review of this doc, start Phase 2: add `external_flux` to
-`T3DiffusionBackend`. That unlocks everything downstream and
-is the smallest possible first step that touches real code.
+Remaining work includes both numerical qualification and planned architecture:
+extend the conservative component certificate to stored non-equilibrium
+phonons, study tighter coupled solvers for slow mismatched-temperature modes,
+implement a Junction that consumes evolving f(E), and decide whether to build
+the proposed full M25 Device validation artifacts. New Junction families must
+remain inside the explicit capacity/source safety contracts in §3.5.

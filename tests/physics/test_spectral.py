@@ -330,3 +330,47 @@ class TestSpectralContext:
                 gap=0.5,
                 **kwargs,
             )
+
+
+class TestRebuildExceptionSafety:
+    """2026-07-19 audit: a failed _rebuild must not leave a torn object."""
+
+    def test_failed_rebuild_leaves_context_intact_and_retryable(self) -> None:
+        E = np.linspace(1.01, 5.0, 10)
+        dE = np.full_like(E, E[1] - E[0])
+        ctx = SpectralContext(E, dE, gap=0.5, diffusion_coefficient=1.0)
+        before = {
+            "gap": ctx.gap,
+            "rho": ctx.rho.copy(),
+            "cell_weights": ctx.cell_weights.copy(),
+            "cell_density": ctx.cell_density.copy(),
+            "K_plus": ctx.K_plus.copy(),
+            "K_minus": ctx.K_minus.copy(),
+            "D_E": ctx.D_E.copy(),
+            "active_mask": ctx.active_mask.copy(),
+        }
+
+        # A gap above the whole grid has zero represented capacity: the
+        # rebuild must raise...
+        with pytest.raises(ValueError, match="positive represented spectral"):
+            ctx.maybe_rebuild(10.0)
+
+        # ...and leave EVERY field at its pre-call value (the pre-fix
+        # version committed gap/weights first, mixing two gaps).
+        assert ctx.gap == before["gap"]
+        np.testing.assert_array_equal(ctx.rho, before["rho"])
+        np.testing.assert_array_equal(ctx.cell_weights, before["cell_weights"])
+        np.testing.assert_array_equal(ctx.cell_density, before["cell_density"])
+        np.testing.assert_array_equal(ctx.K_plus, before["K_plus"])
+        np.testing.assert_array_equal(ctx.K_minus, before["K_minus"])
+        np.testing.assert_array_equal(ctx.D_E, before["D_E"])
+        np.testing.assert_array_equal(ctx.active_mask, before["active_mask"])
+
+        # A retry of the same invalid gap must raise again — not silently
+        # no-op because the failed gap was committed as current.
+        with pytest.raises(ValueError, match="positive represented spectral"):
+            ctx.maybe_rebuild(10.0)
+
+        # And a valid rebuild afterwards still works normally.
+        assert ctx.maybe_rebuild(0.6) is True
+        assert ctx.gap == 0.6

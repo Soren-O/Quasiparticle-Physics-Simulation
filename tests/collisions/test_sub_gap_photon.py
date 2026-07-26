@@ -59,6 +59,22 @@ class TestShapesAndNullCases:
         np.testing.assert_allclose(gain, 0.0)
         np.testing.assert_allclose(loss, 0.0)
 
+    def test_zero_coupling_bypasses_inapplicable_grid_guards(self) -> None:
+        E = np.array([1.1, 1.3, 1.8, 2.6])
+        ctx = SpectralContext(
+            E,
+            integration_widths_from_centers(E),
+            gap=1.0,
+        )
+        f = np.linspace(0.0, 0.2, E.size)
+
+        gain, loss = sub_gap_photon_collision_rates(
+            f, ctx, omega_0=1.7, n_bar=1.0, c_phot=0.0,
+        )
+
+        np.testing.assert_array_equal(gain, np.zeros_like(f))
+        np.testing.assert_array_equal(loss, np.zeros_like(f))
+
     def test_positive_frequency_below_half_bin_fails_loudly(self) -> None:
         ctx = _setup()
         dE = float(ctx.dE[0])

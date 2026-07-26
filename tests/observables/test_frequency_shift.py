@@ -43,12 +43,41 @@ class TestComputeFrequencyShift:
         shift = compute_frequency_shift(f_hot, f_ref, ctx, omega_0=1.0, alpha=0.0)
         assert shift == 0.0
 
-    def test_zero_reference_sigma2_returns_zero(self) -> None:
-        # If σ₂(f_ref) ≤ 0 (normal state), the function returns 0 as a
-        # graceful fallback rather than NaN-out.
+    def test_zero_reference_sigma2_with_change_fails_loudly(self) -> None:
+        # A normal reference has sigma2=0, so a nonzero current response makes
+        # the relative shift undefined and must not be mislabeled as zero.
         ctx, _ = _thermal_ctx_and_f()
         f_normal = np.full(ctx.E.size, 0.5)
         f_other = np.full(ctx.E.size, 0.4)
-        shift = compute_frequency_shift(f_other, f_normal, ctx, omega_0=1.0, alpha=0.1)
-        # f = 0.5 everywhere ⇒ σ₂ ≈ 0.
-        assert shift == 0.0
+        with pytest.raises(ValueError, match="reference sigma2 is zero"):
+            compute_frequency_shift(
+                f_other,
+                f_normal,
+                ctx,
+                omega_0=1.0,
+                alpha=0.1,
+            )
+
+    def test_negative_reference_sigma2_preserves_signed_shift(self) -> None:
+        ctx, _ = _thermal_ctx_and_f(num=32)
+        omega_0 = 5.0
+        alpha = 0.2
+        f_ref = 0.9 * np.exp(-(ctx.E - ctx.gap) / (10.0 * omega_0))
+        f = np.zeros_like(ctx.E)
+
+        from qpsim.observables.ac_conductivity import compute_ac_conductivity
+
+        _, sigma2 = compute_ac_conductivity(f, ctx, omega_0)
+        _, sigma2_ref = compute_ac_conductivity(f_ref, ctx, omega_0)
+        assert sigma2_ref < 0.0
+
+        shift = compute_frequency_shift(
+            f,
+            f_ref,
+            ctx,
+            omega_0=omega_0,
+            alpha=alpha,
+        )
+        assert shift == pytest.approx(
+            0.5 * alpha * (sigma2 - sigma2_ref) / sigma2_ref
+        )

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -30,6 +30,23 @@ from qpsim.devices.qubit import QubitTransitionChannel
 if TYPE_CHECKING:
     from qpsim.backends.t3_diffusion import T3DiffusionState
     from qpsim.devices.qubit import QubitState
+
+
+def _real_scalar_control(name: str, value: Any) -> float:
+    """Normalize one real scalar parameter without accepting coercion traps."""
+    if (
+        isinstance(value, (bool, np.bool_, str, bytes))
+        or np.iscomplexobj(value)
+        or np.asarray(value).ndim != 0
+    ):
+        raise ValueError(f"{name} must be a finite real scalar; got {value!r}.")
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {value!r}."
+        ) from exc
+    return normalized
 
 
 @dataclass
@@ -81,6 +98,13 @@ class Junction(ABC):
         closure is only valid when each touched region belongs to this
         Junction alone. The :class:`Device` constructor rejects any other
         Junction sharing either region.
+    prescribed_region_flux
+        Class-level safety contract for custom Junctions. ``True`` means
+        each emitted region flux is a prescribed local source/sink rather
+        than a state-dependent exchange between the two regions. Such a
+        flux is certified by each region's Newton number-mode check. The
+        conservative Device component certificate cannot infer this from
+        arbitrary ``evaluate`` code, so the default is ``False``.
     """
 
     name: str
@@ -88,6 +112,29 @@ class Junction(ABC):
     region_b: str
     owns_region_dissipation: bool = False
     requires_exclusive_regions: bool = False
+    prescribed_region_flux: ClassVar[bool] = False
+
+    def qp_number_capacity_ratio_a_to_b(self) -> float | None:
+        """Describe an active conservative QP-transfer edge, if any.
+
+        Return ``C_a / C_b`` when this Junction is configured to transfer
+        quasiparticles conservatively between its two regions, where the
+        conserved discrete population is
+
+        ``C_a * sum(w_a * f_a) + C_b * sum(w_b * f_b)``.
+
+        This is a public safety contract, not a diagnostic hint: it must
+        remain present when the instantaneous *net* current happens to
+        vanish, and every :meth:`evaluate` result must conserve the stated
+        weighted population. The Device solver verifies that identity before
+        using the ratio in its connected-component number-mode certificate.
+
+        Return ``None`` for Junctions without such a contract and for a
+        coupling that is identically disabled by configuration. The default
+        means a nonzero state-dependent flux from an undeclared custom
+        Junction is refused by the Device solver.
+        """
+        return None
 
     @abstractmethod
     def evaluate(
@@ -178,11 +225,17 @@ class SymmetricGapTunnelingJunction(Junction):
     capacity_ratio_a_to_b: float = 1.0
 
     def __post_init__(self) -> None:
+        self.alpha_per_ns = _real_scalar_control(
+            "alpha_per_ns", self.alpha_per_ns
+        )
         if not np.isfinite(self.alpha_per_ns) or self.alpha_per_ns < 0.0:
             raise ValueError(
                 "alpha_per_ns must be finite and non-negative; got "
                 f"{self.alpha_per_ns}"
             )
+        self.capacity_ratio_a_to_b = _real_scalar_control(
+            "capacity_ratio_a_to_b", self.capacity_ratio_a_to_b
+        )
         if (
             not np.isfinite(self.capacity_ratio_a_to_b)
             or self.capacity_ratio_a_to_b <= 0.0
@@ -197,6 +250,17 @@ class SymmetricGapTunnelingJunction(Junction):
                 f"both region_a and region_b = {self.region_a!r}."
             )
 
+    def qp_number_capacity_ratio_a_to_b(self) -> float | None:
+        """Return this active edge's documented ``C_a/C_b`` ratio.
+
+        ``alpha_per_ns == 0`` is a genuinely disabled coupling, not a graph
+        edge. An inert Junction must not merge independent conservation
+        components or make its unused capacity ratio part of certification.
+        """
+        if self.alpha_per_ns == 0.0:
+            return None
+        return float(self.capacity_ratio_a_to_b)
+
     def evaluate(
         self,
         state_a: T3DiffusionState,
@@ -205,6 +269,15 @@ class SymmetricGapTunnelingJunction(Junction):
     ) -> JunctionResult:
         # qubit_state is unused — this Junction has no qubit coupling.
         del qubit_state
+        if self.alpha_per_ns == 0.0:
+            # A disabled coupling is a true no-op. Do this before cross-region
+            # compatibility checks: no tunneling is evaluated, so unrelated
+            # grids/gaps and its unused capacity ratio cannot affect either
+            # region or the Device conservation graph.
+            return JunctionResult(
+                external_flux_a=ExternalFlux.zero(int(np.asarray(state_a.f).size)),
+                external_flux_b=ExternalFlux.zero(int(np.asarray(state_b.f).size)),
+            )
         for label, state in (("a", state_a), ("b", state_b)):
             gap_scale = max(
                 abs(float(state.gap)),

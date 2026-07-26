@@ -1,7 +1,7 @@
 """Config+code-hashed disk cache for expensive validation sweeps.
 
-The paper-track sweeps are slow (Fischer Fig. 6 ~14 h, Figs 3/5 tens of
-minutes). When nothing that affects the result has changed, recomputing is
+The paper-track sweeps are slow (Fischer Fig. 6 measured ~6.04 h serial /
+~2.11 h concurrent, Figs 3/5 tens of minutes). When nothing that affects the result has changed, recomputing is
 pure waste. This module caches a sweep's *raw solve output* on disk, keyed by
 a hash of everything that determines that output, so an unchanged rerun loads
 in milliseconds while any meaningful change recomputes.
@@ -20,7 +20,9 @@ cache would have silently served the pre-fix numbers. So the key folds in:
   or plotting routine therefore keeps the cache warm, while *any* solver /
   collision / physics edit correctly invalidates it,
 * the figure's own solve-path source (passed as ``extra_source``),
-* numpy / scipy / Python versions, and a cache-format version.
+* numpy / scipy / Python versions, the stable numeric runtime context
+  (OS/architecture, BLAS/SIMD identity, and thread controls), and a
+  cache-format version.
 
 Over-invalidation (recompute) is the deliberately-safe failure direction; a
 stale serve is never acceptable, so the source digest is conservative (it
@@ -50,7 +52,9 @@ import os
 import platform
 import re
 import shutil
+import sys
 import tempfile
+import warnings
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -61,7 +65,7 @@ import numpy as np
 from validation.source_provenance import canonical_source_bytes, canonical_source_text
 
 # Bump to invalidate every existing entry on a key-schema / codec change.
-_FORMAT_VERSION = 2
+_FORMAT_VERSION = 3
 
 _ENV_ENABLE = "QPSIM_SWEEP_CACHE"
 _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
@@ -71,6 +75,19 @@ _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
 _OBSERVABLES_PKG = "observables"
 
 _DISABLED_VALUES = {"0", "false", "no", "off", ""}
+
+_NUMERIC_THREAD_ENV = (
+    "OPENBLAS_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "OMP_DYNAMIC",
+    "MKL_DYNAMIC",
+    "MKL_CBWR",
+    "OPENBLAS_CORETYPE",
+)
 
 # Figure ids are logical namespaces (for example ``fischer_2023/fig7``), not
 # filesystem paths. Each namespace component and every content-addressed key
@@ -115,7 +132,7 @@ def default_cache_dir() -> Path:
 
 
 def solve_source_digest(qpsim_root: Path | None = None) -> str:
-    """SHA-256 over all ``qpsim/**/*.py`` except the ``observables`` subpackage.
+    """SHA-256 over ``qpsim/**/*.py`` (minus ``observables``) plus ``qpsim/**/*.yaml``.
 
     The relative path is folded in alongside each file's newline-normalized
     bytes so that moving or renaming a module also changes the digest while LF
@@ -132,6 +149,11 @@ def solve_source_digest(qpsim_root: Path | None = None) -> str:
         for p in qpsim_root.rglob("*.py")
         if p.relative_to(qpsim_root).parts[0] != _OBSERVABLES_PKG
     )
+    # Material parameter tables are solve inputs exactly like source code:
+    # a sound-velocity or gap edit in a YAML must invalidate cached solves
+    # (2026-07-20 review: an acoustic-escape Fig. 6 run could previously
+    # reuse stale results after such a change).
+    files += sorted(qpsim_root.rglob("*.yaml")) + sorted(qpsim_root.rglob("*.yml"))
     for p in files:
         rel = p.relative_to(qpsim_root).as_posix()
         h.update(rel.encode())
@@ -152,6 +174,92 @@ def _lib_versions() -> dict[str, str]:
     return versions
 
 
+def _normalized_config_value(value: Any) -> str:
+    """Return a stable one-line representation of a build-config value."""
+    return " ".join(str(value).split())
+
+
+def _numeric_runtime_identity() -> dict[str, Any]:
+    """Stable identity for platform-sensitive floating-point solve context.
+
+    Dense Newton steps go through NumPy's BLAS/LAPACK, and their last-bit
+    behavior can depend on the OS family, architecture, BLAS build, SIMD
+    dispatch, and thread controls even at identical Python/library versions.
+    Keep only canonical, solve-relevant fields: NumPy build paths, compiler
+    commands, hostnames, and other installation-local data are deliberately
+    excluded.
+    """
+    config = getattr(np.__config__, "CONFIG", {})
+    if not isinstance(config, Mapping):
+        config = {}
+
+    build_dependencies = config.get("Build Dependencies", {})
+    if not isinstance(build_dependencies, Mapping):
+        build_dependencies = {}
+    blas_raw = build_dependencies.get("blas", {})
+    if not isinstance(blas_raw, Mapping):
+        blas_raw = {}
+    blas = {
+        str(name): _normalized_config_value(blas_raw[name])
+        for name in ("name", "version", "openblas configuration")
+        if name in blas_raw
+    }
+    lapack_raw = build_dependencies.get("lapack", {})
+    if not isinstance(lapack_raw, Mapping):
+        lapack_raw = {}
+    lapack = {
+        str(name): _normalized_config_value(lapack_raw[name])
+        for name in ("name", "version", "openblas configuration")
+        if name in lapack_raw
+    }
+
+    simd_raw = config.get("SIMD Extensions", {})
+    if not isinstance(simd_raw, Mapping):
+        simd_raw = {}
+    simd: dict[str, list[str]] = {}
+    for name in ("baseline", "found"):
+        values = simd_raw.get(name, ())
+        if isinstance(values, (list, tuple, set, frozenset)):
+            simd[name] = sorted(str(value) for value in values)
+
+    thread_controls = {
+        name: (
+            None
+            if os.environ.get(name) is None
+            else _normalized_config_value(os.environ[name])
+        )
+        for name in _NUMERIC_THREAD_ENV
+    }
+    try:
+        cpu_features_raw = getattr(
+            np._core._multiarray_umath,  # type: ignore[attr-defined]
+            "__cpu_features__",
+            {},
+        )
+    except AttributeError:
+        cpu_features_raw = {}
+    runtime_cpu_features = (
+        sorted(
+            str(name)
+            for name, enabled in cpu_features_raw.items()
+            if bool(enabled)
+        )
+        if isinstance(cpu_features_raw, Mapping)
+        else []
+    )
+    return {
+        "os_family": sys.platform,
+        "machine": platform.machine().strip().lower() or "unknown",
+        "python_implementation": platform.python_implementation().lower(),
+        "logical_cpu_count": os.cpu_count(),
+        "blas": blas,
+        "lapack": lapack,
+        "simd": simd,
+        "runtime_cpu_features": runtime_cpu_features,
+        "thread_controls": thread_controls,
+    }
+
+
 def _canonical(obj: Any) -> Any:
     """Deterministic, JSON-safe canonicalization for hashing."""
     if isinstance(obj, Mapping):
@@ -169,6 +277,38 @@ def _canonical(obj: Any) -> Any:
     if isinstance(obj, (str, int, float, bool)) or obj is None:
         return obj
     return repr(obj)
+
+
+def _cache_identity_payload(
+    figure: str,
+    fingerprint: Mapping[str, Any],
+    kwargs: Mapping[str, Any],
+    *,
+    extra_source: str = "",
+    qpsim_root: Path | None = None,
+) -> dict[str, Any]:
+    """Capture the complete immutable producer identity for one cache call."""
+    return {
+        "format_version": _FORMAT_VERSION,
+        "figure": figure,
+        "fingerprint": _canonical(fingerprint),
+        "kwargs": _canonical(kwargs),
+        "solve_source": solve_source_digest(qpsim_root),
+        "extra_source": hashlib.sha256(
+            canonical_source_text(extra_source).encode()
+        ).hexdigest(),
+        "versions": _lib_versions(),
+        "numeric_runtime": _numeric_runtime_identity(),
+    }
+
+
+def _cache_key_from_identity(identity: Mapping[str, Any]) -> str:
+    blob = json.dumps(
+        _canonical(identity),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 def cache_key(
@@ -197,19 +337,14 @@ def cache_key(
     qpsim_root
         Override the library root (tests point this at a temp tree).
     """
-    payload = {
-        "format_version": _FORMAT_VERSION,
-        "figure": figure,
-        "fingerprint": _canonical(fingerprint),
-        "kwargs": _canonical(kwargs),
-        "solve_source": solve_source_digest(qpsim_root),
-        "extra_source": hashlib.sha256(
-            canonical_source_text(extra_source).encode()
-        ).hexdigest(),
-        "versions": _lib_versions(),
-    }
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode()).hexdigest()
+    identity = _cache_identity_payload(
+        figure,
+        fingerprint,
+        kwargs,
+        extra_source=extra_source,
+        qpsim_root=qpsim_root,
+    )
+    return _cache_key_from_identity(identity)
 
 
 def _validate_figure_id(figure: str) -> str:
@@ -310,6 +445,22 @@ def store(
     # redirect either file outside the configured cache root.
     npz_path, meta_path = _entry_paths(cache_dir, figure, key)
 
+    # Provenance sidecar FIRST, payload second (2026-07-20 review): the
+    # invariant is "an accepted payload always has provenance". An orphan
+    # sidecar without a payload is inert (load() keys on the .npz); the
+    # reverse — a promoted payload whose sidecar write then fails — would
+    # be served without provenance. Both writes use temp+rename so an
+    # interrupted write never leaves a truncated file (2026-07-19 audit).
+    if provenance is not None:
+        meta_fd, meta_tmp = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
+        try:
+            with os.fdopen(meta_fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
+            os.replace(meta_tmp, meta_path)
+        except BaseException:
+            Path(meta_tmp).unlink(missing_ok=True)
+            raise
+
     fd, tmp_name = tempfile.mkstemp(dir=npz_path.parent, suffix=".npz.tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -320,9 +471,6 @@ def store(
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
-
-    if provenance is not None:
-        meta_path.write_text(json.dumps(_canonical(provenance), indent=2, sort_keys=True))
     return npz_path
 
 
@@ -346,9 +494,14 @@ def cached_solve(
         return dict(solve_fn())
 
     cache_dir = cache_dir or default_cache_dir()
-    key = cache_key(
-        figure, fingerprint, kwargs, extra_source=extra_source, qpsim_root=qpsim_root
+    producer_identity = _cache_identity_payload(
+        figure,
+        fingerprint,
+        kwargs,
+        extra_source=extra_source,
+        qpsim_root=qpsim_root,
     )
+    key = _cache_key_from_identity(producer_identity)
     hit = load(figure, key, cache_dir=cache_dir)
     if hit is not None:
         return hit
@@ -358,12 +511,29 @@ def cached_solve(
         "figure": figure,
         "key": key,
         "created_utc": datetime.now(UTC).isoformat(),
-        "fingerprint": dict(fingerprint),
-        "kwargs": kwargs,
-        "versions": _lib_versions(),
-        "solve_source": solve_source_digest(qpsim_root),
+        "fingerprint": producer_identity["fingerprint"],
+        "kwargs": producer_identity["kwargs"],
+        "versions": producer_identity["versions"],
+        "numeric_runtime": producer_identity["numeric_runtime"],
+        "solve_source": producer_identity["solve_source"],
+        "extra_source": producer_identity["extra_source"],
     }
-    store(figure, key, arrays, provenance=provenance, cache_dir=cache_dir)
+    try:
+        store(figure, key, arrays, provenance=provenance, cache_dir=cache_dir)
+    except OSError as exc:
+        # The module contract is that the cache must never break a solve:
+        # solve_fn() has already succeeded, and on Windows os.replace onto
+        # an entry held open by any concurrent reader (second regen,
+        # np.load, AV/indexer) raises PermissionError — losing a
+        # potentially hours-long result over a cache write (2026-07-19
+        # audit). Surface the miss loudly and return the computed payload.
+        warnings.warn(
+            f"sweep_cache: failed to store the '{figure}' solve payload "
+            f"({exc!r}); returning the freshly computed result without "
+            "caching. The next run will recompute.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return arrays
 
 

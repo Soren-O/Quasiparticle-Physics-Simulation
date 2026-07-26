@@ -86,6 +86,27 @@ def _state_on_custom_grid(
     return state
 
 
+class TestPublicOccupationValidation:
+    @pytest.mark.parametrize(
+        "operation",
+        ("apply_collisions", "apply_gap_update", "step"),
+    )
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_state_before_float_cast(
+        self,
+        operation: str,
+        imaginary: float,
+    ) -> None:
+        state = _state_on_physics_grid(T_bath=0.1, num_energy=8)
+        bad_f = state.f.astype(complex)
+        bad_f[0] = complex(float(bad_f[0].real), imaginary)
+        state.f = bad_f
+        backend = T3DiffusionBackend()
+
+        with pytest.raises(ValueError, match=r"state\.f must be real-valued"):
+            getattr(backend, operation)(state, 1.0e-3)
+
+
 class TestApplyCollisions:
     def test_diagnostics_count_accepted_etd_substeps_not_rejected_trials(
         self,
@@ -902,3 +923,67 @@ class TestStep:
             assert np.all(state.f >= 0.0)
             assert np.all(state.f <= 1.0)
             assert state.gap > 0
+
+
+class TestRisingGapRecoveryTolerance:
+    """2026-07-20 adjudication of the audit's split verdict: the persistent
+    moving-gap path tolerates a stranded finite-E_max tail up to the same
+    1e-3 fraction as apply_gap_update, warning above 1e-9, instead of
+    refusing every rising-gap (recovery) trajectory at ~5e-12. The stranded
+    mass stays frozen in the persistent representation (zero overlap) and
+    re-enters if the gap falls."""
+
+    def _grid_state(self) -> T3DiffusionState:
+        # Sub-gap guard cells (E_min factor 0.9) so a risen gap up to ~1.05
+        # stays covered by the grid bottom; uniform occupation so the
+        # stranded xi sliver carries a controlled mass fraction.
+        E, _ = build_energy_grid(1.0, 0.9, 3.0, 160)
+        state = _state_on_custom_grid(E, gap=1.0)
+        state.f = np.where(state.spectral.rho > 0.0, 1e-3, 0.0)
+        return state
+
+    def test_subcap_stranded_tail_warns_and_materializes(self) -> None:
+        state = self._grid_state()
+        backend = T3DiffusionBackend()
+        coordinates = backend._persistent_coordinates_for_state(state)
+
+        # Rising gap 1.0 -> 1.005 strands ~6e-4 of the uniform mass above
+        # the fixed E_max window: below the 1e-3 cap, above the 1e-9 warn
+        # threshold. Pre-fix this raised RuntimeError.
+        with pytest.warns(UserWarning, match="left a finite-E_max"):
+            spectral, f, overlap = backend._materialize_persistent_occupation(
+                state, coordinates, 1.005
+            )
+
+        xi_widths = np.diff(coordinates.xi_edges)
+        material_mass = float(xi_widths @ coordinates.occupation)
+        represented_mass = float(spectral.cell_weights @ f)
+        tail_fraction = (material_mass - represented_mass) / material_mass
+        assert 1e-9 < tail_fraction < 1e-3
+        # The exact-adjoint projection invariant survives untouched.
+        np.testing.assert_allclose(
+            overlap.T @ coordinates.occupation,
+            spectral.cell_weights * f,
+            rtol=5e-13,
+            atol=1e-15,
+        )
+
+    def test_material_truncation_still_rejected_at_cap(self) -> None:
+        state = self._grid_state()
+        backend = T3DiffusionBackend()
+        coordinates = backend._persistent_coordinates_for_state(state)
+
+        # Rising gap 1.0 -> 1.05 strands ~6.5e-3 > the 1e-3 cap.
+        with pytest.raises(RuntimeError, match="Extend the energy grid"):
+            backend._materialize_persistent_occupation(state, coordinates, 1.05)
+
+    def test_tail_fraction_cap_is_independent_of_occupation_amplitude(self) -> None:
+        state = self._grid_state()
+        state.f = np.where(state.spectral.rho > 0.0, 1e-16, 0.0)
+        backend = T3DiffusionBackend()
+        coordinates = backend._persistent_coordinates_for_state(state)
+
+        # The geometry still strands ~0.66% of the mass.  An absolute
+        # floating-point floor must not make that relative policy disappear.
+        with pytest.raises(RuntimeError, match="Extend the energy grid"):
+            backend._materialize_persistent_occupation(state, coordinates, 1.05)

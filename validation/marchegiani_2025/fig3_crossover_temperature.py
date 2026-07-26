@@ -37,12 +37,15 @@ DELTA_R_OVER_H_HZ = 49.0e9           # Δ_R/h = 49 GHz
 DELTA_R_KELVIN = DELTA_R_OVER_H_HZ * _H_J_S / _KB_J_PER_K  # ≈ 2.352 K
 R_RLT_RATE_HZ = 6.25e6                # r^{R<} = 6.25 MHz
 
-# Sweep span chosen to bracket the M25 Fig 3 paper-reading T̄ values
-# (≈ 70 mK and ≈ 150 mK). Inverting Eq. 8 at those T̄ with the caption
-# parameters gives g^{ph}_R ~ 1e−23 Hz and ~ 5e−8 Hz respectively —
-# i.e. the paper's Fig 3(a) operates at vanishingly small photon drive.
-# The sweep extends down 26 decades to include both reference points
-# plus the Δ_R asymptote at the high-g^{ph} end.
+# Sweep span: the only T̄ value actually readable from the published
+# M25 Fig 3 is the ≈150 mK dashed-line position (both panels; the qpsim
+# full-pipeline reproduction gives ≈146 mK, and the paper itself calls
+# Eq. 8 accurate to "a few percent"). Inverting Eq. 8 at 150 mK with
+# the caption parameters gives g^{ph}_R ~ 5e−8 Hz; the sweep extends
+# far below that to expose the Lambert-W tail and up to the Δ_R
+# asymptote at the high-g^{ph} end. (An earlier revision also quoted a
+# "paper ≈70 mK" anchor — that value is not in the paper; fabricated
+# anchor removed per the 2026-07-19 audit.)
 G_PHOTON_MIN_HZ = 1.0e-25
 G_PHOTON_MAX_HZ = 1.0e6
 NUM_POINTS = 63  # ~2 points per decade
@@ -141,17 +144,15 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
         label=r"$\bar T = 2\Delta_R / W(4\pi r^{R<}/g^\mathrm{ph}_R)$",
     )
 
-    # Annotate the Fig 3 paper-reading points (approximate, from the
-    # published figure's dashed-line positions). The full rate-equation
-    # integration behind Fig 3 fixes g^ph_R via ω_LR and the photon
-    # drive settings; the closed form here lets us tabulate T̄ over a
-    # range and overlay the paper's two panels.
-    ax.axhline(70.0, color="tab:cyan", ls=":", lw=1.0, alpha=0.7,
-               label=r"M25 Fig 3(a) numerical: $\bar T \approx 70$ mK  "
-                     r"(small $\omega_{LR}$)")
+    # Annotate the one T̄ value actually readable from the published
+    # figure: the ≈150 mK dashed-line position (both panels). The qpsim
+    # full-pipeline reproduction lands at ≈146 mK, consistent with the
+    # paper's stated few-percent accuracy of Eq. 8. (A fabricated
+    # "Fig 3(a) ≈70 mK" paper anchor was removed here — 2026-07-19
+    # audit.)
     ax.axhline(150.0, color="tab:olive", ls=":", lw=1.0, alpha=0.7,
-               label=r"M25 Fig 3(b) numerical: $\bar T \approx 150$ mK  "
-                     r"(large $\omega_{LR}$)")
+               label=r"M25 Fig 3 dashed lines: $\bar T \approx 150$ mK "
+                     r"(paper reading; qpsim pipeline $\approx 146$ mK)")
 
     # Δ_R upper bound (T̄ cannot exceed Δ_R since W > 0 for positive args).
     ax.axhline(DELTA_R_KELVIN * 1e3, color="red", ls="--", lw=0.8, alpha=0.4,

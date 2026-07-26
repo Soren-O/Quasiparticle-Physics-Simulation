@@ -19,7 +19,10 @@ Ported / written (Gate 2):
 #     from qpsim.solvers.newton_steady_state import newton_solve_f
 #     from qpsim.solvers.coupled_newton import coupled_newton_solve
 
-from qpsim.solvers.anderson import anderson_extrapolate
+from qpsim.solvers.anderson import (
+    AndersonAccelerationError,
+    anderson_extrapolate,
+)
 from qpsim.solvers.crank_nicolson import build_cn_operators
 from qpsim.solvers.etd import etd1_step, etd2_step
 from qpsim.solvers.picard import PicardInfo, picard_iterate
@@ -27,6 +30,7 @@ from qpsim.solvers.spectral_flow_tvd import advect_spectral_flow
 from qpsim.solvers.ssprk import ssprk22_step
 
 __all__ = [
+    "AndersonAccelerationError",
     "PicardInfo",
     "advect_spectral_flow",
     "anderson_extrapolate",

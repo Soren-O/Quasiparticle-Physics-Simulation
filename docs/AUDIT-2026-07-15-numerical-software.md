@@ -304,13 +304,17 @@ measurement: adaptive ETD subcycling dominated the accepted partitions, and the
 remaining differences were at partition/roundoff scale.
 
 The promoted tight-contract Fig. 7 artifact stores five independent certificate fields at
-each of 48 `(P_read, T_bath)` targets. Their maxima were: dimensional QP
-residual `3.545257078359232e-14` at `(-72 dBm, 0.30 K)`; normwise QP backward
-error `9.818804631182414e-9` at `(-100 dBm, 0.14 K)`; dimensional Ph0 residual
-`8.640035930462195e-11` at `(-68 dBm, 0.34 K)`; raw direct-form Ph0 backward
-error `0.454787067197511` at `(-100 dBm, 0.06 K)`; and
-nearest-binary64-certified Ph0 backward error `9.6543334410508e-9` at
-`(-80 dBm, 0.26 K)`. The large raw value is retained as a diagnostic rather
+each of 48 `(P_read, T_bath)` targets. Their maxima in the **promoted
+canonical** artifact are: dimensional QP residual `3.6979899936499805e-14` at
+`(-68 dBm, 0.30 K)`; normwise QP backward error `9.818804622232902e-9` at
+`(-100 dBm, 0.14 K)`; dimensional Ph0 residual `8.542519342494771e-11` at
+`(-68 dBm, 0.34 K)`; raw direct-form Ph0 backward error
+`0.4294224280339482` at `(-100 dBm, 0.06 K)`; and
+nearest-binary64-certified Ph0 backward error `8.270891010038062e-9` at
+`(-100 dBm, 0.26 K)`. (An earlier revision of this paragraph quoted the
+archived Linux artifact's maxima instead of the promoted canonical's —
+corrected 2026-07-19; the archived values are the same order of magnitude.)
+The large raw value is retained as a diagnostic rather
 than used as a false rejection of a correctly rounded affine root. The two
 gated normwise backward errors were both below `2e-8` at every target.
 

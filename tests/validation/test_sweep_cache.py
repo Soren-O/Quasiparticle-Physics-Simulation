@@ -76,6 +76,34 @@ class TestCacheKey:
         cr = sc.cache_key("f", {}, {}, extra_source="a\rb\r", **kwargs)
         assert lf == crlf == cr
 
+    def test_varies_with_numeric_runtime_identity(self, tmp_path, monkeypatch):
+        q = _make_qpsim_tree(tmp_path)
+        monkeypatch.setattr(
+            sc,
+            "_numeric_runtime_identity",
+            lambda: {"os_family": "win32", "thread_controls": {"OMP_NUM_THREADS": "1"}},
+        )
+        single_thread = sc.cache_key("f", {}, {}, qpsim_root=q)
+        monkeypatch.setattr(
+            sc,
+            "_numeric_runtime_identity",
+            lambda: {"os_family": "linux", "thread_controls": {"OMP_NUM_THREADS": "4"}},
+        )
+        assert sc.cache_key("f", {}, {}, qpsim_root=q) != single_thread
+
+    def test_numeric_runtime_identity_omits_installation_paths(self):
+        identity = sc._numeric_runtime_identity()
+        assert identity["os_family"]
+        assert identity["machine"]
+        assert identity["python_implementation"]
+        assert "lapack" in identity
+        assert isinstance(identity["runtime_cpu_features"], list)
+        assert set(identity["thread_controls"]) == set(sc._NUMERIC_THREAD_ENV)
+        serialized = json.dumps(identity, sort_keys=True).lower()
+        assert "include directory" not in serialized
+        assert "lib directory" not in serialized
+        assert "pc file directory" not in serialized
+
 
 # ── solve-source digest ─────────────────────────────────────────────────
 
@@ -250,6 +278,45 @@ class TestStoreLoad:
 # ── cached_solve (integration) ──────────────────────────────────────────
 
 class TestCachedSolve:
+    def test_producer_identity_is_captured_once_before_solve(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        q = _make_qpsim_tree(tmp_path)
+        cdir = tmp_path / "cache"
+        source_calls = 0
+        runtime_calls = 0
+
+        def source_digest(_root=None):
+            nonlocal source_calls
+            source_calls += 1
+            return f"source-{source_calls}"
+
+        def runtime_identity():
+            nonlocal runtime_calls
+            runtime_calls += 1
+            return {"runtime_call": runtime_calls}
+
+        monkeypatch.setattr(sc, "solve_source_digest", source_digest)
+        monkeypatch.setattr(sc, "_numeric_runtime_identity", runtime_identity)
+
+        sc.cached_solve(
+            "figX",
+            lambda: {"x": np.array([1.0])},
+            fingerprint={"a": 1},
+            cache_dir=cdir,
+            qpsim_root=q,
+        )
+
+        assert source_calls == 1
+        assert runtime_calls == 1
+        sidecars = list(cdir.rglob("*.meta.json"))
+        assert len(sidecars) == 1
+        provenance = json.loads(sidecars[0].read_text(encoding="utf-8"))
+        assert provenance["solve_source"] == "source-1"
+        assert provenance["numeric_runtime"] == {"runtime_call": 1}
+
     def test_miss_then_hit(self, tmp_path):
         q = _make_qpsim_tree(tmp_path)
         cdir = tmp_path / "cache"
@@ -348,3 +415,35 @@ class TestEnvAndLifecycle:
 
         sc.clear(cache_dir=cdir)
         assert sc.load("figB", "k2", cache_dir=cdir) is None
+
+
+def test_cached_solve_survives_store_failure(tmp_path, monkeypatch):
+    """2026-07-20 review regression: a failed cache write (e.g. Windows
+    PermissionError from os.replace onto a reader-held entry) must not
+    destroy the completed solve — cached_solve warns and returns the
+    freshly computed payload."""
+
+    import numpy as np
+    import pytest
+
+    from validation import sweep_cache
+
+    def failing_store(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(sweep_cache, "store", failing_store)
+    calls = {"n": 0}
+
+    def solve_fn():
+        calls["n"] += 1
+        return {"x": np.arange(3.0)}
+
+    with pytest.warns(RuntimeWarning, match="failed to store"):
+        result = sweep_cache.cached_solve(
+            "guard-test",
+            solve_fn,
+            fingerprint={"a": 1},
+            cache_dir=tmp_path,
+        )
+    assert calls["n"] == 1
+    np.testing.assert_array_equal(result["x"], np.arange(3.0))

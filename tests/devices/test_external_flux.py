@@ -75,6 +75,23 @@ class TestExternalFluxValidation:
         with pytest.raises(ValueError, match="non-finite"):
             ExternalFlux(gain=np.zeros(3), loss_rate=np.array([1.0, np.inf, 1.0]))
 
+    @pytest.mark.parametrize("field", ["gain", "loss_rate"])
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_before_float_cast(
+        self,
+        field: str,
+        imaginary: float,
+    ) -> None:
+        arrays = {
+            "gain": np.zeros(3),
+            "loss_rate": np.zeros(3),
+        }
+        arrays[field] = arrays[field].astype(complex)
+        arrays[field][0] = complex(0.0, imaginary)
+
+        with pytest.raises(ValueError, match=rf"{field} must be real-valued"):
+            ExternalFlux(**arrays)
+
     def test_frozen_immutable(self) -> None:
         ef = ExternalFlux.zero(5)
         # frozen=True dataclass raises FrozenInstanceError on attribute set.

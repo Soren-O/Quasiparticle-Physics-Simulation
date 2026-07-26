@@ -57,6 +57,22 @@ def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
 
 
 class TestT3DiffusionBackendSteadyState:
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_initial_state_before_float_cast(
+        self,
+        imaginary: float,
+    ) -> None:
+        state = _build_state(T_bath=0.3, num_energy=12)
+        bad_f = state.f.astype(complex)
+        bad_f[0] = complex(float(bad_f[0].real), imaginary)
+        state.f = bad_f
+
+        with pytest.raises(ValueError, match="initial_guess must be real-valued"):
+            T3DiffusionBackend().steady_state(
+                state,
+                use_thermal_phonons=True,
+            )
+
     def test_rejects_gap_inconsistent_with_spectral_context(self) -> None:
         state = _build_state(T_bath=0.3, num_energy=12)
         state.gap *= 0.9

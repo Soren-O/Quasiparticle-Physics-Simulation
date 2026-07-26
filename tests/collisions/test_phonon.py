@@ -71,6 +71,14 @@ class TestDetailedBalance:
 
 
 class TestKernelBuilders:
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 0.0])
+    def test_phonon_side_times_must_be_finite_positive(self, bad: float) -> None:
+        ctx, _, _, _, _ = _thermal_setup()
+        with pytest.raises(ValueError, match="finite and positive"):
+            build_scattering_kernel_phonon_side(ctx, tau_0_pb_ns=bad)
+        with pytest.raises(ValueError, match="finite and positive"):
+            build_recombination_kernel_phonon_side(ctx, tau_0_pb_ns=bad)
+
     def test_public_kernel_builders_reject_dynes_context(self) -> None:
         ctx, _, _, _, _ = _thermal_setup()
         dynes = SpectralContext(
@@ -201,6 +209,54 @@ class TestPhononSidePairBreaking:
         first_idx = int(np.argmax(mask))
         assert 1.0 / -b_ph[first_idx] == pytest.approx(tau_0_pb, rel=2e-3)
 
+    def test_exact_threshold_bin_uses_finite_kaplan_right_limit(self) -> None:
+        # A QP center exactly at Delta makes the (0, 0) pair land exactly at
+        # omega=2*Delta. The ideal-BCS K+ endpoint has a finite Kaplan limit;
+        # leaving this bin uncorrected underestimates its sink by 2/pi.
+        gap = 1.0
+        tau_0_pb = 0.255
+        E = np.linspace(gap, 3.0 * gap, 21)
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(E)
+        K_ph = build_recombination_kernel_phonon_side(
+            ctx,
+            tau_0_pb_ns=tau_0_pb,
+        )
+        threshold_idx = int(idx_sum[0, 0])
+        assert E[0] + E[0] == 2.0 * gap
+
+        correction = _pair_breaking_quadrature_correction(
+            ctx,
+            K_ph,
+            idx_sum,
+            omega.size,
+        )
+        assert correction[threshold_idx] > 1.0
+
+        _, b_ph = compute_phonon_source_sink(
+            np.zeros(E.size),
+            ctx,
+            None,
+            None,
+            idx_diff,
+            idx_sum,
+            diff_sign,
+            omega.size,
+            enable_scattering=False,
+            enable_recombination=True,
+            K_r0_phonon_side=K_ph,
+        )
+
+        assert -b_ph[threshold_idx] == pytest.approx(1.0 / tau_0_pb, rel=2e-15)
+        assert 1.0 / -b_ph[threshold_idx] == pytest.approx(
+            tau_0_pb,
+            rel=2e-15,
+        )
+
     def test_kaplan_correction_does_not_override_k_minus(self) -> None:
         ctx, _, _, _, _ = _thermal_setup()
         omega, _, idx_sum, _ = build_phonon_frequency_map(ctx.E)
@@ -224,6 +280,73 @@ class TestPhononSidePairBreaking:
         )
 
         np.testing.assert_array_equal(correction, 1.0)
+
+    def test_kaplan_detector_ignores_unsupported_pair_entries(self) -> None:
+        # A face-aligned gap leaves two zero-capacity cells below Δ. Their
+        # kernel entries contribute exactly zero to every finite-volume
+        # rate, so changing only those entries must not disable the global
+        # Kaplan endpoint correction or alter the assembled phonon ODE.
+        gap = 1.0
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1; lower face 0.80
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(E)
+        canonical = build_recombination_kernel_phonon_side(
+            ctx,
+            tau_0_pb_ns=0.255,
+        )
+        pair_supported = ctx.active_mask[:, None] & ctx.active_mask[None, :]
+        assert np.any(~pair_supported)
+
+        modified = canonical.copy()
+        modified[~pair_supported] = 12345.0
+        assert np.any(modified != canonical)  # the perturbation is real
+
+        correction = _pair_breaking_quadrature_correction(
+            ctx,
+            canonical,
+            idx_sum,
+            omega.size,
+        )
+        correction_modified = _pair_breaking_quadrature_correction(
+            ctx,
+            modified,
+            idx_sum,
+            omega.size,
+        )
+        assert np.any(correction != 1.0)  # detector genuinely stayed active
+        np.testing.assert_array_equal(correction_modified, correction)
+
+        f = np.linspace(0.01, 0.03, E.size)
+        source, sink = compute_phonon_source_sink(
+            f,
+            ctx,
+            None,
+            None,
+            idx_diff,
+            idx_sum,
+            diff_sign,
+            omega.size,
+            enable_scattering=False,
+            K_r0_phonon_side=canonical,
+        )
+        source_modified, sink_modified = compute_phonon_source_sink(
+            f,
+            ctx,
+            None,
+            None,
+            idx_diff,
+            idx_sum,
+            diff_sign,
+            omega.size,
+            enable_scattering=False,
+            K_r0_phonon_side=modified,
+        )
+        np.testing.assert_array_equal(source_modified, source)
+        np.testing.assert_array_equal(sink_modified, sink)
 
     def test_kaplan_correction_does_not_invent_off_grid_pair_states(self) -> None:
         gap = 180.0
@@ -279,6 +402,51 @@ class TestCollisionRates:
         ctx, _, K_s0, K_r0, T_bath = _thermal_setup()
         with pytest.raises(ValueError, match=r"finite occupations|shape"):
             phonon_collision_rates(bad_f, ctx, K_s0, K_r0, T_bath)
+
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    @pytest.mark.parametrize("target", ["f", "K_s0", "K_r0"])
+    def test_rejects_complex_public_arrays_before_float_cast(
+        self,
+        target: str,
+        imaginary: float,
+    ) -> None:
+        ctx, f, K_s0, K_r0, T_bath = _thermal_setup()
+        values = {"f": f, "K_s0": K_s0, "K_r0": K_r0}
+        bad = np.asarray(values[target], dtype=complex).copy()
+        bad.flat[0] = complex(float(np.real(bad.flat[0])), imaginary)
+        values[target] = bad
+        with pytest.raises(ValueError, match="real-valued"):
+            phonon_collision_rates(
+                values["f"],
+                ctx,
+                values["K_s0"],
+                values["K_r0"],
+                T_bath,
+            )
+
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    @pytest.mark.parametrize(
+        "target",
+        ["N_p_override", "N_emit_override", "N_abs_override"],
+    )
+    def test_rejects_complex_phonon_overrides_before_float_cast(
+        self,
+        target: str,
+        imaginary: float,
+    ) -> None:
+        ctx, f, K_s0, K_r0, T_bath = _thermal_setup()
+        override = np.zeros_like(K_s0, dtype=complex)
+        override.flat[0] = complex(0.0, imaginary)
+        kwargs: dict[str, np.ndarray] = {}
+        if target == "N_p_override":
+            kwargs[target] = override
+        else:
+            kwargs["N_emit_override"] = np.zeros_like(K_r0)
+            kwargs["N_abs_override"] = np.zeros_like(K_r0)
+            kwargs[target] = override
+
+        with pytest.raises(ValueError, match="real-valued"):
+            phonon_collision_rates(f, ctx, K_s0, K_r0, T_bath, **kwargs)
 
     @pytest.mark.parametrize("bad_temperature", [-0.1, np.nan, np.inf])
     def test_rejects_invalid_bath_temperature(self, bad_temperature: float) -> None:
@@ -704,3 +872,62 @@ class TestKaplanRecombinationNormalization:
         # Keep a bounded continuum comparison in addition to the exact
         # discrete-form tests above.
         assert 0.85 < ratio < 1.15
+
+
+class TestGapCutCellPairLabeling:
+    """2026-07-20 review adjudication: supported gap-cut cells recombine
+    through pairs whose CENTER-sum can label the emitted phonon below 2Δ
+    although the capacity-supported pair energy is >= 2Δ. This is a
+    DOCUMENTED labeling approximation (bounded by one dE, vanishing on
+    covered grids), deliberately NOT masked: zeroing those pairs deletes
+    physical rate in principle. (A previously cited ~21% Fig. 6 tau_0^PB
+    shift was a mask-experiment artifact — it broke the canonical-kernel
+    Kaplan-correction detector — per the round-4 review.) The proper fix
+    is a rate-preserving gap-aware omega remap (designed TODO). These
+    tests pin the interim semantics: the pair rate stays live, and
+    emission/absorption share the bin (discrete detailed balance exact)."""
+
+    def _cut_ctx(self):
+        # gap INSIDE the [0.90, 1.00] cell: its center 0.95 sits below the
+        # gap while the [0.97, 1.00] sliver gives it finite capacity — a
+        # genuine supported gap-cut cell (a face-aligned gap has none).
+        gap = 0.97
+        E = np.linspace(0.85, 3.05, 23)  # dE=0.1
+        dE = integration_widths_from_centers(E)
+        return SpectralContext(E_bins=E, dE_bins=dE, gap=gap)
+
+    def test_supported_cut_cell_pairs_keep_finite_rate(self) -> None:
+        ctx = self._cut_ctx()
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        supported = ctx.cell_weights > 0.0
+        pair_sum = ctx.E[:, None] + ctx.E[None, :]
+        sub = pair_sum < 2.0 * ctx.gap - 1e-12
+        cut_pairs = sub & supported[:, None] & supported[None, :]
+        assert cut_pairs.any()  # the labeling case genuinely exists here
+        assert float(np.max(K_r0[cut_pairs])) > 0.0  # not masked
+
+    def test_emission_and_absorption_share_the_sub_label_bin(self) -> None:
+        # Detailed balance at the discrete level: the thermal fixed point of
+        # dn/dt = a + b n at every omega bin (including sub-2Delta-labeled
+        # ones) is the Bose-Einstein occupation, because both directions use
+        # the same kernel entry.
+        ctx = self._cut_ctx()
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        omega, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(ctx.E)
+        T = 0.2
+        kT = KB_UEV_PER_K * T
+        f_th = np.where(
+            ctx.cell_weights > 0.0,
+            1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0),
+            0.0,
+        )
+        a_ph, b_ph = compute_phonon_source_sink(
+            f_th, ctx, None, K_r0, idx_diff, idx_sum, diff_sign, omega.size,
+            enable_scattering=False,
+        )
+        from qpsim.physics.kernels import thermal_phonon_occupation
+
+        n_th = thermal_phonon_occupation(omega, T)
+        act = (-b_ph) > 0
+        fixed_point = a_ph[act] / (-b_ph[act])
+        np.testing.assert_allclose(fixed_point, n_th[act], rtol=1e-10, atol=1e-30)

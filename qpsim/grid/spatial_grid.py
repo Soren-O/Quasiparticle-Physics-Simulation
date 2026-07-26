@@ -54,6 +54,27 @@ class BoundaryCondition:
             return
         if kind in {"neumann", "dirichlet", "robin"} and self.value is None:
             raise ValueError(f"Boundary condition '{kind}' requires a numeric value")
+        try:
+            value = float(self.value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Boundary condition '{kind}' value must be finite and numeric"
+            ) from exc
+        if not np.isfinite(value):
+            raise ValueError(
+                f"Boundary condition '{kind}' value must be finite and numeric"
+            )
+        if kind == "robin" and self.aux_value is not None:
+            try:
+                aux_value = float(self.aux_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Boundary condition 'robin' aux_value must be finite and numeric"
+                ) from exc
+            if not np.isfinite(aux_value):
+                raise ValueError(
+                    "Boundary condition 'robin' aux_value must be finite and numeric"
+                )
 
 
 @dataclass
@@ -93,6 +114,16 @@ _DIR_OFFSETS: dict[str, tuple[int, int]] = {
 }
 
 
+def _validated_boolean_mask(mask: np.ndarray) -> np.ndarray:
+    """Return a 2D boolean geometry mask without truthiness coercion."""
+    mask_arr = np.asarray(mask)
+    if mask_arr.ndim != 2:
+        raise ValueError("mask must be 2D.")
+    if mask_arr.dtype != np.dtype(bool):
+        raise ValueError("mask must be a boolean array.")
+    return mask_arr
+
+
 def reconstruct_field(mask: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Expand a flat interior-point array back to the full 2D grid.
 
@@ -100,6 +131,7 @@ def reconstruct_field(mask: np.ndarray, values: np.ndarray) -> np.ndarray:
     the mask are set to ``NaN``. Inverse of "flatten a 2D field to the
     interior-only vector".
     """
+    mask = _validated_boolean_mask(mask)
     field = np.full(mask.shape, np.nan, dtype=float)
     field[mask] = values
     return field
@@ -112,6 +144,7 @@ def mask_to_index(mask: np.ndarray) -> tuple[np.ndarray, list[tuple[int, int]]]:
     sequential indices ``0..N-1``, exterior cells get ``-1``. ``coords``
     is the corresponding list of ``(row, col)`` tuples in index order.
     """
+    mask = _validated_boolean_mask(mask)
     index_map = -np.ones(mask.shape, dtype=int)
     coords = np.argwhere(mask)
     for idx, (row, col) in enumerate(coords):
@@ -124,18 +157,80 @@ def _normalized_bc(bc: BoundaryCondition) -> BoundaryCondition:
 
 
 def _build_face_bc_lookup(
+    mask: np.ndarray,
     edges: list[EdgeSegment],
     edge_conditions: dict[str, BoundaryCondition],
 ) -> dict[tuple[int, int, str], BoundaryCondition]:
+    """Validate declared edges and return the boundary condition per face.
+
+    Empty edge segments are valid no-ops, but they are still part of the
+    public boundary specification and therefore require an assigned
+    condition.  Validating every declared face here keeps the constant- and
+    variable-coefficient builders on exactly the same contract: a face must
+    belong to an interior cell, point outside the domain, use a supported
+    direction, and be assigned at most once.
+    """
+    missing_edges = [
+        edge.edge_id for edge in edges if edge.edge_id not in edge_conditions
+    ]
+    if missing_edges:
+        raise BoundaryAssignmentError(
+            "All edges must be assigned boundary conditions before simulation. "
+            f"Missing: {len(missing_edges)}"
+        )
+
     lookup: dict[tuple[int, int, str], BoundaryCondition] = {}
+    ny, nx = mask.shape
     for edge in edges:
-        bc = edge_conditions.get(edge.edge_id)
-        if bc is None:
-            continue
+        bc = edge_conditions[edge.edge_id]
         checked = _normalized_bc(bc)
         checked.validate()
         for face in edge.faces:
-            lookup[(face.row, face.col, face.direction)] = checked
+            if not isinstance(face.direction, str) or face.direction not in _DIR_OFFSETS:
+                raise BoundaryAssignmentError(
+                    f"Edge '{edge.edge_id}' has unsupported face direction "
+                    f"{face.direction!r}."
+                )
+            if (
+                isinstance(face.row, (bool, np.bool_))
+                or isinstance(face.col, (bool, np.bool_))
+                or not isinstance(face.row, (int, np.integer))
+                or not isinstance(face.col, (int, np.integer))
+            ):
+                raise BoundaryAssignmentError(
+                    f"Edge '{edge.edge_id}' has a face with non-integer cell "
+                    f"coordinates ({face.row!r}, {face.col!r})."
+                )
+
+            row = int(face.row)
+            col = int(face.col)
+            if not (0 <= row < ny and 0 <= col < nx):
+                raise BoundaryAssignmentError(
+                    f"Edge '{edge.edge_id}' has a face outside the mask at "
+                    f"cell ({row}, {col})."
+                )
+            if not mask[row, col]:
+                raise BoundaryAssignmentError(
+                    f"Edge '{edge.edge_id}' has a face at non-interior cell "
+                    f"({row}, {col})."
+                )
+
+            dr, dc = _DIR_OFFSETS[face.direction]
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < ny and 0 <= nc < nx and mask[nr, nc]:
+                raise BoundaryAssignmentError(
+                    f"Edge '{edge.edge_id}' declares the interior face at "
+                    f"cell ({row}, {col}) direction '{face.direction}' as a "
+                    "boundary."
+                )
+
+            key = (row, col, face.direction)
+            if key in lookup:
+                raise BoundaryAssignmentError(
+                    f"Boundary face at cell ({row}, {col}) direction "
+                    f"'{face.direction}' is assigned more than once."
+                )
+            lookup[key] = checked
     return lookup
 
 
@@ -197,26 +292,23 @@ def build_laplacian_with_boundaries(
     Uses constant grid spacing ``dx``. For a variable diffusion
     coefficient, see :func:`build_variable_diffusion_laplacian`.
     """
-    if dx <= 0:
-        raise ValueError("dx must be positive.")
-    if mask.ndim != 2:
-        raise ValueError("mask must be 2D.")
+    if not np.isfinite(dx) or dx <= 0:
+        raise ValueError("dx must be positive and finite.")
+    mask = _validated_boolean_mask(mask)
 
     index_map, coords = mask_to_index(mask)
     n = len(coords)
     if n == 0:
         raise ValueError("Geometry mask has no interior points.")
 
-    face_bc = _build_face_bc_lookup(edges, edge_conditions)
-    missing_edges = [edge.edge_id for edge in edges if edge.edge_id not in edge_conditions]
-    if missing_edges:
-        raise BoundaryAssignmentError(
-            "All edges must be assigned boundary conditions before simulation. "
-            f"Missing: {len(missing_edges)}"
-        )
+    face_bc = _build_face_bc_lookup(mask, edges, edge_conditions)
 
-    inv_dx = 1.0 / dx
-    inv_dx2 = inv_dx * inv_dx
+    dx_value = float(dx)
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        inv_dx = 1.0 / dx_value
+        inv_dx2 = inv_dx * inv_dx
+    if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
+        raise ValueError("dx is too small to assemble a finite Laplacian.")
     rows: list[int] = []
     cols: list[int] = []
     data: list[float] = []
@@ -246,7 +338,13 @@ def build_laplacian_with_boundaries(
                     rows=rows, cols=cols, data=data, source=source,
                 )
 
+    if np.any(~np.isfinite(np.asarray(data))) or np.any(~np.isfinite(source)):
+        raise ValueError(
+            "Boundary values and dx must assemble a finite Laplacian and source."
+        )
     laplacian = sparse.coo_matrix((data, (rows, cols)), shape=(n, n)).tocsr()
+    if np.any(~np.isfinite(laplacian.data)):
+        raise ValueError("dx must assemble a finite Laplacian.")
     return laplacian, source, index_map
 
 
@@ -266,18 +364,20 @@ def build_variable_diffusion_laplacian(
     ``D_spatial`` must be a 1D array of length ``N`` (the interior-point
     count), indexed the same as the output of :func:`mask_to_index`.
     """
-    if dx <= 0:
-        raise ValueError("dx must be positive.")
-    if mask.ndim != 2:
-        raise ValueError("mask must be 2D.")
+    if not np.isfinite(dx) or dx <= 0:
+        raise ValueError("dx must be positive and finite.")
+    mask = _validated_boolean_mask(mask)
 
-    D_arr = np.asarray(D_spatial, dtype=float)
+    D_raw = np.asarray(D_spatial)
+    if np.iscomplexobj(D_raw):
+        raise ValueError("D_spatial must be real-valued.")
+    D_arr = np.asarray(D_raw, dtype=float)
     if D_arr.ndim != 1:
         raise ValueError("D_spatial must be a 1D array.")
-    if np.any(D_arr < 0.0):
+    if np.any(~np.isfinite(D_arr)) or np.any(D_arr < 0.0):
         raise ValueError(
-            "D_spatial must be non-negative everywhere; negative entries "
-            "would construct an anti-diffusive operator."
+            "D_spatial must be finite and non-negative everywhere; invalid "
+            "entries would construct a non-physical diffusion operator."
         )
 
     index_map, coords = mask_to_index(mask)
@@ -290,9 +390,13 @@ def build_variable_diffusion_laplacian(
             f"interior-point count {n}."
         )
 
-    face_bc = _build_face_bc_lookup(edges, edge_conditions)
-    inv_dx2 = 1.0 / (dx * dx)
-    inv_dx = 1.0 / dx
+    face_bc = _build_face_bc_lookup(mask, edges, edge_conditions)
+    dx_value = float(dx)
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        inv_dx = 1.0 / dx_value
+        inv_dx2 = inv_dx * inv_dx
+    if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
+        raise ValueError("dx is too small to assemble a finite diffusion operator.")
 
     rows: list[int] = []
     cols: list[int] = []
@@ -301,13 +405,17 @@ def build_variable_diffusion_laplacian(
     ny, nx = mask.shape
 
     for p, (row, col) in enumerate(coords):
-        D_p = D_arr[p]
+        D_p = float(D_arr[p])
         for direction, (dr, dc) in _DIR_OFFSETS.items():
             nr, nc = row + dr, col + dc
             if 0 <= nr < ny and 0 <= nc < nx and mask[nr, nc]:
                 q = int(index_map[nr, nc])
-                D_q = D_arr[q]
-                D_face = 2.0 * D_p * D_q / max(D_p + D_q, 1e-30)
+                D_q = float(D_arr[q])
+                lo = min(D_p, D_q)
+                hi = max(D_p, D_q)
+                # Algebraically equal to 2*Dp*Dq/(Dp+Dq), but avoids both
+                # product and sum overflow for large finite diffusivities.
+                D_face = 0.0 if lo == 0.0 else lo * (2.0 / (1.0 + lo / hi))
                 rows.append(p)
                 cols.append(p)
                 data.append(-D_face * inv_dx2)
@@ -345,5 +453,14 @@ def build_variable_diffusion_laplacian(
                     data.append(-D_p * beta * inv_dx)
                     source[p] += D_p * gamma * inv_dx
 
+    if np.any(~np.isfinite(np.asarray(data))) or np.any(~np.isfinite(source)):
+        raise ValueError(
+            "D_spatial, boundary values, and dx must assemble a finite "
+            "diffusion operator and source."
+        )
     L_D = sparse.coo_matrix((data, (rows, cols)), shape=(n, n)).tocsr()
+    if np.any(~np.isfinite(L_D.data)):
+        raise ValueError(
+            "D_spatial and dx must assemble a finite diffusion operator."
+        )
     return L_D, source

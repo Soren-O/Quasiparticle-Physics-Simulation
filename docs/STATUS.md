@@ -1,28 +1,21 @@
 # qpsim status (gate tracker)
 
-Last updated: 2026-07-18 (code-only numerical audit follow-up; see
-`docs/AUDIT-2026-07-15-numerical-software.md`). Paper-reproduction status is
-qualified: self-pinned CSV parity is regression evidence, not independent
-paper truth. Fischer 2023 Fig. 3 now has a promoted nonzero, certified NE=1620
-artifact. Its prior 30--42% strong shape warning is localized to ideal-BCS
-photon-threshold layers: scalar mass and weak Wasserstein shape converge much
-faster, while pointwise/total-variation convergence remains unclaimed. An
-uncached full-pin repeat passed. Fig. 6 completed and certified all 66
-historical loose-contract production targets, but its default suppression
-observable is now known to be mis-scaled relative to its accepted gap-map
-tolerance; the repaired fixed-gap/direct path has a strictly certified negative
-low-drive point but no full canonical. Fig. 7 now has exact tight-contract 48-point Windows and
-Linux production evidence. Its historical loose-contract stopping defect is
-fixed; hosted tight-contract runs subsequently established a smaller,
-balance-certified Windows/Linux envelope handled by platform-scoped regression
-bounds. The old F23 Fig. 5 and Figs. 9--13 pins remain quarantined. Fig. 5's
-tested `T*/Delta=0.60` continuation split is resolved as tolerance-induced
-pseudo-roots, but the full sweep still needs tight-contract regeneration and
-refinement; Figs. 9--13 has a
-nonconverged `Q_i` observable through an aligned `NE=6480` point. All four Fischer 2024 families
-now have strict-v2, independently certified qpsim-native pins after
-commensurate-grid refinement; the pre-v2 files remain archived and rejected,
-and the Fischer 2024 paper-target analytic overlays remain incomplete. Prior:
+Last updated: 2026-07-25 (Round-7 numerical audit follow-up; see
+`docs/AUDIT-2026-07-19-fixes.md`). Paper-reproduction status is qualified:
+self-pinned CSV parity is regression evidence, not independent paper truth.
+The corrected Fischer 2023 Fig. 3 artifact completed its source-frozen
+full-grid solve in `10671.777 s`, passed independent certificate/readback and
+visual checks, and is promoted with its validation record. The prior
+49.29-hour route was pathological solver policy, not intrinsic physics cost.
+All four Fischer 2024 families were genuinely regenerated after the final
+source-digest change and promoted as strict-v3 pairs. Exact current-source
+Fig. 7 completed all 48 targets under the hardened content-addressed driver;
+its matched CSV/PDF/attestation passed strict readback, independent
+attestation, and visual inspection. Fig. 3 persists the new
+amplitude-sensitive certificate, and Fig. 7 now persists it too; legacy
+summary artifacts are not themselves proof of the number mode. Fig. 5 and
+Figs. 9--13 remain quarantined, and
+Fig. 6's repaired direct path still lacks a full canonical campaign. Prior:
 2026-07-04 M25 closeout:
 single-quasiparticle Γ̄ =
 Γ̃/N_CP(R) normalization fix in the density equations
@@ -53,8 +46,8 @@ Central snapshot of what's done, what's in progress, and what's deferred. The Ne
 | 0 | Phonon-model decisions (D1–D5) | ✅ resolved in `docs/Phonon_Model_Decisions.md` |
 | 1 | Repo skeleton | ✅ (tag `gate-1-skeleton` at `77fd516`) |
 | 2 | Physics + grid + collisions + solvers ported from legacy qpsim; fixed-gap ETD2 / persistent-coordinate stage-constrained moving-gap ETD2 / coupled Newton upgrades landed | ✅ moving-gap order verified against a refined reference within its documented DAE/support domain |
-| 3 | T3 reproduction regression against self-pinned baselines | ⚠️ qualified, not complete paper parity: Fischer 2023 Fig. 3 is promoted as a nonzero NE=1620 certified local regression and its uncached repeat passed. Its strong curve error is an ideal-BCS threshold-layer/norm limitation; mass and weak shape converge, but pointwise/total-variation continuum convergence is not claimed. Fig. 6's 66-point production run certifies its historical loose contract, not the observable to its pinned tolerance; the repaired fixed-gap/direct path still needs a full production/refinement campaign. Fig. 7 is certified at all 48 targets under exact tight-contract Windows and Linux production runs. The legacy F23 Fig. 5 and Figs. 9--13 pins remain quarantined; Fig. 5's tested `T*/Delta=0.60` pseudo-root diagnosis is resolved without settling the full sweep, while Figs. 9--13 remains grid-nonconverged through `NE=6480`. Four F24 families are promoted as certified qpsim-native regressions at paper topology after nested-grid refinement, while their analytic paper-target overlays remain incomplete. |
-| 4 | Full Layer-4 audit chain | ⚠️ the exact final repository aggregate is green at **1549 passed, 17 slow/manual deselected, 4 warnings**; five stale finite-volume validation oracles were repaired and the expanded diffusion folder passes 19/19. All 16 non-manual slow nodeids had direct CI evidence on the recorded hosted tree (**14 passed, 2 intended F23 quarantine xfails**) under Python 3.13 and 3.14, with later changed solve contracts covered by targeted exact recertifications. The Fig. 6 `manual_slow` wrapper remains uninvoked; its measured serial row cost is `6.04 h`, but running the old loose-contract wrapper would not close the newly diagnosed observable mismatch. Figure-specific qualifications remain; see `AUDIT-2026-07-15-numerical-software.md`. |
+| 3 | T3 reproduction regression against self-pinned baselines | ⚠️ qualified and currently open: corrected Fig. 3, exact current-source Fig. 7, and all four strict-v3 F24 families are promoted and pass focused currentness gates. Fig. 5 and Figs. 9--13 remain quarantined. Fig. 6's historical sweep certifies only its loose contract, and the repaired direct path still needs a full production/refinement campaign. None of these self-pins establishes paper parity. |
+| 4 | Full Layer-4 audit chain | ✅ local Round-7 chain green: **2188 passed, 18 intentional deselections, 12 warnings, 0 failures in 716.22 s**. Fig. 3, Fig. 7, and F24 focused currentness gates are green; Ruff, mypy, compileall, and diff checks are clean. Hosted CI remains separate post-push evidence. Earlier exact-head hosted evidence and historical counts are not presented as current-tree proof. |
 | 4.5 | Characterization tier (Ph0-Kaplan) | ✅ sc-gap + acoustic-escape τ_l (Fig 6) + frequency-resolved τ_PB(Ω) per Kaplan 1976 (`qpsim.physics.kaplan_pair_breaking`, closed-form elliptic-integral evaluator + `tau_0_phonon` Al/Nb material field) |
 | 5 | Ph1 phonon spatial transport | ❌ not started |
 | 6 | T2 kinetic scalar backend | ❌ not started |
@@ -73,7 +66,7 @@ agreement with a publication. Current Fischer artifact readers fail closed on
 versioned schema, exact configuration/axes, dependency hashes, physical
 domains, complete data, and independently reassembled balance certificates;
 only genuinely pre-schema artifacts take the narrow `LegacyArtifactError`
-quarantine path, and writers replace files atomically. The four F24 strict-v2
+quarantine path, and writers replace files atomically. The four F24 strict-v3
 canonicals bind 84 ordered solve certificates and passed live pin recomputation;
 their pre-v2 CSV/PDF pairs are retained under
 `validation/baselines/legacy/fischer_2024_pre_strict_v2/` as rejected audit
@@ -83,8 +76,9 @@ four slow regressions pass; full 810-bin runs at driver steps `0.2/0.1/0.05 ns`
 bound the canonical `0.1`-versus-`0.05` differences by `2.56e-11` in `f` and
 `5.89e-12` in `x_qp`. That is driver-partition step-insensitivity, not a
 formal-order result, because adaptive ETD subcycling dominated the accepted
-partitions. The Fig. 7 pin was regenerated under the tightened solver contract
-at all 48 targets on Windows and Linux. After a post-publish NumPy-2.5 typing
+partitions. Historical Fig. 7 evidence: the pin was regenerated under the
+tightened solver contract at all 48 targets on Windows and Linux. After a
+post-publish NumPy-2.5 typing
 repair outside the Fig. 7 call path advanced the conservative whole-tree
 digest, an exact uncached Windows recertification completed in `975.48 s`. It
 records maximum QP/Ph0 backward errors `9.819e-9`/`8.271e-9` against a `2e-8`
@@ -92,8 +86,11 @@ gate. The later direct-gap quadrature and structured-exception changes advanced
 the digest again; a `1082.915 s` exact Windows rerun reproduced all 48 axes,
 observables, and certificate arrays bitwise. The later structured gap-collapse
 exception advanced it once more; a `1123.7 s` exact rerun was again bitwise
-identical. The active solve-contract SHA-256 is
+identical. The solve-contract SHA-256 for that historical pin was
 `ebe1382d509f6c52f11bca95b8d0161a211c4002a59f38de942cb2aefd193165`.
+The superseding hardened-driver campaign completed all 48 fresh targets under
+identity `82ef6da8…f320`; its promoted current-source evidence is summarized
+in the figure table below.
 M25 baselines carry a `# pinned_on:` platform stamp; their strict pin tests run
 only on the generating platform. (Historical reason: pre-normalization-fix
 fixed-point selection was platform-sensitive. With the Γ̄ fix the tracked root
@@ -105,17 +102,34 @@ In the Fischer rows below, “Windows/Linux envelope” means the OS-family case
 not an exact hardware/runtime identity; its bounds are calibrated from the
 hosted runs recorded in the audit.
 
+The amplitude-sensitive pair-number certificate has a staged artifact rollout.
+Fig. 3 persists and requires the extended field. Figs. 5--7 require it when
+solving live, but their legacy summary CSVs do not contain enough state to
+reconstruct it; do not describe those existing artifacts as number-certified
+until each family is genuinely regenerated under an extended schema.
+
+Fig. 3 also separates two source identities.
+`producer_solve_contract_digest` is immutable provenance for the numerical
+contract that actually produced the stored `f(E)` curves.
+`validated_solve_contract_digest` names the contract under which those curves
+were most recently re-certified. For finite-escape points the CSV does not
+store the producer's `n_ph`; re-certification reconstructs the affine Ph0 root
+implied by the stored `f` and the validation-time equations. Passing that check
+proves current-equation root membership for the reconstructed `(f, n_ph)`.
+It does not recover the producer's original `n_ph`, and it does not prove that
+the current solver algorithm executed or converged to the stored state.
+
 | Figure | Module | Baseline dir | Status |
 |---|---|---|---|
-| Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ⚠️ promoted nonzero NE=1620 certified local regression: peak occupations `[4.738e-10, 1.464e-9, 1.798e-8, 1.889e-7]`, max QP/Ph0 backward errors `9.60e-11`/`2.37e-6`. Its uncached full-pin repeat passed in 5224.19 s with roundoff-level curve differences and a pixel-identical PDF. Exact-capacity scalar refinement estimates `0.77--1.41%` remaining error. The prior `30--42%` Richardson strong-L1 warning is threshold-localized: NE=648→1620 direct strong L1 is `18.93--19.04%`, of which `87.5--88.0%` lies within `2.5 ueV` of `Delta+n*20 ueV`; ratio-zero NE=2592→5184 gives `0.613%` mass change and `0.178%` normalized W1 shape distance despite `12.34%` strong L1. CI pins BLAS to one thread and gives only the strong-bottleneck Newton polish a `1e-6` step/balance gate. Hosted Python 3.13/3.14 ratio-10 runs agreed with each other to about `1e-8` relative but differed from the stamped Windows pin by `1.27723%`; ratios through one and same-platform ratio 10 retain `1e-4`, while ratio 10 on the measured Windows/Linux pair uses `1.5e-2`. The `# pinned_on: win32` insertion changed only CSV metadata; numerical rows and the PDF are unchanged. No pointwise/total-variation or paper-parity claim. |
+| Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ✅ **Corrected strict-v3 regression promoted and final-equation recertified 2026-07-25.** The source-frozen `NE=1620` producer completed all 14 continuation steps in `10671.777 s` (2 h 57 m 51.8 s), versus `177440.15 s` (49.29 h) on the superseded end-only/legacy-routing path. After two final invalid-input guards conservatively changed the whole-tree digest, the authenticated raw state was reassembled under the final equations; producer digest `522539fc…` was preserved and validated digest advanced to `34fd48de…`. Maximum QP backward error `8.363e-11`, QP-number error `2.260e-9`, raw phonon backward error `2.977e-7`, and phonon residual `5.503e-15` remain below `1e-5`; 54 focused checks (3 slow deselections) and visual inspection passed. Current CSV/PDF/validation-record SHA-256 are `1f92507f04cd06de826342a97da8a3694b7d2819bc07cd0172a1763ef66a60c8`, `7e38be09b9b7eaafb02b83015da7cc21c8e5db172954757ac0cdd94256635812`, and `680454ae17835717a2f52874448fdefa380d367a843a273cf02dab28001a9371`. The raw payload omitted finite-ratio `n_ph`; validation reconstructs the unique affine Ph0 root implied by stored `f`, so it proves current-equation membership for that reconstructed pair, not the producer's original omitted phonon state or current-solver execution. Historical refinement/platform qualifications remain error-characterization evidence, not pointwise/total-variation or paper-parity claims. |
 | Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ⚠️ the cache-off full run failed 20/42 upper-panel legacy values. The former forward/reverse split was tolerance-induced at the tested `NE=1620`, `T*/Delta=0.60` target: tightening inner Newton backward error to `1e-10` moves direct/forward/reverse results to `2.45437e-6`/`2.45443e-6`/`2.45550e-6` (`<=0.046%` spread), so that target shows no physical branch ambiguity. Production now requires `1e-9` Picard balance/final certificates. The legacy `2.43414e-6` CSV/PDF remain quarantined pending full tight-contract regeneration/refinement of the broader sweep; no paper parity claim. |
 | Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py` | `ph0_kaplan/` | ⚠️ all 66 historical production targets certified under the declared loose contract, but a full-grid `T_B=0.1 K`, `nbar=1e4` tight solve shifts the default observable from `0.0371890241403` to `0.0367549216498` (`-4.341e-4` versus pin `atol=1e-6`) while `x_qp` moves only `0.0400%`. The fixed-gap/direct repair makes guard storage invariant, requires roundoff-scale gap-edge coverage, narrows strict Picard fallback to roundoff-level line-search stalls, pairs the mode flags, retains signed finite observables, requires a `1e-9` certificate, and keeps Windows console diagnostics ASCII-safe. Only explicit superconducting collapse becomes NaN; generic solver and non-finite derived-measurement failures propagate. Its exact point is `-0.0168056837` with QP backward error `1.619e-11`, exposed in arrays/console and by expanded signed direct-mode plotting. Programmatic generation uses distinct `_direct` paths and cannot clobber the default pin. No full direct canonical yet; the default baseline remains a tolerance-limited regression, not paper parity. |
-| Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ exact tight-contract 48/48 production runs passed on Windows in `982.54 s` and Linux in `946.16 s`; later whole-tree provenance changes were followed by exact uncached Windows runs in `901.13 s`, `975.48 s`, `1082.915 s`, and `1123.7 s`. The latest two runs reproduced every axis, observable, and certificate array bitwise. The active pin has max QP/Ph0 backward errors `9.819e-9`/`8.271e-9` against a `2e-8` gate; solve-contract SHA-256 `ebe1382d509f6c52f11bca95b8d0161a211c4002a59f38de942cb2aefd193165`; CSV/PDF `b824b42cc3875a3a19d98134642745495bf4c746fb2be5e3ff43f80294f44890` / `93fc6db803dd8fc0226a3fd137a9052d5a96409c166684b2563f5d2bae524d05`. The latest provenance-only rebind preserved all 48 numerical rows and the PDF. Hosted single-thread CI measured loss drift `0.463267%` and `Q_tot` drift `1.634166e-4` while every state remained below the independent gate. Same-OS loss/`Q_tot` comparisons remain at `0.4%`/`1e-4`; the measured Windows/Linux pair uses `0.8%`/`2e-4`. The `2e-19` loss floor is unchanged. Further solver tightening selected a different low-occupation branch and was rejected. BLAS variables remain runtime provenance rather than serialized CSV-header fields. ⚠️ Regression/balance evidence, not bitwise identity or paper parity. |
+| Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ **Exact current-source regeneration completed and promoted.** All 48 targets completed under content/runtime identity `82ef6da816fedbe89d6920b51cdcbd3d1dabe40d8b265f38bbaf997d0639f320` and solve digest `5d66e4de331acaa73c1d190e71b40cb05c503789efbd94f84ee4d9ec37d86502`; the six-worker campaign took `3642.094 s` wall (`13292.818 s` aggregate worker time). CSV/PDF/attestation SHA-256 are `3298d00bc82d90c6d7b1df6835286262deb38116d9e7e3608298e2b7bbbf8628`, `3ad2153644b2e2fa865b43a0e55a6656880c301139bf4de60bf7b228d6d0cb9b`, and `a5d31ac42131d13ebc9c57fa3c60b5145c5678be0865f33800496674ee743357`. Maximum gated QP/QP-number/representability-aware phonon backward errors were `3.701e-10`/`8.006e-9`/`9.687e-9`, all below `2e-8`; 74 focused checks passed with 2 slow deselections, and independent attestation plus visual inspection passed. The raw direct-form phonon diagnostic reached `0.429269` where the exact bath correction is below one binary64 ULP; it remains finite and exposes representability loss but is not the acceptance metric. Historical hosted evidence measured loss drift `0.463267%` and `Q_tot` drift `1.634166e-4`; same-OS loss/`Q_tot` envelopes remain `0.4%`/`1e-4`, measured Windows/Linux envelopes `0.8%`/`2e-4`, and the calibrated near-zero loss floor is `1e-18`. These are regression/balance qualifications, not bitwise portability or paper parity. |
 | Fischer 2023 Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ⚠️ all legacy `Q_i` values moved by up to `14.5144%`. The commensurate ladder remains nonconverged: at aligned `NE=6480`, `-100 dBm`, `Q_i=3.2994464e10`, the `3240 -> 6480` change is `4.44368%` with certificate `9.83e-12`. Exact-cell/FV variants are negligible; thermal response is monotone; cancellation condition is `16.6`; an overlap-aware photon prototype moves standard `Q_i` only `0.027%/0.010%` and leaves the rung at `4.567%`, so no photon-operator rewrite is justified. A proposed conservative policy—not a derived error budget—requires `<=1%` maximum `Q_i` change on two consecutive commensurate rungs and `<=0.25%` observable discrepancy. The pre-schema pin remains quarantined. |
-| Fischer 2024 Fig. 5 paper-topology distributions | `fischer_2024/fig5_paper.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression after the commensurate `405/810/1620` ladder: `810 -> 1620` changes `x_qp` by `0.0794--0.0862%`, versus `13.37--14.84%` legacy/current offsets; BCS-capacity shape TV is `2.258--2.834%`. Max QP backward error `1.13e-7`; CSV/PDF SHA-256 `c58941e68e14a0080cbd48680cba082a5ae6906544755a47f6dfd132d8abca68` / `8a11a07739a770dd784cbaececbc8f8911cff8ca249428ce507cab8e64e0fd46`. Thermal-seed readback is cross-libm portable at an `8*eps`, zero-absolute-floor gate; runtime diagnostics and failures are ASCII-safe. ⚠️ Three analytic overlays remain `TODO(paper-parity)`; this is not paper parity. |
-| Fischer 2024 Figs 5-7-topology f(E) characterization | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression. Across all five powers, `810 -> 1620` changes `x_qp` by `0.0062--0.1903%` and shape TV by `0.495--1.156%`, versus `0.858--4.283%` legacy/current scalar offsets. Certificate maxima `3.39e-13`/`7.45e-17`; CSV/PDF SHA-256 `de2094308cebeaa0d07799a2b9d7c51eee83e97702c4976da169d8fb5e9786dd` / `069aa4f61e9d36ba6ac0ea0eb35d26c115ad79869948a6d7261d501e370d59f9`. Thermal-seed readback is cross-libm portable at an `8*eps`, zero-absolute-floor gate; runtime diagnostics and failures are ASCII-safe. ⚠️ Fixed-grid regression, not a pointwise continuum-shape or paper-parity claim. |
-| Fischer 2024 Fig-8-topology x_qp(T_B) characterization | `fischer_2024/fig8_xqp_pb.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression. Low/fixed/high-temperature probes reproduce the five-drive `0.0062--0.1903%` production-grid scalar range; all 40 points recertify. CSV/PDF SHA-256 `f1155dd44879661d8c1cff7d105e0a8d1012c3a0008f17bc37d866498b888be5` / `8636d8d9dd0d4900e1481de02187d177c6bb42d68af62e29769d309a7b0354c1`. Runtime diagnostics and failures are ASCII-safe. ⚠️ Qpsim-native characterization, not paper parity. |
-| Fischer 2024 Fig. 8 paper-topology density | `fischer_2024/fig8_paper.py` | `ph0_constant/` | ✅ certified qpsim-native `NE=810` regression. The old weak-drive 0.05 K values were false-converged thermal seeds; direct seeds now fail the backward-error gate, while strong-to-weak continuation gives `4.045e-7`/`4.048e-8` and converges on all ladder grids. `810 -> 1620` scalar changes are `0.0830--0.1089%` at 0.05 K and `0.3102%` at 0.30 K. All 36 points certify with max backward error `9.10e-7`; CSV/PDF SHA-256 `69a577e633ef12afee5008fa54e7a593cdf06211bcbc7c2b3481854255cd120d` / `3e89910af8777541f88bdd71c5308c170dc3e17764052b2eda013690ca3dfd12`. Runtime diagnostics and failures are ASCII-safe. ⚠️ Analytic density overlay remains a placeholder; not paper parity. |
+| Fischer 2024 Fig. 5 paper-topology distributions | `fischer_2024/fig5_paper.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `1.3996e-9`, residual `9.1731e-20`. CSV/PDF SHA-256 `3192a5e33465d9b2592b3789b3033bb2a51013c35bd1f97e85d0035b04f2d2a8` / `f9f360d14f36ac76bff6a9925a6b5202627702ecfe3755a0b4cbf41e1c9803d9`. The commensurate `405/810/1620` characterization and its paper-parity qualifications remain as previously documented. ⚠️ Three analytic overlays remain `TODO(paper-parity)`; this is not paper parity. |
+| Fischer 2024 Figs 5-7-topology f(E) characterization | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `2.2260e-14`, residual `2.0817e-17`. CSV/PDF SHA-256 `4e633cf49e3ae7c6d9b54ab4ffa0378f072c6d7a8a700f4301ffeb82c5dd872f` / `0616ec72d83670c7a4aed480315193a91daf1f597e5b7c175d3b4d67259a96bd`. ⚠️ Fixed-grid regression, not a pointwise continuum-shape or paper-parity claim. |
+| Fischer 2024 Fig-8-topology x_qp(T_B) characterization | `fischer_2024/fig8_xqp_pb.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `2.7912e-11`, residual `4.1484e-15`. CSV/PDF SHA-256 `a5f89c5e9300eace746e3530e6a5323efa4b6a2f57f426009f8af3c6e10c9348` / `fbce04e70ac3818e5e101e7b55b992b429abbe806eb06dcab36b0610fcfd5825`. ⚠️ Qpsim-native characterization, not paper parity. |
+| Fischer 2024 Fig. 8 paper-topology density | `fischer_2024/fig8_paper.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `3.3034e-7`, residual `5.9210e-13`. CSV/PDF SHA-256 `dc157773b84c6fcbd75c4add3dae9f215870fe746950c0b5533f936bce81b552` / `0b0430d3d12bad02c3338944f59d585f260aa4e8326eaf38443872589f07616a`. ⚠️ Analytic density overlay remains a placeholder; not paper parity. |
 | Transient photon-kick f(E, t) | `validation/transient/photon_kick_response.py` | `transient/` | ✅ matched-measure pin regenerated with provenance; 4 slow regressions passed in 752.05 s and the exact module passed again in 726.54 s after the encoding repair; `dt=0.2/0.1/0.05 ns` study establishes driver-partition insensitivity, not formal order. The CSV is now explicitly BOM-free UTF-8/LF after a Windows CP1252 title byte broke Ubuntu readback; the numerical payload is byte-identical and the canonical SHA-256 is `18e2a2424c037e2b6dd64189848765d0a0c75a6b6cc4bed63364c3f2d05c51d1`. |
 | Marchegiani 2025 Eq. 8 T̄ | `validation/marchegiani_2025/fig3_crossover_temperature.py` | `marchegiani_2025/` | ✅ closed-form Lambert-W |
 | Marchegiani 2025 Fig 3 (μ_α vs T) | `validation/marchegiani_2025/fig3_chemical_potentials.py` | `marchegiani_2025/` | ✅ branch-continuation driver + Γ̄-normalized density eqs + paper-exact μ inversion (SI Eqs. S2–S5); both panels match the published curves (panel a: three μ_α merged, linear 0.94 → 0 at T̄ ≈ 146 mK; panel b: μ_L ≳ μ_R> > μ_R< at low T with the R-band merge at ~50 mK); smooth through the crossover, μ → 0 at T̄ |
@@ -187,9 +201,9 @@ fail-loud `1e-12` raw-map convergence gate).
 
 ## Test suite
 
-The final default repository aggregate is **1549 passed, 17 deselected, 4
+The historical `71c5f02` default aggregate is **1549 passed, 17 deselected, 4
 warnings in 525.03 s** on Windows (`pytest -q`). The deselections are the opt-in
-slow/manual validation selections. The final exact tree also passes `ruff check
+slow/manual validation selections. That exact tree also passes `ruff check
 .`, `mypy qpsim` across 75 source files, `python -m compileall -q qpsim tests
 validation`, and `git diff --check` (apart from Git's Windows line-ending
 notices). The earlier unit/API-only checkpoint was **1272/1272 passed, 13
@@ -213,8 +227,14 @@ The Fig. 7 full-pin wrapper passed under hosted Linux on Python 3.13 and 3.14;
 the four F24 full live pytest pins passed together in 76.86 s after refinement
 and strict-v2 promotion. A later single-threaded current-solver recertification
 covered all 84 F24 states in 95.07 s; every certificate passed and maximum
-pinned/live row drift was `2.58e-14`. The subsequent ASCII-only provenance
-rebind was proven string-only by normalized-AST identity. Other focused reruns
+pinned/live row drift was `2.58e-14`. A subsequent ASCII-only source change
+was proven string-only by normalized-AST identity. That is compatibility
+evidence, not permission to replace producer provenance or declare a stale
+summary artifact current; summary-only F24 artifacts require exact
+regeneration after a contract change. That requirement has since been
+satisfied by fresh strict-v3 regeneration of all four families; the
+`76.86 s`/`95.07 s` numbers above remain historical strict-v2 evidence. Other
+focused reruns
 include the tight-contract Fig. 7 plateau (4.85 s), reduced Fig. 6 continuation
 (3.22 s), and post-schema F23 Fig. 5 high-drive branch (299.94 s). The serial
 Fig. 6 `manual_slow` wrapper was not separately invoked;
@@ -242,7 +262,7 @@ check. This is a historical complete selection from before the N29 artifact
 regressions landed. It closes that recorded non-slow gate, not the 17
 slow/manual selections or any paper-parity claim.
 
-Additional settled focused evidence on the current code includes the refined-reference
+Additional settled focused evidence on historical audited snapshots includes the refined-reference
 second-order moving-gap regression and its invariant tests; 8 focused
 self-consistent-gap tests without the former extrapolation warnings; 37 passing
 tests in the broader affected T3 backend group; 132 passing homogeneous
@@ -250,10 +270,12 @@ Newton/Picard/Ph0 certificate tests; 4 passing slow transient tests in 752.05 s
 and an exact post-encoding-repair module rerun in 726.54 s;
 exact tight-contract 48-point Fig. 7 production runs on Windows in 982.54 s and
 Linux in 946.16 s, plus exact-source Windows recertifications in 901.13 s,
-975.48 s, 1082.915 s, and 1123.7 s; the latest two were bitwise identical. A certified
-NE=1620 Fig. 3 production run in 5768.40 s plus an uncached full-pin pass in
-5224.19 s; and all 66 certified Fig. 6 targets in 7599.29 s concurrent wall
-time. The cache-off Fig. 5 audit took 8088.34 s:
+975.48 s, 1082.915 s, and 1123.7 s; the latest two were bitwise identical. A
+now-superseded NE=1620 Fig. 3 production run took 5768.40 s, followed by an
+uncached full-pin pass in 5224.19 s; those runs predated the
+amplitude-sensitive pair-number certificate and are not current baseline
+evidence. All 66 historical Fig. 6 targets completed in 7599.29 s concurrent
+wall time. The cache-off Fig. 5 audit took 8088.34 s:
 its physical branch guard passed, while its stale pin failed 20/42 upper-panel
 values. Figs. 9--13 artifact hardening passed 12 fast tests. Fischer 2024's
 current focused suite passed **59 tests with 4 slow deselected in 17.70 s**,
@@ -265,7 +287,7 @@ deselected in 94.79 s. These focused results are scoped, not a repository-wide a
 and do not establish paper parity or close the stated refinement
 qualifications.
 
-The final Fig. 3/Fig. 7 non-slow policy slice passed **44 tests with 4 slow
+The historical Fig. 3/Fig. 7 non-slow policy slice passed **44 tests with 4 slow
 deselected in 4.70 s**. It includes the exact hosted Fig. 7 drift values and a
 rounded Fig. 3 policy fixture; both fail strict gates and pass the calibrated
 Windows/Linux OS-family envelopes, while macOS or unknown pairs remain strict.
@@ -282,10 +304,13 @@ Recent hardening pass (Claude+GPT cross-review, seventh session):
 Slow tests (opt in with `-m slow`):
 - Fischer validation reproductions at Fischer-scale grids.
 - The transient photon-kick regression is slow-marked and its four-test subset
-  passed on 2026-07-16. Fig. 7 has exact tight-contract 48-point Windows/Linux
-  production evidence plus the final-source Windows recertification. The four
-  promoted F24 pytest pins passed in 76.86 s and their later current-solver
-  84-state recertification passed in 95.07 s.
+  passed on 2026-07-16. Current Fig. 7 evidence is the completed exact
+  48-target hardened-driver campaign under identity `82ef6da8…f320`; its
+  promoted CSV/PDF/attestation passed strict and independent readback.
+  Historical Windows/Linux production remains portability evidence only.
+  The four historical strict-v2 F24 pytest pins passed in 76.86 s and their
+  later current-solver 84-state recertification passed in 95.07 s. Current F24
+  strict-v3 regeneration is recorded in the figure-status rows above.
   All 16 non-manual slow nodeids have direct CI evidence on the recorded hosted
   tree (14 passes and 2 F23 legacy xfails), including the Fig. 7 full-pin wrapper
   under Python 3.13 and 3.14. Fig. 6 has historical 66-point loose-contract production

@@ -33,20 +33,21 @@ Usage --- generate baseline + PDF::
 from __future__ import annotations
 
 import csv
+import hashlib
 import inspect
 import os
 import re
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 import numpy as np
 from qpsim.constants import KB_UEV_PER_K
 
-from validation import sweep_cache
+from validation import source_provenance, sweep_cache
 from validation.fischer_2023 import fig3_solve
 from validation.fischer_2023 import (
     steady_state_certificate as certificate_module,
@@ -65,6 +66,7 @@ from validation.fischer_2023.fig3_solve import (
     T_C,
     TARGET_BACKWARD_ERROR_LIMIT,
     TAU_0,
+    Fig3StepEvent,
     _build_grid_and_spectral,
     _compute_tau_0_pb,
     solve,
@@ -109,25 +111,60 @@ class Fig3PaperResult:
     f_by_ratio: dict[float, np.ndarray]
     f_FD: np.ndarray            # thermal reference at T_bath
     certificate_maxima: dict[str, float]
+    producer_solve_contract_digest: str
+    validated_solve_contract_digest: str
 
 
 def _certificate_maxima(raw: Mapping[str, np.ndarray]) -> dict[str, float]:
     """Reduce per-ratio certificate arrays to compact artifact provenance."""
-    expected_shape = (np.asarray(raw["ratios"]).size,)
+    ratios = np.asarray(raw["ratios"], dtype=float)
+    expected_shape = (ratios.size,)
+    zero_ratio = ratios == 0.0
     maxima: dict[str, float] = {}
-    for name in certificate_module.CERTIFICATE_FIELDS:
-        values = np.asarray(raw.get(name, np.asarray([], dtype=float)), dtype=float)
-        if values.size and values.shape != expected_shape:
+    for name in certificate_module.NUMBER_CERTIFICATE_FIELDS:
+        if name not in raw:
+            raise ValueError(
+                f"Fig. 3 raw solve payload is missing certificate field {name!r}."
+            )
+        values = np.asarray(raw[name], dtype=float)
+        if values.shape != expected_shape:
             raise ValueError(
                 f"Fig. 3 certificate field {name!r} has shape {values.shape}; "
                 f"expected {expected_shape}."
             )
-        finite = np.abs(values[np.isfinite(values)])
-        maxima[name] = float(np.max(finite)) if finite.size else float("nan")
+        if name.startswith("phonon_"):
+            if np.any(~np.isnan(values[zero_ratio])):
+                raise ValueError(
+                    f"Fig. 3 certificate field {name!r} must be NaN exactly "
+                    "for the ratio-zero thermal-phonon shortcut."
+                )
+            dynamic_values = values[~zero_ratio]
+            if np.any(~np.isfinite(dynamic_values)) or np.any(dynamic_values < 0.0):
+                raise ValueError(
+                    f"Fig. 3 certificate field {name!r} must be finite and "
+                    "non-negative at every positive ratio."
+                )
+            maxima[name] = (
+                float(np.max(dynamic_values))
+                if dynamic_values.size
+                else float("nan")
+            )
+        else:
+            if np.any(~np.isfinite(values)) or np.any(values < 0.0):
+                raise ValueError(
+                    f"Fig. 3 certificate field {name!r} must be finite and "
+                    "non-negative at every ratio."
+                )
+            maxima[name] = float(np.max(values))
     return maxima
 
 
-def observables(raw: Mapping[str, np.ndarray]) -> Fig3PaperResult:
+def observables(
+    raw: Mapping[str, np.ndarray],
+    *,
+    producer_solve_contract_digest: str,
+    validated_solve_contract_digest: str,
+) -> Fig3PaperResult:
     """Repackage a raw :func:`fig3_solve.solve` payload into a Fig3PaperResult.
 
     Fig. 3's plotted quantity is the converged f(E) per ratio, so there is no
@@ -148,7 +185,38 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig3PaperResult:
         f_by_ratio=f_by_ratio,
         f_FD=f_FD,
         certificate_maxima=_certificate_maxima(raw),
+        producer_solve_contract_digest=producer_solve_contract_digest,
+        validated_solve_contract_digest=validated_solve_contract_digest,
     )
+
+
+def solve_contract_digest() -> str:
+    """Return a runtime-neutral digest of the Fig. 3 numerical contract.
+
+    The restart/cache identity deliberately also includes Python, NumPy,
+    SciPy, BLAS, platform, and thread controls. Those are useful producer
+    provenance but cannot be a cross-platform baseline-currentness gate.
+    This digest instead binds only the conservative qpsim solve tree and the
+    Fig. 3 solver/certificate sources; the separately stamped configuration
+    fields bind the resolved grid and physics parameters.
+    """
+    digest = hashlib.sha256()
+    ingredients = (
+        ("qpsim", sweep_cache.solve_source_digest()),
+        ("solve_source_digest", inspect.getsource(sweep_cache.solve_source_digest)),
+        (
+            "canonical_source_bytes",
+            inspect.getsource(source_provenance.canonical_source_bytes),
+        ),
+        ("fig3_solve", inspect.getsource(fig3_solve)),
+        ("certificate", inspect.getsource(certificate_module)),
+    )
+    for label, source in ingredients:
+        digest.update(label.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def run(
@@ -156,19 +224,74 @@ def run(
     num_bins: int = NUM_BINS,
     paper_ratios: tuple[float, ...] = PAPER_RATIOS,
     continuation_ratios: tuple[float, ...] = CONTINUATION_RATIOS,
+    on_step: Callable[[Fig3StepEvent], None] | None = None,
+    restart_checkpoint_path: Path | None = None,
 ) -> Fig3PaperResult:
     """Solve Fischer Fig. 3 and repackage — the pure, uncached path.
 
     Exactly ``observables(solve(...))``. The ``@pytest.mark.slow`` regression
     test calls this (no args) so it always truly recomputes against the pinned
-    baseline; the cached dev / regen path is :func:`run_cached`.
+    baseline; the cached dev / regen path is :func:`run_cached`. Restart state
+    is likewise opt-in: pass ``restart_checkpoint_path`` explicitly when an
+    interruptible long run should resume. A completed checkpoint is retained;
+    no automatic cleanup is performed, so the persistence owner should remove
+    it explicitly only after the final artifact is durable.
     """
-    return observables(
-        solve(
-            num_bins=num_bins,
-            paper_ratios=paper_ratios,
-            continuation_ratios=continuation_ratios,
+    _kwargs, _fingerprint, _extra_source, identity = _solve_cache_inputs(
+        num_bins=num_bins,
+        paper_ratios=paper_ratios,
+        continuation_ratios=continuation_ratios,
+    )
+    solve_kwargs: dict[str, Any] = {
+        "num_bins": num_bins,
+        "paper_ratios": paper_ratios,
+        "continuation_ratios": continuation_ratios,
+        "on_step": on_step,
+    }
+    if restart_checkpoint_path is not None:
+        solve_kwargs.update(
+            checkpoint_path=Path(restart_checkpoint_path),
+            checkpoint_identity=identity,
         )
+    contract_digest = solve_contract_digest()
+    return observables(
+        solve(**solve_kwargs),
+        producer_solve_contract_digest=contract_digest,
+        validated_solve_contract_digest=contract_digest,
+    )
+
+
+def _solve_cache_inputs(
+    *,
+    num_bins: int,
+    paper_ratios: tuple[float, ...],
+    continuation_ratios: tuple[float, ...],
+) -> tuple[dict[str, object], dict[str, Any], str, str]:
+    """Return the one canonical content identity for cache and restart state."""
+    kwargs: dict[str, object] = {
+        "num_bins": int(num_bins),
+        "paper_ratios": [float(r) for r in paper_ratios],
+        "continuation_ratios": [float(r) for r in continuation_ratios],
+    }
+    fingerprint = solver_fingerprint(num_bins=num_bins)
+    extra_source = (
+        inspect.getsource(fig3_solve)
+        + inspect.getsource(certificate_module)
+    )
+    identity = sweep_cache.cache_key(
+        "fischer_2023/fig3",
+        fingerprint,
+        kwargs,
+        extra_source=extra_source,
+    )
+    return kwargs, fingerprint, extra_source, identity
+
+
+def _default_restart_checkpoint_path(identity: str) -> Path:
+    return (
+        sweep_cache.default_cache_dir()
+        / "fischer_2023__fig3_restart"
+        / f"{identity}.npz"
     )
 
 
@@ -177,33 +300,59 @@ def run_cached(
     num_bins: int = NUM_BINS,
     paper_ratios: tuple[float, ...] = PAPER_RATIOS,
     continuation_ratios: tuple[float, ...] = CONTINUATION_RATIOS,
+    restart_checkpoint_path: Path | None = None,
 ) -> Fig3PaperResult:
     """Like :func:`run`, but the expensive continuation solve is served from the
     disk cache when nothing solve-relevant has changed (see
     :mod:`validation.sweep_cache`). Used by the regen / ``__main__`` path; editing
     the plotting / observable code here does not invalidate the cached solve.
-    Disable with ``QPSIM_SWEEP_CACHE=0``.
+    Disable with ``QPSIM_SWEEP_CACHE=0``. In that mode the solve is genuinely
+    fresh: no default restart state is read or written. Pass
+    ``restart_checkpoint_path`` explicitly to opt back into interruption
+    recovery while leaving the final-result cache disabled. Completed restart
+    files are retained until explicitly removed by the persistence owner.
     """
-    kwargs = {
-        "num_bins": int(num_bins),
-        "paper_ratios": [float(r) for r in paper_ratios],
-        "continuation_ratios": [float(r) for r in continuation_ratios],
-    }
+    kwargs, fingerprint, extra_source, identity = _solve_cache_inputs(
+        num_bins=num_bins,
+        paper_ratios=paper_ratios,
+        continuation_ratios=continuation_ratios,
+    )
+    checkpoint_path = (
+        Path(restart_checkpoint_path)
+        if restart_checkpoint_path is not None
+        else (
+            _default_restart_checkpoint_path(identity)
+            if sweep_cache.is_enabled()
+            else None
+        )
+    )
+
+    def solve_current() -> Mapping[str, np.ndarray]:
+        solve_kwargs: dict[str, Any] = {
+            "num_bins": num_bins,
+            "paper_ratios": paper_ratios,
+            "continuation_ratios": continuation_ratios,
+        }
+        if checkpoint_path is not None:
+            solve_kwargs.update(
+                checkpoint_path=checkpoint_path,
+                checkpoint_identity=identity,
+            )
+        return solve(**solve_kwargs)
+
     raw = sweep_cache.cached_solve(
         "fischer_2023/fig3",
-        lambda: solve(
-            num_bins=num_bins,
-            paper_ratios=paper_ratios,
-            continuation_ratios=continuation_ratios,
-        ),
-        fingerprint=solver_fingerprint(num_bins=num_bins),
+        solve_current,
+        fingerprint=fingerprint,
         kwargs=kwargs,
-        extra_source=(
-            inspect.getsource(fig3_solve)
-            + inspect.getsource(certificate_module)
-        ),
+        extra_source=extra_source,
     )
-    return observables(raw)
+    contract_digest = solve_contract_digest()
+    return observables(
+        raw,
+        producer_solve_contract_digest=contract_digest,
+        validated_solve_contract_digest=contract_digest,
+    )
 
 
 def baseline_path() -> Path:
@@ -234,8 +383,17 @@ _CERTIFICATE_LIMIT_RE = re.compile(
 )
 _CERTIFICATE_MAXIMA_RE = re.compile(r"^# certificate_maxima\s+(.+)$", re.MULTILINE)
 _PIN_PLATFORM_RE = re.compile(r"^# pinned_on: ([^\r\n]+)$", re.MULTILINE)
+_PRODUCER_SOLVE_CONTRACT_DIGEST_RE = re.compile(
+    r"^# producer_solve_contract_digest=([0-9a-f]{64})$",
+    re.MULTILINE,
+)
+_VALIDATED_SOLVE_CONTRACT_DIGEST_RE = re.compile(
+    r"^# validated_solve_contract_digest=([0-9a-f]{64})$",
+    re.MULTILINE,
+)
 _CERTIFIED_BACKWARD_ERROR_FIELDS = (
     "qp_backward_error",
+    "qp_number_backward_error",
     "phonon_backward_error",
 )
 _HEADER_PARAM_RE = {
@@ -278,7 +436,7 @@ def _validate_certificate_maxima(
     context: str,
 ) -> dict[str, float]:
     """Return a normalized maxima map or reject an uncertified artifact."""
-    expected = set(certificate_module.CERTIFICATE_FIELDS)
+    expected = set(certificate_module.NUMBER_CERTIFICATE_FIELDS)
     if set(maxima) != expected:
         missing = sorted(expected.difference(maxima))
         extra = sorted(set(maxima).difference(expected))
@@ -286,7 +444,10 @@ def _validate_certificate_maxima(
             f"{context} certificate maxima fields are incomplete; "
             f"missing={missing}, extra={extra}."
         )
-    normalized = {name: float(maxima[name]) for name in certificate_module.CERTIFICATE_FIELDS}
+    normalized = {
+        name: float(maxima[name])
+        for name in certificate_module.NUMBER_CERTIFICATE_FIELDS
+    }
     for name, value in normalized.items():
         if not np.isfinite(value) or value < 0.0:
             raise RuntimeError(
@@ -358,6 +519,15 @@ def _validate_result_for_artifact(result: Fig3PaperResult) -> None:
         target=TARGET_BACKWARD_ERROR_LIMIT,
         context="Fig. 3 artifact",
     )
+    for name, digest in (
+        ("producer_solve_contract_digest", result.producer_solve_contract_digest),
+        ("validated_solve_contract_digest", result.validated_solve_contract_digest),
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise RuntimeError(
+                f"Fig. 3 artifact {name} must be a lowercase 64-character "
+                "SHA-256 content identity."
+            )
 
 
 def write_baseline(result: Fig3PaperResult, path: Path | None = None) -> Path:
@@ -383,8 +553,16 @@ def write_baseline(result: Fig3PaperResult, path: Path | None = None) -> Path:
         ])
         writer.writerow([f"# tau_0_pb_ns={result.tau_0_pb_ns} ratios={list(result.ratios)}"])
         writer.writerow([
+            "# producer_solve_contract_digest="
+            f"{result.producer_solve_contract_digest}"
+        ])
+        writer.writerow([
+            "# validated_solve_contract_digest="
+            f"{result.validated_solve_contract_digest}"
+        ])
+        writer.writerow([
             "# certificate_metric_version="
-            f"{certificate_module.CERTIFICATE_METRIC_VERSION!r} "
+            f"{certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION!r} "
             "target_backward_error_limit="
             f"{TARGET_BACKWARD_ERROR_LIMIT}"
         ])
@@ -392,7 +570,7 @@ def write_baseline(result: Fig3PaperResult, path: Path | None = None) -> Path:
             "# certificate_maxima "
             + " ".join(
                 f"{name}={result.certificate_maxima.get(name, float('nan')):.17e}"
-                for name in certificate_module.CERTIFICATE_FIELDS
+                for name in certificate_module.NUMBER_CERTIFICATE_FIELDS
             )
         ])
         writer.writerow(header_cols)
@@ -500,6 +678,8 @@ def read_baseline(path: Path | None = None) -> Fig3PaperResult:
         f_by_ratio={r: data[:, 2 + i] for i, r in enumerate(ratios)},
         f_FD=data[:, 1],
         certificate_maxima=dict(metadata.certificate_maxima),
+        producer_solve_contract_digest=metadata.producer_solve_contract_digest,
+        validated_solve_contract_digest=metadata.validated_solve_contract_digest,
     )
 
 
@@ -530,6 +710,8 @@ class BaselineMetadata:
     target_backward_error_limit: float
     certificate_maxima: dict[str, float]
     pinned_on: str
+    producer_solve_contract_digest: str
+    validated_solve_contract_digest: str
 
 
 def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
@@ -561,6 +743,12 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     versions = _CERTIFICATE_VERSION_RE.findall(text)
     limits = _CERTIFICATE_LIMIT_RE.findall(text)
     pinned_platforms = _PIN_PLATFORM_RE.findall(text)
+    producer_solve_contract_digests = (
+        _PRODUCER_SOLVE_CONTRACT_DIGEST_RE.findall(text)
+    )
+    validated_solve_contract_digests = (
+        _VALIDATED_SOLVE_CONTRACT_DIGEST_RE.findall(text)
+    )
     if (
         ne_m is None
         or ratios_m is None
@@ -568,10 +756,13 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         or len(limits) != 1
         or len(pinned_platforms) != 1
         or not pinned_platforms[0].strip()
+        or len(producer_solve_contract_digests) != 1
+        or len(validated_solve_contract_digests) != 1
     ):
         raise RuntimeError(
             f"Baseline header at {path} must contain NE / ratios and exactly "
-            "one pin-platform / certificate metric / target record."
+            "one pin-platform / producer contract / validated contract / "
+            "certificate metric / target record."
         )
     ratios = tuple(
         float(x.strip()) for x in ratios_m.group(1).split(",") if x.strip()
@@ -585,10 +776,11 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
             f"Baseline header at {path} has empty, non-finite, or duplicate ratios."
         )
     version = versions[0]
-    if version != certificate_module.CERTIFICATE_METRIC_VERSION:
+    if version != certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION:
         raise RuntimeError(
             f"Baseline header at {path} uses unsupported certificate metric "
-            f"{version!r}; expected {certificate_module.CERTIFICATE_METRIC_VERSION!r}."
+            f"{version!r}; expected "
+            f"{certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION!r}."
         )
     target = _num(_CERTIFICATE_LIMIT_RE, "target_backward_error_limit")
     if target != TARGET_BACKWARD_ERROR_LIMIT:
@@ -620,6 +812,8 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         target_backward_error_limit=target,
         certificate_maxima=maxima,
         pinned_on=pinned_platforms[0].strip(),
+        producer_solve_contract_digest=producer_solve_contract_digests[0],
+        validated_solve_contract_digest=validated_solve_contract_digests[0],
     )
 
 
@@ -633,6 +827,7 @@ def config_metadata() -> BaselineMetadata:
     """
     _, _, spectral = _build_grid_and_spectral()
     tau_0_pb = _compute_tau_0_pb(spectral)
+    contract_digest = solve_contract_digest()
     return BaselineMetadata(
         delta_0=DELTA_0,
         tau_0=TAU_0,
@@ -646,11 +841,13 @@ def config_metadata() -> BaselineMetadata:
         tau_0_pb_ns=tau_0_pb,
         ratios=PAPER_RATIOS,
         certificate_metric_version=(
-            certificate_module.CERTIFICATE_METRIC_VERSION
+            certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
         ),
         target_backward_error_limit=TARGET_BACKWARD_ERROR_LIMIT,
         certificate_maxima={},
         pinned_on=sys.platform,
+        producer_solve_contract_digest=contract_digest,
+        validated_solve_contract_digest=contract_digest,
     )
 
 

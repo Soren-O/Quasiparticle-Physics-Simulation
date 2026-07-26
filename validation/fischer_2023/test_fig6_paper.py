@@ -25,9 +25,18 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
+    build_recombination_kernel_base,
+    phonon_occupation_matrices_from_state,
+)
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics import calibrate_gap
 from qpsim.physics.spectral import SpectralContext
+from qpsim.solvers.newton_steady_state import (
+    _weighted_number_backward_error,
+    number_changing_gain_loss,
+)
 
 import validation.fischer_2023.fig5_paper as fig5_paper
 import validation.fischer_2023.fig5_solve as fig5_solve
@@ -54,6 +63,9 @@ from validation.fischer_2023.fig6_solve import (
     TARGET_BACKWARD_ERROR_LIMIT,
     _build_grid_and_spectral,
     _require_target_certificate,
+)
+from validation.fischer_2023.steady_state_certificate import (
+    QP_NUMBER_CERTIFICATE_FIELD,
 )
 
 
@@ -312,6 +324,7 @@ def test_converged_target_with_bad_certificate_hard_fails() -> None:
     certificate = {
         "qp_residual_inf": 1e-20,
         "qp_backward_error": 2e-5,
+        "qp_number_backward_error": 0.0,
         "phonon_residual_inf": 1e-20,
         "phonon_raw_backward_error": 1e-8,
         "phonon_backward_error": 1e-8,
@@ -330,6 +343,7 @@ def test_converged_target_with_bad_gap_map_certificate_hard_fails() -> None:
     certificate = {
         "qp_residual_inf": 1e-20,
         "qp_backward_error": 1e-8,
+        "qp_number_backward_error": 0.0,
         "phonon_residual_inf": 1e-20,
         "phonon_raw_backward_error": 1e-8,
         "phonon_backward_error": 1e-8,
@@ -348,6 +362,7 @@ def test_fixed_gap_certificate_allows_nan_gap_map_metric() -> None:
     certificate = {
         "qp_residual_inf": 1e-20,
         "qp_backward_error": 1e-8,
+        "qp_number_backward_error": 0.0,
         "phonon_residual_inf": 1e-20,
         "phonon_raw_backward_error": 1e-8,
         "phonon_backward_error": 1e-8,
@@ -361,10 +376,30 @@ def test_fixed_gap_certificate_allows_nan_gap_map_metric() -> None:
     )
 
 
+def test_converged_target_with_bad_number_certificate_hard_fails() -> None:
+    certificate = {
+        "qp_residual_inf": 1e-20,
+        "qp_backward_error": 0.0,
+        "qp_number_backward_error": 0.6,
+        "phonon_residual_inf": 1e-20,
+        "phonon_raw_backward_error": 0.0,
+        "phonon_backward_error": 0.0,
+        "gap_fixed_point_abs_error_uev": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="qp_number"):
+        _require_target_certificate(
+            certificate,
+            T_bath=0.1,
+            n_bar=1e6,
+            require_gap_fixed_point=True,
+        )
+
+
 def test_direct_gap_certificate_uses_strict_certified_metrics() -> None:
     certificate = {
         "qp_residual_inf": 1e-20,
         "qp_backward_error": 0.5 * DIRECT_GAP_BACKWARD_ERROR_LIMIT,
+        "qp_number_backward_error": 0.0,
         "phonon_residual_inf": 1e-20,
         # Raw phonon balance includes irreducible affine-root rounding; direct
         # mode gates the representability-aware certified excess below.
@@ -562,7 +597,10 @@ def test_reduced_direct_gap_picard_fallback_is_repeatable_and_certified(
             backward_error_limit=DIRECT_GAP_BACKWARD_ERROR_LIMIT,
         )
         assert certificate["qp_backward_error"] < DIRECT_GAP_BACKWARD_ERROR_LIMIT
-        assert certificate["phonon_backward_error"] == 0.0
+        # The number-mode amplitude polish can move the returned phonon
+        # fixed point to the adjacent representable float. Its balance is
+        # then roundoff-small rather than bitwise zero.
+        assert certificate["phonon_backward_error"] < 1e-14
 
 
 def test_legacy_nine_column_baseline_reads_with_nan_certificates(tmp_path) -> None:
@@ -751,6 +789,7 @@ def test_sweep_carries_full_state_within_row_and_resets_between_rows(
             ),
         )
         certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        certificate[QP_NUMBER_CERTIFICATE_FIELD] = 0.0
         return converged, 0.1, target_gap, 1e-8, certificate
 
     monkeypatch.setattr(
@@ -796,6 +835,7 @@ def test_direct_gap_sweep_applies_strict_certificate_limit(monkeypatch) -> None:
     ):
         state = fig6_solve._build_state(material_arg, spectral_arg, T_bath)
         certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        certificate[QP_NUMBER_CERTIFICATE_FIELD] = 0.0
         certificate["qp_backward_error"] = (
             2.0 * DIRECT_GAP_BACKWARD_ERROR_LIMIT
         )
@@ -893,6 +933,7 @@ def test_nonfinite_derived_observable_propagates_through_sweep(
     ):
         state = fig6_solve._build_state(material_arg, spectral_arg, T_bath)
         certificate = dict.fromkeys(FIG6_CERTIFICATE_FIELDS, 0.0)
+        certificate[QP_NUMBER_CERTIFICATE_FIELD] = 0.0
         if direct_gap_observable:
             certificate["gap_fixed_point_abs_error_uev"] = float("nan")
         return state, float("nan"), DELTA_0, 1e-8, certificate
@@ -1031,12 +1072,17 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
 
     assert first[0].gap == first[0].spectral.gap
     assert first[0].gap < DELTA_0
+    # Round-6 Newton number-mode certification moved this reduced-grid
+    # endpoint off the former aggregate-only root.  The old pin had an
+    # independently reassembled pair-number backward error of 7.45e-6,
+    # above NEWTON_BACKWARD_ERROR_TOL=1e-6; this root is deterministic and
+    # improves that error to 4.50e-7.  Keep the original tight pin tolerances.
     assert continued[0].gap == pytest.approx(
-        179.9969259818,
+        179.9969260485,
         rel=0.0,
         abs=2e-9,
     )
-    assert continued[1] == pytest.approx(0.23523982, rel=0.0, abs=1e-6)
+    assert continued[1] == pytest.approx(0.23525642, rel=0.0, abs=1e-6)
     assert continued[0].gap == pytest.approx(
         repeated[0].gap,
         rel=0.0,
@@ -1050,6 +1096,7 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
     )
     assert continued[1] == pytest.approx(repeated[1], rel=0.0, abs=1e-10)
     for result in (continued, repeated):
+        state = result[0]
         certificate = result[4]
         assert certificate["qp_backward_error"] <= TARGET_BACKWARD_ERROR_LIMIT
         assert certificate["phonon_backward_error"] <= TARGET_BACKWARD_ERROR_LIMIT
@@ -1057,6 +1104,40 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
             certificate["gap_fixed_point_abs_error_uev"]
             <= GAP_FIXED_POINT_ABS_TOL_UEV
         )
+
+        # Independently reassemble the number-changing pair channel from the
+        # returned joint (f, n_ph) snapshot.  This is the decisive Round-6
+        # gate that invalidated the old absolute pin; aggregate QP turnover
+        # alone is dominated by number-conserving scattering.
+        K_r0 = build_recombination_kernel_base(
+            state.spectral,
+            tau_0=state.material.tau_0,
+            T_c=state.material.T_c,
+        )
+        _, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
+            state.spectral.E
+        )
+        _, N_emit, N_abs = phonon_occupation_matrices_from_state(
+            state.phonon.n_ph[0, :, 0], idx_diff, idx_sum, diff_sign
+        )
+        gain_number, loss_number, configured = number_changing_gain_loss(
+            state.f,
+            state.spectral,
+            K_r0,
+            state.T_bath,
+            N_emit=N_emit,
+            N_abs=N_abs,
+        )
+        number_error = _weighted_number_backward_error(
+            gain_number,
+            loss_number,
+            state.f,
+            state.spectral.cell_weights,
+            state.spectral.active_mask,
+        )
+        assert configured
+        assert number_error is not None
+        assert number_error <= fig6_solve.NEWTON_BACKWARD_ERROR_TOL
 
 
 @pytest.mark.slow

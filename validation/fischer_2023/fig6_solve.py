@@ -38,13 +38,18 @@ choice; the y-axis position of the curves is sensitive to it.
 
 Eq. 53 reads
 
-       $\\delta\\Delta/\\Delta_0 = x_\\mathrm{qp} \\cdot
+       $\\delta\\Delta/\\Delta_0 = x_\\mathrm{qp}^\\mathrm{paper} \\cdot
           \\bigl[1 - 0.42\\,(T_*/\\Delta_0) + 0.22\\,(T_*/\\Delta_0)^2\\bigr]$,
 
-with qpsim's Fischer-convention $x_\\mathrm{qp}
-= n_\\mathrm{qp}/(4\\rho_F\\Delta_0)$. The bracketed factor is verified
-closed-form from the paper text, and the dashed overlay feeds it the
-analytical Eq. 47 + Appendix-E
+with the *paper's* prefactor convention $x_\\mathrm{qp}^\\mathrm{paper}
+= n_\\mathrm{qp}/(2\\rho_F\\Delta_0)$ (text following Eq. 53,
+p. 054087-10). qpsim's Fischer-convention $x_\\mathrm{qp}$
+(:mod:`qpsim.observables.density`) is $n_\\mathrm{qp}/(4\\rho_F\\Delta_0)$,
+half the paper's, so the Eq. 53 helpers apply the factor-2 conversion
+internally (``_XQP_QPSIM_TO_PAPER``) — Eq. 47 *density*-level
+comparisons stay in qpsim convention and take no factor. The bracketed
+factor is verified closed-form from the paper text, and the dashed
+overlay feeds it the analytical Eq. 47 + Appendix-E
 $x_\\mathrm{qp}$ from :func:`fig5_paper._xqp_analytic_eq47`, using the
 same scalar $\\tau_\\ell$ as the numerical solve. The thermal counterpart
 $\\delta\\Delta_T$ uses the BCS gap calibration in the denominator,
@@ -95,6 +100,8 @@ from validation.fischer_2023.fig5_paper import _xqp_analytic_eq47
 from validation.fischer_2023.steady_state_certificate import (
     CERTIFICATE_FIELDS,
     CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_METRIC_VERSION,
+    QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
 )
 
@@ -196,6 +203,12 @@ _EQ53_DRIVE_C2 = 0.22
 _EQ53_THERMAL_C1 = 0.5
 _EQ53_THERMAL_C2 = 3.0 / 8.0
 
+# Paper Eq. 53/54 prefactor is N_qp/(2 rho_F Delta_0); qpsim's Fischer-
+# convention x_qp (qpsim.observables.density) is N_qp/(4 rho_F Delta_0).
+# The Eq. 53 helpers below take qpsim-convention x_qp and convert at this
+# boundary so no caller can forget the factor.
+_XQP_QPSIM_TO_PAPER = 2.0
+
 
 def _fischer_material() -> Material:
     """Al film with Fischer 2023 SC parameters and 63 nm thickness."""
@@ -278,15 +291,19 @@ def _kBTstar_eq35(n_bar: float) -> float:
     return float((A * n_bar) ** (1.0 / 6.0))
 
 
-def _paper_eq53_analytic_drive(x_qp: float, T_star_over_delta: float) -> float:
+def _paper_eq53_analytic_drive(x_qp_qpsim: float, T_star_over_delta: float) -> float:
     r"""Fischer 2023 Eq. 53 — nonequilibrium (drive) gap suppression.
 
     .. math::
         \delta\Delta/\Delta_0
-        = x_\mathrm{qp}
+        = x_\mathrm{qp}^\mathrm{paper}
           \bigl[1 - 0.42\,(T_*/\Delta_0) + 0.22\,(T_*/\Delta_0)^2\bigr],
 
-    with :math:`x_\mathrm{qp} = N_\mathrm{QP}/(2\rho_F\Delta_0)`.
+    with the paper's :math:`x_\mathrm{qp}^\mathrm{paper}
+    = N_\mathrm{QP}/(2\rho_F\Delta_0)`. The input ``x_qp_qpsim`` is in
+    qpsim's Fischer convention :math:`N_\mathrm{QP}/(4\rho_F\Delta_0)`
+    (half the paper's); this helper applies the factor-2 conversion
+    internally so the caller passes qp_fraction/Eq.-47 values unchanged.
 
     The bracketed factor is the verified closed form from the paper text
     (paragraph following Eq. 53, p. 054087-10). The input
@@ -301,19 +318,23 @@ def _paper_eq53_analytic_drive(x_qp: float, T_star_over_delta: float) -> float:
     """
     r = T_star_over_delta
     bracket = 1.0 - _EQ53_DRIVE_C1 * r + _EQ53_DRIVE_C2 * r * r
-    return float(x_qp * bracket)
+    return float(_XQP_QPSIM_TO_PAPER * x_qp_qpsim * bracket)
 
 
-def _paper_eq53_analytic_thermal(x_qp_th: float, T_bath_over_delta: float) -> float:
+def _paper_eq53_analytic_thermal(x_qp_th_qpsim: float, T_bath_over_delta: float) -> float:
     r"""Thermal-equilibrium Sommerfeld counterpart of Eq. 53.
 
     From the paragraph following Eq. 53 (p. 054087-11), in equilibrium
     the bracketed factor reads :math:`1 - \tfrac{1}{2}(T_B/\Delta_0)
-    + \tfrac{3}{8}(T_B/\Delta_0)^2`.
+    + \tfrac{3}{8}(T_B/\Delta_0)^2`. As in
+    :func:`_paper_eq53_analytic_drive`, the input is qpsim-convention
+    :math:`N_\mathrm{QP}/(4\rho_F\Delta_0)` and the paper's
+    :math:`N_\mathrm{QP}/(2\rho_F\Delta_0)` prefactor is restored
+    internally.
     """
     r = T_bath_over_delta
     bracket = 1.0 - _EQ53_THERMAL_C1 * r + _EQ53_THERMAL_C2 * r * r
-    return float(x_qp_th * bracket)
+    return float(_XQP_QPSIM_TO_PAPER * x_qp_th_qpsim * bracket)
 
 
 def _x_qp_thermal(spectral: SpectralContext, T_bath: float) -> float:
@@ -641,18 +662,22 @@ def _require_target_certificate(
             f"got {backward_error_limit}."
         )
     qp_backward = certificate["qp_backward_error"]
+    qp_number_backward = certificate[QP_NUMBER_CERTIFICATE_FIELD]
     phonon_backward = certificate["phonon_backward_error"]
     if (
         not np.isfinite(qp_backward)
+        or not np.isfinite(qp_number_backward)
         or not np.isfinite(phonon_backward)
         or qp_backward > backward_error_limit
+        or qp_number_backward > backward_error_limit
         or phonon_backward > backward_error_limit
     ):
         raise RuntimeError(
             "Fischer Fig. 6 converged target failed the independent "
             f"steady-state certificate at T_B={T_bath:g} K, "
             f"n_bar={n_bar:.6e} (limit={backward_error_limit:g}): "
-            f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+            f"qp={qp_backward:.3e}, qp_number={qp_number_backward:.3e}, "
+            f"phonon={phonon_backward:.3e}."
         )
 
     gap_error = certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD]
@@ -1059,6 +1084,9 @@ def solver_fingerprint() -> dict[str, Any]:
         "gap_fixed_point_rel_tol": GAP_FIXED_POINT_REL_TOL,
         "certificate_fields": list(FIG6_CERTIFICATE_FIELDS),
         "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
+        "live_number_certificate_metric_version": (
+            NUMBER_CERTIFICATE_METRIC_VERSION
+        ),
         "tau_l_model": TAU_L_MODEL,
         "t_bath_values": [float(x) for x in T_BATH_VALUES],
         "n_bar_values": [float(x) for x in N_BAR_VALUES],

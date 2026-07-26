@@ -32,8 +32,9 @@ from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 
 from validation.fischer_2023.steady_state_certificate import (
-    CERTIFICATE_FIELDS,
-    CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_FIELDS,
+    NUMBER_CERTIFICATE_METRIC_VERSION,
+    QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
 )
 
@@ -163,6 +164,16 @@ def _validated_sweep_request(
 
 
 def _build_grid(num_bins: int = NUM_BINS) -> tuple[SpectralContext, np.ndarray]:
+    """One fixed-Δ₀ grid for the whole temperature sweep.
+
+    Documented limitation (2026-07-20 review): the solve uses the
+    zero-temperature gap ``DELTA_0`` and one energy grid for every
+    ``T_bath`` — the equilibrium gap Δ(T_B) is smaller by up to ~0.17%
+    at the hottest pinned point (0.34 K). The pinned artifact is a
+    self-consistent regression under exactly this convention, not a
+    Δ(T)-scaled reproduction; re-gridding per temperature would be a
+    baseline-moving change requiring a full re-pin.
+    """
     E, dE_scalar = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
@@ -254,41 +265,36 @@ def solve(
     f_solved = np.zeros((powers.size, T_values.size, NE), dtype=float)
     certificates = {
         field: np.zeros((powers.size, T_values.size), dtype=float)
-        for field in CERTIFICATE_FIELDS
+        for field in NUMBER_CERTIFICATE_FIELDS
     }
 
     for pi, _p_dbm in enumerate(powers):
         photon_params = {"omega_0": OMEGA_0, "n_bar": float(n_bar[pi]), "c_phot": C_PHOT}
         for ti, T_bath in enumerate(T_values):
             state = _build_state(material, spectral, omega, float(T_bath))
-            solved = backend.steady_state(
-                state,
-                photon_params=photon_params,
-                **SOLVER_KWARGS,
-            )
+            try:
+                solved = backend.steady_state(
+                    state,
+                    photon_params=photon_params,
+                    **SOLVER_KWARGS,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "Fischer Fig. 7 backend steady-state solve failed at "
+                    f"P_read={_p_dbm:g} dBm, T_bath={T_bath:g} K."
+                ) from exc
             f_solved[pi, ti] = solved.f
             certificate = steady_state_certificate(
                 solved,
                 photon_params=photon_params,
                 tau_l=TAU_L,
             )
-            for field in CERTIFICATE_FIELDS:
+            for field in NUMBER_CERTIFICATE_FIELDS:
                 certificates[field][pi, ti] = certificate[field]
-            qp_backward = certificate["qp_backward_error"]
-            phonon_backward = certificate["phonon_backward_error"]
-            if (
-                not np.isfinite(qp_backward)
-                or not np.isfinite(phonon_backward)
-                or qp_backward > TARGET_BACKWARD_ERROR_LIMIT
-                or phonon_backward > TARGET_BACKWARD_ERROR_LIMIT
-            ):
-                raise RuntimeError(
-                    "Fischer Fig. 7 target failed the independent steady-state "
-                    f"certificate at P_read={_p_dbm:g} dBm, "
-                    f"T_bath={T_bath:g} K (limit="
-                    f"{TARGET_BACKWARD_ERROR_LIMIT:g}): "
-                    f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
-                )
+            _require_certified_point(
+                certificate,
+                context=f"P_read={_p_dbm:g} dBm, T_bath={T_bath:g} K",
+            )
 
     return {
         "f_solved": f_solved,
@@ -298,6 +304,50 @@ def solve(
         "num_bins": np.asarray([resolved_num_bins]),
         **certificates,
     }
+
+
+def _require_certified_point(
+    certificate: dict[str, float],
+    *,
+    context: str,
+) -> None:
+    """Fail a target whose local, number-mode, or phonon balance is not a root."""
+    missing = sorted(set(NUMBER_CERTIFICATE_FIELDS).difference(certificate))
+    if missing:
+        raise RuntimeError(
+            f"Fischer Fig. 7 target certificate at {context} is missing {missing}."
+        )
+    values = {
+        field: float(certificate[field])
+        for field in NUMBER_CERTIFICATE_FIELDS
+    }
+    invalid = {
+        field: value
+        for field, value in values.items()
+        if not np.isfinite(value) or value < 0.0
+    }
+    if invalid:
+        raise RuntimeError(
+            "Fischer Fig. 7 target has non-finite or negative independent "
+            f"certificate values at {context}: {invalid}."
+        )
+
+    threshold_fields = (
+        "qp_backward_error",
+        "phonon_backward_error",
+        QP_NUMBER_CERTIFICATE_FIELD,
+    )
+    failed = {
+        field: values[field]
+        for field in threshold_fields
+        if values[field] > TARGET_BACKWARD_ERROR_LIMIT
+    }
+    if failed:
+        raise RuntimeError(
+            "Fischer Fig. 7 target failed the independent steady-state "
+            f"certificate at {context} (limit={TARGET_BACKWARD_ERROR_LIMIT:g}): "
+            f"{failed}."
+        )
 
 
 def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
@@ -320,6 +370,6 @@ def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
         "e_max_factor": E_MAX_FACTOR,
         "num_bins": int(num_bins),
         "solver": dict(SOLVER_KWARGS),
-        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
+        "certificate_metric_version": NUMBER_CERTIFICATE_METRIC_VERSION,
         "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
     }

@@ -64,10 +64,39 @@ def _build_state(
 
 
 class TestT3Spatial1DTransport:
+    def test_large_finite_diffusivity_remains_finite(self) -> None:
+        """The public transport path must not overflow its face mean."""
+        state = _build_state(D0=1e200, T_bath=0.0, NE=2, NX=2)
+        state.x = np.array([0.0, 1.0])
+        state.f[:] = 0.0
+        state.f[-1, 0] = 0.2
+
+        out = T3Spatial1DBackend().apply_transport(state, dt=1e-200)
+
+        assert np.all(np.isfinite(out.f))
+        assert out.f[-1, 1] > 0.0
+        assert float(np.sum(out.f[-1])) == pytest.approx(0.2)
+
     def test_reflective_transport_preserves_uniform_field(self) -> None:
         state = _build_state()
         out = T3Spatial1DBackend().apply_transport(state, dt=2.0)
         np.testing.assert_allclose(out.f, state.f, atol=1e-13)
+    @pytest.mark.parametrize("field", ["gain", "loss_rate"])
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_before_float_cast(
+        self,
+        field: str,
+        imaginary: float,
+    ) -> None:
+        arrays = {
+            "gain": np.zeros((2, 2)),
+            "loss_rate": np.zeros((2, 2)),
+        }
+        arrays[field] = arrays[field].astype(complex)
+        arrays[field][0, 0] = complex(0.0, imaginary)
+
+        with pytest.raises(ValueError, match=rf"{field} must be real-valued"):
+            T3SpatialFlux1D(**arrays)
 
     def test_reflective_transport_spreads_and_conserves_pulse(self) -> None:
         state = _build_state(T_bath=0.0)
@@ -85,6 +114,24 @@ class TestT3Spatial1DTransport:
             np.sum(state.f[energy_idx]),
             atol=1e-13,
         )
+
+    def test_transport_conserves_declared_cell_center_measure(self) -> None:
+        length_um = 100.0
+        state = _build_state(T_bath=0.0, NX=21)
+        dx_um = length_um / state.x.size
+        state.x = (np.arange(state.x.size, dtype=float) + 0.5) * dx_um
+        state.f[:] = 0.0
+        state.f[-1, 0] = 0.2
+        before = float(np.sum(state.cell_widths * state.f[-1]))
+
+        backend = T3Spatial1DBackend()
+        out = state
+        for _ in range(20):
+            out = backend.apply_transport(out, dt=0.5)
+        after = float(np.sum(out.cell_widths * out.f[-1]))
+
+        assert state.cell_widths.sum() == pytest.approx(length_um)
+        assert after == pytest.approx(before, abs=1e-12)
 
     def test_clip_warning_uses_absolute_mass_not_cancelable_signed_net(
         self, monkeypatch: pytest.MonkeyPatch,

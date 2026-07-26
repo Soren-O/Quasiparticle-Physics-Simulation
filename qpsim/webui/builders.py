@@ -20,6 +20,9 @@ import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
+from qpsim.collisions.pair_breaking_photon import (
+    validate_pair_breaking_photon_grid,
+)
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.collisions.sub_gap_photon import COMMENSURATE_TOL
 from qpsim.constants import H_OVER_KB_K_PER_HZ
@@ -116,28 +119,41 @@ def _check_photon_commensurate(
         )
 
 
-def _check_pb_partner_alignment(
+def _check_pb_runtime_contract(
     report: ValidationReport,
     setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup,
-    omega: float,
-    dE: float,
 ) -> None:
-    """Validate the reflected partner lattice used by the PB pair terms."""
-    if omega <= 2.0 * setup.material.Delta_0:
+    """Run the production PB kernel's static grid-contract preflight.
+
+    The shared helper is ``O(NE)`` and avoids constructing a spectral context
+    with dense ``NE × NE`` coherence matrices merely to validate a request.
+    Do not duplicate its roundoff-sensitive finite-volume predicates here.
+    """
+    pb = getattr(setup, "pb_drive", None)
+    if pb is None or not pb.enabled or setup.material.dynes_gamma > 0.0:
         return
-    m = round(omega / dE)
-    if m <= 0:
+    E, dE = build_energy_grid(
+        gap=setup.material.Delta_0,
+        energy_min_factor=setup.grid.min_factor,
+        energy_max_factor=setup.grid.max_factor,
+        num_energy_bins=setup.grid.num_bins,
+    )
+    try:
+        contract = validate_pair_breaking_photon_grid(
+            E,
+            np.full_like(E, dE),
+            setup.material.Delta_0,
+            pb.omega_PB,
+        )
+    except ValueError as exc:
+        report.errors.append(f"Pair-breaking drive: {exc}")
         return
-    snapped = m * dE
-    E0 = setup.grid.min_factor * setup.material.Delta_0 + 0.5 * dE
-    partner_steps = (snapped - 2.0 * E0) / dE
-    partner_err = abs(partner_steps - round(partner_steps))
-    if partner_err > COMMENSURATE_TOL:
-        report.errors.append(
-            "Pair-breaking drive: reflected partners are not grid-aligned; "
-            f"(omega_PB - 2*E_min)/dE is {partner_err:.3f} bins from an "
-            "integer. Adjust grid.min_factor or the bin count so pair "
-            "generation/recombination satisfies detailed balance."
+    if contract.fractional_error > 1e-6:
+        report.warnings.append(
+            "Pair-breaking drive: nominal ω_PB snaps to "
+            f"{contract.snapped_omega:.6g} μeV "
+            f"({contract.fractional_error:.2e} bins); evaluate any "
+            "energy-dependent photon occupancy at the snapped energy."
         )
 
 
@@ -148,6 +164,13 @@ def _validate_drives_and_probe(
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
 
+    if setup.material.dynes_gamma > 0.0:
+        report.errors.append(
+            "Kinetic collision solves require a pure-BCS spectral context: "
+            "Dynes Γ must be 0 for both 0-D and spatial modes because the "
+            "collision kernels do not implement Dynes broadening."
+        )
+
     if setup.material.dynes_gamma == 0.0 and setup.grid.min_factor > 1.0:
         report.errors.append(
             "Grid: pure-BCS x_qp and Mattis-Bardeen observables require "
@@ -157,7 +180,7 @@ def _validate_drives_and_probe(
         )
 
     subgap = getattr(setup, "subgap_drive", None)
-    if subgap is not None and subgap.enabled:
+    if subgap is not None and subgap.enabled and subgap.c_phot > 0.0:
         if subgap.omega_0 >= 2.0 * gap:
             report.errors.append(
                 f"Sub-gap drive: ω₀ = {subgap.omega_0:g} μeV must be < 2Δ = {2 * gap:g} μeV "
@@ -166,13 +189,12 @@ def _validate_drives_and_probe(
         _check_photon_commensurate(report, "Sub-gap drive", subgap.omega_0, dE)
 
     pb = getattr(setup, "pb_drive", None)
-    if pb is not None and pb.enabled:
+    if pb is not None and pb.enabled and pb.c_phot_PB > 0.0:
         if pb.omega_PB <= 2.0 * gap:
             report.errors.append(
                 f"Pair-breaking drive: ω_PB = {pb.omega_PB:g} μeV must be > 2Δ = {2 * gap:g} μeV."
             )
-        _check_photon_commensurate(report, "Pair-breaking drive", pb.omega_PB, dE)
-        _check_pb_partner_alignment(report, setup, pb.omega_PB, dE)
+        _check_pb_runtime_contract(report, setup)
 
     probe = getattr(setup, "probe", None)
     if probe is not None and probe.enabled:
@@ -226,7 +248,8 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 "select dynamic_escape."
             )
         if (
-            setup.phonons.use_phonon_side_kernel
+            setup.phonons.mode != "thermal_bath"
+            and setup.phonons.use_phonon_side_kernel
             and setup.material.tau_0_pb_ns is None
         ):
             report.errors.append(
@@ -248,11 +271,6 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     elif isinstance(setup, Spatial1DSetup):
         _validate_drives_and_probe(report, setup)
-        if setup.material.dynes_gamma > 0.0:
-            report.errors.append(
-                "Spatial transport requires a pure-BCS spectral context: Dynes Γ must be 0 "
-                "for the 1D strip (Dynes with 0-D collisions is fine)."
-            )
         if setup.material.D_0 <= 0.0:
             report.errors.append("1D strip: the material needs a positive D₀ (μm²/ns).")
         # A large diffusion number is safe because the backend subcycles CN
@@ -261,7 +279,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         # hidden work rather than claiming the old full-step ringing/clip
         # failure.
         if setup.material.D_0 > 0.0 and setup.num_cells > 1:
-            dx_um = setup.length_um / (setup.num_cells - 1)
+            dx_um = setup.length_um / setup.num_cells
             diffusion_number = setup.material.D_0 * setup.dt / (dx_um * dx_um)
             if diffusion_number > 8.0:
                 report.warnings.append(
@@ -445,7 +463,11 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
 def build_state_1d(setup: Spatial1DSetup) -> T3Spatial1DState:
     """Thermal-seed 1D strip state with optional two-gap step profile."""
     spectral = build_spectral(setup)
-    x = np.linspace(0.0, setup.length_um, setup.num_cells)
+    # Equal finite-volume cell centers on [0, length_um]. Reflective
+    # boundaries sit half a cell outside the first/last centers, so
+    # ``state.cell_widths.sum()`` is exactly the requested physical length.
+    dx_um = setup.length_um / setup.num_cells
+    x = (np.arange(setup.num_cells, dtype=float) + 0.5) * dx_um
     f_col = fermi_dirac_distribution(spectral.E, setup.T_bath)
     f = np.tile(f_col[:, None], (1, setup.num_cells))
 

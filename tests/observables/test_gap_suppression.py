@@ -79,8 +79,14 @@ class TestComputeGapSuppression:
 
         result = compute_gap_suppression(f_hot, E, T_c=1.2, T_bath=0.3)
 
+        # f = 0.35 across the whole grid nearly closes the gap: the
+        # measured signal is a 99.9% collapse (rel_suppression 0.99908,
+        # delta_final ~ 0.17 ueV vs delta_eq ~ 182 ueV). Pin the
+        # magnitude, not just the sign — the pre-2026-07-19 asserts
+        # (>= 0.0) passed for a regression returning zero suppression.
         assert result.delta_final <= result.delta_eq
-        assert result.delta_suppression >= 0.0
+        assert result.rel_suppression == pytest.approx(0.999, abs=5e-3)
+        assert result.delta_final < 1.0  # ueV; near-total collapse
 
     def test_rejects_missing_low_energy_support(self) -> None:
         T_c, T_bath = 1.2, 0.3

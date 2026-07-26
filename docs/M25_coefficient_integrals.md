@@ -220,7 +220,16 @@ At leading order in T/Δ_α ≪ 1 (approximating the DoS and coherence factors a
 
 ```
 r^L  = 8 π b_L Δ_L³                                      (SI Note IV C)
-r^{R>} ≃ r^{<>} ≃ r^{R<} ≃ 8 π b_R Δ_R³                  (same, to leading order δ → 1)
+r^{R>} ≃ r^{<>} ≃ r^{R<} ≃ 8 π b_R Δ̄³                    (Δ̄ = (Δ_L+Δ_R)/2; to leading order δ → 1)
+```
+
+**Transcription fix (2026-07-20):** an earlier revision of this file wrote
+the R-side coefficients with `Δ_R³`; the paper's App. D.3 equation reads
+`8 π b_R Δ̄³` (verified against the arXiv v2 math source). Consequently the
+S48/S50 prefactor conversion carries a factor:
+
+```
+2 π b_R Δ_R³ = (r^{R<}/4) · (Δ_R/Δ̄)³      (≈ 0.985 for Fig 3a, ≈ 0.861 for Fig 3b)
 ```
 
 **Consistency check** with Fig 3 caption: `r^L = r^{R<} = 6.25 MHz` ⇒ can back-solve
@@ -316,9 +325,22 @@ a bug in the first draft.
 2. **erf/erfc**: `scipy.special.erf`, `erfc` — robust for arguments up
    to ~6 then underflow is fine because `Γ̃^α_{...}` quantities are
    multiplied by `e^{-ω_LR/T}` anyway (numerator/denominator tracking).
-3. **Low-T approximations** in §8 (S50) should be used as the primary
-   implementation for `τ_R⁻¹`; the full `I(a, b)` is a fallback for
-   higher-T regimes or for unit tests.
+3. **`τ_R⁻¹` implementation (updated 2026-07-19/20):** the full exact
+   `I(a, b)` quadrature (S48/S49) IS the shipped evaluation path — the
+   Fig 3a/4a sweeps reach `T/ω_LR ≈ 0.4–6`, far outside S50's
+   `T ≪ ω_LR` domain, where the series is low by up to ~5x. The S50
+   series is retained only as the in-domain regression reference
+   (`_tau_R_inverse_series_s50`). An earlier revision of this note
+   recommended S50 as primary; that recommendation predates the
+   domain-violation discovery and is superseded.
+   Normalization (corrected 2026-07-20, second review): M25 v2 App. D.3
+   defines the R-side coefficients as `r^{R<} ≃ 8π b_R Δ̄³` (average
+   gap; verified against the paper's equation source), so the S48/S50
+   prefactor is `2π b_R Δ_R³ = (r^{R<}/4)·(Δ_R/Δ̄)³`. A first-pass
+   adjudication refuted the factor based on a truncated extract of D.3
+   (which hid the `Δ̄³` tail) and this file's own earlier `Δ_R³`
+   transcription; both are corrected and an absolute-normalization pin
+   test guards the conversion.
 4. **Detailed-balance tests** (self-consistent checks):
    * `Γ̃^{ee}_{01} / Γ̃^{ee}_{10} = e^{-ω_10/T}` (paper imposes)
    * `g^{pn}_α / (r^α (x_α^{eq})²) → 1` (at full thermal equilibrium)

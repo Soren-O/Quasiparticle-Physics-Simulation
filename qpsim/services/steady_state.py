@@ -13,9 +13,9 @@ Two regimes:
   over ``n_ph``, solving the inner Newton for ``f`` at each step and
   recomputing the steady-state ``n_ph`` from the Ph0 phonon-balance
   equation. Anderson acceleration is available via ``anderson_depth``.
-  A branch-collapse guard resets the phonon state to the last known
-  physical-branch configuration if the Anderson path converges to the
-  thermal branch.
+  A branch-collapse guard resets the coupled state to the last known
+  physical-branch configuration as soon as an Anderson iterate lands on the
+  thermal branch, then finishes with plain Picard.
 
 Sentinel trap: ``None`` and ``0.0`` are OPPOSITE limits. ``None`` pins
 phonons at the bath (τ_l → 0); the float ``0.0`` enters the Picard path,
@@ -170,10 +170,12 @@ def solve_steady_state(
     photon_params: dict[str, float] | None = None,
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | None = None,
+    external_flux_is_conservative_transfer: bool = False,
     initial_guess: np.ndarray | None = None,
     initial_phonon_guess: np.ndarray | None = None,
     tol: float = 1e-14,
     newton_backward_error_tol: float = 1e-6,
+    newton_number_polish_shape_tol: float | None = None,
     max_iter: int = 200,
     phonon_escape_time: float | None = None,
     max_picard_iter: int = 200,
@@ -220,6 +222,11 @@ def solve_steady_state(
     external_flux
         Optional :class:`qpsim.devices.ExternalFlux` boundary
         source/sink. Forwards to the Newton inner solve.
+    external_flux_is_conservative_transfer
+        Whether that flux is conservative Device exchange. The flag changes
+        only Newton's gain/loss normalization: prescribed sources use the
+        default full turnover, while conservative exchange is excluded from
+        the normalizer and remains fully present in the residual.
     initial_guess
         Starting ``f(E)``. Defaults to the Fermi-Dirac at ``T_bath``.
     initial_phonon_guess
@@ -228,9 +235,11 @@ def solve_steady_state(
         one-dimensional and live on the QP-derived phonon frequency grid.
         It is rejected on the thermal-phonon shortcut, where ``n_ph`` is
         pinned by definition.
-    tol, newton_backward_error_tol, max_iter
+    tol, newton_backward_error_tol, newton_number_polish_shape_tol, max_iter
         Newton dimensional residual tolerance, scale-independent gain/loss
-        backward-error limit, and iteration cap.
+        backward-error limit, optional routing-only shape threshold for the
+        scalar number-mode polish, and iteration cap. ``None`` keeps the
+        solver's conservative default; it does not alter return certificates.
     phonon_escape_time
         ``None`` (default) → thermal phonon shortcut; phonons fixed at
         Bose-Einstein and no Picard loop.
@@ -267,6 +276,14 @@ def solve_steady_state(
         raise ValueError(
             "newton_backward_error_tol must be finite and positive; "
             f"got {newton_backward_error_tol}."
+        )
+    if newton_number_polish_shape_tol is not None and (
+        not np.isfinite(newton_number_polish_shape_tol)
+        or newton_number_polish_shape_tol <= 0.0
+    ):
+        raise ValueError(
+            "newton_number_polish_shape_tol must be finite and positive "
+            f"when provided; got {newton_number_polish_shape_tol}."
         )
     if (
         isinstance(max_iter, (bool, np.bool_))
@@ -345,6 +362,19 @@ def solve_steady_state(
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
         external_flux._validate_gain_support(ctx.active_mask)
+    if not isinstance(external_flux_is_conservative_transfer, (bool, np.bool_)):
+        raise ValueError(
+            "external_flux_is_conservative_transfer must be boolean; got "
+            f"{external_flux_is_conservative_transfer!r}."
+        )
+    external_flux_is_conservative_transfer = bool(
+        external_flux_is_conservative_transfer
+    )
+    if external_flux_is_conservative_transfer and external_flux is None:
+        raise ValueError(
+            "external_flux_is_conservative_transfer=True requires an "
+            "ExternalFlux."
+        )
 
     # Mirror the backend-level Picard-stability guard: unaccelerated
     # Picard (anderson_depth=0) is brittle when external_flux is
@@ -372,7 +402,10 @@ def solve_steady_state(
             )
 
     if initial_guess is not None:
-        initial = np.asarray(initial_guess, dtype=float)
+        initial_raw = np.asarray(initial_guess)
+        if np.iscomplexobj(initial_raw):
+            raise ValueError("initial_guess must be real-valued.")
+        initial = np.asarray(initial_raw, dtype=float)
         if initial.ndim != 1 or initial.shape != (NE,):
             raise ValueError(
                 f"initial_guess shape {initial.shape} must be one-dimensional "
@@ -384,7 +417,10 @@ def solve_steady_state(
 
     initial_phonon_arr: np.ndarray | None = None
     if initial_phonon_guess is not None:
-        candidate = np.asarray(initial_phonon_guess, dtype=float)
+        candidate_raw = np.asarray(initial_phonon_guess)
+        if np.iscomplexobj(candidate_raw):
+            raise ValueError("initial_phonon_guess must be real-valued.")
+        candidate = np.asarray(candidate_raw, dtype=float)
         if candidate.ndim != 1:
             raise ValueError(
                 "initial_phonon_guess must be one-dimensional; got "
@@ -433,8 +469,12 @@ def solve_steady_state(
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
             external_flux=external_flux,
+            external_flux_is_conservative_transfer=(
+                external_flux_is_conservative_transfer
+            ),
             tol=tol,
             backward_error_tol=newton_backward_error_tol,
+            number_polish_shape_tol=newton_number_polish_shape_tol,
             max_iter=max_iter,
         )
 
@@ -459,14 +499,19 @@ def solve_steady_state(
     )
 
     use_anderson = anderson_depth > 0
+    anderson_iterate_in_use = False
     X_hist: list[np.ndarray] = []
     G_hist: list[np.ndarray] = []
 
-    # Branch-collapse detection: if Anderson accelerates into the
-    # thermal branch (x_qp drops far below the initial value), we reset
-    # to the last known physical-branch phonon state and continue.
+    # Branch-collapse detection: if Anderson accelerates into the thermal
+    # branch (x_qp drops far below the initial value), reset immediately to
+    # the last matched physical (f, n_ph) snapshot and continue with plain
+    # Picard. Waiting until the collapsed map also passed the outer gates
+    # allowed a 200-iteration Anderson cycle to repeat until max_iter in the
+    # Fischer Fig. 7 cold/high-drive corner.
     weights = ctx.cell_weights
     x_qp_ref = float(np.sum(weights * f)) if use_anderson else 0.0
+    f_initial = f.copy()
     n_ph_physical: np.ndarray | None = None
     f_physical: np.ndarray | None = None
 
@@ -485,10 +530,50 @@ def solve_steady_state(
             N_p_override=N_p, N_emit_override=N_emit, N_abs_override=N_abs,
             photon_params=photon_params, pb_photon_params=pb_photon_params,
             external_flux=external_flux,
+            external_flux_is_conservative_transfer=(
+                external_flux_is_conservative_transfer
+            ),
             tol=tol,
             backward_error_tol=newton_backward_error_tol,
+            number_polish_shape_tol=newton_number_polish_shape_tol,
             max_iter=max_iter,
         )
+
+        # Test the branch before constructing G(n_ph). A collapsed inner root
+        # can still leave the phonon occupation-space change tiny while its
+        # physical balance is O(1) wrong; the former late-only guard was thus
+        # unreachable on exactly the path it was meant to rescue. Disabling
+        # Anderson makes this a one-shot fallback: if the genuine fixed point
+        # is a drained state, plain Picard may still converge to and return it
+        # without being reset again.
+        if use_anderson:
+            x_qp_now = float(np.sum(weights * f))
+            if (
+                anderson_iterate_in_use
+                and x_qp_ref > 0.0
+                and x_qp_now < 0.1 * x_qp_ref
+            ):
+                n_ph = (
+                    n_ph_physical.copy()
+                    if n_ph_physical is not None
+                    else n_th.copy()
+                )
+                f = (
+                    f_physical.copy()
+                    if f_physical is not None
+                    else f_initial.copy()
+                )
+                use_anderson = False
+                anderson_iterate_in_use = False
+                X_hist.clear()
+                G_hist.clear()
+                continue
+            n_ph_physical = n_ph.copy()
+            f_physical = f.copy()
+            # Follow the last matched physical branch, not only the initial
+            # seed. A driven solve may grow many decades from an exact/tiny
+            # vacuum seed before a later Anderson extrapolation collapses.
+            x_qp_ref = x_qp_now
 
         # Step 3: n_ph steady state from converged f.
         coefficients: dict[str, np.ndarray] = {}
@@ -500,15 +585,6 @@ def solve_steady_state(
             K_r0_phonon_side=K_r0_phonon_side,
             coefficients_out=coefficients,
         )
-
-        # Track branch state.
-        on_physical = True
-        if use_anderson and x_qp_ref > 0:
-            x_qp_now = float(np.sum(weights * f))
-            on_physical = x_qp_now >= 0.1 * x_qp_ref
-            if on_physical:
-                n_ph_physical = n_ph.copy()
-                f_physical = f.copy()
 
         # Convergence on n_ph. The explicit occupation-space absolute
         # allowance is independent of the inner Newton residual tolerance;
@@ -542,32 +618,12 @@ def solve_steady_state(
                     # certified against the same occupation. Returning the map
                     # immediately would leave a mismatched (f, n_ph) pair.
                     n_ph = n_ph_new
+                    anderson_iterate_in_use = False
                     X_hist.clear()
                     G_hist.clear()
                     balance_error = mapped_balance_error
                     continue
         if convergence_ratio <= 1.0 and balance_error <= resolved_balance_tol:
-            if use_anderson and x_qp_ref > 0 and not on_physical:
-                # Anderson accelerated into the thermal branch. Fall back to
-                # the last known physical-branch (f, n_ph) and finish on plain
-                # Picard, which cannot jump branches. Disabling Anderson bounds
-                # this to a single retry: x_qp_ref is only the *initial guess*
-                # x_qp, so a genuinely drained fixed point (true x_qp < 0.1x a
-                # hot guess, e.g. under an external-flux drain) would otherwise
-                # re-trip this guard on every converged iterate and livelock to
-                # max_picard_iter -> spurious "did not converge". Also reset f
-                # (not just n_ph) so a real collapse can actually recover.
-                n_ph = (
-                    n_ph_physical
-                    if n_ph_physical is not None
-                    else thermal_phonon_occupation(omega_bins, T_bath)
-                )
-                if f_physical is not None:
-                    f = f_physical
-                use_anderson = False
-                X_hist.clear()
-                G_hist.clear()
-                continue
             if phonon_out is not None:
                 phonon_out["n_ph"] = n_ph
                 phonon_out["omega_bins"] = omega_bins
@@ -587,6 +643,7 @@ def solve_steady_state(
             if len(X_hist) > anderson_depth + 1:
                 X_hist.pop(0)
                 G_hist.pop(0)
+            anderson_iterate_in_use = n_ph_aa is not None
             n_ph = n_ph_aa if n_ph_aa is not None else n_ph_mixed
         else:
             n_ph = n_ph_mixed

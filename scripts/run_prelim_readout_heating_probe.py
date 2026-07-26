@@ -5,8 +5,12 @@ same finite-escape local-phonon dynamics used in the 7 mK sweep, then adds a
 single sub-gap microwave photon scattering channel weighted by the ideal
 quarter-wave ``I^2`` profile of one resonator mode.
 
-The probe deliberately uses a finer energy grid than the main sweep so the
-5.14 GHz readout photon is nearly commensurate with the energy spacing.
+The probe deliberately uses a finer energy grid than the main sweep, but the
+5.142857 GHz readout photon is still NOT grid-commensurate at NE=101
+(|omega - m*dE|/dE ~ 1.64%, above the sub-gap kernel's 1% fail-loud
+tolerance). The drive builder therefore snaps the mode to the nearest grid
+harmonic m*dE explicitly; every output row records the nominal vs snapped
+photon energy and the relative shift.
 """
 
 # ruff: noqa: E402, I001
@@ -33,6 +37,7 @@ from qpsim.physics.spectral import SpectralContext
 from scripts.run_prelim_spatial_finite_phonon_one import (
     FinitePhononSpatialRunner,
     readout_drive_from_resonator,
+    snap_omega_to_grid,
 )
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
@@ -113,6 +118,11 @@ def _run_case(n_bar: float) -> tuple[dict[str, float | bool | str], list[dict[st
         sigma_delta=CONFIG.source_sigmas_delta[0],
     )
     resonator = PRELIM_RESONATORS[READOUT_RESONATOR_INDEX - 1]
+    # Record the grid snap for every case (including the undriven baseline)
+    # so nominal-vs-used photon energies are always in the output rows.
+    omega_used, omega_harmonic, omega_shift = snap_omega_to_grid(
+        float(resonator.probe_energy_uev), float(state.spectral.dE[0])
+    )
     readout_drive = (
         None
         if n_bar == 0.0
@@ -141,7 +151,11 @@ def _run_case(n_bar: float) -> tuple[dict[str, float | bool | str], list[dict[st
         )
         t_ns += CONFIG.dt_ns
         n_steps += 1
-        if max_dfdt < CONFIG.stop_tol:
+        # Converged only when BOTH residuals are quiet: the phonon field's
+        # max|dn_ph/dt| lags max|df/dt| by up to ~8.7x on real
+        # trajectories (2026-07-20 review); gating on f alone declared
+        # convergence with the coupled phonons still moving.
+        if max(max_dfdt, max_dnphdt) < CONFIG.stop_tol:
             converged = True
             break
 
@@ -169,6 +183,9 @@ def _run_case(n_bar: float) -> tuple[dict[str, float | bool | str], list[dict[st
         "readout_resonator_index": float(READOUT_RESONATOR_INDEX),
         "readout_frequency_ghz": resonator.frequency_ghz,
         "readout_omega_uev": resonator.probe_energy_uev,
+        "readout_omega_used_uev": omega_used,
+        "readout_omega_grid_harmonic": float(omega_harmonic),
+        "readout_omega_snap_rel_shift": omega_shift,
         "readout_n_bar_peak": n_bar,
         "readout_c_phot_ns_inv": C_PHOT_NS_INV,
         "dt_ns": CONFIG.dt_ns,

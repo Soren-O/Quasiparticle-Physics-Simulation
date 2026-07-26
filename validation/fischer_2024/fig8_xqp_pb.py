@@ -17,6 +17,15 @@ Grid: 810 bins so ω_PB/dE = 252 is integer commensurate (the old
 851-bin choice snapped ω_PB by ~0.3 %, below the 1% tolerance but
 sacrificing bit-reproducibility).
 
+Conventions: the stored CSV columns keep qpsim's Fischer-convention
+``qp_fraction`` :math:`x_\\mathrm{qp} = N_\\mathrm{qp}/(4\\rho_F\\Delta_0)`
+(:mod:`qpsim.observables.density`), preserving the certified artifact.
+F24 Eq. 7 defines :math:`x_\\mathrm{qp} = N_\\mathrm{qp}/(2\\rho_F\\Delta_0)`
+— exactly twice qpsim's — so :func:`write_plot` applies the ×2 conversion
+at the figure layer and labels the axis with the paper's definition
+(audit fix 2026-07-19; the pre-fix plot drew qpsim-convention values
+under an unqualified ``x_qp`` label, a factor 2 below paper convention).
+
 Usage::
 
     python -m validation.fischer_2024.fig8_xqp_pb
@@ -41,10 +50,15 @@ from qpsim.physics.spectral import SpectralContext
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
+    CompanionArtifactRecord,
+    ProducerIdentity,
     QPCertificate,
     bind_certificate,
+    capture_producer_identity,
+    publish_artifact_pair,
     qp_certificate,
     read_artifact,
+    require_staging_path,
     source_hashes,
     validated_numeric_array,
     write_artifact,
@@ -67,7 +81,7 @@ NUM_BINS = 810  # ω_PB/dE = 252 exactly at this grid
 
 T_BATH_VALUES: tuple[float, ...] = tuple(np.linspace(0.05, 0.22, 8).tolist())
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v2"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v3"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
@@ -228,9 +242,14 @@ def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
 
 
-def write_baseline(result: Fig8Result, path: Path | None = None) -> Path:
-    if path is None:
-        path = baseline_path()
+def write_baseline(
+    result: Fig8Result,
+    path: Path,
+    *,
+    producer: ProducerIdentity,
+    companion_pdf: CompanionArtifactRecord | None = None,
+) -> Path:
+    require_staging_path(path, baseline_path(), artifact_kind="CSV")
     expected_T = np.asarray(T_BATH_VALUES, dtype=float)
     if not np.array_equal(result.T_bath, expected_T):
         raise ValueError("Fig. 8 T_bath axis must exactly match T_BATH_VALUES.")
@@ -320,14 +339,17 @@ def write_baseline(result: Fig8Result, path: Path | None = None) -> Path:
             [float(T_bath), float(result.x_qp_thermal[i])]
             + [float(result.x_qp_by_power[p][i]) for p in result.powers]
         )
+    fingerprint = solver_fingerprint()
     return write_artifact(
         path,
         schema=ARTIFACT_SCHEMA,
-        fingerprint=solver_fingerprint(),
+        fingerprint=fingerprint,
         columns=_columns(),
         rows=rows,
         certificates=certificates,
         target_qp_residual_inf=NEWTON_TOL,
+        producer=producer,
+        companion_pdf=companion_pdf,
     )
 
 
@@ -343,6 +365,8 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
         expected_row_count=len(T_BATH_VALUES),
         expected_certificate_ids=expected_ids,
         target_qp_residual_inf=NEWTON_TOL,
+        companion_pdf_path=path.with_suffix(".pdf"),
+        require_companion_pdf=path.resolve() == baseline_path().resolve(),
     )
     data = artifact.data
     expected_T = np.asarray(T_BATH_VALUES, dtype=float)
@@ -376,29 +400,35 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
     )
 
 
-def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
+def write_plot(result: Fig8Result, path: Path) -> Path:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path()
+    require_staging_path(path, plot_path(), artifact_kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Stored columns are qpsim-convention N_qp/(4 rho_F Delta_0); F24 Eq. 7's
+    # x_qp is N_qp/(2 rho_F Delta_0), so the figure layer applies the ×2 here.
+    _XQP_QPSIM_TO_PAPER = 2.0
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.loglog(result.T_bath, result.x_qp_thermal, "k--", lw=1.5, label=r"thermal (no PB drive)")
+    ax.loglog(
+        result.T_bath,
+        _XQP_QPSIM_TO_PAPER * result.x_qp_thermal,
+        "k--", lw=1.5, label=r"thermal (no PB drive)",
+    )
     colors = plt.get_cmap("viridis")(np.linspace(0.15, 0.85, len(result.powers)))
     for power, color in zip(result.powers, colors, strict=True):
         ax.loglog(
             result.T_bath,
-            result.x_qp_by_power[power],
+            _XQP_QPSIM_TO_PAPER * result.x_qp_by_power[power],
             lw=2.0,
             color=color,
             label=rf"$c \cdot \bar n = {power:g}$ ns$^{{-1}}$",
         )
     ax.set_xlabel(r"$T_B$ [K]", fontsize=14)
-    ax.set_ylabel(r"$x_{qp}$", fontsize=14)
+    ax.set_ylabel(r"$x_{qp} = N_{qp}/(2\rho_F\Delta_0)$  (F24 Eq. 7)", fontsize=14)
     ax.set_title(
         "Fischer & Catelani 2024 Fig 8 — PB-photon drive\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\tau_0={TAU_0:.0f}$ ns, "
@@ -425,9 +455,21 @@ def generate_baseline() -> tuple[Path, Path]:
         f"  T_bath sweep: {len(T_BATH_VALUES)} points, "
         f"{T_BATH_VALUES[0]:.3f} -> {T_BATH_VALUES[-1]:.3f} K"
     )
+    producer = capture_producer_identity(solver_fingerprint())
     result = run()
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path, pdf_path = publish_artifact_pair(
+        csv_path=baseline_path(),
+        pdf_path=plot_path(),
+        producer=producer,
+        current_fingerprint=solver_fingerprint,
+        render_pdf=lambda path: write_plot(result, path),
+        write_csv=lambda path, identity, pdf: write_baseline(
+            result,
+            path,
+            producer=identity,
+            companion_pdf=pdf,
+        ),
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path

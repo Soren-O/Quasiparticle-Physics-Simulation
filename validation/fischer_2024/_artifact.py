@@ -18,14 +18,18 @@ import csv
 import hashlib
 import json
 import os
-from collections.abc import Iterator, Mapping, Sequence
+import platform
+import sys
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, TextIO, cast
 
+import matplotlib
 import numpy as np
+import scipy
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.collisions.pair_breaking_photon import (
     pair_breaking_photon_collision_rates,
@@ -55,8 +59,15 @@ def thermal_occupations_match(values: np.ndarray, expected: np.ndarray) -> bool:
     exact; this semantic live-state check admits only a small multiple of
     machine epsilon and no absolute floor.
     """
-    actual = np.asarray(values, dtype=float)
-    reference = np.asarray(expected, dtype=float)
+    actual_raw = np.asarray(values)
+    reference_raw = np.asarray(expected)
+    if np.iscomplexobj(actual_raw) or np.iscomplexobj(reference_raw):
+        return False
+    try:
+        actual = np.asarray(actual_raw, dtype=float)
+        reference = np.asarray(reference_raw, dtype=float)
+    except (TypeError, ValueError):
+        return False
     return (
         actual.shape == reference.shape
         and bool(np.all(np.isfinite(actual)))
@@ -79,35 +90,31 @@ def source_hashes(
 ) -> dict[str, str]:
     """Hash the validation modules and numerical sources defining a solve.
 
-    Keep this list explicit: it is provenance for the persisted numerical
-    contract, not a package-version surrogate.  In particular it includes the
-    low-level quadrature, validation, constants, material, and state modules
-    that the public collision/backend modules import. Source newlines are
-    normalized so LF and CRLF checkouts have the same identity.
+    Every qpsim Python module and material YAML input is listed explicitly.
+    This conservative tree manifest closes omissions in a hand-maintained
+    import list (including dynamic or future dependencies) and keeps each
+    contributing file independently auditable. It deliberately prefers
+    harmless over-invalidation to stale numerical evidence. Source newlines
+    are normalized so LF and CRLF checkouts have the same identity.
     """
     root = Path(__file__).resolve().parents[2]
+    qpsim_root = root / "qpsim"
+    qpsim_sources = sorted(
+        {
+            *qpsim_root.rglob("*.py"),
+            *qpsim_root.rglob("*.yaml"),
+            *qpsim_root.rglob("*.yml"),
+        },
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
     sources = {
-        "qpsim/backends/base.py": root / "qpsim/backends/base.py",
-        "qpsim/backends/t3_diffusion.py": root / "qpsim/backends/t3_diffusion.py",
-        "qpsim/collisions/_uniform_grid.py": root / "qpsim/collisions/_uniform_grid.py",
-        "qpsim/collisions/_validation.py": root / "qpsim/collisions/_validation.py",
-        "qpsim/collisions/pair_breaking_photon.py": (
-            root / "qpsim/collisions/pair_breaking_photon.py"
-        ),
-        "qpsim/collisions/phonon.py": root / "qpsim/collisions/phonon.py",
-        "qpsim/constants.py": root / "qpsim/constants.py",
-        "qpsim/grid/energy_grid.py": root / "qpsim/grid/energy_grid.py",
-        "qpsim/materials/database.py": root / "qpsim/materials/database.py",
-        "qpsim/observables/density.py": root / "qpsim/observables/density.py",
-        "qpsim/phonon_models/state.py": root / "qpsim/phonon_models/state.py",
-        "qpsim/physics/bcs_quadrature.py": root / "qpsim/physics/bcs_quadrature.py",
-        "qpsim/physics/kernels.py": root / "qpsim/physics/kernels.py",
-        "qpsim/physics/spectral.py": root / "qpsim/physics/spectral.py",
-        "qpsim/services/steady_state.py": root / "qpsim/services/steady_state.py",
-        "qpsim/solvers/newton_steady_state.py": (root / "qpsim/solvers/newton_steady_state.py"),
+        path.relative_to(root).as_posix(): path
+        for path in qpsim_sources
+    }
+    sources.update({
         "validation/source_provenance.py": root / "validation/source_provenance.py",
         "validation/fischer_2024/_artifact.py": Path(__file__).resolve(),
-    }
+    })
     for module in (validation_module, *extra_validation_modules):
         resolved = module.resolve()
         try:
@@ -144,6 +151,303 @@ class ArtifactTable:
     certificates: dict[str, QPCertificate]
 
 
+@dataclass(frozen=True)
+class ProducerIdentity:
+    """Frozen numerical inputs and runtime captured before an expensive solve.
+
+    ``fingerprint`` is the portable, correctness-bearing source/configuration
+    identity used by readers to reject stale artifacts. ``runtime`` records
+    the producer host and numerical stack for diagnosis and reproducibility,
+    but readers deliberately do not require their current host to match it.
+    """
+
+    fingerprint: dict[str, Any]
+    runtime: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CompanionArtifactRecord:
+    """Content identity for the staged PDF paired with a CSV commit marker."""
+
+    sha256: str
+    size_bytes: int
+
+
+_THREAD_ENVIRONMENT_KEYS = (
+    "BLIS_NUM_THREADS",
+    "MKL_CBWR",
+    "MKL_DYNAMIC",
+    "MKL_NUM_THREADS",
+    "OMP_DYNAMIC",
+    "OMP_NUM_THREADS",
+    "OPENBLAS_CORETYPE",
+    "OPENBLAS_NUM_THREADS",
+)
+
+
+def _numeric_build_provenance(module: Any) -> dict[str, Any]:
+    """Return portable BLAS/LAPACK/compiler facts from NumPy-style config."""
+    config = getattr(getattr(module, "__config__", None), "CONFIG", {})
+    if not isinstance(config, Mapping):
+        return {}
+    dependencies = config.get("Build Dependencies", {})
+    dependency_result: dict[str, Any] = {}
+    if isinstance(dependencies, Mapping):
+        for name in ("blas", "lapack"):
+            raw = dependencies.get(name, {})
+            if not isinstance(raw, Mapping):
+                continue
+            dependency_result[name] = {
+                key: raw[key]
+                for key in (
+                    "detection method",
+                    "found",
+                    "name",
+                    "openblas configuration",
+                    "version",
+                )
+                if key in raw
+            }
+    compilers = config.get("Compilers", {})
+    compiler_result: dict[str, Any] = {}
+    if isinstance(compilers, Mapping):
+        for name, raw in compilers.items():
+            if isinstance(raw, Mapping):
+                compiler_result[str(name)] = {
+                    key: raw[key]
+                    for key in ("name", "version")
+                    if key in raw
+                }
+    simd = config.get("SIMD Extensions", {})
+    simd_result = dict(simd) if isinstance(simd, Mapping) else {}
+    return {
+        "build_dependencies": dependency_result,
+        "compilers": compiler_result,
+        "simd_extensions": simd_result,
+    }
+
+
+def producer_runtime_provenance() -> dict[str, Any]:
+    """Capture the numerical runtime without installation-specific paths."""
+    multiarray = getattr(getattr(np, "_core", None), "_multiarray_umath", None)
+    raw_cpu_features = getattr(multiarray, "__cpu_features__", {})
+    cpu_features = (
+        {
+            str(name): bool(enabled)
+            for name, enabled in sorted(raw_cpu_features.items())
+        }
+        if isinstance(raw_cpu_features, Mapping)
+        else {}
+    )
+    return {
+        "matplotlib": {
+            "backend": str(matplotlib.get_backend()),
+            "freetype": getattr(
+                getattr(matplotlib, "ft2font", None),
+                "__freetype_version__",
+                None,
+            ),
+            "version": matplotlib.__version__,
+        },
+        "numpy": {
+            "build": _numeric_build_provenance(np),
+            "version": np.__version__,
+        },
+        "platform": {
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+            "release": platform.release(),
+            "system": platform.system(),
+        },
+        "python": {
+            "byteorder": sys.byteorder,
+            "compiler": platform.python_compiler(),
+            "implementation": platform.python_implementation(),
+            "version": platform.python_version(),
+        },
+        "runtime_cpu_features": cpu_features,
+        "scipy": {
+            "build": _numeric_build_provenance(scipy),
+            "version": scipy.__version__,
+        },
+        "thread_environment": {
+            name: os.environ.get(name)
+            for name in _THREAD_ENVIRONMENT_KEYS
+        },
+    }
+
+
+def _json_copy(value: Any) -> Any:
+    """Return an immutable-by-convention JSON round-trip copy."""
+    return json.loads(_canonical_json(value))
+
+
+def capture_producer_identity(fingerprint: Mapping[str, Any]) -> ProducerIdentity:
+    """Freeze source/configuration and runtime identities before a solve."""
+    # PDF bytes are part of the promoted artifact pair. Select the declared
+    # non-interactive renderer before freezing the producer runtime.
+    matplotlib.use("Agg")
+    return ProducerIdentity(
+        fingerprint=cast(dict[str, Any], _json_copy(dict(fingerprint))),
+        runtime=cast(dict[str, Any], _json_copy(producer_runtime_provenance())),
+    )
+
+
+def assert_producer_identity_current(
+    producer: ProducerIdentity,
+    fingerprint: Mapping[str, Any],
+) -> None:
+    """Refuse promotion when source, configuration, or runtime changed."""
+    current = capture_producer_identity(fingerprint)
+    if producer.fingerprint != current.fingerprint:
+        raise ArtifactValidationError(
+            "Fischer 2024 producer fingerprint changed during the solve; "
+            "discard the result and rerun from a stable source/configuration tree."
+        )
+    if producer.runtime != current.runtime:
+        raise ArtifactValidationError(
+            "Fischer 2024 numerical runtime changed during the solve; "
+            "discard the result and rerun in one stable runtime."
+        )
+
+
+def require_staging_path(
+    path: Path,
+    canonical_path: Path,
+    *,
+    artifact_kind: str,
+) -> Path:
+    """Reject direct writes to a canonical artifact commit path.
+
+    Canonical CSV/PDF pairs are published only by :func:`publish_artifact_pair`,
+    which renders both payloads off-path, binds the CSV to the staged PDF, and
+    replaces the CSV last. A public single-file writer must therefore never
+    be able to invalidate one half of the canonical pair.
+    """
+    if path.resolve() == canonical_path.resolve():
+        raise ArtifactValidationError(
+            f"Direct writes to the canonical Fischer 2024 {artifact_kind} "
+            "are forbidden; use generate_baseline() so the authenticated "
+            "CSV/PDF pair is staged and promoted together."
+        )
+    return path
+
+
+def companion_artifact_record(path: Path) -> CompanionArtifactRecord:
+    """Hash a complete staged PDF and reject empty/non-PDF payloads."""
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ArtifactValidationError(
+            f"Cannot read staged companion PDF at {path}: {exc}"
+        ) from exc
+    if not payload.startswith(b"%PDF-") or b"%%EOF" not in payload[-1024:]:
+        raise ArtifactValidationError(
+            f"Companion artifact at {path} is not a complete PDF."
+        )
+    return CompanionArtifactRecord(
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
+
+
+def _require_staged_csv_pdf_binding(
+    path: Path,
+    expected: CompanionArtifactRecord,
+) -> None:
+    """Verify the staged CSV actually records the staged PDF identity."""
+    try:
+        with path.open(encoding="utf-8", newline="") as fp:
+            rows = list(csv.reader(fp))
+        if (
+            len(rows) < 2
+            or len(rows[1]) != 1
+            or not rows[1][0].startswith("# qpsim_metadata=")
+        ):
+            raise ValueError("missing metadata row")
+        metadata = json.loads(rows[1][0].split("=", 1)[1])
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ArtifactValidationError(
+            f"Staged CSV at {path} is incomplete or malformed."
+        ) from exc
+    if not isinstance(metadata, dict) or metadata.get("companion_pdf") != {
+        "sha256": expected.sha256,
+        "size_bytes": expected.size_bytes,
+    }:
+        raise ArtifactValidationError(
+            f"Staged CSV at {path} does not bind the staged companion PDF."
+        )
+
+
+def publish_artifact_pair(
+    *,
+    csv_path: Path,
+    pdf_path: Path,
+    producer: ProducerIdentity,
+    current_fingerprint: Callable[[], Mapping[str, Any]],
+    render_pdf: Callable[[Path], Path],
+    write_csv: Callable[
+        [Path, ProducerIdentity, CompanionArtifactRecord],
+        Path,
+    ],
+) -> tuple[Path, Path]:
+    """Stage and promote a PDF/CSV pair, with the CSV as commit marker.
+
+    Both payloads are completed off-path. The staged PDF's exact hash and
+    byte count are passed to ``write_csv`` for inclusion in CSV metadata.
+    After a final source/runtime drift check, the PDF is promoted first and
+    the binding CSV last. A crash in between is fail-closed: the old CSV
+    cannot authenticate the new PDF.
+    """
+    assert_producer_identity_current(producer, current_fingerprint())
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_stage: Path | None = None
+    pdf_stage: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            mode="wb",
+            dir=pdf_path.parent,
+            prefix=f".{pdf_path.name}.",
+            suffix=".pdf",
+            delete=False,
+        ) as temporary:
+            pdf_stage = Path(temporary.name)
+        with NamedTemporaryFile(
+            mode="wb",
+            dir=csv_path.parent,
+            prefix=f".{csv_path.name}.",
+            suffix=".csv",
+            delete=False,
+        ) as temporary:
+            csv_stage = Path(temporary.name)
+
+        rendered_path = render_pdf(pdf_stage)
+        if rendered_path.resolve() != pdf_stage.resolve():
+            raise ArtifactValidationError(
+                "Fischer 2024 PDF renderer did not write the requested staged path."
+            )
+        pdf_record = companion_artifact_record(pdf_stage)
+        written_path = write_csv(csv_stage, producer, pdf_record)
+        if written_path.resolve() != csv_stage.resolve():
+            raise ArtifactValidationError(
+                "Fischer 2024 CSV writer did not write the requested staged path."
+            )
+        _require_staged_csv_pdf_binding(csv_stage, pdf_record)
+        assert_producer_identity_current(producer, current_fingerprint())
+
+        os.replace(pdf_stage, pdf_path)
+        pdf_stage = None
+        os.replace(csv_stage, csv_path)
+        csv_stage = None
+        return csv_path, pdf_path
+    finally:
+        if csv_stage is not None:
+            csv_stage.unlink(missing_ok=True)
+        if pdf_stage is not None:
+            pdf_stage.unlink(missing_ok=True)
+
+
 def validated_numeric_array(
     values: Any,
     *,
@@ -153,7 +457,13 @@ def validated_numeric_array(
     upper: float | None = None,
 ) -> np.ndarray:
     """Return a finite, shape-checked array inside an inclusive domain."""
-    array = np.asarray(values, dtype=float)
+    raw = np.asarray(values)
+    if np.iscomplexobj(raw):
+        raise ArtifactValidationError(f"{context} must be real-valued.")
+    try:
+        array = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ArtifactValidationError(f"{context} must be numeric.") from exc
     if array.shape != expected_shape:
         raise ArtifactValidationError(
             f"{context} has shape {array.shape}; expected {expected_shape}."
@@ -237,14 +547,17 @@ def qp_certificate(
             "Fischer 2024 QP certificate requires exactly the PB photon keys "
             f"{sorted(expected_keys)}; got {sorted(pb_photon_params)}."
         )
-    values = np.asarray(
-        [
-            pb_photon_params["omega_PB"],
-            pb_photon_params["n_bar_PB"],
-            pb_photon_params["c_phot_PB"],
-        ],
-        dtype=float,
-    )
+    raw_values = np.asarray([
+        pb_photon_params["omega_PB"],
+        pb_photon_params["n_bar_PB"],
+        pb_photon_params["c_phot_PB"],
+    ])
+    if np.iscomplexobj(raw_values):
+        raise ValueError("PB photon certificate parameters must be real-valued.")
+    try:
+        values = np.asarray(raw_values, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("PB photon certificate parameters must be numeric.") from exc
     if np.any(~np.isfinite(values)) or np.any(values <= 0.0):
         raise ValueError("PB photon certificate parameters must be finite and positive.")
 
@@ -252,6 +565,8 @@ def qp_certificate(
     material = state.material
     if spectral.dynes_gamma != 0.0:
         raise ValueError("Fischer 2024 QP certificate supports ideal BCS only.")
+    if np.iscomplexobj(state.f):
+        raise ValueError("state.f must be real-valued.")
     if state.f.shape != spectral.E.shape:
         raise ValueError("state.f and the spectral energy grid must have equal shape.")
     if np.any(~np.isfinite(state.f)) or np.any((state.f < 0.0) | (state.f > 1.0)):
@@ -408,12 +723,35 @@ def write_artifact(
     rows: Sequence[Sequence[float]],
     certificates: Mapping[str, QPCertificate],
     target_qp_residual_inf: float = TARGET_QP_RESIDUAL_INF_LIMIT,
+    producer: ProducerIdentity | None = None,
+    companion_pdf: CompanionArtifactRecord | None = None,
 ) -> Path:
     """Validate and atomically write one strict Fischer 2024 artifact."""
+    if producer is None:
+        producer = capture_producer_identity(fingerprint)
+    if producer.fingerprint != _json_copy(dict(fingerprint)):
+        raise ArtifactValidationError(
+            "Artifact fingerprint does not match the pre-solve producer identity."
+        )
+    if (
+        companion_pdf is not None
+        and (
+            len(companion_pdf.sha256) != 64
+            or any(c not in "0123456789abcdef" for c in companion_pdf.sha256)
+            or companion_pdf.size_bytes <= 0
+        )
+    ):
+        raise ValueError("Companion PDF record must contain a SHA-256 and positive size.")
     column_list = list(columns)
     if not schema or not column_list or len(set(column_list)) != len(column_list):
         raise ValueError("Artifact schema and unique columns are required.")
-    data = np.asarray(rows, dtype=float)
+    raw_data = np.asarray(rows)
+    if np.iscomplexobj(raw_data):
+        raise ValueError("Artifact table values must be real-valued.")
+    try:
+        data = np.asarray(raw_data, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Artifact table values must be numeric.") from exc
     expected_shape = (len(rows), len(column_list))
     if data.shape != expected_shape:
         raise ValueError(f"Artifact table shape {data.shape} does not match {expected_shape}.")
@@ -448,7 +786,16 @@ def write_artifact(
         "certificate_target_qp_residual_inf": target_qp_residual_inf,
         "certified_payload_sha256": _certified_payload_sha256(data, certificates),
         "columns": column_list,
+        "companion_pdf": (
+            {
+                "sha256": companion_pdf.sha256,
+                "size_bytes": companion_pdf.size_bytes,
+            }
+            if companion_pdf is not None
+            else None
+        ),
         "fingerprint": dict(fingerprint),
+        "producer_runtime": producer.runtime,
         "row_count": len(rows),
         "schema": schema,
     }
@@ -472,7 +819,9 @@ _METADATA_KEYS = {
     "certificate_target_qp_residual_inf",
     "certified_payload_sha256",
     "columns",
+    "companion_pdf",
     "fingerprint",
+    "producer_runtime",
     "row_count",
     "schema",
 }
@@ -487,6 +836,8 @@ def read_artifact(
     expected_row_count: int,
     expected_certificate_ids: Sequence[str],
     target_qp_residual_inf: float = TARGET_QP_RESIDUAL_INF_LIMIT,
+    companion_pdf_path: Path | None = None,
+    require_companion_pdf: bool = False,
 ) -> ArtifactTable:
     """Read a current artifact, rejecting every incomplete/stale variant."""
     try:
@@ -544,6 +895,51 @@ def read_artifact(
         if metadata[field] != expected:
             raise ArtifactValidationError(
                 f"Artifact at {path} has stale {field}: {metadata[field]!r}; expected {expected!r}."
+            )
+    producer_runtime = metadata["producer_runtime"]
+    if (
+        not isinstance(producer_runtime, dict)
+        or set(producer_runtime)
+        != {
+            "matplotlib",
+            "numpy",
+            "platform",
+            "python",
+            "runtime_cpu_features",
+            "scipy",
+            "thread_environment",
+        }
+    ):
+        raise ArtifactValidationError(
+            f"Artifact at {path} has malformed producer runtime provenance."
+        )
+    companion = metadata["companion_pdf"]
+    if companion is None:
+        if require_companion_pdf:
+            raise ArtifactValidationError(
+                f"Artifact at {path} is missing its required companion PDF binding."
+            )
+    elif (
+        not isinstance(companion, dict)
+        or set(companion) != {"sha256", "size_bytes"}
+        or not isinstance(companion["sha256"], str)
+        or len(companion["sha256"]) != 64
+        or any(c not in "0123456789abcdef" for c in companion["sha256"])
+        or not isinstance(companion["size_bytes"], int)
+        or companion["size_bytes"] <= 0
+    ):
+        raise ArtifactValidationError(
+            f"Artifact at {path} has malformed companion PDF provenance."
+        )
+    elif companion_pdf_path is not None:
+        actual_companion = companion_artifact_record(companion_pdf_path)
+        if (
+            actual_companion.sha256 != companion["sha256"]
+            or actual_companion.size_bytes != companion["size_bytes"]
+        ):
+            raise ArtifactValidationError(
+                f"Artifact at {path} does not authenticate companion PDF "
+                f"{companion_pdf_path}."
             )
     if csv_rows[2] != expected_columns:
         raise ArtifactValidationError(

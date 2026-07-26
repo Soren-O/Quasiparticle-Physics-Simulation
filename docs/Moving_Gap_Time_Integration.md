@@ -125,9 +125,24 @@ general spectral solver:
   measure identity has not been derived for a Dynes-broadened spectrum.
 - The fixed energy grid must be uniform for the collision and photon kernels,
   and its lower face must cover every gap reached by the trajectory.
-- The fixed upper boundary must be high enough that no occupied persistent
-  characteristic is stranded above `E_max`. The backend measures this tail
-  and raises instead of silently deleting it.
+- The fixed upper boundary must be high enough that stranded occupied
+  persistent characteristics above `E_max` stay a small correction. The
+  backend measures this tail every materialization: up to `1e-3` of the
+  quasiparticle NUMBER may sit above the window (warning above `1e-9`),
+  kept at its true `xi` in the persistent representation and re-entering
+  if the gap falls; beyond `1e-3` it raises (2026-07-20 adjudication —
+  previously any tail above ~`5e-12` raised, which barred
+  rising-gap/recovery trajectories). Caveats: (i) the bound is on QP
+  number, not energy or collision-rate error — the hidden tail is
+  excluded from public observables, collisions, and gap feedback;
+  (ii) only persistent rows lying WHOLLY above the window are truly
+  frozen — a straddling row shares one occupation value between its
+  visible and hidden portions, so the hidden portion co-evolves with
+  the visible dynamics (and the visible portion is correspondingly
+  mis-weighted). This is a bounded experimental approximation, not a
+  validated recovery method: for quantitative recovery studies,
+  demonstrate `E_max`-independence of the observables (an error-budget
+  study for this regime has not been performed).
 - Gap collapse to the normal state is not implemented; a non-positive stage
   solution raises.
 - The current path is spatially homogeneous and freezes `n_ph` over the QP

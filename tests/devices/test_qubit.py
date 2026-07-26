@@ -422,9 +422,11 @@ class TestDeviceWithQubit:
         )
         sol = solve_device_steady_state(device, outer_tol=1e-10)
         assert sol.qubit_state is not None
-        # Boltzmann ratio
+        # Boltzmann ratio. rel=1e-9, not 1e-10: the damped outer loop
+        # certifies the fixed-point defect at outer_tol*||p||, leaving a
+        # ~defect/damping residual bias (~2e-10 here) in the endpoint.
         p = sol.qubit_state.p
-        assert p[1] / p[0] == pytest.approx(ratio, rel=1e-10)
+        assert p[1] / p[0] == pytest.approx(ratio, rel=1e-9)
         # Regions should still hit thermal equilibrium (no flux drives them).
         E = sol.states["L"].spectral.E
         kT = KB_UEV_PER_K * T_bath

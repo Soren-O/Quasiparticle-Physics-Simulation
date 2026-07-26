@@ -181,14 +181,29 @@ def _plot_xqp_profile(arrays: dict[str, np.ndarray]) -> bytes:
 
 def _plot_occupation_heatmap(arrays: dict[str, np.ndarray], gap: float) -> bytes:
     fig, ax = _new_axes("x (μm)", "E / Δ", "Occupation f(E, x)")
-    f = np.maximum(arrays["f_final"], 1e-300)
+    floor = 1e-300
+    f = np.maximum(arrays["f_final"], floor)
     vmax = float(np.max(f))
-    vmin = max(float(np.min(f[f > 1e-290])) if np.any(f > 1e-290) else 1e-12, vmax * 1e-12)
+    if vmax <= floor:
+        # A schema-valid ultracold equilibrium can underflow every displayed
+        # occupation to the plotting floor. LogNorm requires vmin < vmax;
+        # give the constant field one harmless display decade instead of
+        # constructing the former inverted (1e-12, 1e-300) range.
+        norm = Normalize(vmin=0.0, vmax=floor)
+        colorbar_label = "f (linear; values at plotting floor)"
+    else:
+        positive = f[f > floor]
+        vmin = max(float(np.min(positive)), vmax * 1e-12, floor)
+        if vmin >= vmax:
+            # Constant non-floor fields need a finite colour interval too.
+            vmin = max(vmax * 0.1, floor)
+        norm = LogNorm(vmin=vmin, vmax=vmax)
+        colorbar_label = "f (log scale)"
     mesh = ax.pcolormesh(
         arrays["x_um"], arrays["E_bins"] / gap, f,
-        cmap=SEQ_BLUE, norm=LogNorm(vmin=vmin, vmax=vmax), shading="nearest",
+        cmap=SEQ_BLUE, norm=norm, shading="nearest",
     )
-    fig.colorbar(mesh, ax=ax, label="f (log scale)")
+    fig.colorbar(mesh, ax=ax, label=colorbar_label)
     ax.grid(False)
     return _finish(fig)
 

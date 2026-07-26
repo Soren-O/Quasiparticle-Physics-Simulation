@@ -7,7 +7,10 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from qpsim.services.rate_equation import solve_rate_equation_steady_state
+from qpsim.services.rate_equation import (
+    solve_rate_equation_steady_state,
+    solve_rate_equation_steady_state_multi_seed,
+)
 from qpsim.services.rate_equation_coefficients import (
     M25PhysicalParameters,
     _branching_fraction,
@@ -17,6 +20,7 @@ from qpsim.services.rate_equation_coefficients import (
     _gamma_L_ii,
     _gamma_Rlt_10,
     _K_incomplete,
+    _log_K_incomplete,
     _s_10_squared,
     _tau_E_inverse,
     _tau_R_inverse,
@@ -151,6 +155,47 @@ class TestIncompleteBessel:
         for a, b in pairwise(vals):
             assert b < a
 
+    def test_large_z_representable_tail_matches_high_precision_reference(self) -> None:
+        # 80-digit mpmath reference for integral_0.5^inf exp(-500 cosh(t)) dt.
+        # The old direct quad used its default absolute tolerance and returned
+        # exactly zero even though this tail is representable in float64.
+        value = _K_incomplete(0, 500.0, 0.5)
+        assert value > 0.0
+        assert np.log(value) == pytest.approx(
+            -569.383921829082105084346828401,
+            abs=2e-12,
+        )
+
+    def test_log_form_survives_true_float64_underflow(self) -> None:
+        # The integral itself is below the minimum float64 subnormal, but its
+        # logarithm remains useful to rate ratios and branching fractions.
+        assert _K_incomplete(0, 12_000.0, 0.5) == 0.0
+        assert _log_K_incomplete(0, 12_000.0, 0.5) == pytest.approx(
+            -13_540.2527678644983501654427036,
+            abs=2e-11,
+        )
+
+    def test_log_form_matches_high_precision_at_normal_scale(self) -> None:
+        assert _log_K_incomplete(0, 2.0, 0.5) == pytest.approx(
+            -2.96567680798589949012047945651,
+            abs=2e-13,
+        )
+
+    @pytest.mark.parametrize("n", [-1, 2, 0.5, True])
+    def test_rejects_unsupported_order(self, n: object) -> None:
+        with pytest.raises(ValueError, match=r"integer order|orders n=0 and n=1"):
+            _K_incomplete(n, 1.0, 0.5)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("z", [0.0, -1.0, np.nan, np.inf, -np.inf])
+    def test_rejects_invalid_z(self, z: float) -> None:
+        with pytest.raises(ValueError, match="z must be finite and positive"):
+            _K_incomplete(0, z, 0.5)
+
+    @pytest.mark.parametrize("w", [-1.0, np.nan, np.inf, -np.inf])
+    def test_rejects_invalid_w(self, w: float) -> None:
+        with pytest.raises(ValueError, match="w must be finite and nonnegative"):
+            _K_incomplete(0, 1.0, w)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Tunneling rates — sign conventions and regime transitions
@@ -251,6 +296,52 @@ class TestDetailedBalance:
         tE = _tau_E_inverse(params)
         assert 0.0 < tE / tR < 1.0
 
+    def test_tau_R_exact_matches_s50_series_in_domain(self) -> None:
+        # The exact S48/S49 quadrature must reduce to the S50 series in
+        # its validity domain T ≪ ω_LR. At T/ω_LR ≈ 0.04 the residual
+        # difference (series truncation + the O(ω_LR/Δ_R) correction the
+        # series drops) is ~1%.
+        from qpsim.services.rate_equation_coefficients import (
+            _tau_R_inverse_series_s50,
+        )
+
+        params = _fig3a_params(T_kelvin=0.001)  # T/ω_LR ≈ 0.042
+        exact = _tau_R_inverse(params)
+        series = _tau_R_inverse_series_s50(params)
+        assert series / exact == pytest.approx(1.0, abs=0.02)
+
+    def test_tau_R_absolute_normalization_pinned(self) -> None:
+        # The series/exact ratio tests cancel the shared prefactor and
+        # cannot detect a normalization change (2026-07-20 review). Pin the
+        # ABSOLUTE rate at the Fig 3a parameter set, including the
+        # (Delta_R/Delta_bar)^3 = 0.98486 conversion factor required by
+        # the paper's r^{R<} ~= 8*pi*b_R*Delta_bar^3 definition (M25 v2
+        # App. D.3, verified against the arXiv math source; a first-pass
+        # adjudication wrongly refuted the factor from a truncated
+        # extract). Dropping the factor inflates these by 1.54%.
+        assert _tau_R_inverse(_fig3a_params(T_kelvin=0.030)) == pytest.approx(
+            4.059143818533248, rel=1e-6
+        )
+        assert _tau_R_inverse(_fig3a_params(T_kelvin=0.150)) == pytest.approx(
+            207.50905780791763, rel=1e-6
+        )
+
+    def test_tau_R_exact_departs_from_series_out_of_domain(self) -> None:
+        # 2026-07-19 audit H4 regression guard: on the shipped Fig 3a
+        # sweep the series is evaluated far outside T ≪ ω_LR; at
+        # T/ω_LR ≈ 6.25 (150 mK, ω_LR = 24 mK) it under-predicts the
+        # exact S48/S49 rate by ~5x. If this assert fires because the
+        # ratio moved toward 1, _tau_R_inverse has silently regressed
+        # to the series.
+        from qpsim.services.rate_equation_coefficients import (
+            _tau_R_inverse_series_s50,
+        )
+
+        params = _fig3a_params(T_kelvin=0.150)
+        exact = _tau_R_inverse(params)
+        series = _tau_R_inverse_series_s50(params)
+        assert series / exact == pytest.approx(0.203, abs=0.02)
+
     def test_thermal_generation_scales_with_boltzmann(self) -> None:
         # g^{pn}_L ∝ T × e^{-2Δ_L/T} — rises rapidly with T.
         coefs_cold = coefficients_from_physical_parameters(_fig3a_params(T_kelvin=0.020))
@@ -336,6 +427,19 @@ class TestBranchingFraction:
         xi_cold = _branching_fraction(params_cold)
         assert xi_cold < xi_warm
 
+    def test_ultracold_xi_matches_high_precision_reference(self) -> None:
+        # 80-digit mpmath evaluation of K_0(z,w)/K_0(z) at the Fig. 3a
+        # parameters. Both unscaled integrals used to underflow to zero.
+        xi = _branching_fraction(_fig3a_params(T_kelvin=1e-4))
+        assert xi == pytest.approx(2.11583916322907e-106, rel=2e-12)
+
+    def test_ultracold_xi_underflows_only_when_mathematically_required(self) -> None:
+        # At 10 microkelvin the true value is about 7.91e-1045, so exact
+        # float64 zero is correct rather than evidence of a 0/0 failure.
+        xi = _branching_fraction(_fig3a_params(T_kelvin=1e-5))
+        assert np.isfinite(xi)
+        assert xi == 0.0
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Integration: build coefficients → solve steady state
@@ -343,11 +447,28 @@ class TestBranchingFraction:
 
 
 class TestIntegrationWithSolver:
+    def test_ultracold_coefficient_bundle_is_finite(self) -> None:
+        # Before the scaled/log-domain implementation, erfc and both Bessel
+        # factors underflowed independently and coefficient construction
+        # failed with 0/0 or inf*0 at this temperature.
+        coefs = coefficients_from_physical_parameters(
+            _fig3a_params(T_kelvin=1e-5),
+        )
+        for value in vars(coefs).values():
+            assert np.all(np.isfinite(value))
+
     def test_fig3a_low_T_steady_state_trapped_band_dominant(self) -> None:
-        """At T ≪ ω_LR, Fig 3a should have x_{R<} > x_L > x_{R>}."""
+        """At T ≪ ω_LR, Fig 3a should have x_{R<} > x_L > x_{R>}.
+
+        Uses the multi-seed production path: after the (Δ_R/Δ̄)³ tau_R
+        normalization fix the default single seed stalls at this point
+        with an in-tolerance residual (scipy no-progress status), and
+        multi-seed reseeding — what the shipped sweeps run — resolves it
+        without loosening the strict acceptance gate.
+        """
         params = _fig3a_params(T_kelvin=0.020)
         coefs = coefficients_from_physical_parameters(params)
-        ss = solve_rate_equation_steady_state(coefs)
+        ss = solve_rate_equation_steady_state_multi_seed(coefs)
         assert ss.x_Rlt > ss.x_L > ss.x_Rgt
         assert 0.0 < ss.p_1 < 1e-3  # negligible excitation at 20 mK
 

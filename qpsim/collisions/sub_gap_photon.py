@@ -11,6 +11,8 @@ Ported from ``photon_collision_rates`` in the old
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
@@ -46,7 +48,6 @@ def sub_gap_photon_collision_rates(
     E = ctx.E
     NE = E.size
     f = validated_occupation(f, E.shape, "Sub-gap photon collision")
-    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
 
     if not np.isfinite(omega_0) or omega_0 < 0.0:
         raise ValueError(f"omega_0 must be finite and non-negative; got {omega_0}.")
@@ -54,6 +55,10 @@ def sub_gap_photon_collision_rates(
         raise ValueError(f"n_bar must be finite and non-negative; got {n_bar}.")
     if not np.isfinite(c_phot) or c_phot < 0.0:
         raise ValueError(f"c_phot must be finite and non-negative; got {c_phot}.")
+    if omega_0 == 0.0 or c_phot == 0.0:
+        # Preserve disabled-channel equivalence: validate occupation/scalars,
+        # then bypass grid/model restrictions for an identically zero term.
+        return np.zeros(NE), np.zeros(NE)
     if ctx.dynes_gamma > 0.0:
         raise ValueError(
             "Sub-gap photon collisions do not support dynes_gamma > 0: "
@@ -66,9 +71,8 @@ def sub_gap_photon_collision_rates(
             "Use pair_breaking_photon_collision_rates for an above-gap drive."
         )
 
+    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
     m = round(omega_0 / dE_scalar)
-    if omega_0 == 0.0:
-        return np.zeros(NE), np.zeros(NE)
     if m <= 0:
         raise ValueError(
             f"omega_0={omega_0:.6g} μeV is below half the grid spacing "
@@ -83,6 +87,33 @@ def sub_gap_photon_collision_rates(
             f"commensurate (dE={dE_scalar:.6g} μeV, nearest m={m}, "
             f"fractional error={frac_err:.4f} > tol={_COMMENSURATE_TOL}). "
             f"Use m·dE={m * dE_scalar:.6g} μeV or refine the energy grid."
+        )
+    if m * dE_scalar >= 2.0 * ctx.gap:
+        # The nominal omega_0 passed the < 2*gap contract above; a snap
+        # that lands at or above 2*gap would silently turn a sub-gap
+        # scattering drive into pair-breaking territory (2026-07-20
+        # round-4 review: threshold-crossing snaps must fail loud).
+        raise ValueError(
+            f"Snapping omega_0={omega_0:.6g} μeV to m·dE="
+            f"{m * dE_scalar:.6g} μeV crosses the 2Δ={2.0 * ctx.gap:.6g} "
+            "μeV threshold; use pair_breaking_photon_collision_rates or a "
+            "commensurate frequency below the threshold."
+        )
+    if frac_err > 1e-6:
+        # The accepted snap changes the SOLVED photon energy to m*dE while
+        # n_bar remains whatever the caller chose for the nominal omega_0.
+        # For a drive-set occupancy that is a labeling shift; for a
+        # THERMAL occupancy (Bose factor at omega_0) the mismatch breaks
+        # detailed balance measurably (2026-07-20 review: up to 5.4% at
+        # 50 mK for a 0.0099-bin offset). Disclose the snap so callers
+        # can evaluate occupancies at the energy actually solved.
+        warnings.warn(
+            f"sub_gap_photon: omega_0={omega_0:.6g} μeV snapped to "
+            f"m·dE={m * dE_scalar:.6g} μeV ({frac_err:.2e} bins). Evaluate "
+            "any energy-dependent photon occupancy (thermal Bose factors "
+            "especially) at the snapped energy, not the nominal one.",
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     # A fixed photon step maps one finite-volume cell to another.  The

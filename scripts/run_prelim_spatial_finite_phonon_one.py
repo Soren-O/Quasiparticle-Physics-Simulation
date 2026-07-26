@@ -18,6 +18,7 @@ import csv
 import json
 import sys
 import time
+import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -31,7 +32,9 @@ from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
@@ -86,6 +89,9 @@ class ReadoutPhotonDrive:
     c_phot: float
     spatial_profile: np.ndarray
     label: str = "readout"
+    #: Nominal (pre-snap) photon energy when ``omega_0`` was snapped to the
+    #: energy grid; ``None`` when ``omega_0`` is the physical mode energy.
+    omega_nominal_uev: float | None = None
 
     def __post_init__(self) -> None:
         profile = np.asarray(self.spatial_profile, dtype=float)
@@ -114,6 +120,45 @@ class ReadoutPhotonDrive:
         return float(self.n_bar * self.spatial_profile[ix])
 
 
+#: Refuse to snap a readout mode whose grid-commensurate neighbor is more
+#: than this far away (relative to the mode energy) — the grid cannot
+#: honestly represent the drive and NE must be refined instead.
+_OMEGA_SNAP_MAX_REL_SHIFT = 0.05
+
+
+def snap_omega_to_grid(omega_uev: float, dE_uev: float) -> tuple[float, int, float]:
+    """Snap a photon energy to the nearest integer grid harmonic ``m*dE``.
+
+    ``sub_gap_photon_collision_rates`` fail-louds on frequencies that are not
+    grid-commensurate within ``|omega - m*dE|/dE <= 1%``; physical resonator
+    modes generally are not commensurate (the prelim 5.142857 GHz mode is
+    1.64% of a cell off at NE=101). Snapping must therefore happen explicitly
+    at the drive-construction boundary, with the shift recorded — never
+    silently inside the kernel.
+
+    Returns ``(omega_snapped, m, rel_shift)`` where ``rel_shift`` is
+    ``|omega_snapped - omega| / omega``.
+    """
+    if omega_uev <= 0.0 or dE_uev <= 0.0:
+        raise ValueError("omega_uev and dE_uev must both be positive.")
+    m = round(omega_uev / dE_uev)
+    if m < 1:
+        raise ValueError(
+            f"omega={omega_uev:g} ueV is below one grid spacing "
+            f"dE={dE_uev:g} ueV; the grid cannot represent this mode."
+        )
+    snapped = m * dE_uev
+    rel_shift = abs(snapped - omega_uev) / omega_uev
+    if rel_shift > _OMEGA_SNAP_MAX_REL_SHIFT:
+        raise ValueError(
+            f"Snapping omega={omega_uev:g} ueV to the nearest grid harmonic "
+            f"{m}*dE={snapped:g} ueV shifts it by {rel_shift:.2%} > "
+            f"{_OMEGA_SNAP_MAX_REL_SHIFT:.0%} of the mode energy; refine the "
+            "energy grid instead of accepting a misrepresented drive."
+        )
+    return snapped, m, rel_shift
+
+
 def readout_drive_from_resonator(
     state: T3Spatial1DState,
     resonator: PrelimResonator,
@@ -121,17 +166,36 @@ def readout_drive_from_resonator(
     n_bar: float,
     c_phot: float = 1e-9,
 ) -> ReadoutPhotonDrive:
-    """Build an ``I^2``-weighted sub-gap readout drive for one prelim mode."""
+    """Build an ``I^2``-weighted sub-gap readout drive for one prelim mode.
+
+    The mode energy is snapped to the nearest grid harmonic (see
+    :func:`snap_omega_to_grid`); the nominal energy is preserved on
+    ``omega_nominal_uev`` and a warning quantifies the shift.
+    """
     weights = current_squared_profile(state.x, resonator.total_length_um)
     peak = float(np.max(weights))
     if peak <= 0.0:
         raise RuntimeError("Current profile vanished on the simulated strip.")
+    omega_nominal = float(resonator.probe_energy_uev)
+    omega_used, harmonic, rel_shift = snap_omega_to_grid(
+        omega_nominal, float(state.spectral.dE[0])
+    )
+    if omega_used != omega_nominal:
+        warnings.warn(
+            f"Readout mode {resonator.frequency_ghz:.6f} GHz "
+            f"({omega_nominal:.4f} ueV) snapped to grid harmonic "
+            f"{harmonic}*dE = {omega_used:.4f} ueV "
+            f"(shift {rel_shift:.3%} of the mode energy).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return ReadoutPhotonDrive(
-        omega_0=resonator.probe_energy_uev,
+        omega_0=omega_used,
         n_bar=n_bar,
         c_phot=c_phot,
         spatial_profile=weights / peak,
         label=f"mode_{resonator.index}_{resonator.frequency_ghz:.3f}GHz",
+        omega_nominal_uev=omega_nominal,
     )
 
 
@@ -160,6 +224,8 @@ class FinitePhononSpatialRunner:
         )
         self.n_th = thermal_phonon_occupation(self.omega, state.T_bath)
         self.n_ph = np.repeat(self.n_th[:, None], state.x.size, axis=1)
+        # QP-side kernels (omega^2/(tau_0 T_c^3) prefactor) drive the QP
+        # collision integral only.
         self.K_s0 = build_scattering_kernel_base(
             state.spectral,
             tau_0=state.material.tau_0,
@@ -169,6 +235,25 @@ class FinitePhononSpatialRunner:
             state.spectral,
             tau_0=state.material.tau_0,
             T_c=state.material.T_c,
+        )
+        # The PHONON equation must use the phonon-side kernels
+        # K+-/(pi*Delta*tau_0^PB) — the paper-faithful F&C 2023 Eq. 12
+        # discretization that the T3 backend defaults to. Reusing the QP-side
+        # kernels there under-weighted phonon emission/pair-breaking by 4-17x
+        # across 2-6*Delta (2026-07-19 audit H1), which corrupted every prelim
+        # finite-phonon campaign number while leaving thermal equilibrium
+        # (detailed balance) exact.
+        tau_0_pb_ns = state.material.tau_0_pb_ns
+        if tau_0_pb_ns is None:
+            raise ValueError(
+                "material.tau_0_pb_ns is required for the finite-phonon "
+                "runner's phonon-side kernels (F&C 2023 Eq. 12/13)."
+            )
+        self.K_s0_phonon_side = build_scattering_kernel_phonon_side(
+            state.spectral, tau_0_pb_ns
+        )
+        self.K_r0_phonon_side = build_recombination_kernel_phonon_side(
+            state.spectral, tau_0_pb_ns
         )
 
     def step(
@@ -272,6 +357,8 @@ class FinitePhononSpatialRunner:
                 self.idx_sum,
                 self.diff_sign,
                 self.omega.size,
+                K_s0_phonon_side=self.K_s0_phonon_side,
+                K_r0_phonon_side=self.K_r0_phonon_side,
             )
             A = a_ph + inv_tau * self.n_th
             B = b_ph - inv_tau
@@ -353,7 +440,9 @@ def main() -> None:
             snapshots.append(_snapshot(t_ns, state, runner, last_dfdt, last_dnphdt))
             next_snapshot += CONFIG.snapshot_interval_ns
 
-        if last_dfdt < CONFIG.stop_tol:
+        # Converged only when BOTH residuals are quiet (2026-07-20 review:
+        # max|dn_ph/dt| lags max|df/dt| by up to ~8.7x on real trajectories).
+        if max(last_dfdt, last_dnphdt) < CONFIG.stop_tol:
             converged = True
             break
 
