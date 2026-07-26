@@ -1,9 +1,14 @@
 # Pinned validation baselines
 
-Every CSV/PDF here is generated **by this repository's** validation
-modules (`python -m validation.<paper>.<figure_module>`) and pinned by
-the co-located regression tests. Subdirectories map to phonon model /
-paper:
+Every CSV/PDF here is generated **by this repository's** validation modules
+or a dedicated repository campaign driver and pinned by co-located regression
+tests. Most figures use `python -m validation.<paper>.<figure_module>`;
+Fischer 2023 Fig. 7 uses
+`python -m scripts.regenerate_fischer_fig7_parallel`. Multi-file canonical
+evidence must be staged, validated, and promoted as one matched set; never
+overwrite a canonical CSV or PDF independently. Commit any co-located
+validation record or promotion attestation with its CSV/PDF pair.
+Subdirectories map to phonon model / paper:
 
 - `ph0_constant/` — Fischer 2023/2024 reproductions (Ph0, constant τ_l);
   see its own README for the per-figure tolerance table.

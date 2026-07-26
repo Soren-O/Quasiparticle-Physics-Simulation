@@ -25,6 +25,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+import validation.fischer_2023.fig5_solve as fig5_solve
 from validation.fischer_2023 import steady_state_certificate as certificate_module
 from validation.fischer_2023.fig5_paper import (
     ARTIFACT_SCHEMA,
@@ -42,6 +43,16 @@ from validation.fischer_2023.fig5_paper import (
     run,
     write_baseline,
 )
+
+
+def test_live_gate_rejects_number_only_certificate_failure() -> None:
+    certificate = {
+        "qp_backward_error": 0.0,
+        "qp_number_backward_error": 0.6,
+        "phonon_backward_error": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="qp_number"):
+        fig5_solve._require_certified_point(certificate, context="test point")
 
 
 def _assert_config_matches_baseline(path) -> None:

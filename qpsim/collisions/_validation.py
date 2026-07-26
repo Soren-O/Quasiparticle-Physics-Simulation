@@ -11,6 +11,12 @@ def validated_occupation(
     operation: str,
 ) -> np.ndarray:
     """Return a finite occupation vector in ``[0, 1]`` with exact shape."""
+    # Reject complex inputs before conversion.  ``np.asarray(...,
+    # dtype=float)`` otherwise discards the imaginary component with only a
+    # warning; in particular, an imaginary NaN can become an apparently
+    # finite real occupation.
+    if np.iscomplexobj(f):
+        raise ValueError(f"{operation} requires real-valued occupations f.")
     occupation = np.asarray(f, dtype=float)
     if occupation.ndim != 1 or occupation.shape != expected_shape:
         raise ValueError(
@@ -34,6 +40,9 @@ def validated_rate_matrix(
     """Return a finite non-negative collision matrix with exact shape."""
     if matrix is None:
         return None
+    # As above, fail before a float cast can erase an invalid imaginary part.
+    if np.iscomplexobj(matrix):
+        raise ValueError(f"{name} must be real-valued.")
     result = np.asarray(matrix, dtype=float)
     if result.shape != expected_shape:
         raise ValueError(

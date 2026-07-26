@@ -53,6 +53,21 @@ def compute_ac_conductivity(
         If ``omega_0 ≤ 0``, ``omega_0 ≥ ctx.gap``, or
         ``ctx.dynes_gamma > 0``.
     """
+    f_raw = np.asarray(f)
+    if np.iscomplexobj(f_raw):
+        raise ValueError("f must be real-valued.")
+    f_arr = np.asarray(f_raw, dtype=float)
+    if f_arr.shape != ctx.E.shape:
+        raise ValueError(
+            f"f must have the same shape as ctx.E; got {f_arr.shape} "
+            f"and {ctx.E.shape}."
+        )
+    if np.any(~np.isfinite(f_arr)):
+        raise ValueError("f must contain only finite values.")
+    if np.any((f_arr < 0.0) | (f_arr > 1.0)):
+        raise ValueError("f must contain physical occupations in [0, 1].")
+    f = f_arr
+
     if omega_0 <= 0:
         raise ValueError("omega_0 must be positive.")
     if n_subgap <= 0:

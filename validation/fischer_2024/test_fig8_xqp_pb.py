@@ -17,6 +17,7 @@ from validation.fischer_2024._artifact import (
     ArtifactValidationError,
     LegacyArtifactError,
     QPCertificate,
+    capture_producer_identity,
 )
 from validation.fischer_2024.fig8_xqp_pb import (
     NEWTON_TOL,
@@ -26,7 +27,6 @@ from validation.fischer_2024.fig8_xqp_pb import (
     baseline_path,
     read_baseline,
     run,
-    write_baseline,
 )
 
 
@@ -75,6 +75,11 @@ def _rewrite_csv(path: Path, mutate: Callable[[list[list[str]]], None]) -> None:
         csv.writer(fp, lineterminator="\n").writerows(rows)
 
 
+def _write_baseline(result: Fig8Result, path: Path) -> Path:
+    producer = capture_producer_identity(target.solver_fingerprint())
+    return target.write_baseline(result, path, producer=producer)
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -88,7 +93,7 @@ def test_current_artifact_round_trips(
     tmp_path: Path,
     _synthetic_certificate: None,
 ) -> None:
-    path = write_baseline(_synthetic_result(), tmp_path / "fig8.csv")
+    path = _write_baseline(_synthetic_result(), tmp_path / "fig8.csv")
     with path.open(encoding="utf-8", newline="") as fp:
         rows = list(csv.reader(fp))
     metadata = json.loads(rows[1][0].split("=", 1)[1])
@@ -110,7 +115,7 @@ def test_writer_rejects_residual_at_newton_tolerance(
     result = _synthetic_result()
     result.qp_residual_inf_by_power[POWER_LEVELS[0]][0] = NEWTON_TOL
     with pytest.raises(RuntimeError, match="residual"):
-        write_baseline(result, tmp_path / "fig8.csv")
+        _write_baseline(result, tmp_path / "fig8.csv")
 
 
 @pytest.mark.parametrize(
@@ -130,7 +135,7 @@ def test_reader_rejects_invalid_artifacts(
     mutation: str,
     _synthetic_certificate: None,
 ) -> None:
-    path = write_baseline(_synthetic_result(), tmp_path / "fig8.csv")
+    path = _write_baseline(_synthetic_result(), tmp_path / "fig8.csv")
 
     def mutate(rows: list[list[str]]) -> None:
         if mutation == "malformed":
@@ -162,14 +167,14 @@ def test_reader_rejects_invalid_artifacts(
 
 def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"QP (backward error|residual_inf)"):
-        write_baseline(_synthetic_result(), tmp_path / "forged.csv")
+        _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
 def test_writer_rejects_negative_x_qp(tmp_path: Path) -> None:
     result = _synthetic_result()
     result.x_qp_thermal[0] = -1.0
     with pytest.raises(ArtifactValidationError, match=r"below 0\.0"):
-        write_baseline(result, tmp_path / "negative.csv")
+        _write_baseline(result, tmp_path / "negative.csv")
 
 
 def test_reduced_live_run_writes_bound_artifact(
@@ -180,7 +185,9 @@ def test_reduced_live_run_writes_bound_artifact(
     monkeypatch.setattr(target, "T_BATH_VALUES", (0.10,))
     monkeypatch.setattr(target, "POWER_LEVELS", (1.0e-2,))
     result = target.run()
-    decoded = target.read_baseline(target.write_baseline(result, tmp_path / "reduced_fig8.csv"))
+    decoded = target.read_baseline(
+        _write_baseline(result, tmp_path / "reduced_fig8.csv")
+    )
     np.testing.assert_allclose(
         decoded.x_qp_by_power[1.0e-2],
         result.x_qp_by_power[1.0e-2],

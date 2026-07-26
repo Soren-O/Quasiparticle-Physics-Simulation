@@ -33,6 +33,50 @@ def _full_mask_with_four_edges(n: int = 3) -> tuple[np.ndarray, list[EdgeSegment
     return mask, edges
 
 
+def _assemble_laplacian(
+    *,
+    variable: bool,
+    mask: np.ndarray,
+    edges: list[EdgeSegment],
+    edge_conditions: dict[str, BoundaryCondition],
+) -> None:
+    if variable:
+        build_variable_diffusion_laplacian(
+            mask,
+            edges,
+            edge_conditions,
+            dx=1.0,
+            D_spatial=np.ones(int(np.count_nonzero(mask))),
+        )
+    else:
+        build_laplacian_with_boundaries(mask, edges, edge_conditions, dx=1.0)
+
+
+@pytest.mark.parametrize("variable", [False, True])
+@pytest.mark.parametrize(
+    "bad_mask",
+    [
+        pytest.param(np.ones((1, 1), dtype=int), id="integer"),
+        pytest.param(np.array([[np.nan]]), id="nan-float"),
+    ],
+)
+def test_builders_reject_nonboolean_geometry_masks(
+    variable: bool,
+    bad_mask: np.ndarray,
+) -> None:
+    _mask, edges = _full_mask_with_four_edges(1)
+    edge_conditions = {
+        edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+    }
+    with pytest.raises(ValueError, match="boolean"):
+        _assemble_laplacian(
+            variable=variable,
+            mask=bad_mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+        )
+
+
 class TestBoundaryCondition:
     def test_normalized_kind_lowercases_and_strips(self) -> None:
         assert BoundaryCondition(kind=" Dirichlet ").normalized_kind() == "dirichlet"
@@ -55,6 +99,28 @@ class TestBoundaryCondition:
         BoundaryCondition(kind="reflective").validate()
         BoundaryCondition(kind="absorbing").validate()
 
+    @pytest.mark.parametrize("kind", ["dirichlet", "neumann", "robin"])
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf, "bad"])
+    def test_rejects_nonfinite_or_nonnumeric_active_value(
+        self,
+        kind: str,
+        bad_value: object,
+    ) -> None:
+        with pytest.raises(ValueError, match="finite and numeric"):
+            BoundaryCondition(kind=kind, value=bad_value).validate()  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf, "bad"])
+    def test_rejects_nonfinite_or_nonnumeric_robin_aux_value(
+        self,
+        bad_value: object,
+    ) -> None:
+        with pytest.raises(ValueError, match="aux_value must be finite and numeric"):
+            BoundaryCondition(
+                kind="robin",
+                value=1.0,
+                aux_value=bad_value,  # type: ignore[arg-type]
+            ).validate()
+
 
 class TestReconstructField:
     def test_values_placed_and_nan_elsewhere(self) -> None:
@@ -74,6 +140,84 @@ class TestMaskToIndex:
         index_map, coords = mask_to_index(mask)
         assert coords == [(0, 0), (1, 0), (1, 1)]
         np.testing.assert_array_equal(index_map, [[0, -1], [1, 2]])
+
+
+class TestSharedEdgeValidation:
+    @pytest.mark.parametrize("variable", [False, True])
+    def test_empty_mask_keeps_geometry_error_precedence(self, variable: bool) -> None:
+        mask = np.zeros((2, 2), dtype=bool)
+        edges = [EdgeSegment("unassigned-empty", 0, 0, 0, 0, "up", [])]
+
+        with pytest.raises(ValueError, match="no interior points"):
+            _assemble_laplacian(
+                variable=variable,
+                mask=mask,
+                edges=edges,
+                edge_conditions={},
+            )
+
+    @pytest.mark.parametrize("variable", [False, True])
+    def test_unassigned_empty_segment_is_rejected(self, variable: bool) -> None:
+        """An empty segment is a no-op, not an exemption from BC assignment."""
+        mask, edges = _full_mask_with_four_edges(2)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+        edges.append(EdgeSegment("empty", 0, 0, 0, 0, "up", []))
+
+        with pytest.raises(BoundaryAssignmentError, match="Missing: 1"):
+            _assemble_laplacian(
+                variable=variable,
+                mask=mask,
+                edges=edges,
+                edge_conditions=edge_conditions,
+            )
+
+    @pytest.mark.parametrize("variable", [False, True])
+    def test_assigned_empty_segment_remains_a_valid_no_op(self, variable: bool) -> None:
+        mask, edges = _full_mask_with_four_edges(2)
+        empty = EdgeSegment("empty", 0, 0, 0, 0, "up", [])
+        edges.append(empty)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+
+        _assemble_laplacian(
+            variable=variable,
+            mask=mask,
+            edges=edges,
+            edge_conditions=edge_conditions,
+        )
+
+    @pytest.mark.parametrize("variable", [False, True])
+    @pytest.mark.parametrize(
+        ("bad_face", "message"),
+        [
+            (BoundaryFace(0, 0, "diagonal"), "unsupported face direction"),
+            (BoundaryFace(-1, 0, "up"), "outside the mask"),
+            (BoundaryFace(0, 0, "right"), "declares the interior face"),
+            (BoundaryFace(0, 0, "up"), "assigned more than once"),
+        ],
+    )
+    def test_malformed_declared_face_is_rejected_by_both_builders(
+        self,
+        variable: bool,
+        bad_face: BoundaryFace,
+        message: str,
+    ) -> None:
+        mask, edges = _full_mask_with_four_edges(2)
+        edges.append(EdgeSegment("bad", 0, 0, 0, 0, "up", [bad_face]))
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+
+        with pytest.raises(BoundaryAssignmentError, match=message):
+            _assemble_laplacian(
+                variable=variable,
+                mask=mask,
+                edges=edges,
+                edge_conditions=edge_conditions,
+            )
 
 
 class TestBuildLaplacian:
@@ -127,11 +271,29 @@ class TestBuildLaplacian:
         # 4 faces × 2·g·inv_dx² (inv_dx² = 1) = 8·g = 16
         assert source[0] == pytest.approx(16.0)
 
-    def test_rejects_non_positive_dx(self) -> None:
+    @pytest.mark.parametrize("bad_dx", [0.0, -1.0, np.nan, np.inf, -np.inf])
+    def test_rejects_non_positive_or_nonfinite_dx(self, bad_dx: float) -> None:
         mask, edges = _full_mask_with_four_edges(3)
         edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
         with pytest.raises(ValueError, match="dx must be positive"):
-            build_laplacian_with_boundaries(mask, edges, edge_conditions, dx=0.0)
+            build_laplacian_with_boundaries(mask, edges, edge_conditions, dx=bad_dx)
+
+    def test_rejects_finite_inputs_whose_scaled_source_overflows(self) -> None:
+        mask, edges = _full_mask_with_four_edges(1)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(
+                kind="dirichlet",
+                value=np.finfo(float).max,
+            )
+            for edge in edges
+        }
+        with pytest.raises(ValueError, match="finite Laplacian and source"):
+            build_laplacian_with_boundaries(
+                mask,
+                edges,
+                edge_conditions,
+                dx=1.0,
+            )
 
 
 class TestBuildVariableDiffusionLaplacian:
@@ -181,12 +343,13 @@ class TestBuildVariableDiffusionLaplacian:
                 D_spatial=np.ones(8),  # should be 9
             )
 
-    def test_rejects_non_positive_dx(self) -> None:
+    @pytest.mark.parametrize("bad_dx", [0.0, -1.0, np.nan, np.inf, -np.inf])
+    def test_rejects_non_positive_or_nonfinite_dx(self, bad_dx: float) -> None:
         mask, edges = _full_mask_with_four_edges(3)
         edge_conditions = {e.edge_id: BoundaryCondition(kind="reflective") for e in edges}
         with pytest.raises(ValueError, match="dx must be positive"):
             build_variable_diffusion_laplacian(
-                mask, edges, edge_conditions, dx=0.0, D_spatial=np.ones(9),
+                mask, edges, edge_conditions, dx=bad_dx, D_spatial=np.ones(9),
             )
 
     def test_rejects_negative_D_spatial(self) -> None:
@@ -198,3 +361,56 @@ class TestBuildVariableDiffusionLaplacian:
             build_variable_diffusion_laplacian(
                 mask, edges, edge_conditions, dx=1.0, D_spatial=D_bad,
             )
+
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+    def test_rejects_nonfinite_D_spatial(self, bad_value: float) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+        D_bad = np.ones(9)
+        D_bad[4] = bad_value
+        with pytest.raises(ValueError, match="finite and non-negative"):
+            build_variable_diffusion_laplacian(
+                mask,
+                edges,
+                edge_conditions,
+                dx=1.0,
+                D_spatial=D_bad,
+            )
+
+    @pytest.mark.parametrize("imaginary", [1e-20, np.nan])
+    def test_rejects_complex_D_spatial_before_float_cast(
+        self,
+        imaginary: float,
+    ) -> None:
+        mask, edges = _full_mask_with_four_edges(3)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+        D_bad = np.ones(9, dtype=complex)
+        D_bad[4] = complex(1.0, imaginary)
+        with pytest.raises(ValueError, match="real-valued"):
+            build_variable_diffusion_laplacian(
+                mask,
+                edges,
+                edge_conditions,
+                dx=1.0,
+                D_spatial=D_bad,
+            )
+
+    def test_large_finite_equal_D_uses_overflow_safe_harmonic_mean(self) -> None:
+        mask, edges = _full_mask_with_four_edges(2)
+        edge_conditions = {
+            edge.edge_id: BoundaryCondition(kind="reflective") for edge in edges
+        }
+        D_value = np.finfo(float).max / 4.0
+        operator, source = build_variable_diffusion_laplacian(
+            mask,
+            edges,
+            edge_conditions,
+            dx=1.0,
+            D_spatial=np.full(4, D_value),
+        )
+        assert np.all(np.isfinite(operator.data))
+        assert np.all(np.isfinite(source))

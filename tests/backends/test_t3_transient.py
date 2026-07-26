@@ -86,6 +86,27 @@ def _state_on_custom_grid(
     return state
 
 
+class TestPublicOccupationValidation:
+    @pytest.mark.parametrize(
+        "operation",
+        ("apply_collisions", "apply_gap_update", "step"),
+    )
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_state_before_float_cast(
+        self,
+        operation: str,
+        imaginary: float,
+    ) -> None:
+        state = _state_on_physics_grid(T_bath=0.1, num_energy=8)
+        bad_f = state.f.astype(complex)
+        bad_f[0] = complex(float(bad_f[0].real), imaginary)
+        state.f = bad_f
+        backend = T3DiffusionBackend()
+
+        with pytest.raises(ValueError, match=r"state\.f must be real-valued"):
+            getattr(backend, operation)(state, 1.0e-3)
+
+
 class TestApplyCollisions:
     def test_diagnostics_count_accepted_etd_substeps_not_rejected_trials(
         self,
@@ -953,5 +974,16 @@ class TestRisingGapRecoveryTolerance:
         coordinates = backend._persistent_coordinates_for_state(state)
 
         # Rising gap 1.0 -> 1.05 strands ~6.5e-3 > the 1e-3 cap.
+        with pytest.raises(RuntimeError, match="Extend the energy grid"):
+            backend._materialize_persistent_occupation(state, coordinates, 1.05)
+
+    def test_tail_fraction_cap_is_independent_of_occupation_amplitude(self) -> None:
+        state = self._grid_state()
+        state.f = np.where(state.spectral.rho > 0.0, 1e-16, 0.0)
+        backend = T3DiffusionBackend()
+        coordinates = backend._persistent_coordinates_for_state(state)
+
+        # The geometry still strands ~0.66% of the mass.  An absolute
+        # floating-point floor must not make that relative policy disappear.
         with pytest.raises(RuntimeError, match="Extend the energy grid"):
             backend._materialize_persistent_occupation(state, coordinates, 1.05)

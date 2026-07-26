@@ -101,6 +101,48 @@ _COARSE_GRID = np.linspace(0.010, 0.150, 8)
 
 
 class TestCompositeCurve:
+    @pytest.mark.parametrize(
+        ("keyword", "value"),
+        [
+            ("merge_rtol", float("nan")),
+            ("jump_tol_decades", float("nan")),
+            ("T_exchange_hint_kelvin", float("nan")),
+            ("max_step_bisections", True),
+            ("max_function_evaluations", 0),
+        ],
+    )
+    def test_rejects_invalid_branch_controls(self, keyword: str, value: object) -> None:
+        with pytest.raises(ValueError, match=keyword):
+            solve_rate_equation_branch(
+                lambda T: _coefficients_at(0.5, T),
+                np.array([0.02, 0.03]),
+                **{keyword: value},
+            )
+
+    @pytest.mark.parametrize(
+        "grid", [np.array([0.02, np.nan]), np.array([0.0, 0.02])],
+    )
+    def test_rejects_nonfinite_or_nonpositive_temperature_grid(
+        self, grid: np.ndarray,
+    ) -> None:
+        with pytest.raises(ValueError, match="finite positive"):
+            solve_rate_equation_branch(lambda T: _coefficients_at(0.5, T), grid)
+
+    @pytest.mark.parametrize(
+        "grid",
+        [
+            np.array([0.02 + 0.0j, 0.03 + 0.0j]),
+            np.array([0.02 + 1e-6j, 0.03 + 0.0j]),
+            np.array([complex(0.02, float("nan")), 0.03 + 0.0j]),
+        ],
+    )
+    def test_rejects_complex_temperature_grid_before_float_cast(
+        self,
+        grid: np.ndarray,
+    ) -> None:
+        with pytest.raises(ValueError, match="real-valued"):
+            solve_rate_equation_branch(lambda T: _coefficients_at(0.5, T), grid)
+
     def test_fig3a_no_hint_sweep_survives_old_death_valley(self) -> None:
         # Regression for the coupled F1/F4 failure: on this exact grid the
         # old global-min tolerance killed the high-to-low pass at its first

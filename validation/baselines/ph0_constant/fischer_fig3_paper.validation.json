@@ -1,0 +1,693 @@
+{
+  "assumptions_and_gaps": [
+    "The script validates against whatever source is present in the edit worktree at validation time; source hashes and the solver fingerprint bind that state in this manifest.",
+    "The solve payload was produced by the separately recorded frozen source snapshot and predates the current extended artifact certificate schema. The script does not portray it as an exact-current-source slow solve.",
+    "The NPZ has no actual finite-ratio n_ph arrays. Stored finite-ratio phonon residual values can be range/limit checked but not independently authenticated from the NPZ.",
+    "For positive ratios, the script reconstructs the unique Ph0 affine n_ph fixed point implied by saved f(E), then reassembles QP, phonon, and pair-number certificates.",
+    "The old baseline comparison is diagnostic, not an acceptance gate, because that baseline is superseded.",
+    "The candidate PDF is checked for PDF magic and plausible size, then hashed. Visual rendering/review is a separate post-validation step."
+  ],
+  "candidate_artifacts": {
+    "csv": {
+      "path": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94\\fischer_fig3_paper.csv",
+      "sha256": "1f92507f04cd06de826342a97da8a3694b7d2819bc07cd0172a1763ef66a60c8",
+      "size_bytes": 234213
+    },
+    "directory": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94",
+    "durable_copy_suggestion": {
+      "csv": "validation/baselines/ph0_constant/fischer_fig3_paper.csv",
+      "manifest": "validation/baselines/ph0_constant/fischer_fig3_paper.validation.json",
+      "pdf": "validation/baselines/ph0_constant/fischer_fig3_paper.pdf"
+    },
+    "pdf": {
+      "path": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94\\fischer_fig3_paper.pdf",
+      "sha256": "7e38be09b9b7eaafb02b83015da7cc21c8e5db172954757ac0cdd94256635812",
+      "size_bytes": 24882
+    },
+    "promotion": "not performed; candidates are scratch-only",
+    "readback": {
+      "metadata": {
+        "certificate_maxima": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 2.976765740120606e-07,
+          "phonon_residual_inf": 5.5026875441865234e-15,
+          "qp_backward_error": 8.362885826812107e-11,
+          "qp_number_backward_error": 2.2602648833176457e-09,
+          "qp_residual_inf": 2.009323037516342e-19
+        },
+        "certificate_metric_version": "qp-l1-v1_qp-number-v1_ph0-nearest-binary64-v1",
+        "num_bins": 1620,
+        "pinned_on": "win32",
+        "producer_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
+        "ratios": [
+          0.0,
+          0.1,
+          1.0,
+          10.0
+        ],
+        "target_backward_error_limit": 1e-05,
+        "tau_0_pb_ns": 0.2546462020857182,
+        "validated_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618"
+      },
+      "strict_read_passed": true
+    }
+  },
+  "claim": "A complete full-grid payload produced by the frozen round-7 source/cache identity was revalidated against the explicitly bound current Fig. 3 artifact and certificate contract. This is not represented as an exact-current-source slow solve.",
+  "contract": {
+    "current_tau_0_pb_ns": 0.2546462020857182,
+    "expected_shapes": {
+      "E": [
+        1620
+      ],
+      "f_FD": [
+        1620
+      ],
+      "f_ratios": [
+        4,
+        1620
+      ],
+      "phonon_backward_error": [
+        4
+      ],
+      "phonon_raw_backward_error": [
+        4
+      ],
+      "phonon_residual_inf": [
+        4
+      ],
+      "polish_relative_f": [
+        4
+      ],
+      "predictor_phonon_backward_error": [
+        4
+      ],
+      "predictor_qp_backward_error": [
+        4
+      ],
+      "qp_backward_error": [
+        4
+      ],
+      "qp_residual_inf": [
+        4
+      ],
+      "ratios": [
+        4
+      ],
+      "tau_0_pb_ns": [
+        1
+      ]
+    },
+    "peaks": [
+      4.755143160331232e-10,
+      1.889841008477693e-09,
+      1.8437594017345636e-08,
+      1.912975275107408e-07
+    ],
+    "ratios": [
+      0.0,
+      0.1,
+      1.0,
+      10.0
+    ],
+    "stored_certificate_maxima": {
+      "phonon_backward_error": 1.3110823261146413e-06,
+      "phonon_raw_backward_error": 2.5730126026856985e-06,
+      "phonon_residual_inf": 1.4060923187929492e-13,
+      "qp_backward_error": 8.3628857756748e-11,
+      "qp_residual_inf": 2.009323037516342e-19
+    },
+    "target_backward_error_limit": 1e-05,
+    "tau_0_pb_ns": 0.2546462020857182,
+    "weighted_populations": [
+      3.825702053540228e-08,
+      1.5204523325913314e-07,
+      1.4833788585422555e-06,
+      1.5390886605933317e-05
+    ]
+  },
+  "environment": {
+    "matplotlib": "3.11.1",
+    "matplotlib_backend": "Agg",
+    "numpy": "2.5.1",
+    "platform": "win32",
+    "platform_detail": "Windows-11-10.0.26100-SP0",
+    "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]"
+  },
+  "independent_certificate_reassembly": {
+    "gap": "The original finite-ratio n_ph and therefore the authenticity of the stored finite-ratio raw phonon residual cannot be recovered from this NPZ alone.",
+    "rows": [
+      {
+        "ratio": 0.0,
+        "reconstructed_implied_phonon_fixed_point": {
+          "phonon_backward_error": null,
+          "phonon_raw_backward_error": null,
+          "phonon_residual_inf": null,
+          "qp_backward_error": 6.812705835987872e-17,
+          "qp_number_backward_error": 7.082699367015064e-17,
+          "qp_residual_inf": 2.5849394142282115e-26
+        },
+        "reconstructed_n_ph_max": 8.127001524163378,
+        "reconstructed_n_ph_min": 0.0,
+        "reconstructed_n_ph_sha256": "1f824e46ed61642d5f80793a61d115730b711b1501d97a9cc922c714f816c6ec",
+        "reconstructed_pair_number_backward_error": 7.082699367015064e-17,
+        "stored": {
+          "phonon_backward_error": null,
+          "phonon_raw_backward_error": null,
+          "phonon_residual_inf": null,
+          "qp_backward_error": 6.812705835987872e-17,
+          "qp_residual_inf": 2.5849394142282115e-26
+        }
+      },
+      {
+        "ratio": 0.1,
+        "reconstructed_implied_phonon_fixed_point": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 2.976765740120606e-07,
+          "phonon_residual_inf": 5.5026875441865234e-15,
+          "qp_backward_error": 8.362885826812107e-11,
+          "qp_number_backward_error": 2.2602648833176457e-09,
+          "qp_residual_inf": 1.9684921100110174e-20
+        },
+        "reconstructed_n_ph_max": 8.127001524178029,
+        "reconstructed_n_ph_min": 0.0,
+        "reconstructed_n_ph_sha256": "a5f4ee9fa6b04bab3f1030b940bae224905b1e2c1b504f3a95e27f7ead87ea43",
+        "reconstructed_pair_number_backward_error": 2.2602648833176457e-09,
+        "stored": {
+          "phonon_backward_error": 1.3110823261146413e-06,
+          "phonon_raw_backward_error": 2.5730126026856985e-06,
+          "phonon_residual_inf": 1.4060923187929492e-13,
+          "qp_backward_error": 8.3628857756748e-11,
+          "qp_residual_inf": 1.9684921100110174e-20
+        }
+      },
+      {
+        "ratio": 1.0,
+        "reconstructed_implied_phonon_fixed_point": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 4.409848346478459e-09,
+          "phonon_residual_inf": 1.451980395756787e-15,
+          "qp_backward_error": 5.880707953240042e-11,
+          "qp_number_backward_error": 3.9594448944718824e-10,
+          "qp_residual_inf": 2.009323037516342e-19
+        },
+        "reconstructed_n_ph_max": 8.127001525592796,
+        "reconstructed_n_ph_min": 0.0,
+        "reconstructed_n_ph_sha256": "b0607da2e25638a4da82194ca5519ed2baf3cf92919223790d0d728c6788531a",
+        "reconstructed_pair_number_backward_error": 3.9594448944718824e-10,
+        "stored": {
+          "phonon_backward_error": 2.0803537757625494e-09,
+          "phonon_raw_backward_error": 7.715980882588364e-09,
+          "phonon_residual_inf": 2.5584594512419955e-15,
+          "qp_backward_error": 5.880707819755482e-11,
+          "qp_residual_inf": 2.009323037516342e-19
+        }
+      },
+      {
+        "ratio": 10.0,
+        "reconstructed_implied_phonon_fixed_point": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 1.9948282740427218e-11,
+          "phonon_residual_inf": 6.188308630855692e-17,
+          "qp_backward_error": 1.0661487099194174e-16,
+          "qp_number_backward_error": 2.300114980150206e-11,
+          "qp_residual_inf": 2.6469779601696886e-23
+        },
+        "reconstructed_n_ph_max": 8.12700167247569,
+        "reconstructed_n_ph_min": 0.0,
+        "reconstructed_n_ph_sha256": "f1ff05e3027c8d81b43c9c60d311167b6d5fab9f6eb78e8da3ce3b9f948f4367",
+        "reconstructed_pair_number_backward_error": 2.300114980150206e-11,
+        "stored": {
+          "phonon_backward_error": 1.2493570938836614e-17,
+          "phonon_raw_backward_error": 1.655528786395579e-11,
+          "phonon_residual_inf": 6.188308630855692e-17,
+          "qp_backward_error": 1.0661487099225458e-16,
+          "qp_residual_inf": 2.6469779601696886e-23
+        }
+      }
+    ],
+    "scope": "The raw payload omits the solver's actual n_ph. Ratio zero is reassembled exactly from thermal phonons. At positive ratios, n_ph is independently reconstructed as the exact Ph0 affine fixed point implied by the saved f(E), then the complete current certificate and pair-number certificate are reassembled."
+  },
+  "observables": {
+    "certificate_maxima": {
+      "phonon_backward_error": 0.0,
+      "phonon_raw_backward_error": 2.976765740120606e-07,
+      "phonon_residual_inf": 5.5026875441865234e-15,
+      "qp_backward_error": 8.362885826812107e-11,
+      "qp_number_backward_error": 2.2602648833176457e-09,
+      "qp_residual_inf": 2.009323037516342e-19
+    },
+    "certificate_source": "Independent reassembly using the bound current verifier source, at the unique Ph0 fixed point implied by each saved f(E); the frozen NPZ predates the persisted qp_number_backward_error field.",
+    "producer_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
+    "ratios": [
+      0.0,
+      0.1,
+      1.0,
+      10.0
+    ],
+    "tau_0_pb_ns": 0.2546462020857182,
+    "validated_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618"
+  },
+  "producer": {
+    "cache_identity": "8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f",
+    "cache_kwargs": {
+      "continuation_ratios": [
+        0.1,
+        0.3,
+        0.5,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0
+      ],
+      "num_bins": 1620,
+      "paper_ratios": [
+        0.0,
+        0.1,
+        1.0,
+        10.0
+      ]
+    },
+    "fig3_extra_source_sha256": "1fee56e5e2a262039e14a76c61df3dd9a8cde865a476877c0b2fc1e9d5397b9b",
+    "library_versions": {
+      "numpy": "2.5.1",
+      "python": "3.14.3",
+      "scipy": "1.18.0"
+    },
+    "provenance_unchanged_during_validation": true,
+    "qpsim_solve_source_digest": "dde9c86287b5ab44effdda04fa1f832917c47b74ec1ac8191a67484dab2af8b2",
+    "repository": {
+      "git": {
+        "branch": "",
+        "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
+        "worktree_porcelain_sha256": "986cb5ce8a9692057c38042af914be1d8dedb3ca166e4c9c0bcb6695c6a9cfdc"
+      },
+      "path": "C:\\tmp\\qpsim-fig3-round7-frozen-20260725",
+      "source_sha256": {
+        "qpsim/solvers/newton_steady_state.py": "1778f5b4c1c6f340b07c84f2307c794f4b22e34e72d5fd9034dfed0c5b811d0b",
+        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
+        "validation/fischer_2023/fig3_paper.py": "d5e943848102cd8bded0e82e1cc9a11215b89f6109103f12eba9155d1f43f3b1",
+        "validation/fischer_2023/fig3_solve.py": "9efdc52f36663853d6dd599f9b9a53f96cd836a4d3817f7dc0ed978d22b4e147",
+        "validation/fischer_2023/steady_state_certificate.py": "20fb4a74a2e510d0303ee6badcf5b1c90cb31548f36df76ed3ee6a6ec4e6284c",
+        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
+        "validation/sweep_cache.py": "d3e76e61990b428b977de2fb1a4a56a5d0cead38fbce307c8b0efe328644d617"
+      }
+    },
+    "runner": {
+      "path": "C:\\tmp\\qpsim-run-fig3-round7-full.py",
+      "sha256": "8144b58ba46262169c922c9285c2c93dd2094fbf42f09d7f155b039f882c1e9d",
+      "unchanged_during_validation": true
+    },
+    "runtime_neutral_solve_contract_derivation": "Post-hoc recomputation: the current runtime-neutral contract recipe applied to the immutable frozen producer sources. The old raw schema did not itself persist this digest.",
+    "runtime_neutral_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
+    "solver_fingerprint": {
+      "c_phot": 1e-09,
+      "delta_0": 180.0,
+      "e_max_factor": 10.0,
+      "e_min_factor": 1.0,
+      "high_ratio_fallback_mixing": 0.05,
+      "high_ratio_picard_mixing": 0.15,
+      "inner_qp_backward_error_limit": 1e-10,
+      "inner_qp_number_polish_shape_limit": 1e-08,
+      "n_bar": 10000000.0,
+      "num_bins": 1620,
+      "omega_0": 20.0,
+      "paper_tau_0_pb_ps": 255.0,
+      "picard_anderson_depth": 3,
+      "t_bath": 0.1,
+      "tau_0": 438.0
+    },
+    "status": {
+      "path": "C:\\tmp\\qpsim_fig3_round7_optimized_full_status.json",
+      "record": {
+        "checkpoint": "C:\\tmp\\qpsim_fig3_round7_restart_8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f.npz",
+        "elapsed_seconds": 10671.777185678482,
+        "finished_unix": 1785020664.606433,
+        "identity": "8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f",
+        "output": "C:\\tmp\\qpsim_fig3_round7_optimized_full.npz",
+        "output_sha256": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
+        "pid": 28704,
+        "repo": "C:\\tmp\\qpsim-fig3-round7-frozen-20260725",
+        "started_unix": 1785009992.829248,
+        "status": "complete"
+      },
+      "sha256": "9723393372ac425f14f6f5bb6b70c3e556d759c653d44f95a6e04e2d507ac89e",
+      "unchanged_during_validation": true
+    }
+  },
+  "raw": {
+    "arrays": {
+      "E": {
+        "dtype": "<f8",
+        "sha256": "016f73f196cfbb827a9d6e8491e6bd62fa7dd5bba09108fe4aeea848602ef967",
+        "shape": [
+          1620
+        ]
+      },
+      "f_FD": {
+        "dtype": "<f8",
+        "sha256": "35a0786c5b01d70a366c60a44417b3e65e54b9c137f77d051888dd9efe0013ef",
+        "shape": [
+          1620
+        ]
+      },
+      "f_ratios": {
+        "dtype": "<f8",
+        "sha256": "99783c367e7f0438302ed1e4765834a1e78a4b6c5076f89e91064cede16e830f",
+        "shape": [
+          4,
+          1620
+        ]
+      },
+      "phonon_backward_error": {
+        "dtype": "<f8",
+        "sha256": "758875d0efb5cc7b894a68f812af32e0ed984e4ca163a37ac081ac205ccd535d",
+        "shape": [
+          4
+        ]
+      },
+      "phonon_raw_backward_error": {
+        "dtype": "<f8",
+        "sha256": "762e3c8225218b9c9ed6287beb7aa6e142753aa4af09eab1d586fc0d5987cc77",
+        "shape": [
+          4
+        ]
+      },
+      "phonon_residual_inf": {
+        "dtype": "<f8",
+        "sha256": "e982938e1076334237660be2a0f5c05566e32b99221600b8d93fc0ea939f445d",
+        "shape": [
+          4
+        ]
+      },
+      "polish_relative_f": {
+        "dtype": "<f8",
+        "sha256": "031132bc3ee8372fe7a3ade1fe04f6082b3f2262174000a66c175c999312df10",
+        "shape": [
+          4
+        ]
+      },
+      "predictor_phonon_backward_error": {
+        "dtype": "<f8",
+        "sha256": "723fc56ef8038fac6b9b50802bbfc9e5230a9703fcefd2740f2355ecba0fabde",
+        "shape": [
+          4
+        ]
+      },
+      "predictor_qp_backward_error": {
+        "dtype": "<f8",
+        "sha256": "293f4f8d2b6d8a980ba290c5613cf3f22fafd2fd70277e2e43474a4ce33f3b1b",
+        "shape": [
+          4
+        ]
+      },
+      "qp_backward_error": {
+        "dtype": "<f8",
+        "sha256": "e51ab41ac637f31c89ef73f686db8756afadda3e546645be6921f00d3a7a2274",
+        "shape": [
+          4
+        ]
+      },
+      "qp_residual_inf": {
+        "dtype": "<f8",
+        "sha256": "aaa100af227eb65f1117066b89ed5df0bb2edcfd20e54c58eddfdd6c9c55709f",
+        "shape": [
+          4
+        ]
+      },
+      "ratios": {
+        "dtype": "<f8",
+        "sha256": "706cbfbce5bf4285929b67ae5045eedcd2c47fe41df4c99e5ed178a8e57d02df",
+        "shape": [
+          4
+        ]
+      },
+      "tau_0_pb_ns": {
+        "dtype": "<f8",
+        "sha256": "512d32b8c52cd101852dc0feac817bb29dfcf04e2a9450268c1e3f9888403a4a",
+        "shape": [
+          1
+        ]
+      }
+    },
+    "keys": [
+      "E",
+      "f_FD",
+      "f_ratios",
+      "phonon_backward_error",
+      "phonon_raw_backward_error",
+      "phonon_residual_inf",
+      "polish_relative_f",
+      "predictor_phonon_backward_error",
+      "predictor_qp_backward_error",
+      "qp_backward_error",
+      "qp_residual_inf",
+      "ratios",
+      "tau_0_pb_ns"
+    ],
+    "path": "C:\\tmp\\qpsim_fig3_round7_optimized_full.npz",
+    "sha256": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
+    "sha256_after": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
+    "sha256_before": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
+    "size_bytes": 69239,
+    "unchanged_during_validation": true
+  },
+  "repository": {
+    "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
+    "git": {
+      "branch": "codex/audit-round7-fixes",
+      "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
+      "worktree_porcelain_sha256": "50f61940c0b804ce20a2c22dd0f56e578447565f765b7f4fa4b63620551c57b3"
+    },
+    "path": "C:\\tmp\\qpsim-round7-fixes",
+    "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
+    "solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
+    "solver_fingerprint": {
+      "c_phot": 1e-09,
+      "delta_0": 180.0,
+      "e_max_factor": 10.0,
+      "e_min_factor": 1.0,
+      "high_ratio_fallback_mixing": 0.05,
+      "high_ratio_picard_mixing": 0.15,
+      "inner_qp_backward_error_limit": 1e-10,
+      "inner_qp_number_polish_shape_limit": 1e-08,
+      "n_bar": 10000000.0,
+      "num_bins": 1620,
+      "omega_0": 20.0,
+      "paper_tau_0_pb_ps": 255.0,
+      "picard_anderson_depth": 3,
+      "t_bath": 0.1,
+      "tau_0": 438.0
+    },
+    "source_sha256": {
+      "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
+      "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
+      "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
+      "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
+      "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
+      "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
+      "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
+    }
+  },
+  "schema": "qpsim-fig3-round7-validation-v3",
+  "status": "pass",
+  "superseded_baseline_comparison": {
+    "interpretation": "Descriptive only. The old baseline is known to have accepted a wrong number-mode amplitude and is not an oracle.",
+    "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig3_paper.csv",
+    "per_ratio": {
+      "0": {
+        "aligned_shape_residual_over_new_peak": 0.0,
+        "current_regression_atol_for_old_pin": 4.755143160331231e-16,
+        "current_regression_rtol_for_old_pin": 0.0001,
+        "l2_amplitude_factor_new_over_old": 1.0,
+        "new_peak": 4.755143160331232e-10,
+        "old_peak": 4.755143160331232e-10,
+        "peak_factor_new_over_old": 1.0,
+        "peak_normalized_linf_shape_distance": 0.0,
+        "relative_strong_l1": 0.0,
+        "within_superseded_regression_envelope": true
+      },
+      "0.1": {
+        "aligned_shape_residual_over_new_peak": 0.0,
+        "current_regression_atol_for_old_pin": 1.889841008477693e-15,
+        "current_regression_rtol_for_old_pin": 0.0001,
+        "l2_amplitude_factor_new_over_old": 1.0,
+        "new_peak": 1.889841008477693e-09,
+        "old_peak": 1.889841008477693e-09,
+        "peak_factor_new_over_old": 1.0,
+        "peak_normalized_linf_shape_distance": 0.0,
+        "relative_strong_l1": 0.0,
+        "within_superseded_regression_envelope": true
+      },
+      "1": {
+        "aligned_shape_residual_over_new_peak": 0.0,
+        "current_regression_atol_for_old_pin": 1.8437594017345634e-14,
+        "current_regression_rtol_for_old_pin": 0.0001,
+        "l2_amplitude_factor_new_over_old": 1.0,
+        "new_peak": 1.8437594017345636e-08,
+        "old_peak": 1.8437594017345636e-08,
+        "peak_factor_new_over_old": 1.0,
+        "peak_normalized_linf_shape_distance": 0.0,
+        "relative_strong_l1": 0.0,
+        "within_superseded_regression_envelope": true
+      },
+      "10": {
+        "aligned_shape_residual_over_new_peak": 0.0,
+        "current_regression_atol_for_old_pin": 1.9129752751074079e-13,
+        "current_regression_rtol_for_old_pin": 0.0001,
+        "l2_amplitude_factor_new_over_old": 1.0,
+        "new_peak": 1.912975275107408e-07,
+        "old_peak": 1.912975275107408e-07,
+        "peak_factor_new_over_old": 1.0,
+        "peak_normalized_linf_shape_distance": 0.0,
+        "relative_strong_l1": 0.0,
+        "within_superseded_regression_envelope": true
+      }
+    },
+    "pinned_on": "win32",
+    "sha256": "0cd844124f9afbaebc15f77a14bc14a56aafe325910df446285970ea8093bd9d",
+    "unchanged_during_validation": true
+  },
+  "verifier": {
+    "repository": {
+      "git": {
+        "branch": "codex/audit-round7-fixes",
+        "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
+        "worktree_porcelain_sha256": "50f61940c0b804ce20a2c22dd0f56e578447565f765b7f4fa4b63620551c57b3"
+      },
+      "path": "C:\\tmp\\qpsim-round7-fixes"
+    },
+    "source_snapshot_after": {
+      "fig3_cache_identity": "676ae6b32c44ee8624217dded1c12efc023919dcd3140dc9e778c9ba624ed1ba",
+      "fig3_cache_kwargs": {
+        "continuation_ratios": [
+          0.1,
+          0.3,
+          0.5,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0
+        ],
+        "num_bins": 1620,
+        "paper_ratios": [
+          0.0,
+          0.1,
+          1.0,
+          10.0
+        ]
+      },
+      "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
+      "fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
+      "fig3_solver_fingerprint": {
+        "c_phot": 1e-09,
+        "delta_0": 180.0,
+        "e_max_factor": 10.0,
+        "e_min_factor": 1.0,
+        "high_ratio_fallback_mixing": 0.05,
+        "high_ratio_picard_mixing": 0.15,
+        "inner_qp_backward_error_limit": 1e-10,
+        "inner_qp_number_polish_shape_limit": 1e-08,
+        "n_bar": 10000000.0,
+        "num_bins": 1620,
+        "omega_0": 20.0,
+        "paper_tau_0_pb_ps": 255.0,
+        "picard_anderson_depth": 3,
+        "t_bath": 0.1,
+        "tau_0": 438.0
+      },
+      "independent_fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
+      "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
+      "source_sha256": {
+        "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
+        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
+        "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
+        "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
+        "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
+        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
+        "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
+      },
+      "validator_canonical_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
+      "validator_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
+      "writer_canonical_source_sha256": "5c83b83b3d815c39072f0ccc08935aeb86fe8ffb6ec9f2fe6377b5d2d6a77f08",
+      "writer_source_sha256": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d"
+    },
+    "source_snapshot_before": {
+      "fig3_cache_identity": "676ae6b32c44ee8624217dded1c12efc023919dcd3140dc9e778c9ba624ed1ba",
+      "fig3_cache_kwargs": {
+        "continuation_ratios": [
+          0.1,
+          0.3,
+          0.5,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0
+        ],
+        "num_bins": 1620,
+        "paper_ratios": [
+          0.0,
+          0.1,
+          1.0,
+          10.0
+        ]
+      },
+      "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
+      "fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
+      "fig3_solver_fingerprint": {
+        "c_phot": 1e-09,
+        "delta_0": 180.0,
+        "e_max_factor": 10.0,
+        "e_min_factor": 1.0,
+        "high_ratio_fallback_mixing": 0.05,
+        "high_ratio_picard_mixing": 0.15,
+        "inner_qp_backward_error_limit": 1e-10,
+        "inner_qp_number_polish_shape_limit": 1e-08,
+        "n_bar": 10000000.0,
+        "num_bins": 1620,
+        "omega_0": 20.0,
+        "paper_tau_0_pb_ps": 255.0,
+        "picard_anderson_depth": 3,
+        "t_bath": 0.1,
+        "tau_0": 438.0
+      },
+      "independent_fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
+      "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
+      "source_sha256": {
+        "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
+        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
+        "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
+        "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
+        "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
+        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
+        "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
+      },
+      "validator_canonical_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
+      "validator_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
+      "writer_canonical_source_sha256": "5c83b83b3d815c39072f0ccc08935aeb86fe8ffb6ec9f2fe6377b5d2d6a77f08",
+      "writer_source_sha256": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d"
+    },
+    "source_unchanged": true,
+    "validator": {
+      "path": "C:\\tmp\\validate_qpsim_fig3_round7.py",
+      "sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55"
+    }
+  }
+}

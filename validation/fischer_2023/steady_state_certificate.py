@@ -41,10 +41,19 @@ CERTIFICATE_FIELDS: tuple[str, ...] = (
     "phonon_raw_backward_error",
     "phonon_backward_error",
 )
-"""Stable payload fields returned by :func:`steady_state_certificate`."""
+"""Legacy shared artifact fields returned by :func:`steady_state_certificate`."""
 
 CERTIFICATE_METRIC_VERSION = "qp-l1-v1_ph0-nearest-binary64-v1"
-"""Human-readable version for persisted certificate provenance."""
+"""Metric version for existing Fig. 5/6/7 artifact schemas."""
+
+QP_NUMBER_CERTIFICATE_FIELD = "qp_number_backward_error"
+NUMBER_CERTIFICATE_FIELDS = (*CERTIFICATE_FIELDS, QP_NUMBER_CERTIFICATE_FIELD)
+"""Extended fields used by artifacts that persist the conserved-number mode."""
+
+NUMBER_CERTIFICATE_METRIC_VERSION = (
+    "qp-l1-v1_qp-number-v1_ph0-nearest-binary64-v1"
+)
+"""Metric version for the extended, amplitude-sensitive certificate."""
 
 _SUB_GAP_PHOTON_KEYS = frozenset({"omega_0", "n_bar", "c_phot"})
 
@@ -73,6 +82,71 @@ def normwise_backward_error(residual: np.ndarray, scale: np.ndarray) -> float:
     denominator = float(np.sum(scale_magnitude / common))
     numerator = float(np.sum(residual_magnitude / common))
     return numerator / denominator if denominator > 0.0 else float("inf")
+
+
+def weighted_number_backward_error(
+    gain: np.ndarray,
+    loss_rate: np.ndarray,
+    f: np.ndarray,
+    weights: np.ndarray,
+    active: np.ndarray,
+) -> float:
+    """Return a scale-stable total-QP-number balance certificate.
+
+    The ordinary QP backward error is local and can be dominated by
+    number-conserving scattering. At low temperature that turnover can conceal
+    an incorrect common amplitude because the number-changing pair channel is
+    exponentially weaker. This metric first normalizes pair rates by their own
+    largest representable term, then measures the signed, cell-weighted number
+    residual against pair turnover.
+
+    A zero-turnover pair block fails closed. The Fischer validations configure
+    recombination/pair breaking at finite temperature; an all-zero float64
+    block is therefore underflow or an incomplete equation, not evidence of a
+    certified number root.
+    """
+    gain_arr = np.asarray(gain, dtype=float)
+    loss_arr = np.asarray(loss_rate, dtype=float)
+    f_arr = np.asarray(f, dtype=float)
+    weights_arr = np.asarray(weights, dtype=float)
+    active_arr = np.asarray(active, dtype=bool)
+    expected_shape = f_arr.shape
+    if not (
+        gain_arr.shape
+        == loss_arr.shape
+        == weights_arr.shape
+        == active_arr.shape
+        == expected_shape
+    ):
+        raise ValueError("number-certificate arrays must have the same shape.")
+    if (
+        np.any(~np.isfinite(gain_arr))
+        or np.any(~np.isfinite(loss_arr))
+        or np.any(~np.isfinite(f_arr))
+        or np.any(~np.isfinite(weights_arr))
+    ):
+        raise ValueError("number-certificate arrays must contain only finite values.")
+    if np.any(weights_arr[active_arr] <= 0.0):
+        raise ValueError("active number-certificate weights must be positive.")
+
+    gain_active = gain_arr[active_arr]
+    loss_term = loss_arr[active_arr] * f_arr[active_arr]
+    weights_active = weights_arr[active_arr]
+    rate_scale = float(
+        max(
+            np.max(np.abs(gain_active), initial=0.0),
+            np.max(np.abs(loss_term), initial=0.0),
+        )
+    )
+    if rate_scale == 0.0:
+        return float("inf")
+    gain_scaled = weights_active * (gain_active / rate_scale)
+    loss_scaled = weights_active * (loss_term / rate_scale)
+    denominator = float(np.sum(np.abs(gain_scaled)) + np.sum(np.abs(loss_scaled)))
+    if denominator == 0.0:
+        return float("inf")
+    numerator = abs(float(np.sum(gain_scaled - loss_scaled)))
+    return numerator / denominator
 
 
 def _validated_photon_params(
@@ -199,6 +273,15 @@ def steady_state_certificate(
         idx_sum,
         diff_sign,
     )
+    pair_gain, pair_loss = phonon_collision_rates(
+        state.f,
+        spectral,
+        None,
+        K_r0,
+        state.T_bath,
+        N_emit_override=N_emit,
+        N_abs_override=N_abs,
+    )
     gain, loss = phonon_collision_rates(
         state.f,
         spectral,
@@ -227,6 +310,13 @@ def steady_state_certificate(
         "qp_backward_error": normwise_backward_error(
             residual_qp[active],
             qp_scale,
+        ),
+        "qp_number_backward_error": weighted_number_backward_error(
+            pair_gain,
+            pair_loss,
+            state.f,
+            spectral.cell_weights,
+            active,
         ),
         "phonon_residual_inf": float("nan"),
         "phonon_raw_backward_error": float("nan"),

@@ -18,10 +18,18 @@ from qpsim.physics.kaplan_pair_breaking import (
 
 
 class TestKaplanSPlus:
-    def test_threshold_zero(self) -> None:
-        # S_+(x) = 0 for x ≤ 2 (below pair-breaking threshold).
-        for x in (0.0, 0.5, 1.0, 1.5, 1.99, 2.0):
+    def test_below_threshold_zero_and_endpoint_right_limit(self) -> None:
+        # Below threshold there is no pair channel. At exact threshold the
+        # ideal-BCS K+ endpoint singularities have the finite right-limit pi.
+        for x in (0.0, 0.5, 1.0, 1.5, 1.99, np.nextafter(2.0, 0.0)):
             assert kaplan_S_plus(x) == 0.0
+            assert kaplan_S_plus_numerical(x) == 0.0
+        assert kaplan_S_plus(2.0) == pytest.approx(np.pi, rel=0.0, abs=0.0)
+        assert kaplan_S_plus_numerical(2.0) == pytest.approx(
+            np.pi,
+            rel=0.0,
+            abs=0.0,
+        )
 
     def test_positive_above_threshold(self) -> None:
         for x in (2.01, 2.5, 3.0, 5.0, 20.0):
@@ -55,12 +63,18 @@ class TestKaplanSPlus:
 
 
 class TestTauPBInverse:
-    def test_threshold_zero(self) -> None:
-        # Ω ≤ 2Δ → no pair breaking.
+    def test_below_threshold_zero_and_exact_threshold_finite(self) -> None:
+        # Ω < 2Δ has no pair breaking. At exact threshold the ideal-BCS
+        # K+ endpoint gives 1/tau_0 when Delta=Delta_0.
         Delta_K = 2.09   # Al-scale
         tau_0_ns = 0.242
-        for omega_K in (0.1, 1.0, 2.0, 4.17, 4.18):  # 4.18 ≈ 2Δ
+        threshold = 2.0 * Delta_K
+        for omega_K in (0.1, 1.0, 2.0, 4.17, np.nextafter(threshold, 0.0)):
             assert tau_PB_inverse_Hz(omega_K, Delta_K, tau_0_ns) == 0.0
+        assert tau_PB_inverse_Hz(threshold, Delta_K, tau_0_ns) == pytest.approx(
+            1e9 / tau_0_ns,
+            rel=2e-16,
+        )
 
     def test_Kaplan_Fig16_T_zero_sentinels(self) -> None:
         # At T = 0 with Δ = Δ₀, the prefactor reduces to 1/(π τ_0^ph),

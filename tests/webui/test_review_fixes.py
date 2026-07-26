@@ -32,6 +32,19 @@ def _never() -> bool:
     return False
 
 
+def test_ultracold_occupation_heatmap_has_valid_log_limits() -> None:
+    """An all-underflow thermal field must render instead of returning 500."""
+    from qpsim.webui.plots import _plot_occupation_heatmap
+
+    arrays = {
+        "x_um": np.array([0.0, 1.0, 2.0]),
+        "E_bins": np.array([180.0, 200.0]),
+        "f_final": np.full((2, 3), 9.8596765e-305),
+    }
+    png = _plot_occupation_heatmap(arrays, gap=180.0)
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
 def _manifest(run_id: str, *, status: str = "done") -> dict[str, object]:
     return {
         "id": run_id,

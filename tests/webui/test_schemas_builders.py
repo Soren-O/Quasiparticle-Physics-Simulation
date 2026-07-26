@@ -91,7 +91,7 @@ class TestValidateSetup:
 
         report = validate_setup(setup)
 
-        assert any("reflected partners are not grid-aligned" in e for e in report.errors)
+        assert any("reflection partners are not grid-aligned" in e for e in report.errors)
 
     def test_pb_aligned_frequency_and_origin_are_accepted(self) -> None:
         setup = SteadyState0DSetup()
@@ -124,12 +124,14 @@ class TestValidateSetup:
         report = validate_setup(setup)
         assert any("Mattis" in e for e in report.errors)
 
-    def test_dynes_probe_warns_not_errors(self) -> None:
-        setup = SteadyState0DSetup()
+    @pytest.mark.parametrize("setup", [SteadyState0DSetup(), Transient0DSetup()])
+    def test_dynes_collision_modes_are_rejected(
+        self, setup: SteadyState0DSetup | Transient0DSetup
+    ) -> None:
         setup.material.dynes_gamma = 1.0
         report = validate_setup(setup)
-        assert report.ok
-        assert any("Dynes" in w for w in report.warnings)
+        assert not report.ok
+        assert any("collision kernels" in error for error in report.errors)
 
     def test_t_bath_at_tc_rejected(self) -> None:
         setup = SteadyState0DSetup()
@@ -158,6 +160,53 @@ class TestValidateSetup:
         report = validate_setup(setup)
 
         assert any("tau_0_pb_ns" in error for error in report.errors)
+
+    def test_thermal_bath_does_not_require_pair_breaking_time(self) -> None:
+        setup = SteadyState0DSetup()
+        setup.phonons.mode = "thermal_bath"
+        setup.phonons.use_phonon_side_kernel = True
+        setup.material.tau_0_pb_ns = None
+
+        report = validate_setup(setup)
+
+        assert report.ok, report.errors
+
+    @pytest.mark.parametrize(
+        ("omega_pb", "message"),
+        [
+            (360.09, "crosses the 2Δ"),
+            (1998.0, "partners are off-grid"),
+        ],
+    )
+    def test_pb_preflight_matches_runtime_grid_guards(
+        self, omega_pb: float, message: str
+    ) -> None:
+        setup = SteadyState0DSetup()
+        setup.grid.num_bins = 90
+        setup.pb_drive.enabled = True
+        setup.pb_drive.omega_PB = omega_pb
+
+        report = validate_setup(setup)
+
+        assert not report.ok
+        assert any(message in error for error in report.errors)
+
+    @pytest.mark.parametrize("drive", ["subgap", "pair_breaking"])
+    def test_zero_coupling_drive_skips_frequency_contract(self, drive: str) -> None:
+        setup = SteadyState0DSetup()
+        if drive == "subgap":
+            setup.subgap_drive.enabled = True
+            setup.subgap_drive.c_phot = 0.0
+            setup.subgap_drive.omega_0 = 2.0 * setup.material.Delta_0
+        else:
+            setup.grid.num_bins = 90
+            setup.pb_drive.enabled = True
+            setup.pb_drive.c_phot_PB = 0.0
+            setup.pb_drive.omega_PB = 360.09
+
+        report = validate_setup(setup)
+
+        assert report.ok, report.errors
 
     def test_self_consistent_gap_warns_without_subgap_support(self) -> None:
         setup = SteadyState0DSetup()
@@ -282,6 +331,20 @@ class TestBuilders:
         assert float(state.gap_profile[0]) == 170.0
         assert float(state.gap_profile[-1]) == 200.0
         assert state.interface_conductance == 2.0
+
+    @pytest.mark.parametrize("num_cells", [2, Spatial1DSetup().num_cells])
+    def test_state_1d_centers_span_exact_requested_length(
+        self, num_cells: int
+    ) -> None:
+        setup = Spatial1DSetup()
+        setup.num_cells = num_cells
+        state = build_state_1d(setup)
+        dx = setup.length_um / num_cells
+
+        assert state.dx == pytest.approx(dx)
+        assert state.x[0] == pytest.approx(0.5 * dx)
+        assert state.x[-1] == pytest.approx(setup.length_um - 0.5 * dx)
+        assert float(np.sum(state.cell_widths)) == pytest.approx(setup.length_um)
 
     def test_spatial_xqp_profile_uses_each_local_gap_measure(self) -> None:
         from qpsim.webui.execute import _xqp_profile

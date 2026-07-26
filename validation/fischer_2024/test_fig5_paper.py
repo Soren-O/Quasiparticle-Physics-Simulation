@@ -17,6 +17,7 @@ from validation.fischer_2024._artifact import (
     ArtifactValidationError,
     LegacyArtifactError,
     QPCertificate,
+    capture_producer_identity,
 )
 
 
@@ -77,6 +78,11 @@ def _rewrite_csv(path: Path, mutate: Callable[[list[list[str]]], None]) -> None:
         csv.writer(fp, lineterminator="\n").writerows(rows)
 
 
+def _write_baseline(result: target.Fig5PaperResult, path: Path) -> Path:
+    producer = capture_producer_identity(target.solver_fingerprint())
+    return target.write_baseline(result, path, producer=producer)
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -102,7 +108,7 @@ def test_current_artifact_round_trips(
     _synthetic_certificate: None,
 ) -> None:
     reference = _synthetic_result()
-    path = target.write_baseline(reference, tmp_path / "fig5.csv")
+    path = _write_baseline(reference, tmp_path / "fig5.csv")
     with path.open(encoding="utf-8", newline="") as fp:
         rows = list(csv.reader(fp))
     metadata = json.loads(rows[1][0].split("=", 1)[1])
@@ -121,14 +127,14 @@ def test_thermal_seed_accepts_ulp_roundoff_but_rejects_drift(
     rounded = _synthetic_result()
     np.nextafter(rounded.f_thermal, np.inf, out=rounded.f_thermal)
     decoded = target.read_baseline(
-        target.write_baseline(rounded, tmp_path / "rounded-thermal.csv")
+        _write_baseline(rounded, tmp_path / "rounded-thermal.csv")
     )
     np.testing.assert_array_equal(decoded.f_thermal, rounded.f_thermal)
 
     drifted = _synthetic_result()
     drifted.f_thermal[0] *= 1.0 + 1.0e-9
     with pytest.raises(ArtifactValidationError, match="thermal occupation"):
-        target.write_baseline(drifted, tmp_path / "drifted-thermal.csv")
+        _write_baseline(drifted, tmp_path / "drifted-thermal.csv")
 
 
 def test_writer_rejects_residual_at_newton_tolerance(
@@ -138,7 +144,7 @@ def test_writer_rejects_residual_at_newton_tolerance(
     result = _synthetic_result()
     result.qp_residual_inf_by_drive[target.PAPER_DRIVES_HZ[0]] = target.NEWTON_TOL
     with pytest.raises(RuntimeError, match="residual"):
-        target.write_baseline(result, tmp_path / "fig5.csv")
+        _write_baseline(result, tmp_path / "fig5.csv")
 
 
 @pytest.mark.parametrize(
@@ -150,7 +156,7 @@ def test_reader_rejects_invalid_artifacts(
     mutation: str,
     _synthetic_certificate: None,
 ) -> None:
-    path = target.write_baseline(_synthetic_result(), tmp_path / "fig5.csv")
+    path = _write_baseline(_synthetic_result(), tmp_path / "fig5.csv")
 
     def mutate(rows: list[list[str]]) -> None:
         if mutation == "malformed":
@@ -178,14 +184,14 @@ def test_reader_rejects_invalid_artifacts(
 
 def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"QP (backward error|residual_inf)"):
-        target.write_baseline(_synthetic_result(), tmp_path / "forged.csv")
+        _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
 def test_writer_rejects_out_of_domain_occupation(tmp_path: Path) -> None:
     result = _synthetic_result()
     result.f_by_drive[target.PAPER_DRIVES_HZ[0]][0] = 1.1
     with pytest.raises(ArtifactValidationError, match=r"above 1\.0"):
-        target.write_baseline(result, tmp_path / "invalid_f.csv")
+        _write_baseline(result, tmp_path / "invalid_f.csv")
 
 
 def test_reduced_live_run_writes_bound_artifact(
@@ -201,7 +207,9 @@ def test_reduced_live_run_writes_bound_artifact(
         (drive_hz * target.HZ_TO_NS_INV,),
     )
     result = target.run()
-    decoded = target.read_baseline(target.write_baseline(result, tmp_path / "reduced_fig5.csv"))
+    decoded = target.read_baseline(
+        _write_baseline(result, tmp_path / "reduced_fig5.csv")
+    )
     np.testing.assert_allclose(
         decoded.f_by_drive[drive_hz],
         result.f_by_drive[drive_hz],

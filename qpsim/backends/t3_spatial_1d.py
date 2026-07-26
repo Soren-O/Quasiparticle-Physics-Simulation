@@ -192,6 +192,10 @@ class T3SpatialFlux1D:
     diagnostics: dict[str, str | float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if np.iscomplexobj(self.gain):
+            raise ValueError("gain must be real-valued.")
+        if np.iscomplexobj(self.loss_rate):
+            raise ValueError("loss_rate must be real-valued.")
         gain = np.asarray(self.gain, dtype=float)
         loss_rate = np.asarray(self.loss_rate, dtype=float)
         if gain.ndim != 2:
@@ -258,6 +262,13 @@ class T3SpatialFlux1D:
 class T3Spatial1DState:
     """T3 occupation on an ``(energy, position)`` mesh.
 
+    ``x`` contains the centers of equal-width finite-volume cells.  Reflective
+    boundaries lie half a mesh spacing beyond the first and last centers, so
+    the physical spatial measure is ``dx * sum_x`` rather than a trapezoidal
+    rule that assigns half volume to the end cells.  This convention is what
+    makes the conservative transport operator's unweighted cell sum a
+    physical volume integral.
+
     ``diffusion_model`` selects the spatial-diffusion operator (see
     :class:`qpsim.transport.diffusion.base.DiffusionModel`); it defaults
     to the physically correct dirty-limit Usadel reduction ``A1``.
@@ -291,10 +302,22 @@ class T3Spatial1DState:
 
     @property
     def dx(self) -> float:
-        """Uniform spatial mesh spacing in microns."""
+        """Uniform finite-volume cell width in microns."""
         if self.x.size < 2:
             return 1.0
         return float(np.mean(np.diff(self.x)))
+
+    @property
+    def cell_widths(self) -> np.ndarray:
+        """Equal control-volume widths associated with :attr:`x`.
+
+        A one-cell state has no coordinate spacing from which to infer its
+        physical width, so it retains the backend's historical unit-width
+        convention.  Physical campaign drivers with a known domain should
+        use at least two cells and verify that these widths sum to that
+        domain length.
+        """
+        return np.full(self.x.size, self.dx, dtype=float)
 
 
 @dataclass(frozen=True)
@@ -367,7 +390,7 @@ class T3Spatial1DBackend:
         ``d_t (N_1**p f) = d_x( D_0 N_1**q  d_x f )``, on the conserved
         density ``u = N_1**p f`` with harmonic-mean face weights
         ``W = D_0 N_1**q`` and reflective (zero-flux) ends -- so
-        ``sum_x N_1**p f`` is conserved per energy to round-off. Recovers
+        ``dx * sum_x N_1**p f`` is conserved per energy to round-off. Recovers
         ``f = u / N_1**p`` and clips to ``[0, 1]``. Each energy channel is
         conservatively subcycled until every CN modal amplification is
         non-negative. This removes stiff-CN ringing / pulse swapping at a
@@ -1271,10 +1294,16 @@ def _harmonic_face_weights(W_cell: np.ndarray) -> np.ndarray:
     """
     w_left = W_cell[:-1]
     w_right = W_cell[1:]
-    denom = w_left + w_right
+    lo = np.minimum(w_left, w_right)
+    hi = np.maximum(w_left, w_right)
     w_face = np.zeros(W_cell.size - 1, dtype=float)
-    nonzero = denom > 0.0
-    w_face[nonzero] = 2.0 * w_left[nonzero] * w_right[nonzero] / denom[nonzero]
+    nonzero = lo > 0.0
+    # Algebraically equal to ``2*a*b/(a+b)``, but neither multiplies two
+    # large weights nor adds them before scaling.  Both operations can
+    # overflow for perfectly finite diffusivities (e.g. a=b=1e308).
+    w_face[nonzero] = lo[nonzero] * (
+        2.0 / (1.0 + lo[nonzero] / hi[nonzero])
+    )
     return w_face
 
 

@@ -27,8 +27,18 @@ class SpatialAcResponse:
     full_current_integral_um: float
 
 
+def _as_real_array(values: np.ndarray, name: str) -> np.ndarray:
+    raw = np.asarray(values)
+    if np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be real-valued.")
+    try:
+        return np.asarray(raw, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric.") from exc
+
+
 def _as_spatial_distribution(f: np.ndarray, n_x: int, name: str) -> np.ndarray:
-    arr = np.asarray(f, dtype=float)
+    arr = _as_real_array(f, name)
     if arr.ndim == 1:
         return np.repeat(arr[:, None], n_x, axis=1)
     if arr.ndim == 2 and arr.shape[1] == n_x:
@@ -65,6 +75,7 @@ def compute_current_weighted_ac_response(
     alpha: float,
     current_weights: np.ndarray,
     full_current_integral_um: float,
+    spatial_cell_widths_um: np.ndarray | None = None,
     n_subgap: int = 500,
 ) -> SpatialAcResponse:
     """Integrate local Mattis-Bardeen response over a resonator current profile.
@@ -72,25 +83,64 @@ def compute_current_weighted_ac_response(
     This differs from applying Mattis-Bardeen to a pre-averaged occupation:
     ``sigma_1`` and ``sigma_2`` are computed at each position first, and only
     then integrated with the local ``I^2`` weights.
-    """
-    if alpha <= 0.0:
-        raise ValueError("alpha must be positive.")
-    if full_current_integral_um <= 0.0:
-        raise ValueError("full_current_integral_um must be positive.")
 
-    x = np.asarray(x_um, dtype=float)
-    weights = np.asarray(current_weights, dtype=float)
+    When ``spatial_cell_widths_um`` is supplied, ``x_um`` is interpreted as
+    finite-volume cell centers and every spatial integral uses the explicit
+    cell measure.  Omitting it preserves the endpoint-sample/trapezoidal API
+    used by older callers.
+    """
+    if not np.isfinite(alpha) or alpha <= 0.0:
+        raise ValueError("alpha must be finite and positive.")
+    if (
+        not np.isfinite(full_current_integral_um)
+        or full_current_integral_um <= 0.0
+    ):
+        raise ValueError("full_current_integral_um must be finite and positive.")
+
+    x = _as_real_array(x_um, "x_um")
+    weights = _as_real_array(current_weights, "current_weights")
     if x.ndim != 1:
         raise ValueError("x_um must be one-dimensional.")
+    if x.size == 0 or np.any(~np.isfinite(x)) or np.any(np.diff(x) <= 0.0):
+        raise ValueError("x_um must be non-empty, finite, and strictly increasing.")
     if weights.shape != x.shape:
         raise ValueError("current_weights must have the same shape as x_um.")
+    if (
+        np.any(~np.isfinite(weights))
+        or np.any(weights < 0.0)
+        or not np.any(weights > 0.0)
+    ):
+        raise ValueError(
+            "current_weights must be finite, non-negative, and contain "
+            "at least one positive value."
+        )
+
+    cell_widths: np.ndarray | None = None
+    if spatial_cell_widths_um is not None:
+        cell_widths = _as_real_array(
+            spatial_cell_widths_um,
+            "spatial_cell_widths_um",
+        )
+        if cell_widths.shape != x.shape:
+            raise ValueError(
+                "spatial_cell_widths_um must have the same shape as x_um."
+            )
+        if np.any(~np.isfinite(cell_widths)) or np.any(cell_widths <= 0.0):
+            raise ValueError(
+                "spatial_cell_widths_um must be finite and positive."
+            )
+
+    def integrate(values: np.ndarray) -> np.ndarray:
+        if cell_widths is None:
+            return np.asarray(np.trapezoid(values, x, axis=-1))
+        return np.asarray(np.sum(values * cell_widths, axis=-1))
 
     f_spatial = _as_spatial_distribution(f, x.size, "f")
     f_ref_spatial = _as_spatial_distribution(f_ref, x.size, "f_ref")
     if f_spatial.shape != f_ref_spatial.shape:
         raise ValueError("f and f_ref must have compatible energy dimensions.")
 
-    strip_integral = float(np.trapezoid(weights, x))
+    strip_integral = float(integrate(weights))
     if strip_integral <= 0.0:
         raise ValueError("current weighting normalization vanished.")
 
@@ -107,34 +157,56 @@ def compute_current_weighted_ac_response(
         n_subgap=n_subgap,
     )
 
-    sigma1_eff = float(np.trapezoid(weights * sigma1, x) / strip_integral)
-    sigma2_eff = float(np.trapezoid(weights * sigma2, x) / strip_integral)
-    sigma1_ref_eff = float(np.trapezoid(weights * sigma1_ref, x) / strip_integral)
-    sigma2_ref_eff = float(np.trapezoid(weights * sigma2_ref, x) / strip_integral)
+    sigma1_eff = float(integrate(weights * sigma1) / strip_integral)
+    sigma2_eff = float(integrate(weights * sigma2) / strip_integral)
+    sigma1_ref_eff = float(integrate(weights * sigma1_ref) / strip_integral)
+    sigma2_ref_eff = float(integrate(weights * sigma2_ref) / strip_integral)
 
+    supported_weight = weights > 0.0
+    delta_sigma2 = sigma2 - sigma2_ref
+    zero_reference_with_change = (
+        supported_weight & (sigma2_ref == 0.0) & (delta_sigma2 != 0.0)
+    )
+    if np.any(zero_reference_with_change):
+        raise ValueError(
+            "Cannot form the local reactive-conductivity change: reference "
+            "sigma2 is zero while the current sigma2 differs at one or more "
+            "spatial points."
+        )
     rel_sigma2 = np.divide(
-        sigma2 - sigma2_ref,
+        delta_sigma2,
         sigma2_ref,
         out=np.zeros_like(sigma2),
-        where=sigma2_ref > 0.0,
+        where=supported_weight & (sigma2_ref != 0.0),
     )
-    weighted_rel_sigma2 = float(np.trapezoid(weights * rel_sigma2, x) / strip_integral)
+    weighted_rel_sigma2 = float(integrate(weights * rel_sigma2) / strip_integral)
     frac_shift = (
         0.5
         * alpha
-        * float(np.trapezoid(weights * rel_sigma2, x))
+        * float(integrate(weights * rel_sigma2))
         / full_current_integral_um
     )
 
+    zero_reactive_with_loss = (
+        supported_weight & (sigma2 == 0.0) & (sigma1 != 0.0)
+    )
+    if np.any(zero_reactive_with_loss):
+        raise ValueError(
+            "Cannot form the local quasiparticle loss ratio: sigma2 is zero "
+            "while sigma1 is non-zero at one or more spatial points."
+        )
+    # Preserve the sign of the reactive response. In particular, sigma2 < 0
+    # is an active response and must produce a signed inverse Q instead of
+    # being silently replaced by the zero-loss limit.
     local_loss_ratio = np.divide(
         sigma1,
         sigma2,
         out=np.zeros_like(sigma1),
-        where=sigma2 > 0.0,
+        where=supported_weight & (sigma2 != 0.0),
     )
     inverse_qi = (
         alpha
-        * float(np.trapezoid(weights * local_loss_ratio, x))
+        * float(integrate(weights * local_loss_ratio))
         / full_current_integral_um
     )
     # Negative inverse Q is active gain (negative damping), not the zero-loss

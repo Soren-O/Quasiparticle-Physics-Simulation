@@ -9,6 +9,7 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_base,
 )
 from qpsim.constants import KB_UEV_PER_K
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
@@ -133,6 +134,41 @@ class TestThermalPhononPath:
                 initial_guess=np.zeros((1, ctx.E.size)),
             )
 
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_initial_guesses_before_float_cast(
+        self,
+        imaginary: float,
+    ) -> None:
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        bad_f = np.zeros(ctx.E.size, dtype=complex)
+        bad_f[0] = complex(0.0, imaginary)
+        with pytest.raises(ValueError, match="initial_guess must be real-valued"):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_guess=bad_f,
+            )
+
+        from qpsim.collisions.phonon import build_phonon_frequency_map
+
+        omega = build_phonon_frequency_map(ctx.E)[0]
+        bad_phonon = np.zeros(omega.size, dtype=complex)
+        bad_phonon[0] = complex(0.0, imaginary)
+        with pytest.raises(
+            ValueError,
+            match="initial_phonon_guess must be real-valued",
+        ):
+            solve_steady_state(
+                ctx,
+                K_s0,
+                K_r0,
+                T_bath,
+                initial_phonon_guess=bad_phonon,
+                phonon_escape_time=0.25,
+            )
+
     @pytest.mark.parametrize(
         ("control", "value", "message"),
         [
@@ -231,6 +267,157 @@ class TestFiniteTauLPath:
 
         assert len(observed) == 1
         np.testing.assert_array_equal(observed[0], seed)
+
+    @pytest.mark.parametrize("initial_level", [0.0, 0.5])
+    def test_anderson_branch_collapse_falls_back_before_phonon_map_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        initial_level: float,
+    ) -> None:
+        """A collapsed AA inner root is rejected immediately and only once.
+
+        The third inner solve deliberately returns the same drained state
+        after Anderson has been disabled.  It must be allowed to converge:
+        the guard prevents an accelerated branch hop, not a genuine plain-
+        Picard drain.
+        """
+        import qpsim.services.steady_state as steady_state_module
+        from qpsim.collisions.phonon import build_phonon_frequency_map
+
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        omega = build_phonon_frequency_map(ctx.E)[0]
+        n_seed = thermal_phonon_occupation(omega, T_bath) + 0.125
+        # The zero case proves the collapse reference follows the physical
+        # branch after it grows away from a vacuum/tiny seed.
+        initial_f = np.full(ctx.E.size, initial_level)
+        physical_f = np.full(ctx.E.size, 0.4)
+        collapsed_f = np.full(ctx.E.size, 0.01)
+
+        f_inputs: list[np.ndarray] = []
+        n_inputs: list[np.ndarray] = []
+        newton_outputs = iter((physical_f, collapsed_f, collapsed_f))
+        phonon_map_calls = 0
+        anderson_calls = 0
+        ratio_values = iter((2.0, 0.0))
+
+        original_project = steady_state_module.phonon_occupation_matrices_from_state
+
+        def capture_project(n_ph, *args, **kwargs):
+            n_inputs.append(np.asarray(n_ph, dtype=float).copy())
+            return original_project(n_ph, *args, **kwargs)
+
+        def fake_newton(_ctx, f, **kwargs):
+            f_inputs.append(np.asarray(f, dtype=float).copy())
+            return next(newton_outputs).copy()
+
+        def fixed_phonon_map(*args, coefficients_out, **kwargs):
+            nonlocal phonon_map_calls
+            phonon_map_calls += 1
+            coefficients_out["a_ph"] = np.zeros(omega.size)
+            coefficients_out["b_ph"] = np.zeros(omega.size)
+            return n_seed.copy()
+
+        def fake_anderson(*args, **kwargs):
+            nonlocal anderson_calls
+            anderson_calls += 1
+            return n_seed + 0.25
+
+        monkeypatch.setattr(
+            steady_state_module,
+            "phonon_occupation_matrices_from_state",
+            capture_project,
+        )
+        monkeypatch.setattr(steady_state_module, "newton_solve_f", fake_newton)
+        monkeypatch.setattr(
+            steady_state_module,
+            "phonon_steady_state",
+            fixed_phonon_map,
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "_picard_convergence_ratio",
+            lambda *args, **kwargs: next(ratio_values),
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "_phonon_balance_backward_error",
+            lambda *args, **kwargs: 0.0,
+        )
+        monkeypatch.setattr(
+            steady_state_module,
+            "anderson_extrapolate",
+            fake_anderson,
+        )
+
+        phonon_out: dict[str, np.ndarray] = {}
+        result = solve_steady_state(
+            ctx,
+            K_s0,
+            K_r0,
+            T_bath,
+            initial_guess=initial_f,
+            initial_phonon_guess=n_seed,
+            phonon_escape_time=0.1,
+            max_picard_iter=3,
+            anderson_depth=2,
+            phonon_out=phonon_out,
+        )
+
+        # Iteration 2's collapsed Newton output never reaches the phonon map.
+        # Iteration 3 starts from the last matched physical pair, with AA now
+        # disabled, and may return the genuine drained state without looping.
+        assert phonon_map_calls == 2
+        assert anderson_calls == 1
+        assert len(f_inputs) == 3
+        np.testing.assert_array_equal(f_inputs[2], physical_f)
+        assert len(n_inputs) == 3
+        np.testing.assert_array_equal(n_inputs[0], n_seed)
+        np.testing.assert_array_equal(n_inputs[1], n_seed + 0.25)
+        np.testing.assert_array_equal(n_inputs[2], n_seed)
+        np.testing.assert_array_equal(result, collapsed_f)
+        np.testing.assert_array_equal(phonon_out["n_ph"], n_seed)
+
+    def test_first_inner_correction_does_not_masquerade_as_aa_collapse(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A hot user seed may move by >10x before Anderson is ever causal."""
+        import qpsim.services.steady_state as steady_state_module
+
+        ctx, K_s0, K_r0, T_bath = _setup(num=12)
+        flux = ExternalFlux(
+            gain=np.full(ctx.E.size, 1.0e-4),
+            loss_rate=np.zeros(ctx.E.size),
+        )
+        original_anderson = steady_state_module.anderson_extrapolate
+        calls = 0
+
+        def count_anderson(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original_anderson(*args, **kwargs)
+
+        monkeypatch.setattr(
+            steady_state_module,
+            "anderson_extrapolate",
+            count_anderson,
+        )
+        result = solve_steady_state(
+            ctx,
+            K_s0,
+            K_r0,
+            T_bath,
+            initial_guess=np.full(ctx.E.size, 0.5),
+            phonon_escape_time=1.0e-3,
+            anderson_depth=2,
+            picard_tol=1.0e-8,
+            max_picard_iter=100,
+            tol=1.0e-10,
+            external_flux=flux,
+        )
+
+        assert float(np.max(result)) < 0.05
+        assert calls > 0
 
     @pytest.mark.parametrize(
         "bad",

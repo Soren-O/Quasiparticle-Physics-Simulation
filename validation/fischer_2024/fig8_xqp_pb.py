@@ -50,10 +50,15 @@ from qpsim.physics.spectral import SpectralContext
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
+    CompanionArtifactRecord,
+    ProducerIdentity,
     QPCertificate,
     bind_certificate,
+    capture_producer_identity,
+    publish_artifact_pair,
     qp_certificate,
     read_artifact,
+    require_staging_path,
     source_hashes,
     validated_numeric_array,
     write_artifact,
@@ -76,7 +81,7 @@ NUM_BINS = 810  # ω_PB/dE = 252 exactly at this grid
 
 T_BATH_VALUES: tuple[float, ...] = tuple(np.linspace(0.05, 0.22, 8).tolist())
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v2"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v3"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
@@ -237,9 +242,14 @@ def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
 
 
-def write_baseline(result: Fig8Result, path: Path | None = None) -> Path:
-    if path is None:
-        path = baseline_path()
+def write_baseline(
+    result: Fig8Result,
+    path: Path,
+    *,
+    producer: ProducerIdentity,
+    companion_pdf: CompanionArtifactRecord | None = None,
+) -> Path:
+    require_staging_path(path, baseline_path(), artifact_kind="CSV")
     expected_T = np.asarray(T_BATH_VALUES, dtype=float)
     if not np.array_equal(result.T_bath, expected_T):
         raise ValueError("Fig. 8 T_bath axis must exactly match T_BATH_VALUES.")
@@ -329,14 +339,17 @@ def write_baseline(result: Fig8Result, path: Path | None = None) -> Path:
             [float(T_bath), float(result.x_qp_thermal[i])]
             + [float(result.x_qp_by_power[p][i]) for p in result.powers]
         )
+    fingerprint = solver_fingerprint()
     return write_artifact(
         path,
         schema=ARTIFACT_SCHEMA,
-        fingerprint=solver_fingerprint(),
+        fingerprint=fingerprint,
         columns=_columns(),
         rows=rows,
         certificates=certificates,
         target_qp_residual_inf=NEWTON_TOL,
+        producer=producer,
+        companion_pdf=companion_pdf,
     )
 
 
@@ -352,6 +365,8 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
         expected_row_count=len(T_BATH_VALUES),
         expected_certificate_ids=expected_ids,
         target_qp_residual_inf=NEWTON_TOL,
+        companion_pdf_path=path.with_suffix(".pdf"),
+        require_companion_pdf=path.resolve() == baseline_path().resolve(),
     )
     data = artifact.data
     expected_T = np.asarray(T_BATH_VALUES, dtype=float)
@@ -385,14 +400,13 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
     )
 
 
-def write_plot(result: Fig8Result, path: Path | None = None) -> Path:
+def write_plot(result: Fig8Result, path: Path) -> Path:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path()
+    require_staging_path(path, plot_path(), artifact_kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Stored columns are qpsim-convention N_qp/(4 rho_F Delta_0); F24 Eq. 7's
@@ -441,9 +455,21 @@ def generate_baseline() -> tuple[Path, Path]:
         f"  T_bath sweep: {len(T_BATH_VALUES)} points, "
         f"{T_BATH_VALUES[0]:.3f} -> {T_BATH_VALUES[-1]:.3f} K"
     )
+    producer = capture_producer_identity(solver_fingerprint())
     result = run()
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path, pdf_path = publish_artifact_pair(
+        csv_path=baseline_path(),
+        pdf_path=plot_path(),
+        producer=producer,
+        current_fingerprint=solver_fingerprint,
+        render_pdf=lambda path: write_plot(result, path),
+        write_csv=lambda path, identity, pdf: write_baseline(
+            result,
+            path,
+            producer=identity,
+            companion_pdf=pdf,
+        ),
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path

@@ -144,6 +144,31 @@ class TestReferenceValue:
 
 
 class TestInputValidation:
+    @pytest.mark.parametrize("name", ["Delta", "r", "g"])
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_nonfinite_inputs_rejected(self, name: str, bad: float) -> None:
+        values = {
+            "Delta_R_kelvin": 2.35,
+            "r_Rlt_rate_Hz": 1e6,
+            "g_photon_R_rate_Hz": 100.0,
+        }
+        key = {
+            "Delta": "Delta_R_kelvin",
+            "r": "r_Rlt_rate_Hz",
+            "g": "g_photon_R_rate_Hz",
+        }[name]
+        values[key] = bad
+        with pytest.raises(ValueError, match=key):
+            crossover_temperature_kelvin(**values)
+
+    def test_extreme_finite_rate_ratio_is_evaluated_in_log_space(self) -> None:
+        value = crossover_temperature_kelvin(
+            Delta_R_kelvin=1.0,
+            r_Rlt_rate_Hz=1e308,
+            g_photon_R_rate_Hz=1e-308,
+        )
+        assert value == pytest.approx(0.00141475784, rel=1e-8)
+
     def test_negative_Delta_rejected(self) -> None:
         with pytest.raises(ValueError, match="Delta_R_kelvin"):
             crossover_temperature_kelvin(
@@ -448,12 +473,12 @@ class TestSolverLimitingCases:
 
         # Legacy normalization regression: force Γ̄ = Γ̃ and verify
         # the historical cancellation-floor pathology (strict raise).
-        # At 20 mK the Γ̃-scale density equations exhaust the Newton
-        # budget rather than reaching the no-progress stall — pin the
-        # maxfev failure mode so a silent acceptance regression is
-        # caught.
+        # The exact SciPy termination reason (evaluation budget versus
+        # no-progress stall) is roundoff-sensitive. The contract is that
+        # this high-residual legacy state is rejected, never silently
+        # accepted as a root.
         legacy = replace(coefs, cooper_pair_number_R=1.0)
-        with pytest.raises(RuntimeError, match="maxfev"):
+        with pytest.raises(RuntimeError, match=r"maxfev|high residual"):
             solve_rate_equation_steady_state(legacy)
 
     @pytest.mark.parametrize("T_kelvin", [0.080, 0.100, 0.110])

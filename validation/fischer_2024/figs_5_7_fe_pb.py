@@ -30,10 +30,15 @@ from qpsim.observables.density import qp_fraction
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
+    CompanionArtifactRecord,
+    ProducerIdentity,
     QPCertificate,
     bind_certificate,
+    capture_producer_identity,
+    publish_artifact_pair,
     qp_certificate,
     read_artifact,
+    require_staging_path,
     source_hashes,
     thermal_occupations_match,
     validated_numeric_array,
@@ -55,7 +60,7 @@ from validation.fischer_2024.fig8_xqp_pb import (
 
 T_BATH_FE = 0.1  # F24 Figs 5-7 fix T_B at 0.1 K
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.figs_5_7_fe_pb.v2"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.figs_5_7_fe_pb.v3"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
@@ -172,9 +177,14 @@ def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
 
 
-def write_baseline(result: Figs57Result, path: Path | None = None) -> Path:
-    if path is None:
-        path = baseline_path()
+def write_baseline(
+    result: Figs57Result,
+    path: Path,
+    *,
+    producer: ProducerIdentity,
+    companion_pdf: CompanionArtifactRecord | None = None,
+) -> Path:
+    require_staging_path(path, baseline_path(), artifact_kind="CSV")
     base_state = _build_state(_material(), T_BATH_FE)
     expected_E = base_state.spectral.E
     if not np.array_equal(result.E, expected_E):
@@ -246,14 +256,17 @@ def write_baseline(result: Figs57Result, path: Path | None = None) -> Path:
         [float(result.E[i]), float(f_thermal[i])] + [float(f_by_power[p][i]) for p in result.powers]
         for i in range(result.E.size)
     ]
+    fingerprint = solver_fingerprint()
     return write_artifact(
         path,
         schema=ARTIFACT_SCHEMA,
-        fingerprint=solver_fingerprint(),
+        fingerprint=fingerprint,
         columns=_columns(),
         rows=rows,
         certificates=certificates,
         target_qp_residual_inf=NEWTON_TOL,
+        producer=producer,
+        companion_pdf=companion_pdf,
     )
 
 
@@ -268,6 +281,8 @@ def read_baseline(path: Path | None = None) -> Figs57Result:
         expected_row_count=NUM_BINS,
         expected_certificate_ids=[_point_id(power) for power in POWER_LEVELS],
         target_qp_residual_inf=NEWTON_TOL,
+        companion_pdf_path=path.with_suffix(".pdf"),
+        require_companion_pdf=path.resolve() == baseline_path().resolve(),
     )
     data = artifact.data
     expected_E = _build_state(_material(), T_BATH_FE).spectral.E
@@ -312,14 +327,13 @@ def read_baseline(path: Path | None = None) -> Figs57Result:
     )
 
 
-def write_plot(result: Figs57Result, path: Path | None = None) -> Path:
+def write_plot(result: Figs57Result, path: Path) -> Path:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path()
+    require_staging_path(path, plot_path(), artifact_kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -373,11 +387,23 @@ def generate_baseline() -> tuple[Path, Path]:
     )
     print(f"  Powers (c*nbar, ns^-1): {list(POWER_LEVELS)}")
     print(f"  Grid: NE={NUM_BINS}")
+    producer = capture_producer_identity(solver_fingerprint())
     result = run()
     for p in result.powers:
         print(f"    c*nbar = {p:g}:  x_qp = {result.x_qp_by_power[p]:.4e}")
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path, pdf_path = publish_artifact_pair(
+        csv_path=baseline_path(),
+        pdf_path=plot_path(),
+        producer=producer,
+        current_fingerprint=solver_fingerprint,
+        render_pdf=lambda path: write_plot(result, path),
+        write_csv=lambda path, identity, pdf: write_baseline(
+            result,
+            path,
+            producer=identity,
+            companion_pdf=pdf,
+        ),
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path

@@ -100,6 +100,8 @@ from validation.fischer_2023.fig5_paper import _xqp_analytic_eq47
 from validation.fischer_2023.steady_state_certificate import (
     CERTIFICATE_FIELDS,
     CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_METRIC_VERSION,
+    QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
 )
 
@@ -660,18 +662,22 @@ def _require_target_certificate(
             f"got {backward_error_limit}."
         )
     qp_backward = certificate["qp_backward_error"]
+    qp_number_backward = certificate[QP_NUMBER_CERTIFICATE_FIELD]
     phonon_backward = certificate["phonon_backward_error"]
     if (
         not np.isfinite(qp_backward)
+        or not np.isfinite(qp_number_backward)
         or not np.isfinite(phonon_backward)
         or qp_backward > backward_error_limit
+        or qp_number_backward > backward_error_limit
         or phonon_backward > backward_error_limit
     ):
         raise RuntimeError(
             "Fischer Fig. 6 converged target failed the independent "
             f"steady-state certificate at T_B={T_bath:g} K, "
             f"n_bar={n_bar:.6e} (limit={backward_error_limit:g}): "
-            f"qp={qp_backward:.3e}, phonon={phonon_backward:.3e}."
+            f"qp={qp_backward:.3e}, qp_number={qp_number_backward:.3e}, "
+            f"phonon={phonon_backward:.3e}."
         )
 
     gap_error = certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD]
@@ -1078,6 +1084,9 @@ def solver_fingerprint() -> dict[str, Any]:
         "gap_fixed_point_rel_tol": GAP_FIXED_POINT_REL_TOL,
         "certificate_fields": list(FIG6_CERTIFICATE_FIELDS),
         "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
+        "live_number_certificate_metric_version": (
+            NUMBER_CERTIFICATE_METRIC_VERSION
+        ),
         "tau_l_model": TAU_L_MODEL,
         "t_bath_values": [float(x) for x in T_BATH_VALUES],
         "n_bar_values": [float(x) for x in N_BAR_VALUES],

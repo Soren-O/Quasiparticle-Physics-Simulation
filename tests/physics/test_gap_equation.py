@@ -13,7 +13,15 @@ from qpsim.grid.energy_grid import (
     integration_widths_from_centers,
 )
 from qpsim.materials.database import load_material
-from qpsim.physics.gap_equation import _gap_integral_f, calibrate_gap, solve_gap
+from qpsim.physics.bcs_quadrature import cell_edges_from_widths
+from qpsim.physics.gap_equation import (
+    GapBelowGridSupportError,
+    GapRootIsolationError,
+    _gap_integral_f,
+    _positive_gap_integral_upper_bound,
+    calibrate_gap,
+    solve_gap,
+)
 
 
 def _legacy_interpolated_gap_integral(
@@ -169,6 +177,70 @@ class TestCalibrateGap:
 
 
 class TestSolveGap:
+    @pytest.mark.parametrize(
+        ("argument", "message"),
+        (
+            ("f", "f must be one-dimensional"),
+            ("E_bins", "E_bins must be one-dimensional"),
+            ("dE_bins", "dE_bins must be one-dimensional"),
+        ),
+    )
+    def test_rejects_non_vector_arrays_before_flattening(
+        self,
+        argument: str,
+        message: str,
+    ) -> None:
+        cal = calibrate_gap(T_c=1.2, T_bath=0.1)
+        E, dE = build_energy_grid(cal.delta_eq, 0.75, 6.0, 40)
+        values: dict[str, np.ndarray] = {
+            "f": np.zeros_like(E),
+            "E_bins": E,
+            "dE_bins": np.full_like(E, dE),
+        }
+        values[argument] = values[argument].reshape(2, -1)
+
+        with pytest.raises(ValueError, match=message):
+            solve_gap(
+                cal,
+                values["f"],
+                values["E_bins"],
+                values["dE_bins"],
+            )
+
+    @pytest.mark.parametrize(
+        ("argument", "message"),
+        (
+            ("f", "f must be real-valued"),
+            ("E_bins", "E_bins must be real-valued"),
+            ("dE_bins", "dE_bins must be real-valued"),
+        ),
+    )
+    @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
+    def test_rejects_complex_arrays_before_float_cast(
+        self,
+        argument: str,
+        message: str,
+        imaginary: float,
+    ) -> None:
+        cal = calibrate_gap(T_c=1.2, T_bath=0.1)
+        E, dE = build_energy_grid(cal.delta_eq, 0.75, 6.0, 40)
+        values: dict[str, np.ndarray] = {
+            "f": np.zeros_like(E),
+            "E_bins": E,
+            "dE_bins": np.full_like(E, dE),
+        }
+        bad = values[argument].astype(complex)
+        bad[0] = complex(float(bad[0].real), imaginary)
+        values[argument] = bad
+
+        with pytest.raises(ValueError, match=message):
+            solve_gap(
+                cal,
+                values["f"],
+                values["E_bins"],
+                values["dE_bins"],
+            )
+
     def test_cell_exact_integral_matches_piecewise_constant_reference(self) -> None:
         from scipy.integrate import quad
 
@@ -391,11 +463,205 @@ class TestSolveGap:
         delta = solve_gap(cal, f, E)
         assert delta == pytest.approx(cal.delta_eq, rel=1e-3)
 
-    def test_normal_state_returns_zero(self) -> None:
-        cal = calibrate_gap(T_c=1.2, T_bath=2.0)  # Δ_eq = 0
-        E = np.linspace(0.1, 5.0, 100)
-        f = np.zeros_like(E)
-        assert solve_gap(cal, f, E) == 0.0
+    @pytest.mark.parametrize("use_reference", [False, True])
+    def test_nonequilibrium_vacuum_above_Tc_recovers_superconducting_root(
+        self,
+        use_reference: bool,
+    ) -> None:
+        # delta_eq=0 describes only the thermal calibration. A supplied cold
+        # occupation still supports a superconducting solution; for f=0 the
+        # finite-cutoff equation has the exact root delta_0_bcs.
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        assert cal.delta_eq == 0.0
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.75,
+            energy_max_factor=6.0,
+            num_energy_bins=400,
+        )
+        widths = np.full_like(E, dE_scalar)
+        reference_gap = 0.9 * cal.delta_0_bcs if use_reference else None
+
+        solved = solve_gap(
+            cal,
+            np.zeros_like(E),
+            E,
+            widths,
+            reference_gap=reference_gap,
+            xtol=1e-12,
+        )
+
+        assert solved == pytest.approx(cal.delta_0_bcs, rel=0.0, abs=2e-9)
+
+    def test_above_Tc_unanchored_multiple_roots_fail_loudly(self) -> None:
+        # Exact round-7 adversarial reproduction: the thermal calibration is
+        # normal and this valid, non-monotone occupation gives two interior
+        # positive roots even though the residual is negative at BOTH ends of
+        # the admissible interval. An endpoint-only bracket therefore returned
+        # Delta=0 and silently discarded both superconducting branches.
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.0,
+            energy_max_factor=6.0,
+            num_energy_bins=1200,
+        )
+        widths = np.full_like(E, dE_scalar)
+        f = np.where(E < 100.0, 0.99, 0.0)
+
+        with pytest.raises(ValueError, match=r"thermally normal.*reference_gap"):
+            solve_gap(cal, f, E, widths, xtol=1e-12)
+
+        # The failure is non-vacuous: explicit continuation anchors select
+        # each of the two physical sign-changing roots deterministically.
+        lower = solve_gap(
+            cal,
+            f,
+            E,
+            widths,
+            reference_gap=0.5 * cal.delta_0_bcs,
+            xtol=1e-12,
+        )
+        upper = solve_gap(
+            cal,
+            f,
+            E,
+            widths,
+            reference_gap=0.9 * cal.delta_0_bcs,
+            xtol=1e-12,
+        )
+        assert lower == pytest.approx(95.1236960817, abs=2e-9)
+        assert upper == pytest.approx(182.3848039845, abs=2e-9)
+
+    def test_above_Tc_narrow_roots_require_an_explicit_anchor(self) -> None:
+        # A narrow positive residual lobe straddles one finite-volume cell.
+        # With no positive equilibrium branch, arbitrary nonequilibrium input
+        # must supply an explicit continuation anchor.
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.0,
+            energy_max_factor=6.0,
+            num_energy_bins=1200,
+        )
+        widths = np.full_like(E, dE_scalar)
+        cutoff = cal.delta_0_bcs - dE_scalar
+        f = np.where(cutoff > E, 0.51, 0.0)
+
+        with pytest.raises(ValueError, match=r"thermally normal.*reference_gap"):
+            solve_gap(cal, f, E, widths, xtol=1e-12)
+
+        with pytest.warns(RuntimeWarning, match=r"multiple roots \(2 detected"):
+            lower = solve_gap(
+                cal,
+                f,
+                E,
+                widths,
+                reference_gap=cutoff,
+                xtol=1e-12,
+            )
+        with pytest.warns(RuntimeWarning, match=r"multiple roots \(2 detected"):
+            upper = solve_gap(
+                cal,
+                f,
+                E,
+                widths,
+                reference_gap=cal.delta_0_bcs,
+                xtol=1e-12,
+            )
+        assert lower == pytest.approx(181.4706774029, abs=2e-9)
+        assert upper == pytest.approx(cal.delta_0_bcs, abs=2e-9)
+
+    def test_continuation_never_false_collapses_when_narrow_roots_are_missed(
+        self,
+    ) -> None:
+        # The historical 64-face subsample missed both positive roots and
+        # converted same-sign negative endpoint samples into Delta=0.
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.0,
+            energy_max_factor=6.0,
+            num_energy_bins=4500,
+        )
+        widths = np.full_like(E, dE_scalar)
+        cutoff = cal.delta_0_bcs - dE_scalar
+        f = np.where(cutoff > E, 0.51, 0.0)
+
+        with pytest.warns(RuntimeWarning, match=r"multiple roots \(2 detected"):
+            candidate = solve_gap(
+                cal,
+                f,
+                E,
+                widths,
+                reference_gap=cutoff - 0.5 * dE_scalar,
+                xtol=1e-12,
+            )
+
+        assert candidate == pytest.approx(182.14146817281394, abs=2e-9)
+
+    def test_no_sampled_root_is_indeterminate_without_a_proof(self) -> None:
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.0,
+            energy_max_factor=6.0,
+            num_energy_bins=100,
+        )
+        widths = np.full_like(E, dE_scalar)
+        f = np.ones_like(E)
+        above = np.flatnonzero(0.2 * cal.delta_0_bcs < E)
+        f[above[::2]] = 0.0
+        edges = cell_edges_from_widths(E, widths)
+        assert (
+            _positive_gap_integral_upper_bound(f, edges, cal._omega_D)
+            > cal._ref_integral
+        )
+
+        with pytest.raises(GapRootIsolationError, match="do not prove"):
+            solve_gap(
+                cal,
+                f,
+                E,
+                widths,
+                reference_gap=0.9 * cal.delta_0_bcs,
+                xtol=1e-12,
+            )
+
+    def test_above_Tc_proven_normal_state_needs_no_branch_anchor(self) -> None:
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        E, dE_scalar = build_energy_grid(
+            cal.delta_0_bcs,
+            energy_min_factor=0.0,
+            energy_max_factor=60.0,
+            num_energy_bins=2001,
+        )
+        widths = np.full_like(E, dE_scalar)
+
+        assert solve_gap(cal, np.ones_like(E), E, widths, xtol=1e-12) == 0.0
+
+    def test_above_Tc_normal_state_still_enforces_grid_support(self) -> None:
+        cal = calibrate_gap(T_c=1.2, T_bath=1.3, xtol=1e-12)
+        # A contiguous grid whose first face is positive but whose final face
+        # covers omega_D. f=1 makes the residual negative throughout, so the
+        # numerical solution is the normal state Delta=0. That solved state
+        # lies outside the represented lower support and must fail loudly.
+        fine_edges = np.arange(0.5, 400.5 + 1.0, 1.0)
+        edges = np.concatenate((fine_edges, np.array([cal._omega_D + 1.0])))
+        E = 0.5 * (edges[:-1] + edges[1:])
+        widths = np.diff(edges)
+
+        with pytest.raises(GapBelowGridSupportError) as caught:
+            solve_gap(
+                cal,
+                np.ones_like(E),
+                E,
+                widths,
+                reference_gap=cal.delta_0_bcs,
+                xtol=1e-12,
+            )
+
+        assert caught.value.candidate_gap == 0.0
 
     def test_sub_milli_microev_gap_is_not_hidden_by_absolute_floor(self) -> None:
         # A deliberately low-Tc BCS model has a perfectly physical

@@ -19,6 +19,7 @@ from validation.fischer_2024._artifact import (
     ArtifactValidationError,
     LegacyArtifactError,
     QPCertificate,
+    capture_producer_identity,
 )
 from validation.fischer_2024.fig8_xqp_pb import (
     DELTA_0,
@@ -58,6 +59,11 @@ def _rewrite_csv(path: Path, mutate: Callable[[list[list[str]]], None]) -> None:
         csv.writer(fp, lineterminator="\n").writerows(rows)
 
 
+def _write_baseline(result: target.Figs57Result, path: Path) -> Path:
+    producer = capture_producer_identity(target.solver_fingerprint())
+    return target.write_baseline(result, path, producer=producer)
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -72,7 +78,7 @@ def test_current_artifact_round_trips(
     _synthetic_certificate: None,
 ) -> None:
     reference = _synthetic_result()
-    path = target.write_baseline(reference, tmp_path / "figs57.csv")
+    path = _write_baseline(reference, tmp_path / "figs57.csv")
     with path.open(encoding="utf-8", newline="") as fp:
         rows = list(csv.reader(fp))
     metadata = json.loads(rows[1][0].split("=", 1)[1])
@@ -91,14 +97,14 @@ def test_thermal_seed_accepts_ulp_roundoff_but_rejects_drift(
     rounded = _synthetic_result()
     np.nextafter(rounded.f_thermal, np.inf, out=rounded.f_thermal)
     decoded = target.read_baseline(
-        target.write_baseline(rounded, tmp_path / "rounded-thermal.csv")
+        _write_baseline(rounded, tmp_path / "rounded-thermal.csv")
     )
     np.testing.assert_array_equal(decoded.f_thermal, rounded.f_thermal)
 
     drifted = _synthetic_result()
     drifted.f_thermal[0] *= 1.0 + 1.0e-9
     with pytest.raises(ArtifactValidationError, match="thermal occupation"):
-        target.write_baseline(drifted, tmp_path / "drifted-thermal.csv")
+        _write_baseline(drifted, tmp_path / "drifted-thermal.csv")
 
 
 def test_writer_rejects_residual_at_newton_tolerance(
@@ -108,7 +114,7 @@ def test_writer_rejects_residual_at_newton_tolerance(
     result = _synthetic_result()
     result.qp_residual_inf_by_power[POWER_LEVELS[0]] = target.NEWTON_TOL
     with pytest.raises(RuntimeError, match="residual"):
-        target.write_baseline(result, tmp_path / "figs57.csv")
+        _write_baseline(result, tmp_path / "figs57.csv")
 
 
 @pytest.mark.parametrize(
@@ -120,7 +126,7 @@ def test_reader_rejects_invalid_artifacts(
     mutation: str,
     _synthetic_certificate: None,
 ) -> None:
-    path = target.write_baseline(_synthetic_result(), tmp_path / "figs57.csv")
+    path = _write_baseline(_synthetic_result(), tmp_path / "figs57.csv")
 
     def mutate(rows: list[list[str]]) -> None:
         if mutation == "malformed":
@@ -148,7 +154,7 @@ def test_reader_rejects_invalid_artifacts(
 
 def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"QP (backward error|residual_inf)"):
-        target.write_baseline(_synthetic_result(), tmp_path / "forged.csv")
+        _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
 def test_reduced_live_run_writes_bound_artifact(
@@ -159,7 +165,9 @@ def test_reduced_live_run_writes_bound_artifact(
     monkeypatch.setattr(target, "POWER_LEVELS", (1.0e-2,))
     monkeypatch.setattr(shared, "NUM_BINS", 90)
     result = target.run()
-    decoded = target.read_baseline(target.write_baseline(result, tmp_path / "reduced_figs57.csv"))
+    decoded = target.read_baseline(
+        _write_baseline(result, tmp_path / "reduced_figs57.csv")
+    )
     np.testing.assert_allclose(
         decoded.f_by_power[1.0e-2],
         result.f_by_power[1.0e-2],
@@ -190,7 +198,7 @@ def test_writer_preserves_existing_file_on_mid_write_failure(
 
     monkeypatch.setattr(csv, "writer", FailingWriter)
     with pytest.raises(OSError, match="injected"):
-        target.write_baseline(_synthetic_result(), path)
+        _write_baseline(_synthetic_result(), path)
     assert path.read_text(encoding="utf-8") == "sentinel\n"
 
 

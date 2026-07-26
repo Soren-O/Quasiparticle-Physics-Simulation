@@ -97,6 +97,29 @@ _EDGE_REMAP_MIN_BINS = 4
 _EDGE_REMAP_OCCUPATION_CEILING = 1.0 - 1e-12
 
 
+def _validated_real_occupations(
+    values: np.ndarray,
+    *,
+    expected_shape: tuple[int, ...],
+    name: str,
+) -> np.ndarray:
+    """Validate a public occupation array before any lossy float cast."""
+    raw = np.asarray(values)
+    if np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be real-valued.")
+    occupations = np.asarray(raw, dtype=float)
+    if occupations.shape != expected_shape:
+        raise ValueError(
+            f"{name} must have the same one-dimensional shape {expected_shape}; "
+            f"got {occupations.shape}."
+        )
+    if np.any(~np.isfinite(occupations)) or np.any(
+        (occupations < 0.0) | (occupations > 1.0)
+    ):
+        raise ValueError(f"{name} must contain finite occupations in [0, 1].")
+    return occupations
+
+
 def _spread_mass_change(
     mass: np.ndarray,
     capacity: np.ndarray,
@@ -498,8 +521,10 @@ class T3DiffusionBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
+        external_flux_is_conservative_transfer: bool = False,
         newton_tol: float = 1e-14,
         newton_backward_error_tol: float = 1e-6,
+        newton_number_polish_shape_tol: float | None = None,
         newton_max_iter: int = 200,
         picard_tol: float = 1e-10,
         picard_atol: float = 1e-11,
@@ -601,10 +626,18 @@ class T3DiffusionBackend:
             the phonon equation.
         photon_params, pb_photon_params
             Optional photon channel dicts.
-        newton_tol, newton_backward_error_tol, newton_max_iter
+        external_flux_is_conservative_transfer
+            Set only for conservative Device exchange. It excludes that
+            transfer from the inner Newton gain/loss normalization while
+            retaining it in the residual. Prescribed sources/sinks must keep
+            the default ``False`` so their own turnover sets the scale.
+        newton_tol, newton_backward_error_tol,
+        newton_number_polish_shape_tol, newton_max_iter
             Inner Newton dimensional residual tolerance, scale-independent
-            gain/loss backward-error limit, and iteration cap (used by Picard
-            and thermal-phonon paths).
+            gain/loss backward-error limit, optional routing-only shape
+            threshold for the scalar number-mode polish, and iteration cap
+            (used by Picard and thermal-phonon paths). ``None`` preserves the
+            conservative solver default and no value weakens return gates.
         picard_tol, picard_atol, picard_balance_tol, picard_max_iter,
         picard_mixing, anderson_depth
             Picard path controls. ``picard_atol`` is an absolute tolerance on
@@ -691,6 +724,28 @@ class T3DiffusionBackend:
         if external_flux is not None:
             external_flux._validate_for_NE(int(state.spectral.E.size))
             external_flux._validate_gain_support(state.spectral.active_mask)
+        if not isinstance(
+            external_flux_is_conservative_transfer,
+            (bool, np.bool_),
+        ):
+            raise ValueError(
+                "external_flux_is_conservative_transfer must be boolean; got "
+                f"{external_flux_is_conservative_transfer!r}."
+            )
+        external_flux_is_conservative_transfer = bool(
+            external_flux_is_conservative_transfer
+        )
+        if external_flux_is_conservative_transfer and external_flux is None:
+            raise ValueError(
+                "external_flux_is_conservative_transfer=True requires an "
+                "ExternalFlux."
+            )
+        if external_flux_is_conservative_transfer and method == "coupled_newton":
+            raise ValueError(
+                "Conservative ExternalFlux turnover separation is not "
+                "implemented for method='coupled_newton'; use the Picard/"
+                "thermal-phonon Newton path."
+            )
 
         # Default unaccelerated Picard (anderson_depth=0) is brittle when
         # ANY perturbation feeds through the phonon-emission cycle —
@@ -729,8 +784,12 @@ class T3DiffusionBackend:
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
+                external_flux_is_conservative_transfer=(
+                    external_flux_is_conservative_transfer
+                ),
                 newton_tol=newton_tol,
                 newton_backward_error_tol=newton_backward_error_tol,
+                newton_number_polish_shape_tol=newton_number_polish_shape_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
                 picard_atol=picard_atol,
@@ -786,8 +845,12 @@ class T3DiffusionBackend:
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
+                external_flux_is_conservative_transfer=(
+                    external_flux_is_conservative_transfer
+                ),
                 newton_tol=newton_tol,
                 newton_backward_error_tol=newton_backward_error_tol,
+                newton_number_polish_shape_tol=newton_number_polish_shape_tol,
                 newton_max_iter=newton_max_iter,
                 picard_tol=picard_tol,
                 picard_atol=picard_atol,
@@ -903,8 +966,10 @@ class T3DiffusionBackend:
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
         external_flux: ExternalFlux | None,
+        external_flux_is_conservative_transfer: bool,
         newton_tol: float,
         newton_backward_error_tol: float,
+        newton_number_polish_shape_tol: float | None,
         newton_max_iter: int,
         picard_tol: float,
         picard_atol: float,
@@ -980,9 +1045,13 @@ class T3DiffusionBackend:
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
+                external_flux_is_conservative_transfer=(
+                    external_flux_is_conservative_transfer
+                ),
                 initial_guess=state.f,
                 tol=newton_tol,
                 newton_backward_error_tol=newton_backward_error_tol,
+                newton_number_polish_shape_tol=newton_number_polish_shape_tol,
                 max_iter=newton_max_iter,
                 phonon_escape_time=None,
             )
@@ -1007,10 +1076,14 @@ class T3DiffusionBackend:
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,
+                external_flux_is_conservative_transfer=(
+                    external_flux_is_conservative_transfer
+                ),
                 initial_guess=state.f,
                 initial_phonon_guess=initial_phonon_guess,
                 tol=newton_tol,
                 newton_backward_error_tol=newton_backward_error_tol,
+                newton_number_polish_shape_tol=newton_number_polish_shape_tol,
                 max_iter=newton_max_iter,
                 phonon_escape_time=tau_l_scalar,
                 max_picard_iter=picard_max_iter,
@@ -1123,16 +1196,11 @@ class T3DiffusionBackend:
         # built from spectral.gap while ignoring state.gap.
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError(f"apply_collisions requires a finite positive dt; got {dt}.")
-        f_state = np.asarray(state.f, dtype=float)
-        if f_state.shape != state.spectral.E.shape:
-            raise ValueError(
-                "state.f must have the same one-dimensional shape as the "
-                "spectral energy grid."
-            )
-        if np.any(~np.isfinite(f_state)) or np.any(
-            (f_state < 0.0) | (f_state > 1.0)
-        ):
-            raise ValueError("state.f must contain finite occupations in [0, 1].")
+        f_state = _validated_real_occupations(
+            state.f,
+            expected_shape=state.spectral.E.shape,
+            name="state.f",
+        )
         gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
         if not np.isclose(
             state.gap,
@@ -1455,12 +1523,23 @@ class T3DiffusionBackend:
         material_mass = float(xi_widths @ material_occupation)
         represented_mass = float(exact_weights @ f)
         tail_mass = material_mass - represented_mass
-        tail_tolerance = _MOVING_GAP_TAIL_RTOL * max(
-            material_mass, np.finfo(float).tiny
-        ) + 256.0 * np.finfo(float).eps * max(material_mass, 1.0)
+        # Roundoff allowance must scale with the mass being compared.  The
+        # former ``max(material_mass, 1)`` introduced an absolute ~1e-14
+        # floor, making the advertised fractional cap disappear for cold,
+        # low-amplitude states.
+        fractional_roundoff = (
+            _MOVING_GAP_TAIL_RTOL + 256.0 * np.finfo(float).eps
+        )
+        mass_scale = max(
+            abs(material_mass),
+            abs(represented_mass),
+            np.finfo(float).tiny,
+        )
+        tail_tolerance = fractional_roundoff * mass_scale
         if tail_mass < -tail_tolerance:
             raise RuntimeError("Persistent materialization created finite-volume mass.")
-        if tail_mass > tail_tolerance:
+        if material_mass > 0.0:
+            tail_fraction = max(tail_mass, 0.0) / material_mass
             # A rising gap lowers the represented xi_max at fixed E_max and
             # strands high-xi persistent mass outside the energy window. The
             # mass stays in the persistent representation with frozen
@@ -1468,15 +1547,18 @@ class T3DiffusionBackend:
             # falls, so — per the 2026-07-20 adjudication — tolerate the
             # same fraction as _remap_gap_state_once instead of refusing
             # every recovery trajectory at ~5e-12.
-            tail_fraction = tail_mass / max(material_mass, np.finfo(float).tiny)
-            if tail_fraction > _MOVING_GAP_TAIL_MAX_FRACTION:
+            if tail_fraction > (
+                _MOVING_GAP_TAIL_MAX_FRACTION + fractional_roundoff
+            ):
                 raise RuntimeError(
                     "The moving gap would strand "
                     f"{tail_fraction:.2%} of the persistent-xi quasiparticle "
                     "mass above the fixed E_max boundary. Extend the energy "
                     "grid before evolving this gap change."
                 )
-            if tail_fraction > _MOVING_GAP_TAIL_WARN_FRACTION:
+            if tail_fraction > (
+                _MOVING_GAP_TAIL_WARN_FRACTION + fractional_roundoff
+            ):
                 warnings.warn(
                     "Moving-gap materialization left a finite-E_max "
                     f"persistent-xi tail containing {tail_fraction:.0e} of "
@@ -1826,13 +1908,11 @@ class T3DiffusionBackend:
         if dt <= 0:
             return state
 
-        f_state = np.asarray(state.f, dtype=float)
-        if f_state.shape != state.spectral.E.shape:
-            raise ValueError(
-                "state.f must have the same one-dimensional shape as the spectral energy grid."
-            )
-        if np.any(~np.isfinite(f_state)) or np.any((f_state < 0.0) | (f_state > 1.0)):
-            raise ValueError("state.f must contain finite occupations in [0, 1].")
+        _validated_real_occupations(
+            state.f,
+            expected_shape=state.spectral.E.shape,
+            name="state.f",
+        )
 
         if state.spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -1932,13 +2012,11 @@ class T3DiffusionBackend:
             )
         if not np.isfinite(state.gap) or state.gap <= 0.0:
             raise ValueError(f"step requires a finite positive gap; got {state.gap}.")
-        f_state = np.asarray(state.f, dtype=float)
-        if f_state.shape != state.spectral.E.shape:
-            raise ValueError(
-                "state.f must have the same one-dimensional shape as the spectral energy grid."
-            )
-        if np.any(~np.isfinite(f_state)) or np.any((f_state < 0.0) | (f_state > 1.0)):
-            raise ValueError("state.f must contain finite occupations in [0, 1].")
+        _validated_real_occupations(
+            state.f,
+            expected_shape=state.spectral.E.shape,
+            name="state.f",
+        )
         if state.spectral.dynes_gamma > 0.0:
             raise ValueError(
                 "Second-order moving-gap dynamics require an ideal BCS spectrum (dynes_gamma == 0)."

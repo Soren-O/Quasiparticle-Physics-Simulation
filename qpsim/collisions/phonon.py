@@ -96,8 +96,10 @@ def build_scattering_kernel_phonon_side(
     """
     _require_ideal_bcs_context(ctx, "Phonon-side scattering")
     coh = ctx.K_minus if coherence is CoherenceAssignment.PHONON else ctx.K_plus
-    if tau_0_pb_ns <= 0.0:
-        raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
+    if not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
+        raise ValueError(
+            f"tau_0_pb_ns must be finite and positive; got {tau_0_pb_ns}"
+        )
     if ctx.gap <= 0.0:
         raise ValueError(f"ctx.gap must be positive; got {ctx.gap}")
     return (2.0 / (np.pi * ctx.gap * tau_0_pb_ns)) * np.asarray(coh, dtype=float)
@@ -178,8 +180,10 @@ def build_recombination_kernel_phonon_side(
     """
     _require_ideal_bcs_context(ctx, "Phonon-side recombination")
     coh = ctx.K_plus if coherence is CoherenceAssignment.PHONON else ctx.K_minus
-    if tau_0_pb_ns <= 0.0:
-        raise ValueError(f"tau_0_pb_ns must be positive; got {tau_0_pb_ns}")
+    if not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
+        raise ValueError(
+            f"tau_0_pb_ns must be finite and positive; got {tau_0_pb_ns}"
+        )
     if ctx.gap <= 0.0:
         raise ValueError(f"ctx.gap must be positive; got {ctx.gap}")
     # Gap-cut-cell ω labeling: same documented approximation as
@@ -459,11 +463,14 @@ def _pair_breaking_quadrature_correction(
     """Scale phonon-side pair-breaking bins to the Kaplan S_+ total weight.
 
     A midpoint sum of the BCS endpoint singularity underestimates the
-    pair-breaking sink immediately above ``2Δ`` by ``2/π``.  The standalone
-    Fischer reproduction avoids that artifact with the analytic Kaplan
-    ``S_+(ω/Δ)`` total.  Apply the same per-ω correction only for callers
-    that opted into the phonon-side ``K⁺/(π Δ τ_0^PB)`` kernel; legacy
-    QP-side behavior remains unchanged.
+    pair-breaking sink at and immediately above ``2Δ`` by ``2/π``. At exact
+    threshold the integration interval collapses onto the singular endpoints,
+    whose ideal-BCS ``K⁺`` right-limit remains finite. The standalone Fischer
+    reproduction avoids that artifact with the analytic Kaplan ``S_+(ω/Δ)``
+    total. Apply the same per-ω correction only for callers that opted into
+    the phonon-side ``K⁺/(π Δ τ_0^PB)`` kernel; legacy QP-side behavior
+    remains unchanged. Electromagnetic photon pair generation uses ``K⁻``
+    and retains its separate, strictly-above-``2Δ`` threshold contract.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
     # Kaplan S_+ is the analytic integral of the *pure-BCS K_plus* kernel.
@@ -511,7 +518,7 @@ def _pair_breaking_quadrature_correction(
     exact = np.array(
         [
             kaplan_S_plus(float(w / ctx.gap)) / (np.pi * tau_0_pb)
-            if w > 2.0 * ctx.gap
+            if w >= 2.0 * ctx.gap
             else 0.0
             for w in omega
         ],
@@ -676,6 +683,8 @@ def phonon_collision_rates(
     ):
         if override is None:
             continue
+        if np.iscomplexobj(override):
+            raise ValueError(f"{name} must be real-valued.")
         override_arr = np.asarray(override, dtype=float)
         if override_arr.shape != matrix_shape:
             raise ValueError(
@@ -686,6 +695,12 @@ def phonon_collision_rates(
             raise ValueError(
                 f"{name} must contain only finite non-negative occupations."
             )
+        if name == "N_p_override":
+            N_p_override = override_arr
+        elif name == "N_emit_override":
+            N_emit_override = override_arr
+        else:
+            N_abs_override = override_arr
     w = ctx.cell_weights
     one_minus_f = np.maximum(1.0 - f, 0.0)
 

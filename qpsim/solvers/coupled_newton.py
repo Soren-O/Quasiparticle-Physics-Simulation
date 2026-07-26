@@ -31,19 +31,27 @@ met; it does not itself choose among multiple branches.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
     compute_phonon_source_sink,
     phonon_collision_jacobian_nph,
     phonon_occupation_matrices_from_state,
     phonon_source_sink_jacobian_f,
 )
+from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
-from qpsim.solvers.newton_steady_state import _gain_loss_sum, _jacobian_analytical
+from qpsim.solvers.newton_steady_state import (
+    _gain_loss_sum,
+    _is_exact_absorbing_vacuum,
+    _jacobian_analytical,
+    _weighted_number_backward_error,
+    number_changing_gain_loss,
+)
 
 if TYPE_CHECKING:
     # Type-annotation-only import; kept out of runtime to avoid the
@@ -68,6 +76,61 @@ class CoupledNewtonLineSearchError(RuntimeError):
             f"Coupled Newton line search failed at iteration {self.iteration}. "
             f"max |residual| = {self.residual_norm:.2e}"
         )
+
+
+def _real_scalar_control(name: str, value: Any) -> float:
+    """Normalize one real scalar control without accepting coercion traps."""
+    if (
+        isinstance(value, (bool, np.bool_, str, bytes))
+        or np.iscomplexobj(value)
+        or np.asarray(value).ndim != 0
+    ):
+        raise ValueError(f"{name} must be a finite real scalar; got {value!r}.")
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {value!r}."
+        ) from exc
+    return normalized
+
+
+def _slow_phonon_backward_error(
+    residual: np.ndarray,
+    pair_source: np.ndarray,
+    pair_driven: np.ndarray,
+    bath_escape: np.ndarray,
+) -> float:
+    """Certify ``R_ph`` against amplitude/energy-changing turnover.
+
+    The ordinary phonon-block norm is often dominated by QP scattering.
+    Scattering can remain in detailed balance for an arbitrarily scaled
+    thermal-shaped QP distribution, so that normalization is blind to the
+    cold total-QP-number mode.  The pair and bath-escape terms are the
+    channels that couple that amplitude to the phonon bath.  Keep the *full*
+    phonon residual in the numerator, but normalize it only by those slow
+    channels.  Thus a legitimate driven state, where scattering balances
+    escape, still passes only when the complete phonon equation is actually
+    solved.
+
+    Normalize before summation so subnormal cold-bath rates are not lost to
+    underflow.  If the slow channels and residual are all exactly zero, there
+    is no representable slow phonon mode to certify.
+    """
+    terms = (pair_source, pair_driven, bath_escape)
+    common = max(
+        float(np.max(np.abs(residual), initial=0.0)),
+        *(float(np.max(np.abs(term), initial=0.0)) for term in terms),
+    )
+    if common == 0.0:
+        return 0.0
+    numerator = float(np.sum(np.abs(residual / common)))
+    denominator = float(
+        sum(np.sum(np.abs(term / common)) for term in terms)
+    )
+    if denominator == 0.0:
+        return 0.0 if numerator == 0.0 else float("inf")
+    return numerator / denominator
 
 
 def coupled_newton_solve(
@@ -154,8 +217,9 @@ def coupled_newton_solve(
         below ``tol`` and exit at iteration 0 with a stale, under-converged
         state. The relative-step test forces a refining step and is meaningful
         whether f ~ 1 or f ~ 1e-10. A small step is accepted only when the
-        gain/loss terms also balance to this relative tolerance; step size
-        alone is not a residual certificate.
+        aggregate gain/loss terms, the QP number-changing channels, and the
+        phonon pair/escape scale also balance to this relative tolerance;
+        step size alone is not a residual certificate.
     max_iter
         Cap on Newton iterations.
     fd_step
@@ -192,7 +256,10 @@ def coupled_newton_solve(
     RuntimeError
         On non-convergence, line-search failure, or singular Jacobian.
     """
-    f_arr = np.asarray(f_init, dtype=float)
+    f_raw = np.asarray(f_init)
+    if np.iscomplexobj(f_raw):
+        raise ValueError("f_init must be real-valued.")
+    f_arr = np.asarray(f_raw, dtype=float)
     if f_arr.ndim != 1 or f_arr.shape != ctx.E.shape:
         raise ValueError(
             f"f_init must have shape {ctx.E.shape}; got {f_arr.shape}."
@@ -200,35 +267,107 @@ def coupled_newton_solve(
     if not np.all(np.isfinite(f_arr)) or np.any((f_arr < 0.0) | (f_arr > 1.0)):
         raise ValueError("f_init must be finite and lie in [0, 1].")
 
-    n_arr = np.asarray(n_ph_init, dtype=float)
+    omega_raw = np.asarray(omega_bins)
+    if np.iscomplexobj(omega_raw):
+        raise ValueError("omega_bins must be real-valued.")
+    omega_bins = np.asarray(omega_raw, dtype=float)
+    if (
+        omega_bins.ndim != 1
+        or np.any(~np.isfinite(omega_bins))
+        or np.any(omega_bins < 0.0)
+    ):
+        raise ValueError("omega_bins must be a finite non-negative 1D array.")
+    n_raw = np.asarray(n_ph_init)
+    if np.iscomplexobj(n_raw):
+        raise ValueError("n_ph_init must be real-valued.")
+    n_arr = np.asarray(n_raw, dtype=float)
     if n_arr.ndim != 1 or n_arr.shape != omega_bins.shape:
         raise ValueError(
             f"n_ph_init must have shape {omega_bins.shape}; got {n_arr.shape}."
         )
     if not np.all(np.isfinite(n_arr)) or np.any(n_arr < 0.0):
         raise ValueError("n_ph_init must be finite and non-negative.")
+    T_bath = _real_scalar_control("T_bath", T_bath)
     if not np.isfinite(T_bath) or T_bath < 0.0:
         raise ValueError(f"T_bath must be finite and non-negative; got {T_bath}.")
+    tau_l = _real_scalar_control("tau_l", tau_l)
     if not np.isfinite(tau_l) or tau_l <= 0.0:
         raise ValueError(
             "coupled Newton requires a finite positive tau_l; the tau_l = 0 "
             "closed-phonon residual has an unconstrained conserved-energy mode."
         )
+    tol = _real_scalar_control("tol", tol)
     if not np.isfinite(tol) or tol <= 0.0:
         raise ValueError(f"tol must be finite and positive; got {tol}.")
+    step_rtol = _real_scalar_control("step_rtol", step_rtol)
     if not np.isfinite(step_rtol) or step_rtol < 0.0:
         raise ValueError(
             f"step_rtol must be finite and non-negative; got {step_rtol}."
         )
-    if not isinstance(max_iter, int) or isinstance(max_iter, bool) or max_iter <= 0:
+    if (
+        isinstance(max_iter, (bool, np.bool_))
+        or not isinstance(max_iter, (int, np.integer))
+        or max_iter <= 0
+    ):
         raise ValueError(f"max_iter must be a positive integer; got {max_iter!r}.")
+    fd_step = _real_scalar_control("fd_step", fd_step)
     if not np.isfinite(fd_step) or fd_step <= 0.0:
         raise ValueError(f"fd_step must be finite and positive; got {fd_step}.")
+    fd_floor = _real_scalar_control("fd_floor", fd_floor)
     if not np.isfinite(fd_floor) or fd_floor <= 0.0:
         raise ValueError(f"fd_floor must be finite and positive; got {fd_floor}.")
+    if not isinstance(analytic_cross, (bool, np.bool_)):
+        raise ValueError(
+            f"analytic_cross must be boolean; got {analytic_cross!r}."
+        )
 
     NE = int(f_arr.size)
     N_omega = int(omega_bins.size)
+    matrix_shape = (NE, NE)
+    for name, kernel in (
+        ("K_s0", K_s0),
+        ("K_r0", K_r0),
+        ("K_s0_phonon_side", K_s0_phonon_side),
+        ("K_r0_phonon_side", K_r0_phonon_side),
+    ):
+        if kernel is None:
+            continue
+        kernel_raw = np.asarray(kernel)
+        if np.iscomplexobj(kernel_raw):
+            raise ValueError(f"{name} must be real-valued.")
+        kernel_arr = np.asarray(kernel_raw, dtype=float)
+        if kernel_arr.shape != matrix_shape:
+            raise ValueError(
+                f"{name} must have shape {matrix_shape}; got {kernel_arr.shape}."
+            )
+        if np.any(~np.isfinite(kernel_arr)) or np.any(kernel_arr < 0.0):
+            raise ValueError(
+                f"{name} must contain only finite non-negative rates."
+            )
+
+    for name, mapping in (
+        ("omega_idx_diff", omega_idx_diff),
+        ("omega_idx_sum", omega_idx_sum),
+    ):
+        mapping_arr = np.asarray(mapping)
+        if mapping_arr.shape != matrix_shape or not np.issubdtype(
+            mapping_arr.dtype, np.integer
+        ):
+            raise ValueError(
+                f"{name} must be an integer array with shape {matrix_shape}."
+            )
+        if np.any((mapping_arr < 0) | (mapping_arr >= N_omega)):
+            raise ValueError(f"{name} contains an out-of-range phonon-bin index.")
+    diff_sign_arr = np.asarray(diff_sign)
+    if (
+        diff_sign_arr.shape != matrix_shape
+        or not np.issubdtype(diff_sign_arr.dtype, np.integer)
+        or np.any(~np.isin(diff_sign_arr, (-1, 0, 1)))
+    ):
+        raise ValueError(
+            "diff_sign must be an integer array with the QP-kernel shape and "
+            "entries in {-1, 0, 1}."
+        )
     if external_flux is not None:
         external_flux._validate_for_NE(NE)
         external_flux._validate_gain_support(ctx.active_mask)
@@ -247,6 +386,59 @@ def coupled_newton_solve(
 
     n_th = thermal_phonon_occupation(omega_bins, T_bath)
     inv_tau_l = 1.0 / tau_l
+    if T_bath > 0.0:
+        kT = T_bath * KB_UEV_PER_K
+        f_th = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+    else:
+        f_th = np.zeros_like(ctx.E)
+
+    thermal_map_is_canonical: bool | None = None
+
+    def is_unforced_thermal_fixed_point(
+        f_state: np.ndarray,
+        n_ph_state: np.ndarray,
+    ) -> bool:
+        """Recognize the analytical equilibrium root at the roundoff floor.
+
+        Below roughly 60 mK, scattering-roundoff in ``R_ph`` can exceed the
+        exponentially smaller pair/escape turnover even at exact discrete
+        Fermi/Bose equilibrium.  That does not make an arbitrary cold seed
+        certifiable; only the independently known, unforced detailed-balance
+        state is eligible for this shortcut.
+        """
+        nonlocal thermal_map_is_canonical
+        if (
+            photon_params is not None
+            or pb_photon_params is not None
+            or external_flux is not None
+        ):
+            return False
+        if thermal_map_is_canonical is None:
+            expected = build_phonon_frequency_map(ctx.E)
+            thermal_map_is_canonical = bool(
+                np.array_equal(omega_bins, expected[0])
+                and np.array_equal(omega_idx_diff, expected[1])
+                and np.array_equal(omega_idx_sum, expected[2])
+                and np.array_equal(diff_sign, expected[3])
+            )
+        if not thermal_map_is_canonical:
+            # Fermi/Bose shapes are an independently known fixed point only
+            # for the exact QP-derived frequency map. Shape/range-valid
+            # custom maps can break detailed balance (for example, routing
+            # every recombination pair to omega=0) while leaving these arrays
+            # visually thermal. Let the ordinary and slow-channel
+            # certificates decide such systems instead of short-circuiting.
+            return False
+        match_rtol = max(step_rtol, 64.0 * np.finfo(float).eps)
+        return bool(
+            np.allclose(
+                f_state[active_f],
+                f_th[active_f],
+                rtol=match_rtol,
+                atol=0.0,
+            )
+            and np.allclose(n_ph_state, n_th, rtol=match_rtol, atol=0.0)
+        )
 
     def residual(
         f_state: np.ndarray, n_ph_state: np.ndarray,
@@ -319,11 +511,98 @@ def coupled_newton_solve(
 
         return R_f, R_ph, balance_ratio
 
+    def slow_balance_ratio(
+        f_state: np.ndarray,
+        n_ph_state: np.ndarray,
+        R_ph: np.ndarray,
+    ) -> float:
+        """Certify slow channels only after aggregate convergence is plausible.
+
+        Keeping this outside ``residual`` matters for the finite-difference
+        cross-Jacobian path: residual is called O(NE) times per iteration, while
+        the extra channel decomposition is needed only on a candidate return.
+        """
+        _N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
+            n_ph_state,
+            omega_idx_diff,
+            omega_idx_sum,
+            diff_sign,
+        )
+        gain_number, loss_number, number_channel_configured = (
+            number_changing_gain_loss(
+                f_state,
+                ctx,
+                K_r0,
+                T_bath,
+                pb_photon_params=pb_photon_params,
+                N_emit=N_emit,
+                N_abs=N_abs,
+                external_flux=external_flux,
+            )
+        )
+        number_ratio = _weighted_number_backward_error(
+            gain_number,
+            loss_number,
+            f_state,
+            ctx.cell_weights,
+            active_f,
+        )
+        if number_channel_configured and number_ratio is None:
+            # Share the standalone solver's fail-closed vacuum policy. In this
+            # coupled formulation n_ph is dynamical, so n_ph == 0 does not
+            # prove a finite-T phonon bath is loss-only: thermal injection may
+            # merely have underflowed. N_abs_override=None is intentional.
+            number_ratio = (
+                0.0
+                if _is_exact_absorbing_vacuum(
+                    f_state,
+                    gain_number,
+                    active_f,
+                    T_bath=T_bath,
+                    K_r0=K_r0,
+                    N_abs=N_abs,
+                    N_abs_override=None,
+                    pb_photon_params=pb_photon_params,
+                    ctx=ctx,
+                )
+                else float("inf")
+            )
+
+        pair_a_ph, pair_b_ph = compute_phonon_source_sink(
+            f_state,
+            ctx,
+            K_s0,
+            K_r0,
+            omega_idx_diff,
+            omega_idx_sum,
+            diff_sign,
+            N_omega,
+            enable_scattering=False,
+            K_s0_phonon_side=K_s0_phonon_side,
+            K_r0_phonon_side=K_r0_phonon_side,
+        )
+        slow_phonon_ratio = _slow_phonon_backward_error(
+            R_ph,
+            pair_a_ph,
+            pair_b_ph * n_ph_state,
+            (n_th - n_ph_state) * inv_tau_l,
+        )
+        return max(
+            0.0 if number_ratio is None else number_ratio,
+            slow_phonon_ratio,
+        )
+
     last_norm = np.inf
     for iteration in range(max_iter):
         R_f, R_ph, balance_ratio = residual(f, n_ph)
         norm = max(float(np.max(np.abs(R_f))), float(np.max(np.abs(R_ph))))
         last_norm = norm
+        if (
+            step_rtol > 0.0
+            and balance_ratio < step_rtol
+            and is_unforced_thermal_fixed_point(f, n_ph)
+        ):
+            return f, n_ph
         # Absolute-residual early exit (legacy). Disabled when step_rtol>0:
         # an absolute tol is unreliable when all amplitudes are tiny, since a
         # warm continuation seed can sit just below tol and exit at iteration 0
@@ -494,7 +773,11 @@ def coupled_newton_solve(
                     float(np.max(np.abs(delta_f[active_f]))) / f_scale,
                     float(np.max(np.abs(delta_n))) / n_scale,
                 )
-                if newton_rel < step_rtol and balance_ratio < step_rtol:
+                if (
+                    newton_rel < step_rtol
+                    and balance_ratio < step_rtol
+                    and slow_balance_ratio(f, n_ph, R_ph) < step_rtol
+                ):
                     return f, n_ph
             raise CoupledNewtonLineSearchError(
                 iteration=iteration,
@@ -506,6 +789,7 @@ def coupled_newton_solve(
             step_rtol > 0.0
             and rel_step < step_rtol
             and balance_ratio_t < step_rtol
+            and slow_balance_ratio(f, n_ph, R_ph_t) < step_rtol
         ):
             return f, n_ph
 

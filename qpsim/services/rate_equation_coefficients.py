@@ -54,8 +54,7 @@ from scipy.special import (
     erf,
     erfc,
     erfcx,
-    k0,
-    k1,
+    kve,
 )
 
 from qpsim.services.rate_equation import M25Coefficients
@@ -226,32 +225,152 @@ def _c_ii_squared(
 # ─────────────────────────────────────────────────────────────────────
 
 
+_LOG_FLOAT_MAX = float(np.log(np.finfo(float).max))
+_LOG_FLOAT_MIN_SUBNORMAL = float(np.log(np.nextafter(0.0, 1.0)))
+
+
+def _validate_incomplete_K_args(n: int, z: float, w: float) -> None:
+    if not isinstance(n, (int, np.integer)) or isinstance(n, (bool, np.bool_)):
+        raise ValueError(f"n must be an integer order; got {n!r}")
+    if n not in (0, 1):
+        raise ValueError(f"Only the SI orders n=0 and n=1 are supported; got {n}")
+    if not np.isfinite(z) or z <= 0.0:
+        raise ValueError(f"z must be finite and positive; got {z}")
+    if not np.isfinite(w) or w < 0.0:
+        raise ValueError(f"w must be finite and nonnegative; got {w}")
+
+
+def _log_cosh(value: float) -> float:
+    x = abs(float(value))
+    return float(x + np.log1p(np.exp(-2.0 * x)) - np.log(2.0))
+
+
+def _scaled_K_tail(n: int, z: float, w: float) -> float:
+    r"""Return ``exp(z*cosh(w))*K_n(z,w)`` without a narrow peak.
+
+    With ``s² = z(cosh(t)-cosh(w))``, the Boltzmann factor becomes the
+    well-scaled Gaussian ``exp(-s²)``.  This removes both the large-``z``
+    underflow and the endpoint layer that default absolute-tolerance
+    quadrature otherwise misses.
+    """
+    cosh_w_minus_one = 2.0 * float(np.sinh(0.5 * w)) ** 2
+    if not np.isfinite(cosh_w_minus_one):
+        return 0.0
+
+    def integrand(s: float) -> float:
+        offset = cosh_w_minus_one + s * s / z
+        t = 2.0 * float(np.arcsinh(np.sqrt(0.5 * offset)))
+        if s == 0.0:
+            jacobian = 0.0
+        else:
+            sinh_t = 2.0 * np.sinh(0.5 * t) * np.cosh(0.5 * t)
+            jacobian = 2.0 * s / (z * sinh_t)
+        log_value = -s * s + _log_cosh(n * t)
+        if jacobian == 0.0 or log_value <= _LOG_FLOAT_MIN_SUBNORMAL:
+            return 0.0
+        return float(np.exp(log_value) * jacobian)
+
+    # exp(-12²) < 3e-63; for n in {0,1}, the omitted algebraic factor
+    # cannot make that tail relevant at float64 precision.
+    value, _ = quad(
+        integrand,
+        0.0,
+        12.0,
+        epsabs=1e-300,
+        epsrel=5e-13,
+        limit=200,
+    )
+    return float(value)
+
+
+def _log_K_full(n: int, z: float) -> float:
+    scaled = float(kve(n, z))
+    if not np.isfinite(scaled) or scaled <= 0.0:
+        raise RuntimeError(f"Scaled Bessel K_{n} is not finite at z={z}.")
+    return float(-z + np.log(scaled))
+
+
+def _log_K_incomplete(n: int, z: float, w: float) -> float:
+    """Logarithm of the SI incomplete Bessel integral, including underflow cases."""
+    _validate_incomplete_K_args(n, z, w)
+    if w == 0.0:
+        return _log_K_full(n, z)
+    cosh_w_minus_one = 2.0 * float(np.sinh(0.5 * w)) ** 2
+    if not np.isfinite(cosh_w_minus_one):
+        return float("-inf")
+    scaled = _scaled_K_tail(n, z, w)
+    if scaled <= 0.0:
+        return float("-inf")
+    return float(-z * (1.0 + cosh_w_minus_one) + np.log(scaled))
+
+
+def _log_K_lower(n: int, z: float, w: float) -> float:
+    r"""Log of ``integral_0^w exp(-z cosh(t))*cosh(n t) dt``.
+
+    This is ``K_n(z)-K_n(z,w)`` without subtracting two nearly equal,
+    potentially underflowed float64 values.
+    """
+    _validate_incomplete_K_args(n, z, w)
+    if w == 0.0:
+        return float("-inf")
+    cosh_w_minus_one = 2.0 * float(np.sinh(0.5 * w)) ** 2
+    if not np.isfinite(cosh_w_minus_one):
+        return _log_K_full(n, z)
+    upper = min(float(np.sqrt(z * cosh_w_minus_one)), 12.0)
+
+    def integrand(s: float) -> float:
+        t = 2.0 * float(np.arcsinh(s / np.sqrt(2.0 * z)))
+        jacobian = np.sqrt(2.0 / z) / np.sqrt(1.0 + s * s / (2.0 * z))
+        log_value = -s * s + _log_cosh(n * t)
+        if log_value <= _LOG_FLOAT_MIN_SUBNORMAL:
+            return 0.0
+        return float(np.exp(log_value) * jacobian)
+
+    scaled, _ = quad(
+        integrand,
+        0.0,
+        upper,
+        epsabs=1e-300,
+        epsrel=5e-13,
+        limit=200,
+    )
+    if scaled <= 0.0:
+        return float("-inf")
+    return float(-z + np.log(scaled))
+
+
+def _exp_rate(log_rate: float, label: str) -> float:
+    """Exponentiate a log-rate, preserving physical underflow as exact zero."""
+    if np.isnan(log_rate):
+        raise RuntimeError(f"{label} produced a NaN logarithm.")
+    if log_rate <= _LOG_FLOAT_MIN_SUBNORMAL:
+        return 0.0
+    if log_rate > _LOG_FLOAT_MAX:
+        raise RuntimeError(f"{label} exceeds the representable float64 range.")
+    return float(np.exp(log_rate))
+
+
+def _log_erfc_sqrt(ratio: float) -> float:
+    """Stable ``log(erfc(sqrt(ratio)))`` for finite non-negative ratio."""
+    if not np.isfinite(ratio) or ratio < 0.0:
+        raise ValueError(f"erfc ratio must be finite and non-negative; got {ratio}")
+    root = float(np.sqrt(ratio))
+    return float(-ratio + np.log(erfcx(root)))
+
+
 def _K_incomplete(n: int, z: float, w: float) -> float:
     r"""Return :math:`K_n(z, w) = \int_w^{\infty} e^{-z \cosh t} \cosh(n t)\, dt`.
 
-    The integrand decays super-exponentially in ``t``; we integrate up
-    to ``t_max`` chosen so that ``z cosh(t_max) > 700``, which puts
-    ``e^{-z cosh(t)}`` below float64 underflow. Below the cutoff we
-    guard against intermediate overflow in ``cosh(n t)`` by computing
-    the integrand in log-space.
+    Evaluation uses :func:`_log_K_incomplete` and a Gaussian-scaled
+    quadrature.  Representable tails retain relative accuracy even when the
+    unscaled integrand is far below ``quad``'s default absolute tolerance;
+    mathematically subnormal results return exact zero while log-domain
+    consumers remain well defined.
     """
-    if z <= 0.0:
-        raise ValueError(f"z must be positive; got {z}")
-    if w < 0.0:
-        raise ValueError(f"w must be nonneg; got {w}")
-
-    t_cutoff = float(np.arccosh(max(2.0, 700.0 / z)))
-
-    def integrand(t: float) -> float:
-        # log(cosh(n t)) = |n t| + log((1 + e^{-2|n t|})/2)  (stable for large t)
-        log_cosh = abs(n * t) + np.log1p(np.exp(-2.0 * abs(n * t))) - np.log(2.0)
-        log_val = -z * np.cosh(t) + log_cosh
-        return float(np.exp(log_val)) if log_val > -700.0 else 0.0
-
-    if w >= t_cutoff:
+    log_value = _log_K_incomplete(n, z, w)
+    if log_value <= _LOG_FLOAT_MIN_SUBNORMAL:
         return 0.0
-    val, _ = quad(integrand, w, t_cutoff, limit=200)
-    return float(val)
+    return float(np.exp(log_value))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -288,8 +407,7 @@ def _gamma_L_ii(params: M25PhysicalParameters, i: int) -> float:
         * prefactor_ratio
         * np.sqrt((Delta_L - Delta_R) / (2.0 * Delta_L))
         * np.sqrt(2.0 * y / np.pi)
-        * np.exp(y)
-        * k1(y)
+        * kve(1, y)
     )
 
 
@@ -303,21 +421,14 @@ def _gamma_Rgt_ii(params: M25PhysicalParameters, i: int) -> float:
     c_ii2 = _c_ii_squared(i, params.E_J_kelvin, params.E_C_kelvin)
     prefactor_ratio = Delta_R / params.Delta_bar_kelvin
     # R_T × c²_{ii} × (Δ_R/Δ̄) × (Δ_L-Δ_R)/sqrt(2TΔ_R/π) × e⁻ʸ K_1(y)/(π erfc(√(2y)))
-    denom_erfc = erfc(np.sqrt(2.0 * y))
-    if denom_erfc <= 0.0:
-        raise RuntimeError(
-            f"erfc(sqrt(2y)) underflowed at y={y}; "
-            "caller should clamp T_kelvin from below."
-        )
     return (
         params.R_T_Hz
         * c_ii2
         * prefactor_ratio
         * (Delta_L - Delta_R)
         / np.sqrt(2.0 * T * Delta_R / np.pi)
-        * np.exp(-y)
-        * k1(y)
-        / (np.pi * denom_erfc)
+        * kve(1, y)
+        / (np.pi * erfcx(np.sqrt(2.0 * y)))
     )
 
 
@@ -334,8 +445,7 @@ def _gamma_L_10(params: M25PhysicalParameters) -> float:
         * s_10_sq
         * np.sqrt(2.0 * Delta_L / (omega_LR + omega_10))
         * np.sqrt(2.0 * y_plus / np.pi)
-        * np.exp(y_plus)
-        * k0(y_plus)
+        * kve(0, y_plus)
     )
 
 
@@ -352,19 +462,18 @@ def _gamma_Rgt_10(params: M25PhysicalParameters) -> float:
         raise RuntimeError("ω_10 = ω_LR resonance not handled; shift by ε.")
     s_10_sq = _s_10_squared(params.E_J_kelvin, params.E_C_kelvin)
     w = np.arccosh((omega_10 + omega_LR) / diff)
-    k0_incomplete = _K_incomplete(0, abs_y_minus, w)
-    denom_erfc = erfc(np.sqrt(omega_LR / T))
-    if denom_erfc <= 0.0:
-        raise RuntimeError(f"erfc(sqrt(ω_LR/T)) underflowed at T={T}.")
-    return (
-        params.R_T_Hz
-        * s_10_sq
-        * np.sqrt(2.0 * Delta_R / diff)
-        * np.sqrt(2.0 * abs_y_minus / np.pi)
-        * np.exp(y_minus)
-        * k0_incomplete
-        / denom_erfc
+    if params.R_T_Hz == 0.0:
+        return 0.0
+    log_rate = (
+        np.log(params.R_T_Hz)
+        + np.log(s_10_sq)
+        + 0.5 * np.log(2.0 * Delta_R / diff)
+        + 0.5 * np.log(2.0 * abs_y_minus / np.pi)
+        + y_minus
+        + _log_K_incomplete(0, abs_y_minus, w)
+        - _log_erfc_sqrt(omega_LR / T)
     )
+    return _exp_rate(float(log_rate), "Gamma_Rgt_10")
 
 
 def _gamma_Rlt_10(params: M25PhysicalParameters) -> float:
@@ -384,20 +493,21 @@ def _gamma_Rlt_10(params: M25PhysicalParameters) -> float:
         raise RuntimeError("ω_10 = ω_LR resonance not handled; shift by ε.")
     s_10_sq = _s_10_squared(params.E_J_kelvin, params.E_C_kelvin)
     w = np.arccosh((omega_10 + omega_LR) / diff)
-    k0_full = float(k0(abs_y_minus))
-    k0_incomplete = _K_incomplete(0, abs_y_minus, w)
     denom_erf = erf(np.sqrt(omega_LR / T))
     if denom_erf <= 0.0:
         raise RuntimeError(f"erf(sqrt(ω_LR/T)) vanished at T={T}.")
-    return (
-        params.R_T_Hz
-        * s_10_sq
-        * np.sqrt(2.0 * Delta_R / diff)
-        * np.sqrt(2.0 * abs_y_minus / np.pi)
-        * np.exp(y_minus)
-        * (k0_full - k0_incomplete)
-        / denom_erf
+    if params.R_T_Hz == 0.0:
+        return 0.0
+    log_rate = (
+        np.log(params.R_T_Hz)
+        + np.log(s_10_sq)
+        + 0.5 * np.log(2.0 * Delta_R / diff)
+        + 0.5 * np.log(2.0 * abs_y_minus / np.pi)
+        + y_minus
+        + _log_K_lower(0, abs_y_minus, w)
+        - np.log(denom_erf)
     )
+    return _exp_rate(float(log_rate), "Gamma_Rlt_10")
 
 
 def _gamma_L_01(params: M25PhysicalParameters) -> float:
@@ -417,14 +527,17 @@ def _gamma_L_01(params: M25PhysicalParameters) -> float:
     if diff == 0.0:
         raise RuntimeError("ω_10 = ω_LR resonance not handled; shift by ε.")
     s_10_sq = _s_10_squared(params.E_J_kelvin, params.E_C_kelvin)
-    return (
-        params.R_T_Hz
-        * s_10_sq
-        * np.sqrt(2.0 * Delta_L / diff)
-        * np.sqrt(2.0 * abs_y_minus / np.pi)
-        * np.exp(-y_minus)
-        * float(k0(abs_y_minus))
+    if params.R_T_Hz == 0.0:
+        return 0.0
+    log_rate = (
+        np.log(params.R_T_Hz)
+        + np.log(s_10_sq)
+        + 0.5 * np.log(2.0 * Delta_L / diff)
+        + 0.5 * np.log(2.0 * abs_y_minus / np.pi)
+        - y_minus
+        + _log_K_full(0, abs_y_minus)
     )
+    return _exp_rate(float(log_rate), "Gamma_L_01")
 
 
 def _gamma_Rgt_01(params: M25PhysicalParameters) -> float:
@@ -438,18 +551,18 @@ def _gamma_Rgt_01(params: M25PhysicalParameters) -> float:
     Delta_R = params.Delta_R_kelvin
     y_plus = (omega_10 + omega_LR) / (2.0 * T)
     s_10_sq = _s_10_squared(params.E_J_kelvin, params.E_C_kelvin)
-    denom_erfc = erfc(np.sqrt(omega_LR / T))
-    if denom_erfc <= 0.0:
-        raise RuntimeError(f"erfc(sqrt(ω_LR/T)) underflowed at T={T}.")
-    return (
-        params.R_T_Hz
-        * s_10_sq
-        * np.sqrt(2.0 * Delta_R / (omega_10 + omega_LR))
-        * np.sqrt(2.0 * y_plus / np.pi)
-        * np.exp(-y_plus)
-        * float(k0(y_plus))
-        / denom_erfc
+    if params.R_T_Hz == 0.0:
+        return 0.0
+    log_rate = (
+        np.log(params.R_T_Hz)
+        + np.log(s_10_sq)
+        + 0.5 * np.log(2.0 * Delta_R / (omega_10 + omega_LR))
+        + 0.5 * np.log(2.0 * y_plus / np.pi)
+        - y_plus
+        + _log_K_full(0, y_plus)
+        - _log_erfc_sqrt(omega_LR / T)
     )
+    return _exp_rate(float(log_rate), "Gamma_Rgt_01")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -467,7 +580,12 @@ def _branching_fraction(params: M25PhysicalParameters) -> float:
         raise RuntimeError("ω_10 = ω_LR resonance not handled; shift by ε.")
     z = diff / (2.0 * T)
     w = np.arccosh((omega_10 + omega_LR) / diff)
-    return _K_incomplete(0, z, w) / float(k0(z))
+    log_xi = _log_K_incomplete(0, z, w) - _log_K_full(0, z)
+    if log_xi <= _LOG_FLOAT_MIN_SUBNORMAL:
+        return 0.0
+    if log_xi > 64.0 * np.finfo(float).eps:
+        raise RuntimeError(f"Incomplete-Bessel branching ratio exceeded one: {log_xi=}")
+    return float(np.clip(np.exp(log_xi), 0.0, 1.0))
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -224,18 +224,24 @@ Queued deeper fixed-`nbar` overnight sweep:
   because macOS `launchd` does not have permission to read this repo under
   `Documents`; copy CSV outputs back after the run completes.
 - Bath: `7 mK`
-- Grid: `NX=21`, `NE=101`, `dt=0.5 ns`, `t_max=30000 ns`
+- Grid: `NX=21` equal finite-volume cell centers over `100 um`
+  (`dx=100/21 um`), `NE=101`, `dt=0.5 ns`, `t_max=30000 ns`
 - Readout mode for heating channel: resonator 1 at `5.143 GHz`
 - Fixed peak `nbar` values: `0`, `1e5`, `1e6`, `1e7`
 - Diffusion constants: `D0 = 20, 6, 60 um^2/ns`
-- Source rates: `3.132e11`, `6.264e10`, `6.264e11 QP/s` on the
+- Source rates: `2.98286e11`, `5.96571e10`, `5.96571e11 QP/s` on the
   `NX=21` source-cell calibration
 - Phonon escape times: `tau_l = 1, 0.3, 3 ns`
-- Runner is wall-time-limited and resume-safe within one physics revision
+- Runner is wall-time-limited and resume-safe across its recorded inputs
   (run ids carry a `_PHYSICS_REV` token; pre-fix rows are never accepted
   as complete by a corrected model — regeneration re-runs them). It
   prioritizes the nominal `D0=20`, source `5e-4/ns`, `tau_l=1 ns` block
-  before broader sweeps.
+  before broader sweeps. Revision-6 identities also fingerprint exact point
+  values, numerical settings, module physics constants, material/source code,
+  and campaign scripts; source center and width are true sweep dimensions.
+  Revision 6 replaces the old endpoint samples with cell centers and uses the
+  same `dx=L/NX` measure for transport, source volume, and spatial observables;
+  all endpoint-grid artifacts require regeneration.
 
 ## Inputs Still Needed
 

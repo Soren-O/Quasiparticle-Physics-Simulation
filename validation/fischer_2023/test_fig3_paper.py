@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import sys
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
+from qpsim.solvers.anderson import AndersonAccelerationError
 
 from validation.fischer_2023.fig3_paper import (
     CURVE_REGRESSION_ATOL_OVER_PEAK,
@@ -38,41 +40,52 @@ from validation.fischer_2023.fig3_solve import (
     CONTINUATION_RATIOS,
     DELTA_0,
     INNER_QP_BACKWARD_ERROR_LIMIT,
+    INNER_QP_NUMBER_POLISH_SHAPE_LIMIT,
     TARGET_BACKWARD_ERROR_LIMIT,
+    Fig3StepEvent,
     _solve_coupled_newton,
     _solve_picard,
+    _solve_picard_predictor,
     _solve_tau_l_zero,
     _validate_ratio_ladder,
 )
 from validation.fischer_2023.fig3_solve import solve as solve_raw
 from validation.fischer_2023.steady_state_certificate import (
-    CERTIFICATE_FIELDS,
-    CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_FIELDS as CERTIFICATE_FIELDS,
+)
+from validation.fischer_2023.steady_state_certificate import (
+    NUMBER_CERTIFICATE_METRIC_VERSION as CERTIFICATE_METRIC_VERSION,
 )
 
 # Ratios through one retain the strict 1e-4 curve gate.  The residual-polished
 # ratio-10 state uses its measured 1.5% fixed-grid envelope only for the
 # Windows/Linux OS-family case. The peak-scaled absolute floor is
 # O(1e-16..1e-14), not the old vacuous 1e-6.
+_TEST_SOLVE_CONTRACT_DIGEST = "0" * 64
+
+
+def _small_certified_payload() -> dict[str, np.ndarray]:
+    ratios = np.asarray([0.0, 0.1, 1.0, 10.0])
+    return {
+        "E": np.asarray([180.5, 181.5, 182.5]),
+        "f_FD": np.asarray([3e-9, 2e-9, 1e-9]),
+        "f_ratios": np.full((ratios.size, 3), 1e-8),
+        "ratios": ratios,
+        "tau_0_pb_ns": np.asarray([0.255]),
+        "qp_residual_inf": np.asarray([1e-20, 2e-20, 3e-20, 4e-20]),
+        "qp_backward_error": np.asarray([1e-12, 2e-12, 3e-12, 4e-12]),
+        "qp_number_backward_error": np.asarray([5e-13, 6e-13, 7e-13, 8e-13]),
+        "phonon_residual_inf": np.asarray([np.nan, 2e-18, 3e-18, 4e-18]),
+        "phonon_raw_backward_error": np.asarray([np.nan, 2e-9, 3e-9, 4e-9]),
+        "phonon_backward_error": np.asarray([np.nan, 2e-8, 3e-8, 4e-8]),
+    }
 
 
 def _small_certified_result():
-    ratios = np.asarray([0.0, 0.1, 1.0, 10.0])
     return observables(
-        {
-            "E": np.asarray([180.5, 181.5, 182.5]),
-            "f_FD": np.asarray([3e-9, 2e-9, 1e-9]),
-            "f_ratios": np.full((ratios.size, 3), 1e-8),
-            "ratios": ratios,
-            "tau_0_pb_ns": np.asarray([0.255]),
-            "qp_residual_inf": np.asarray([1e-20, 2e-20, 3e-20, 4e-20]),
-            "qp_backward_error": np.asarray([1e-12, 2e-12, 3e-12, 4e-12]),
-            "phonon_residual_inf": np.asarray([np.nan, 2e-18, 3e-18, 4e-18]),
-            "phonon_raw_backward_error": np.asarray(
-                [np.nan, 2e-9, 3e-9, 4e-9]
-            ),
-            "phonon_backward_error": np.asarray([np.nan, 2e-8, 3e-8, 4e-8]),
-        }
+        _small_certified_payload(),
+        producer_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
+        validated_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
     )
 
 
@@ -140,10 +153,19 @@ def _assert_config_matches_baseline(path) -> None:
     assert cfg.target_backward_error_limit == pytest.approx(
         meta.target_backward_error_limit,
     )
+    assert (
+        cfg.validated_solve_contract_digest
+        == meta.validated_solve_contract_digest
+    )
+    assert len(meta.producer_solve_contract_digest) == 64
     assert meta.pinned_on
     assert set(meta.certificate_maxima) == set(CERTIFICATE_FIELDS)
     assert np.all(np.isfinite(tuple(meta.certificate_maxima.values())))
-    for field in ("qp_backward_error", "phonon_backward_error"):
+    for field in (
+        "qp_backward_error",
+        "qp_number_backward_error",
+        "phonon_backward_error",
+    ):
         assert meta.certificate_maxima[field] <= TARGET_BACKWARD_ERROR_LIMIT
 
 
@@ -166,16 +188,36 @@ def test_baseline_curves_are_nonvacuous() -> None:
 
 
 def test_baseline_roundtrip_preserves_certificate_maxima(tmp_path) -> None:
-    expected = _small_certified_result()
+    expected = replace(
+        _small_certified_result(),
+        producer_solve_contract_digest="1" * 64,
+        validated_solve_contract_digest="2" * 64,
+    )
     path = write_baseline(expected, tmp_path / "fig3.csv")
     restored = read_baseline(path)
     metadata = read_baseline_metadata(path)
 
     assert restored.certificate_maxima == expected.certificate_maxima
+    assert (
+        restored.producer_solve_contract_digest
+        == expected.producer_solve_contract_digest
+    )
+    assert (
+        restored.validated_solve_contract_digest
+        == expected.validated_solve_contract_digest
+    )
     assert metadata.certificate_metric_version == CERTIFICATE_METRIC_VERSION
     assert metadata.target_backward_error_limit == TARGET_BACKWARD_ERROR_LIMIT
     assert metadata.certificate_maxima == expected.certificate_maxima
     assert metadata.pinned_on == sys.platform
+    assert (
+        metadata.producer_solve_contract_digest
+        == "1" * 64
+    )
+    assert (
+        metadata.validated_solve_contract_digest
+        == "2" * 64
+    )
     header = path.read_text(encoding="utf-8")
     assert f"# pinned_on: {sys.platform}" in header
     assert "certificate_metric_version=" in header
@@ -186,6 +228,58 @@ def test_baseline_roundtrip_preserves_certificate_maxima(tmp_path) -> None:
     legacy_path.write_text(header, encoding="cp1252")
     legacy = read_baseline(legacy_path)
     assert legacy.certificate_maxima == expected.certificate_maxima
+
+
+def test_observables_rejects_missing_number_certificate() -> None:
+    raw = {
+        "E": np.asarray([180.5, 181.5, 182.5]),
+        "f_FD": np.full(3, 1e-9),
+        "f_ratios": np.full((4, 3), 1e-8),
+        "ratios": np.asarray([0.0, 0.1, 1.0, 10.0]),
+        "tau_0_pb_ns": np.asarray([0.255]),
+    }
+    raw.update(
+        {
+            field: np.zeros(4)
+            for field in CERTIFICATE_FIELDS
+            if field != "qp_number_backward_error"
+        }
+    )
+    for field in CERTIFICATE_FIELDS:
+        if field.startswith("phonon_"):
+            raw[field][0] = np.nan
+
+    with pytest.raises(ValueError, match="qp_number_backward_error"):
+        observables(
+            raw,
+            producer_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
+            validated_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "index", "value"),
+    (
+        ("qp_number_backward_error", 1, np.nan),
+        ("qp_backward_error", 2, -1.0),
+        ("phonon_backward_error", 0, 0.0),
+        ("phonon_raw_backward_error", 2, np.inf),
+    ),
+)
+def test_observables_rejects_invalid_per_ratio_certificate(
+    field: str,
+    index: int,
+    value: float,
+) -> None:
+    raw = _small_certified_payload()
+    raw[field][index] = value
+
+    with pytest.raises(ValueError, match=field):
+        observables(
+            raw,
+            producer_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
+            validated_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
+        )
 
 
 def test_curve_regression_policy_is_platform_and_ratio_scoped() -> None:
@@ -252,6 +346,11 @@ def test_invalid_pin_platform_records_are_rejected(tmp_path) -> None:
         ("qp_residual_inf", "nan", "finite and non-negative"),
         (
             "qp_backward_error",
+            f"{2.0 * TARGET_BACKWARD_ERROR_LIMIT:.17e}",
+            "above target",
+        ),
+        (
+            "qp_number_backward_error",
             f"{2.0 * TARGET_BACKWARD_ERROR_LIMIT:.17e}",
             "above target",
         ),
@@ -365,6 +464,10 @@ def test_fig3_threads_inner_qp_resolution_limit_to_nested_newton() -> None:
         backend.kwargs["newton_backward_error_tol"]
         == INNER_QP_BACKWARD_ERROR_LIMIT
     )
+    assert (
+        backend.kwargs["newton_number_polish_shape_tol"]
+        == INNER_QP_NUMBER_POLISH_SHAPE_LIMIT
+    )
 
     assert _solve_coupled_newton(backend, state, photon_params) is state
     assert backend.kwargs["method"] == "coupled_newton"
@@ -380,6 +483,504 @@ def test_fig3_threads_inner_qp_resolution_limit_to_nested_newton() -> None:
         backend.kwargs["newton_backward_error_tol"]
         == INNER_QP_BACKWARD_ERROR_LIMIT
     )
+    assert (
+        backend.kwargs["newton_number_polish_shape_tol"]
+        == INNER_QP_NUMBER_POLISH_SHAPE_LIMIT
+    )
+
+
+def test_picard_predictor_retries_only_acceleration_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AA arithmetic failure retries plain Picard from the untouched seed."""
+    import validation.fischer_2023.fig3_solve as fs
+
+    spectral = SimpleNamespace(cell_weights=np.ones(2))
+    seed = SimpleNamespace(f=np.array([1.0, 2.0]), spectral=spectral)
+    fallback = SimpleNamespace(f=np.array([2.0, 3.0]), spectral=spectral)
+    depths: list[int] = []
+
+    def fake_solve(
+        _backend,
+        state,
+        _photon_params,
+        *,
+        mixing,
+        anderson_depth,
+    ):
+        del mixing
+        assert state is seed
+        depths.append(anderson_depth)
+        if anderson_depth:
+            raise AndersonAccelerationError("synthetic non-finite AA iterate")
+        return fallback
+
+    monkeypatch.setattr(fs, "_solve_picard", fake_solve)
+    result = _solve_picard_predictor(
+        object(),
+        seed,
+        {},
+        ratio=6.0,
+        mixing=0.15,
+        fallback_mixing=0.05,
+    )
+
+    assert result is fallback
+    assert depths == [fs.PICARD_ANDERSON_DEPTH, 0]
+
+
+def test_picard_predictor_does_not_swallow_configuration_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid user/configuration inputs must not masquerade as AA failure."""
+    import validation.fischer_2023.fig3_solve as fs
+
+    calls = 0
+
+    def reject_configuration(*args, **kwargs):
+        nonlocal calls
+        del args, kwargs
+        calls += 1
+        raise ValueError("invalid configured photon frequency")
+
+    monkeypatch.setattr(fs, "_solve_picard", reject_configuration)
+    with pytest.raises(ValueError, match="invalid configured"):
+        _solve_picard_predictor(
+            object(),
+            object(),
+            {},
+            ratio=6.0,
+            mixing=0.15,
+            fallback_mixing=0.05,
+        )
+    assert calls == 1
+
+
+def test_bad_ratio_zero_number_certificate_aborts_before_picard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An early amplitude failure must not consume the continuation ladder."""
+    import validation.fischer_2023.fig3_solve as fs
+
+    calls = {"ratio0": 0, "picard": 0}
+    monkeypatch.setattr(fs, "_compute_tau_0_pb", lambda _spectral: 0.255)
+
+    def fake_ratio0(_backend, state, _photon_params):
+        calls["ratio0"] += 1
+        return replace(state, f=state.f + 1e-10)
+
+    def fake_predictor(
+        _backend,
+        state,
+        _photon_params,
+        *,
+        ratio,
+        mixing,
+        fallback_mixing,
+    ):
+        del mixing, fallback_mixing
+        calls["picard"] += 1
+        return replace(state, f=state.f + (float(ratio) + 1.0) * 1e-10)
+
+    def fake_certificate(*args, **kwargs):
+        del args
+        thermal = kwargs.get("tau_l") is None
+        phonon_value = float("nan") if thermal else 0.0
+        return {
+            "qp_residual_inf": 0.0,
+            "phonon_residual_inf": phonon_value,
+            "phonon_raw_backward_error": phonon_value,
+            "qp_backward_error": 0.0,
+            "qp_number_backward_error": (
+                2.0 * TARGET_BACKWARD_ERROR_LIMIT if thermal else 0.0
+            ),
+            "phonon_backward_error": phonon_value,
+        }
+
+    monkeypatch.setattr(fs, "_solve_tau_l_zero", fake_ratio0)
+    monkeypatch.setattr(fs, "_solve_picard_predictor", fake_predictor)
+    monkeypatch.setattr(fs, "steady_state_certificate", fake_certificate)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"ratio 0: qp_number_backward_error=",
+    ):
+        solve_raw(
+            num_bins=81,
+            paper_ratios=(0.0, 1.0),
+            continuation_ratios=(1.0,),
+        )
+
+    assert calls == {"ratio0": 1, "picard": 0}
+
+
+def test_target_failure_checkpoints_then_resumes_without_recomputing(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A target mismatch must stop early and preserve continuation state."""
+    import validation.fischer_2023.fig3_solve as fs
+
+    checkpoint = tmp_path / "fig3-restart.npz"
+    calls = {"ratio0": 0, "picard": 0}
+
+    monkeypatch.setattr(fs, "_compute_tau_0_pb", lambda _spectral: 0.255)
+
+    def fake_ratio0(_backend, state, _photon_params):
+        calls["ratio0"] += 1
+        return replace(state, f=state.f + 1e-10)
+
+    def fake_predictor(
+        _backend,
+        state,
+        _photon_params,
+        *,
+        ratio,
+        mixing,
+        fallback_mixing,
+    ):
+        del mixing, fallback_mixing
+        calls["picard"] += 1
+        return replace(state, f=state.f + (float(ratio) + 1.0) * 1e-10)
+
+    def fake_certificate(*args, **kwargs):
+        del args
+        phonon_value = (
+            float("nan") if kwargs.get("tau_l") is None else 0.0
+        )
+        return {
+            "qp_residual_inf": 0.0,
+            "phonon_residual_inf": phonon_value,
+            "phonon_raw_backward_error": phonon_value,
+            "qp_backward_error": 0.0,
+            "qp_number_backward_error": 0.0,
+            "phonon_backward_error": phonon_value,
+        }
+
+    monkeypatch.setattr(fs, "_solve_tau_l_zero", fake_ratio0)
+    monkeypatch.setattr(fs, "_solve_picard_predictor", fake_predictor)
+    monkeypatch.setattr(fs, "steady_state_certificate", fake_certificate)
+
+    def reject_ratio_zero(event: Fig3StepEvent) -> None:
+        assert event.ratio == 0.0
+        assert not event.resumed
+        raise AssertionError("synthetic ratio-zero baseline mismatch")
+
+    with pytest.raises(AssertionError, match="ratio-zero baseline mismatch"):
+        solve_raw(
+            num_bins=81,
+            paper_ratios=(0.0, 0.1, 1.0),
+            continuation_ratios=(0.1, 1.0),
+            checkpoint_path=checkpoint,
+            checkpoint_identity="unit-test-identity",
+            on_step=reject_ratio_zero,
+        )
+
+    assert checkpoint.exists()
+    assert calls == {"ratio0": 1, "picard": 0}
+
+    events: list[Fig3StepEvent] = []
+    result = solve_raw(
+        num_bins=81,
+        paper_ratios=(0.0, 0.1, 1.0),
+        continuation_ratios=(0.1, 1.0),
+        checkpoint_path=checkpoint,
+        checkpoint_identity="unit-test-identity",
+        on_step=events.append,
+    )
+
+    assert calls == {"ratio0": 1, "picard": 2}
+    assert [event.ratio for event in events] == [0.0, 0.1, 1.0]
+    assert events[0].resumed
+    assert not events[1].resumed
+    assert np.all(np.diff([event.cumulative_seconds for event in events]) >= 0.0)
+    assert result["f_ratios"].shape == (3, 81)
+    assert checkpoint.exists()
+
+    # A completed checkpoint is the durable handoff to an outer artifact
+    # writer. Re-opening it performs no numerical work and returns the same
+    # payload; only that persistence owner may remove it after promotion.
+    calls_before_replay = calls.copy()
+    replayed = solve_raw(
+        num_bins=81,
+        paper_ratios=(0.0, 0.1, 1.0),
+        continuation_ratios=(0.1, 1.0),
+        checkpoint_path=checkpoint,
+        checkpoint_identity="unit-test-identity",
+    )
+    assert calls == calls_before_replay
+    np.testing.assert_array_equal(replayed["f_ratios"], result["f_ratios"])
+
+
+def test_non_target_callback_failure_is_replayed_before_continuation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A durable non-target step cannot silently skip a failed callback."""
+    import validation.fischer_2023.fig3_solve as fs
+
+    checkpoint = tmp_path / "fig3-restart.npz"
+    calls = {"ratio0": 0, "picard": 0}
+
+    monkeypatch.setattr(fs, "_compute_tau_0_pb", lambda _spectral: 0.255)
+
+    def fake_ratio0(_backend, state, _photon_params):
+        calls["ratio0"] += 1
+        return replace(state, f=state.f + 1e-10)
+
+    def fake_predictor(
+        _backend,
+        state,
+        _photon_params,
+        *,
+        ratio,
+        mixing,
+        fallback_mixing,
+    ):
+        del mixing, fallback_mixing
+        calls["picard"] += 1
+        return replace(state, f=state.f + (float(ratio) + 1.0) * 1e-10)
+
+    def fake_certificate(*args, **kwargs):
+        del args
+        phonon_value = (
+            float("nan") if kwargs.get("tau_l") is None else 0.0
+        )
+        return {
+            "qp_residual_inf": 0.0,
+            "phonon_residual_inf": phonon_value,
+            "phonon_raw_backward_error": phonon_value,
+            "qp_backward_error": 0.0,
+            "qp_number_backward_error": 0.0,
+            "phonon_backward_error": phonon_value,
+        }
+
+    monkeypatch.setattr(fs, "_solve_tau_l_zero", fake_ratio0)
+    monkeypatch.setattr(fs, "_solve_picard_predictor", fake_predictor)
+    monkeypatch.setattr(fs, "steady_state_certificate", fake_certificate)
+
+    def reject_non_target(event: Fig3StepEvent) -> None:
+        if event.ratio == 0.1:
+            assert not event.is_target
+            assert not event.resumed
+            raise AssertionError("synthetic non-target callback failure")
+
+    with pytest.raises(AssertionError, match="non-target callback failure"):
+        solve_raw(
+            num_bins=81,
+            paper_ratios=(0.0, 1.0),
+            continuation_ratios=(0.1, 1.0),
+            checkpoint_path=checkpoint,
+            checkpoint_identity="unit-test-identity",
+            on_step=reject_non_target,
+        )
+
+    assert checkpoint.exists()
+    assert calls == {"ratio0": 1, "picard": 1}
+
+    events: list[Fig3StepEvent] = []
+    result = solve_raw(
+        num_bins=81,
+        paper_ratios=(0.0, 1.0),
+        continuation_ratios=(0.1, 1.0),
+        checkpoint_path=checkpoint,
+        checkpoint_identity="unit-test-identity",
+        on_step=events.append,
+    )
+
+    assert calls == {"ratio0": 1, "picard": 2}
+    assert [event.ratio for event in events] == [0.0, 0.1, 1.0]
+    assert [event.resumed for event in events] == [True, True, False]
+    assert result["f_ratios"].shape == (2, 81)
+    assert checkpoint.exists()
+
+
+def test_restart_checkpoint_identity_mismatch_is_not_reused(
+    tmp_path,
+) -> None:
+    import validation.fischer_2023.fig3_solve as fs
+
+    path = tmp_path / "restart.npz"
+    fs._write_restart_checkpoint(
+        path,
+        identity="old",
+        completed_step_index=0,
+        pending_callback_step_index=-1,
+        f_seed=np.full(81, 0.1),
+        n_ph_seed=None,
+        target_complete=np.asarray([True]),
+        target_f=np.full((1, 81), 0.1),
+        certificate_by_ratio={
+            0.0: {
+                "qp_residual_inf": 0.0,
+                "phonon_residual_inf": 0.0,
+                "phonon_raw_backward_error": 0.0,
+                "qp_backward_error": 0.0,
+                "qp_number_backward_error": 0.0,
+                "phonon_backward_error": 0.0,
+            }
+        },
+        predictor_certificate_by_ratio={},
+        polish_relative_f_by_ratio={},
+        elapsed_by_step=np.asarray([1.0, np.nan]),
+    )
+
+    with pytest.warns(RuntimeWarning, match="identity mismatch"):
+        loaded = fs._load_restart_checkpoint(
+            path,
+            identity="new",
+            num_bins=81,
+            num_phonon_bins=161,
+            paper_ratios=(0.0,),
+            step_ratios=(0.0, 0.1),
+        )
+    assert loaded is None
+
+
+def test_restart_checkpoint_rejects_incomplete_certificate(
+    tmp_path,
+) -> None:
+    import validation.fischer_2023.fig3_solve as fs
+
+    path = tmp_path / "restart.npz"
+    fs._write_restart_checkpoint(
+        path,
+        identity="current",
+        completed_step_index=0,
+        pending_callback_step_index=-1,
+        f_seed=np.full(81, 0.1),
+        n_ph_seed=None,
+        target_complete=np.asarray([True]),
+        target_f=np.full((1, 81), 0.1),
+        certificate_by_ratio={
+            0.0: {
+                "qp_residual_inf": 0.0,
+                "phonon_residual_inf": float("nan"),
+                "phonon_raw_backward_error": float("nan"),
+                "qp_backward_error": 0.0,
+                # Deliberately omit qp_number_backward_error.
+                "phonon_backward_error": float("nan"),
+            }
+        },
+        predictor_certificate_by_ratio={},
+        polish_relative_f_by_ratio={},
+        elapsed_by_step=np.asarray([1.0, np.nan]),
+    )
+
+    with pytest.warns(RuntimeWarning, match="inconsistent"):
+        loaded = fs._load_restart_checkpoint(
+            path,
+            identity="current",
+            num_bins=81,
+            num_phonon_bins=161,
+            paper_ratios=(0.0,),
+            step_ratios=(0.0, 0.1),
+        )
+    assert loaded is None
+
+
+@pytest.mark.parametrize("missing", ["predictor", "polish"])
+def test_completed_high_ratio_checkpoint_requires_polish_evidence(
+    tmp_path,
+    missing: str,
+) -> None:
+    import validation.fischer_2023.fig3_solve as fs
+
+    path = tmp_path / f"restart-missing-{missing}.npz"
+    thermal_certificate = {
+        "qp_residual_inf": 0.0,
+        "phonon_residual_inf": float("nan"),
+        "phonon_raw_backward_error": float("nan"),
+        "qp_backward_error": 0.0,
+        "qp_number_backward_error": 0.0,
+        "phonon_backward_error": float("nan"),
+    }
+    dynamic_certificate = dict.fromkeys(
+        (
+            "qp_residual_inf",
+            "phonon_residual_inf",
+            "phonon_raw_backward_error",
+            "qp_backward_error",
+            "qp_number_backward_error",
+            "phonon_backward_error",
+        ),
+        0.0,
+    )
+    fs._write_restart_checkpoint(
+        path,
+        identity="current",
+        completed_step_index=1,
+        pending_callback_step_index=-1,
+        f_seed=np.full(81, 0.1),
+        n_ph_seed=np.zeros(161),
+        target_complete=np.asarray([True, True]),
+        target_f=np.full((2, 81), 0.1),
+        certificate_by_ratio={
+            0.0: thermal_certificate,
+            10.0: dynamic_certificate,
+        },
+        predictor_certificate_by_ratio=(
+            {} if missing == "predictor" else {10.0: dynamic_certificate}
+        ),
+        polish_relative_f_by_ratio=(
+            {} if missing == "polish" else {10.0: 0.0}
+        ),
+        elapsed_by_step=np.asarray([1.0, 2.0]),
+    )
+
+    with pytest.warns(RuntimeWarning, match="inconsistent"):
+        loaded = fs._load_restart_checkpoint(
+            path,
+            identity="current",
+            num_bins=81,
+            num_phonon_bins=161,
+            paper_ratios=(0.0, 10.0),
+            step_ratios=(0.0, 10.0),
+        )
+    assert loaded is None
+
+
+@pytest.mark.slow
+def test_reduced_anderson_matches_historical_plain_picard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AA and plain Picard reach the same certified low-ratio branch.
+
+    This 81-bin A/B reaches ratio 1 in about 10 seconds total. Extending the
+    historical 5%-mixed plain policy through ratio 10 costs roughly five
+    minutes even at 81 bins, so the separate ladder-refinement test below
+    covers strong-bottleneck continuation without imposing that cost on each
+    test run.
+    """
+    import validation.fischer_2023.fig3_solve as fs
+
+    kwargs = {
+        "num_bins": 81,
+        "paper_ratios": (0.0, 0.1, 1.0),
+        "continuation_ratios": (0.1, 0.3, 0.5, 1.0),
+    }
+    accelerated = solve_raw(**kwargs)
+    monkeypatch.setattr(fs, "PICARD_ANDERSON_DEPTH", 0)
+    historical_plain = solve_raw(**kwargs)
+
+    for raw in (accelerated, historical_plain):
+        assert np.all(raw["qp_backward_error"] <= TARGET_BACKWARD_ERROR_LIMIT)
+        finite_phonon = np.isfinite(raw["phonon_backward_error"])
+        assert np.all(
+            raw["phonon_backward_error"][finite_phonon]
+            <= TARGET_BACKWARD_ERROR_LIMIT
+        )
+        peaks = np.max(raw["f_ratios"], axis=1)
+        assert np.all(np.diff(peaks) > 0.0)
+
+    for index in range(len(kwargs["paper_ratios"])):
+        peak = float(np.max(historical_plain["f_ratios"][index]))
+        np.testing.assert_allclose(
+            accelerated["f_ratios"][index],
+            historical_plain["f_ratios"][index],
+            rtol=1e-5,
+            atol=5e-6 * peak,
+        )
 
 
 @pytest.mark.slow
@@ -447,7 +1048,30 @@ def test_matches_pinned_baseline() -> None:
     baseline = read_baseline(path)
     metadata = read_baseline_metadata(path)
     _assert_baseline_curves_are_nonvacuous(baseline)
-    result = run()
+    def validate_completed_target(event: Fig3StepEvent) -> None:
+        if not event.is_target:
+            return
+        ratio = event.ratio
+        peak = float(np.max(np.abs(baseline.f_by_ratio[ratio])))
+        rtol = curve_regression_rtol(ratio, pinned_on=metadata.pinned_on)
+        np.testing.assert_allclose(
+            event.f,
+            baseline.f_by_ratio[ratio],
+            rtol=rtol,
+            atol=CURVE_REGRESSION_ATOL_OVER_PEAK * peak,
+            err_msg=(
+                f"Mismatch at τ_l/τ_0^PB = {ratio} "
+                f"(pinned_on={metadata.pinned_on!r}, "
+                f"running_on={sys.platform!r}, rtol={rtol:g}, "
+                f"resumed={event.resumed})"
+            ),
+        )
+
+    # Each target is checked immediately after completion, so a ratio-zero
+    # drift stops before the continuation ladder. This pure regression path
+    # deliberately has no implicit restart state; long manual runs opt in via
+    # restart_checkpoint_path.
+    result = run(on_step=validate_completed_target)
 
     np.testing.assert_allclose(result.E, baseline.E, rtol=0.0, atol=1e-14)
     assert result.tau_0_pb_ns == pytest.approx(baseline.tau_0_pb_ns, rel=1e-8)
@@ -486,13 +1110,20 @@ class TestFig3CacheIntegration:
         # Synthetic raw payload (fig3's observables is a pure unpack — no grid
         # rebuild — so a tiny placeholder array suffices).
         ne = 8
-        return {
+        payload = {
             "E": np.linspace(180.0, 200.0, ne),
             "f_FD": np.full(ne, 1e-9),
             "f_ratios": np.full((3, ne), 1e-8),
             "ratios": np.array([0.0, 0.1, 1.0]),
             "tau_0_pb_ns": np.array([0.2515]),
         }
+        payload.update(
+            {field: np.zeros(3) for field in CERTIFICATE_FIELDS}
+        )
+        for field in CERTIFICATE_FIELDS:
+            if field.startswith("phonon_"):
+                payload[field][0] = np.nan
+        return payload
 
     def _cfg(self) -> dict:
         return {
@@ -522,7 +1153,11 @@ class TestFig3CacheIntegration:
         r2 = fp.run_cached(**self._cfg())
         assert calls["n"] == 1  # cache hit -> solve NOT re-run
 
-        ref = fp.observables(payload)
+        ref = fp.observables(
+            payload,
+            producer_solve_contract_digest=r1.producer_solve_contract_digest,
+            validated_solve_contract_digest=r1.validated_solve_contract_digest,
+        )
         for res in (r1, r2):
             assert res.ratios == ref.ratios
             assert res.tau_0_pb_ns == pytest.approx(ref.tau_0_pb_ns)
@@ -536,10 +1171,12 @@ class TestFig3CacheIntegration:
         monkeypatch.setenv("QPSIM_SWEEP_CACHE_DIR", str(tmp_path))
 
         calls = {"n": 0}
+        seen_kwargs: list[dict[str, object]] = []
         payload = self._stub_payload()
 
         def stub_solve(**kwargs):
             calls["n"] += 1
+            seen_kwargs.append(dict(kwargs))
             return {k: v.copy() for k, v in payload.items()}
 
         monkeypatch.setattr(fp, "solve", stub_solve)
@@ -547,3 +1184,52 @@ class TestFig3CacheIntegration:
         fp.run_cached(**self._cfg())
         fp.run_cached(**self._cfg())
         assert calls["n"] == 2  # disabled -> recompute each call
+        assert all("checkpoint_path" not in kwargs for kwargs in seen_kwargs)
+        assert all("checkpoint_identity" not in kwargs for kwargs in seen_kwargs)
+
+    def test_disabled_cache_allows_explicit_restart_opt_in(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        monkeypatch.setenv("QPSIM_SWEEP_CACHE", "0")
+        payload = self._stub_payload()
+        seen_kwargs: list[dict[str, object]] = []
+
+        def stub_solve(**kwargs):
+            seen_kwargs.append(dict(kwargs))
+            return {key: value.copy() for key, value in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+        restart = tmp_path / "explicit-restart.npz"
+        fp.run_cached(**self._cfg(), restart_checkpoint_path=restart)
+
+        assert seen_kwargs[0]["checkpoint_path"] == restart
+        assert isinstance(seen_kwargs[0]["checkpoint_identity"], str)
+        assert seen_kwargs[0]["checkpoint_identity"]
+
+    def test_uncached_run_restart_is_explicit_only(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        payload = self._stub_payload()
+        seen_kwargs: list[dict[str, object]] = []
+
+        def stub_solve(**kwargs):
+            seen_kwargs.append(dict(kwargs))
+            return {key: value.copy() for key, value in payload.items()}
+
+        monkeypatch.setattr(fp, "solve", stub_solve)
+        fp.run(**self._cfg())
+        restart = tmp_path / "explicit-restart.npz"
+        fp.run(**self._cfg(), restart_checkpoint_path=restart)
+
+        assert "checkpoint_path" not in seen_kwargs[0]
+        assert "checkpoint_identity" not in seen_kwargs[0]
+        assert seen_kwargs[1]["checkpoint_path"] == restart
+        assert isinstance(seen_kwargs[1]["checkpoint_identity"], str)

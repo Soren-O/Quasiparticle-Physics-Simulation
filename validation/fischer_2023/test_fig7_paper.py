@@ -22,6 +22,7 @@ from validation.fischer_2023.fig7_paper import (
     baseline_path,
     config_metadata,
     fig7_regression_tolerances,
+    observable_contract_digest,
     observables,
     read_baseline,
     read_baseline_metadata,
@@ -34,21 +35,63 @@ from validation.fischer_2023.fig7_solve import (
     SOLVER_KWARGS,
     TARGET_BACKWARD_ERROR_LIMIT,
     _nbar_from_table_iii,
+    _require_certified_point,
     _validated_sweep_request,
 )
 from validation.fischer_2023.steady_state_certificate import (
-    CERTIFICATE_FIELDS,
-    CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_FIELDS,
+    NUMBER_CERTIFICATE_METRIC_VERSION,
+    QP_NUMBER_CERTIFICATE_FIELD,
 )
 
 
+def test_live_gate_rejects_number_only_certificate_failure() -> None:
+    certificate = {
+        "qp_residual_inf": 0.0,
+        "qp_backward_error": 0.0,
+        "phonon_residual_inf": 0.0,
+        "phonon_raw_backward_error": 0.0,
+        "qp_number_backward_error": 0.6,
+        "phonon_backward_error": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="qp_number"):
+        _require_certified_point(certificate, context="test point")
+
+
+@pytest.mark.parametrize("field", NUMBER_CERTIFICATE_FIELDS)
+@pytest.mark.parametrize("invalid", [-1.0, np.nan, np.inf])
+def test_live_gate_rejects_invalid_value_in_every_certificate_field(
+    field: str,
+    invalid: float,
+) -> None:
+    certificate = dict.fromkeys(NUMBER_CERTIFICATE_FIELDS, 0.0)
+    certificate[field] = invalid
+    with pytest.raises(RuntimeError, match="non-finite or negative"):
+        _require_certified_point(certificate, context="test point")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["qp_backward_error", "phonon_backward_error", QP_NUMBER_CERTIFICATE_FIELD],
+)
+def test_live_gate_thresholds_all_three_backward_errors(field: str) -> None:
+    certificate = dict.fromkeys(NUMBER_CERTIFICATE_FIELDS, 0.0)
+    certificate[field] = 2.0 * TARGET_BACKWARD_ERROR_LIMIT
+    with pytest.raises(RuntimeError, match=field):
+        _require_certified_point(certificate, context="test point")
+
+
 def _assert_certified_baseline_balances(base) -> None:
-    for field in CERTIFICATE_FIELDS:
+    for field in NUMBER_CERTIFICATE_FIELDS:
         values = getattr(base, field)
         assert np.all(np.isfinite(values)), (
             f"certified baseline has non-finite {field}"
         )
-    for field in ("qp_backward_error", "phonon_backward_error"):
+    for field in (
+        "qp_backward_error",
+        "phonon_backward_error",
+        QP_NUMBER_CERTIFICATE_FIELD,
+    ):
         values = getattr(base, field)
         assert np.all(values <= TARGET_BACKWARD_ERROR_LIMIT), (
             f"certified baseline {field} exceeds "
@@ -84,11 +127,15 @@ def _assert_config_matches_baseline(path) -> None:
     assert cfg.tau_l == pytest.approx(meta.tau_l)
     assert cfg.tau_0_pb == pytest.approx(meta.tau_0_pb)
     assert cfg.certificate_metric_version == meta.certificate_metric_version
-    assert cfg.certificate_metric_version == CERTIFICATE_METRIC_VERSION
+    assert (
+        cfg.certificate_metric_version
+        == NUMBER_CERTIFICATE_METRIC_VERSION
+    )
     assert cfg.target_backward_error_limit == pytest.approx(
         meta.target_backward_error_limit,
     )
     assert cfg.solve_contract_digest == meta.solve_contract_digest
+    assert cfg.observable_contract_digest == meta.observable_contract_digest
     assert meta.generator_platform
     assert meta.generator_python
     assert meta.generator_numpy
@@ -216,7 +263,7 @@ def test_matches_pinned_baseline() -> None:
     for p in baseline.p_read_dbm:
         assert result.n_bar_by_dbm[p] == pytest.approx(baseline.n_bar_by_dbm[p], rel=1e-12)
         # Compare qp losses (1/Q_qp), not Q_qp.  The historical atol=1e-10
-        # masked every loss below Q=1e10.  The replacement 2e-19 floor is nine
+        # masked every loss below Q=1e10.  The replacement 1e-18 floor is eight
         # orders smaller and covers only the measured T=0.06 K cross-platform
         # tail envelope; every physically visible point is controlled by the
         # same-platform 0.4% relative gate. Q_tot has its own 1e-4 gate;
@@ -286,8 +333,8 @@ class TestFig7CacheIntegration:
             {
                 field: np.full(shape, value, dtype=float)
                 for field, value in zip(
-                    CERTIFICATE_FIELDS,
-                    (1e-20, 1e-8, 2e-20, 0.3, 2e-8),
+                    NUMBER_CERTIFICATE_FIELDS,
+                    (1e-20, 1e-8, 2e-20, 0.3, 2e-8, 5e-9),
                     strict=True,
                 )
             }
@@ -320,7 +367,7 @@ class TestFig7CacheIntegration:
             np.testing.assert_allclose(res.Q_qp_by_dbm[-64.0], ref.Q_qp_by_dbm[-64.0])
             np.testing.assert_allclose(res.Q_tot_by_dbm[-64.0], ref.Q_tot_by_dbm[-64.0])
             np.testing.assert_allclose(res.sigma1_by_dbm[-64.0], ref.sigma1_by_dbm[-64.0])
-            for field in CERTIFICATE_FIELDS:
+            for field in NUMBER_CERTIFICATE_FIELDS:
                 np.testing.assert_array_equal(
                     getattr(res, field),
                     getattr(ref, field),
@@ -370,7 +417,7 @@ class TestFig7CacheIntegration:
         assert b"\r" not in path.read_bytes()
         restored = read_baseline(path)
 
-        for field in CERTIFICATE_FIELDS:
+        for field in NUMBER_CERTIFICATE_FIELDS:
             np.testing.assert_array_equal(
                 getattr(restored, field),
                 getattr(reference, field),
@@ -393,6 +440,31 @@ class TestFig7CacheIntegration:
     ) -> None:
         with pytest.raises(ValueError, match=match):
             _validated_sweep_request(temperatures, powers, NUM_BINS)
+
+    def test_backend_failure_reports_exact_sweep_point_and_preserves_cause(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import validation.fischer_2023.fig7_solve as target
+
+        original = ValueError("sentinel backend failure")
+
+        def fail_steady_state(*args, **kwargs):
+            raise original
+
+        monkeypatch.setattr(
+            target.T3DiffusionBackend,
+            "steady_state",
+            fail_steady_state,
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match=r"P_read=-68 dBm, T_bath=0\.14 K",
+        ) as caught:
+            target.solve(temperatures=(0.14,), powers_dbm=(-68.0,))
+
+        assert caught.value.__cause__ is original
 
     def test_raw_payload_rejects_duplicate_power_keys(self) -> None:
         payload = self._stub_payload(powers_dbm=(-64.0, -64.0))
@@ -418,12 +490,27 @@ class TestFig7CacheIntegration:
         with pytest.raises(ValueError, match=match):
             observables(payload)
 
+    def test_raw_payload_rejects_failed_number_certificate(self) -> None:
+        payload = self._stub_payload()
+        payload[QP_NUMBER_CERTIFICATE_FIELD][0, 0] = (
+            2.0 * TARGET_BACKWARD_ERROR_LIMIT
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"qp_number_backward_error.*exceeds",
+        ):
+            observables(payload)
+
     def test_reproduction_provenance_binds_source_and_environment(self) -> None:
         digest = solve_contract_digest()
+        observable_digest = observable_contract_digest()
         provenance = reproduction_provenance()
 
         assert len(digest) == 64
+        assert len(observable_digest) == 64
         assert provenance["solve_contract_digest"] == digest
+        assert provenance["observable_contract_digest"] == observable_digest
         assert provenance["python"]
         assert provenance["numpy"]
         assert provenance["scipy"]
@@ -502,15 +589,45 @@ class TestFig7CacheIntegration:
         with pytest.raises(RuntimeError, match=match):
             read_baseline(path)
 
+    def test_bad_persisted_number_certificate_is_rejected(self, tmp_path) -> None:
+        reference = observables(self._stub_payload())
+        path = write_baseline(reference, tmp_path / "bad_number_certificate.csv")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        fields = lines[-1].split(",")
+        assert fields[-1] == f"{reference.qp_number_backward_error[0, 0]:.17e}"
+        fields[-1] = f"{2.0 * TARGET_BACKWARD_ERROR_LIMIT:.17e}"
+        lines[-1] = ",".join(fields)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        with pytest.raises(
+            RuntimeError,
+            match=r"qp_number_backward_error.*above target",
+        ):
+            read_baseline(path)
+
     def test_malformed_current_schema_is_rejected(self, tmp_path) -> None:
         reference = observables(self._stub_payload())
         path = write_baseline(reference, tmp_path / "malformed_fig7.csv")
         text = path.read_text(encoding="utf-8")
-        text = text.replace(",phonon_backward_error\n", "\n", 1)
+        text = text.replace(",qp_number_backward_error\n", "\n", 1)
         path.write_text(text, encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="expected current certified schema"):
             read_baseline(path)
+
+    def test_missing_observable_contract_digest_is_rejected(self, tmp_path) -> None:
+        reference = observables(self._stub_payload())
+        path = write_baseline(reference, tmp_path / "missing_observable_digest.csv")
+        text = path.read_text(encoding="utf-8")
+        text = text.replace(
+            f"observable_contract_digest={observable_contract_digest()} ",
+            "",
+            1,
+        )
+        path.write_text(text, encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="observable-contract digest"):
+            read_baseline_metadata(path)
 
     def test_invalid_result_does_not_replace_existing_artifact(self, tmp_path) -> None:
         reference = observables(self._stub_payload())

@@ -16,13 +16,17 @@ from qpsim.collisions.phonon import (
     phonon_source_sink_jacobian_f,
 )
 from qpsim.constants import KB_UEV_PER_K
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import (
     solve_steady_state,
 )
-from qpsim.solvers.coupled_newton import coupled_newton_solve
+from qpsim.solvers.coupled_newton import (
+    CoupledNewtonLineSearchError,
+    coupled_newton_solve,
+)
 from qpsim.solvers.newton_steady_state import _gain_loss_sum
 
 
@@ -41,6 +45,372 @@ def _thermal_setup(T_bath: float = 0.3, T_c: float = 1.2, num: int = 18):
 
 
 class TestCoupledNewtonSolve:
+    @pytest.mark.parametrize(
+        "control",
+        ["T_bath", "tau_l", "tol", "step_rtol", "fd_step", "fd_floor"],
+    )
+    @pytest.mark.parametrize("bad_value", [True, 1.0 + 0.0j, "1e-6"])
+    def test_rejects_non_real_numeric_controls(
+        self,
+        control: str,
+        bad_value: object,
+    ) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+        controls: dict[str, object] = {
+            "T_bath": T_bath,
+            "tau_l": 0.25,
+            "tol": 1e-10,
+            "step_rtol": 1e-8,
+            "fd_step": 1e-8,
+            "fd_floor": 1e-12,
+        }
+        controls[control] = bad_value
+
+        with pytest.raises(ValueError, match=control):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                **controls,  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.parametrize("bad_value", [True, 2.0 + 0.0j, "2"])
+    def test_rejects_non_integer_max_iter_controls(
+        self,
+        bad_value: object,
+    ) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+
+        with pytest.raises(ValueError, match="max_iter"):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                max_iter=bad_value,  # type: ignore[arg-type]
+            )
+
+    def test_finite_temperature_underflowed_vacuum_fails_closed(self) -> None:
+        """Zero float64 turnover is not proof of a finite-T vacuum root."""
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, _ = _thermal_setup(
+            T_bath=1e-6,
+            num=4,
+        )
+        zeros_f = np.zeros(ctx.E.size)
+        zeros_ph = np.zeros_like(omega)
+        loss_only = ExternalFlux(
+            gain=zeros_f,
+            loss_rate=np.ones_like(zeros_f),
+        )
+
+        with pytest.raises(CoupledNewtonLineSearchError):
+            coupled_newton_solve(
+                ctx,
+                zeros_f,
+                zeros_ph,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=1e-6,
+                tau_l=1e308,
+                external_flux=loss_only,
+                tol=1e-10,
+                step_rtol=1e-8,
+                analytic_cross=True,
+                max_iter=2,
+            )
+
+    def test_zero_temperature_loss_only_vacuum_is_absorbing(self) -> None:
+        """The finite-T guard must preserve the exact T=0 vacuum root."""
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, _ = _thermal_setup(
+            T_bath=0.0,
+            num=4,
+        )
+        zeros_f = np.zeros(ctx.E.size)
+        zeros_ph = np.zeros_like(omega)
+        loss_only = ExternalFlux(
+            gain=zeros_f,
+            loss_rate=np.ones_like(zeros_f),
+        )
+
+        f_out, n_out = coupled_newton_solve(
+            ctx,
+            zeros_f,
+            zeros_ph,
+            omega_bins=omega,
+            omega_idx_diff=idx_d,
+            omega_idx_sum=idx_s,
+            diff_sign=sgn,
+            K_s0=K_s0,
+            K_r0=K_r0,
+            T_bath=0.0,
+            tau_l=1e308,
+            external_flux=loss_only,
+            tol=1e-10,
+            step_rtol=1e-8,
+            analytic_cross=True,
+            max_iter=2,
+        )
+        np.testing.assert_array_equal(f_out, zeros_f)
+        np.testing.assert_array_equal(n_out, zeros_ph)
+
+    def test_cold_half_amplitude_seed_cannot_false_converge(self) -> None:
+        """The coupled certificate must see the cold QP-number mode.
+
+        At 55 mK, number-conserving scattering dominates both aggregate
+        residual denominators.  Before the channel-specific certificates,
+        the finite-difference-cross path returned the seed essentially
+        unchanged at ``0.5*f_FD``.  Its pair-number error was only 1.18e-4
+        (so a standalone 1% gate also passed), while the full phonon residual
+        was 6.6e-2 relative to the pair/escape turnover.  The FD Jacobian
+        cannot resolve that cold mode, so the honest result is a loud stall,
+        not a silently wrong solution.
+        """
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            T_bath=0.055,
+        )
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+
+        with pytest.raises(CoupledNewtonLineSearchError):
+            coupled_newton_solve(
+                ctx,
+                0.5 * f_FD,
+                n_BE,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                tol=1e-10,
+                step_rtol=1e-8,
+                analytic_cross=False,
+            )
+
+    def test_exact_cold_thermal_seed_remains_certifiable(self) -> None:
+        """Known detailed balance is valid below the pair/escape roundoff floor."""
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            T_bath=0.05,
+        )
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+
+        f_out, n_out = coupled_newton_solve(
+            ctx,
+            f_FD,
+            n_BE,
+            omega_bins=omega,
+            omega_idx_diff=idx_d,
+            omega_idx_sum=idx_s,
+            diff_sign=sgn,
+            K_s0=K_s0,
+            K_r0=K_r0,
+            T_bath=T_bath,
+            tau_l=0.25,
+            tol=1e-10,
+            step_rtol=1e-8,
+            analytic_cross=False,
+        )
+        np.testing.assert_array_equal(f_out, f_FD)
+        np.testing.assert_array_equal(n_out, n_BE)
+
+    def test_thermal_shortcut_rejects_non_detailed_balance_kernel(self) -> None:
+        """Analytic Fermi/Bose arrays do not certify an arbitrary custom kernel."""
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            T_bath=0.05,
+        )
+        asymmetric = K_s0.copy()
+        asymmetric[0, 1] *= 10.0
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+
+        with pytest.raises(RuntimeError):
+            coupled_newton_solve(
+                ctx,
+                f_FD,
+                n_BE,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=asymmetric,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                step_rtol=1e-8,
+                max_iter=1,
+            )
+
+    def test_thermal_shortcut_rejects_noncanonical_frequency_map(self) -> None:
+        """Thermal-looking arrays do not certify a malformed phonon map."""
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup(
+            T_bath=0.05,
+        )
+        bad_idx_s = np.zeros_like(idx_s)
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+
+        # The mapping is shape-, dtype-, and range-valid, but routing every
+        # pair to omega=0 destroys detailed balance. Before the canonical-map
+        # guard the cold shortcut returned these inputs unchanged even though
+        # their QP-number backward error was exactly one.
+        with pytest.raises(RuntimeError):
+            coupled_newton_solve(
+                ctx,
+                f_FD,
+                n_BE,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=bad_idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+                step_rtol=1e-8,
+                max_iter=1,
+            )
+
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+    def test_rejects_nonfinite_frequency_or_kernel(self, bad_value: float) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_BE = thermal_phonon_occupation(omega, T_bath)
+        bad_omega = omega.copy()
+        bad_omega[0] = bad_value
+        with pytest.raises(ValueError, match="omega_bins"):
+            coupled_newton_solve(
+                ctx,
+                f_FD,
+                n_BE,
+                omega_bins=bad_omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+            )
+
+        bad_kernel = K_s0.copy()
+        bad_kernel[0, 0] = bad_value
+        with pytest.raises(ValueError, match="K_s0"):
+            coupled_newton_solve(
+                ctx,
+                f_FD,
+                n_BE,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=bad_kernel,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+            )
+
+    @pytest.mark.parametrize("target", ["f_init", "n_ph_init", "omega_bins"])
+    @pytest.mark.parametrize("imaginary", [1e-20, np.nan])
+    def test_rejects_complex_state_and_frequency_before_float_cast(
+        self,
+        target: str,
+        imaginary: float,
+    ) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+        values = {
+            "f_init": f_init.astype(complex),
+            "n_ph_init": n_init.astype(complex),
+            "omega_bins": omega.astype(complex),
+        }
+        values[target][0] = complex(float(values[target][0].real), imaginary)
+
+        with pytest.raises(ValueError, match=target):
+            coupled_newton_solve(
+                ctx,
+                values["f_init"] if target == "f_init" else f_init,
+                values["n_ph_init"] if target == "n_ph_init" else n_init,
+                omega_bins=(
+                    values["omega_bins"] if target == "omega_bins" else omega
+                ),
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                K_s0=K_s0,
+                K_r0=K_r0,
+                T_bath=T_bath,
+                tau_l=0.25,
+            )
+
+    @pytest.mark.parametrize(
+        "kernel_name",
+        ["K_s0", "K_r0", "K_s0_phonon_side", "K_r0_phonon_side"],
+    )
+    @pytest.mark.parametrize("imaginary", [1e-20, np.nan])
+    def test_rejects_complex_kernel_before_rate_assembly(
+        self,
+        kernel_name: str,
+        imaginary: float,
+    ) -> None:
+        ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, T_bath = _thermal_setup()
+        kT = KB_UEV_PER_K * T_bath
+        f_init = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
+        n_init = thermal_phonon_occupation(omega, T_bath)
+        bad_kernel = K_s0.astype(complex)
+        bad_kernel[0, 0] = complex(float(bad_kernel[0, 0].real), imaginary)
+        kernel_kwargs: dict[str, np.ndarray] = {
+            "K_s0": K_s0,
+            "K_r0": K_r0,
+        }
+        kernel_kwargs[kernel_name] = bad_kernel
+
+        with pytest.raises(ValueError, match=kernel_name):
+            coupled_newton_solve(
+                ctx,
+                f_init,
+                n_init,
+                omega_bins=omega,
+                omega_idx_diff=idx_d,
+                omega_idx_sum=idx_s,
+                diff_sign=sgn,
+                T_bath=T_bath,
+                tau_l=0.25,
+                **kernel_kwargs,
+            )
+
     def test_thermal_equilibrium_is_fixed_point(self) -> None:
         # At thermal equilibrium, (f_FD, n_BE) is the joint fixed point
         # of the coupled residual; one Newton pass shouldn't move it.

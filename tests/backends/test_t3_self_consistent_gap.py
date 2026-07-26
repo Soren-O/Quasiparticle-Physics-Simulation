@@ -466,7 +466,11 @@ class TestBelowSupportCollapseClassification:
         delta_eq = calibration.delta_eq
         # Grid starting well above zero (first face ~0.89*delta_eq), like the
         # shipped fig6 grid; f = 0.5 saturates pair-breaking.
-        E = np.linspace(0.9 * delta_eq, 10.0 * delta_eq, 200)
+        E = np.linspace(
+            0.9 * delta_eq,
+            1.01 * calibration._omega_D,
+            2000,
+        )
         f_sat = np.full_like(E, 0.5)
         with pytest.raises(GapBelowGridSupportError) as caught:
             solve_gap(calibration, f_sat, E, reference_gap=delta_eq)

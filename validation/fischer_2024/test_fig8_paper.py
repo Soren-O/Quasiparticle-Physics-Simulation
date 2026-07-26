@@ -21,6 +21,7 @@ from validation.fischer_2024._artifact import (
     LegacyArtifactError,
     QPCertificate,
     _atomic_text_file,
+    capture_producer_identity,
 )
 
 
@@ -77,6 +78,11 @@ def _rewrite_csv(path: Path, mutate: Callable[[list[list[str]]], None]) -> None:
         csv.writer(fp, lineterminator="\n").writerows(rows)
 
 
+def _write_baseline(result: target.Fig8PaperResult, path: Path) -> Path:
+    producer = capture_producer_identity(target.solver_fingerprint())
+    return target.write_baseline(result, path, producer=producer)
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -97,7 +103,7 @@ def test_current_artifact_round_trips(
     _synthetic_certificate: None,
 ) -> None:
     reference = _synthetic_result()
-    path = target.write_baseline(reference, tmp_path / "fig8_paper.csv")
+    path = _write_baseline(reference, tmp_path / "fig8_paper.csv")
     decoded = target.read_baseline(path)
     np.testing.assert_array_equal(decoded.T_bath, reference.T_bath)
     assert decoded.drives_hz == target.PAPER_DRIVES_HZ
@@ -131,7 +137,7 @@ def test_reader_rejects_invalid_artifacts(
     mutation: str,
     _synthetic_certificate: None,
 ) -> None:
-    path = target.write_baseline(_synthetic_result(), tmp_path / "fig8_paper.csv")
+    path = _write_baseline(_synthetic_result(), tmp_path / "fig8_paper.csv")
 
     def mutate(rows: list[list[str]]) -> None:
         if mutation == "malformed":
@@ -159,7 +165,7 @@ def test_reader_rejects_invalid_artifacts(
 
 def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"QP (backward error|residual_inf)"):
-        target.write_baseline(_synthetic_result(), tmp_path / "forged.csv")
+        _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
 def test_temperature_reset_and_full_state_strong_to_weak_continuation(
@@ -221,7 +227,9 @@ def test_reduced_sweep_returns_independently_certified_state(
     residual = result.qp_residual_inf_by_drive[1.0e-2][0]
     assert np.isfinite(backward) and backward <= TARGET_QP_BACKWARD_ERROR_LIMIT
     assert np.isfinite(residual) and residual <= TARGET_QP_RESIDUAL_INF_LIMIT
-    decoded = target.read_baseline(target.write_baseline(result, tmp_path / "reduced_fig8.csv"))
+    decoded = target.read_baseline(
+        _write_baseline(result, tmp_path / "reduced_fig8.csv")
+    )
     np.testing.assert_allclose(
         decoded.x_qp_num_by_drive[1.0e-2],
         result.x_qp_num_by_drive[1.0e-2],

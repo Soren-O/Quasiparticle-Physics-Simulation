@@ -25,15 +25,19 @@ from __future__ import annotations
 import csv
 import hashlib
 import inspect
+import json
 import os
 import platform
 import re
+import sys
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO
+from tempfile import NamedTemporaryFile
+from typing import Any, TextIO, cast
 
 import numpy as np
 from qpsim.constants import KB_UEV_PER_K
@@ -229,6 +233,127 @@ class Fig7PaperResult:
     phonon_residual_inf: np.ndarray
     phonon_raw_backward_error: np.ndarray
     phonon_backward_error: np.ndarray
+    qp_number_backward_error: np.ndarray
+
+
+@dataclass(frozen=True)
+class Fig7ProducerIdentity:
+    """Source and numerical-runtime identity frozen before a Fig. 7 solve."""
+
+    solve_contract_digest: str
+    observable_contract_digest: str
+    runner_sha256: str
+    runtime: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ArtifactRecord:
+    """Hash and size of one fully written artifact."""
+
+    sha256: str
+    size_bytes: int
+
+
+def file_sha256(path: Path) -> str:
+    """Hash one file without loading it all into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def complete_pdf_record(path: Path) -> ArtifactRecord:
+    """Validate a complete one-or-more-page PDF and return its content record.
+
+    This is intentionally stronger than the former non-empty-file check.  It
+    verifies the header, terminal EOF marker, ``startxref`` pointer, catalog,
+    page tree, and at least one page object before bytes can be promoted.
+    """
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read Fig. 7 PDF at {path}: {exc}") from exc
+    stripped = payload.rstrip(b"\x00\t\n\f\r ")
+    if not re.match(br"%PDF-\d\.\d(?:\r?\n)", payload[:16]):
+        raise RuntimeError(f"Fig. 7 artifact at {path} has no valid PDF header.")
+    if not stripped.endswith(b"%%EOF"):
+        raise RuntimeError(f"Fig. 7 artifact at {path} has no terminal PDF EOF.")
+    startxref_match = re.search(
+        br"startxref\s+(\d+)\s+%%EOF\Z",
+        stripped,
+    )
+    if startxref_match is None:
+        raise RuntimeError(f"Fig. 7 artifact at {path} has no terminal startxref.")
+    xref_offset = int(startxref_match.group(1))
+    if xref_offset < 0 or xref_offset >= len(payload):
+        raise RuntimeError(f"Fig. 7 artifact at {path} has an invalid xref offset.")
+    xref_prefix = payload[xref_offset : xref_offset + 32]
+    if not (
+        xref_prefix.startswith(b"xref")
+        or re.match(br"\d+\s+\d+\s+obj\b", xref_prefix)
+    ):
+        raise RuntimeError(f"Fig. 7 artifact at {path} has a broken xref pointer.")
+    if b"/Type /Catalog" not in payload or b"/Type /Pages" not in payload:
+        raise RuntimeError(f"Fig. 7 artifact at {path} has no catalog/page tree.")
+    if re.search(br"/Type\s*/Page(?!s)\b", payload) is None:
+        raise RuntimeError(f"Fig. 7 artifact at {path} contains no PDF page.")
+    return ArtifactRecord(
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
+
+
+def runner_source_sha256(path: Path) -> str:
+    """Portable hash of the exact campaign/generation runner source."""
+    return hashlib.sha256(source_provenance.canonical_source_bytes(path)).hexdigest()
+
+
+def capture_producer_identity(runner_path: Path) -> Fig7ProducerIdentity:
+    """Freeze source, runner, and runtime identities before expensive work."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    provenance = reproduction_provenance()
+    runtime = {
+        key: value
+        for key, value in provenance.items()
+        if key
+        not in {
+            "observable_contract_digest",
+            "powers_dbm",
+            "solve_contract_digest",
+            "solver_fingerprint",
+            "temperatures",
+        }
+    }
+    # JSON round trip freezes numpy scalars/containers into one canonical,
+    # mutation-independent record suitable for worker payloads and attestations.
+    frozen_runtime = cast(
+        dict[str, Any],
+        json.loads(json.dumps(runtime, allow_nan=False, sort_keys=True)),
+    )
+    return Fig7ProducerIdentity(
+        solve_contract_digest=str(provenance["solve_contract_digest"]),
+        observable_contract_digest=str(
+            provenance["observable_contract_digest"]
+        ),
+        runner_sha256=runner_source_sha256(runner_path),
+        runtime=frozen_runtime,
+    )
+
+
+def assert_producer_identity_current(
+    producer: Fig7ProducerIdentity,
+    runner_path: Path,
+) -> None:
+    """Refuse persistence after source, runner, or runtime drift."""
+    current = capture_producer_identity(runner_path)
+    if current != producer:
+        raise RuntimeError(
+            "Fischer Fig. 7 producer identity changed during generation; "
+            "discard the candidate and restart from a stable source/runtime."
+        )
 
 
 def solve_contract_digest() -> str:
@@ -257,21 +382,51 @@ def solve_contract_digest() -> str:
     return digest.hexdigest()
 
 
+def observable_contract_digest() -> str:
+    """Portable content digest for the Fig. 7 observable/artifact layer.
+
+    The kinetic solve digest deliberately excludes downstream observables so
+    plot-only edits do not invalidate expensive raw-solve caches.  A promoted
+    CSV/PDF pair still needs to identify the exact code that converted those
+    raw occupations into observables and serialized the artifact.  Hash this
+    module plus the complete :mod:`qpsim.observables` source tree with
+    newline-canonical bytes so Windows and POSIX checkouts agree.
+    """
+    root = Path(__file__).resolve().parents[2]
+    paths = [Path(__file__).resolve()]
+    paths.extend(sorted((root / "qpsim" / "observables").rglob("*.py")))
+    digest = hashlib.sha256()
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source_provenance.canonical_source_bytes(path))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def reproduction_provenance() -> dict[str, object]:
     """Return environment + source provenance for an uncached reproduction."""
+    import matplotlib
     import scipy
 
     return {
         "platform": platform.platform(),
         "machine": platform.machine(),
+        "processor": platform.processor(),
         "python": platform.python_version(),
+        "python_compiler": platform.python_compiler(),
+        "python_implementation": platform.python_implementation(),
+        "python_byteorder": sys.byteorder,
         "numpy": np.__version__,
         "scipy": scipy.__version__,
-        "blas_threads": {
-            name: os.environ.get(name)
-            for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")
+        "matplotlib": {
+            "backend": str(matplotlib.get_backend()),
+            "version": matplotlib.__version__,
         },
+        "numeric_runtime": sweep_cache._numeric_runtime_identity(),
         "solve_contract_digest": solve_contract_digest(),
+        "observable_contract_digest": observable_contract_digest(),
         "solver_fingerprint": solver_fingerprint(),
         "temperatures": list(T_BATH_VALUES),
         "powers_dbm": list(P_READ_DBM),
@@ -294,7 +449,7 @@ def _validated_raw_payload(
         "powers_dbm",
         "n_bar",
         "num_bins",
-        *certificate_module.CERTIFICATE_FIELDS,
+        *certificate_module.NUMBER_CERTIFICATE_FIELDS,
     }
     missing = sorted(required.difference(raw))
     if missing:
@@ -342,7 +497,7 @@ def _validated_raw_payload(
     certificate_shape = (len(powers), T_values.size)
     certificate_arrays = {
         field: np.asarray(raw[field], dtype=float)
-        for field in certificate_module.CERTIFICATE_FIELDS
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
     }
     for field, values in certificate_arrays.items():
         if values.shape != certificate_shape:
@@ -408,6 +563,9 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
             "phonon_raw_backward_error"
         ],
         phonon_backward_error=certificate_arrays["phonon_backward_error"],
+        qp_number_backward_error=certificate_arrays[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
     )
 
 
@@ -482,6 +640,14 @@ _CERTIFICATE_LIMIT_RE = re.compile(
     r"target_backward_error_limit=([\deE.+-]+)"
 )
 _SOLVE_CONTRACT_RE = re.compile(r"solve_contract_digest=([0-9a-f]{64})")
+_OBSERVABLE_CONTRACT_RE = re.compile(
+    r"observable_contract_digest=([0-9a-f]{64})"
+)
+_RUNNER_SHA_RE = re.compile(r"runner_sha256=([0-9a-f]{64})")
+_COMPANION_PDF_SHA_RE = re.compile(
+    r"companion_pdf_sha256=(none|[0-9a-f]{64})"
+)
+_COMPANION_PDF_SIZE_RE = re.compile(r"companion_pdf_size_bytes=(\d+)")
 _GENERATOR_RE = {
     "platform": re.compile(r"generator_platform='([^']*)'"),
     "python": re.compile(r"generator_python='([^']*)'"),
@@ -495,11 +661,12 @@ _BASELINE_COLUMNS = (
     "Q_qp",
     "Q_tot",
     "sigma1",
-    *certificate_module.CERTIFICATE_FIELDS,
+    *certificate_module.NUMBER_CERTIFICATE_FIELDS,
 )
 _CERTIFIED_BACKWARD_ERROR_FIELDS = (
     "qp_backward_error",
     "phonon_backward_error",
+    certificate_module.QP_NUMBER_CERTIFICATE_FIELD,
 )
 _HEADER_PARAM_RE = {
     "delta_0": re.compile(r"Delta_0=([\deE.+-]+)"),
@@ -516,13 +683,27 @@ _HEADER_PARAM_RE = {
 @contextmanager
 def _atomic_text_file(path: Path) -> Iterator[TextIO]:
     """Yield a same-directory temporary file and replace ``path`` on success."""
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
     try:
-        with temporary.open("w", encoding="utf-8", newline="") as stream:
-            yield stream
-        temporary.replace(path)
+        with NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            yield cast(TextIO, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _validate_certificate_arrays(
@@ -532,7 +713,7 @@ def _validate_certificate_arrays(
 ) -> None:
     """Reject incomplete or failed persisted steady-state certificates."""
     expected_shape = (len(result.p_read_dbm), result.T_bath.size)
-    for field in certificate_module.CERTIFICATE_FIELDS:
+    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
         values = np.asarray(getattr(result, field), dtype=float)
         if values.shape != expected_shape:
             raise RuntimeError(
@@ -641,12 +822,33 @@ def _validate_result_for_artifact(result: Fig7PaperResult) -> None:
     _validate_certificate_arrays(result, context="Fig. 7 artifact")
 
 
-def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
+def write_baseline(
+    result: Fig7PaperResult,
+    path: Path | None = None,
+    *,
+    producer: Fig7ProducerIdentity | None = None,
+    companion_pdf: ArtifactRecord | None = None,
+) -> Path:
     if path is None:
         path = baseline_path()
+    if path.resolve() == baseline_path().resolve():
+        raise RuntimeError(
+            "Direct writes to the canonical Fig. 7 CSV are forbidden; "
+            "use publish_baseline_pair() or generate_baseline()."
+        )
     _validate_result_for_artifact(result)
     path.parent.mkdir(parents=True, exist_ok=True)
-    provenance = reproduction_provenance()
+    if producer is None:
+        producer = capture_producer_identity(Path(__file__).resolve())
+    if (
+        companion_pdf is not None
+        and (
+            len(companion_pdf.sha256) != 64
+            or any(char not in "0123456789abcdef" for char in companion_pdf.sha256)
+            or companion_pdf.size_bytes <= 0
+        )
+    ):
+        raise ValueError("Fig. 7 companion PDF record is malformed.")
     with _atomic_text_file(path) as fp:
         writer = csv.writer(fp, lineterminator="\n")
         writer.writerow(["# Fischer 2023 Fig. 7 paper-facing Q_i(T_B); pinned by qpsim"])
@@ -657,17 +859,26 @@ def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
         writer.writerow([f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"])
         writer.writerow([
             "# certificate_metric_version="
-            f"{certificate_module.CERTIFICATE_METRIC_VERSION!r} "
+            f"{certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION!r} "
             "target_backward_error_limit="
             f"{TARGET_BACKWARD_ERROR_LIMIT}"
         ])
         writer.writerow([
             "# solve_contract_digest="
-            f"{provenance['solve_contract_digest']} "
-            f"generator_platform={provenance['platform']!r} "
-            f"generator_python={provenance['python']!r} "
-            f"generator_numpy={provenance['numpy']!r} "
-            f"generator_scipy={provenance['scipy']!r}"
+            f"{producer.solve_contract_digest} "
+            "observable_contract_digest="
+            f"{producer.observable_contract_digest} "
+            f"generator_platform={producer.runtime['platform']!r} "
+            f"generator_python={producer.runtime['python']!r} "
+            f"generator_numpy={producer.runtime['numpy']!r} "
+            f"generator_scipy={producer.runtime['scipy']!r}"
+        ])
+        writer.writerow([
+            f"# runner_sha256={producer.runner_sha256} "
+            "companion_pdf_sha256="
+            f"{companion_pdf.sha256 if companion_pdf is not None else 'none'} "
+            "companion_pdf_size_bytes="
+            f"{companion_pdf.size_bytes if companion_pdf is not None else 0}"
         ])
         writer.writerow([f"# p_read_dbm={','.join(f'{p:g}' for p in result.p_read_dbm)}"])
         writer.writerow(_BASELINE_COLUMNS)
@@ -685,19 +896,55 @@ def write_baseline(result: Fig7PaperResult, path: Path | None = None) -> Path:
                     f"{result.phonon_residual_inf[pi, i]:.17e}",
                     f"{result.phonon_raw_backward_error[pi, i]:.17e}",
                     f"{result.phonon_backward_error[pi, i]:.17e}",
+                    f"{result.qp_number_backward_error[pi, i]:.17e}",
                 ])
     return path
 
 
-def read_baseline(path: Path | None = None) -> Fig7PaperResult:
+def read_baseline(
+    path: Path | None = None,
+    *,
+    companion_pdf_path: Path | None = None,
+    require_companion_pdf: bool = False,
+    _validate_canonical_attestation: bool = True,
+) -> Fig7PaperResult:
     if path is None:
         path = baseline_path()
     metadata = read_baseline_metadata(path)
-    if metadata.certificate_metric_version != certificate_module.CERTIFICATE_METRIC_VERSION:
+    canonical_read = path.resolve() == baseline_path().resolve()
+    if canonical_read:
+        require_companion_pdf = True
+        if companion_pdf_path is None:
+            companion_pdf_path = plot_path()
+    if metadata.companion_pdf_sha256 is None:
+        if require_companion_pdf:
+            raise LegacyArtifactError(
+                f"Fig. 7 baseline at {path} does not authenticate its companion PDF."
+            )
+    else:
+        if companion_pdf_path is None:
+            if require_companion_pdf:
+                raise RuntimeError(
+                    f"Fig. 7 baseline at {path} requires a companion PDF path."
+                )
+        else:
+            record = complete_pdf_record(companion_pdf_path)
+            if (
+                record.sha256 != metadata.companion_pdf_sha256
+                or record.size_bytes != metadata.companion_pdf_size_bytes
+            ):
+                raise RuntimeError(
+                    f"Fig. 7 baseline at {path} does not authenticate "
+                    f"companion PDF {companion_pdf_path}."
+                )
+    if (
+        metadata.certificate_metric_version
+        != certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
+    ):
         raise RuntimeError(
             f"Fig. 7 baseline at {path} uses unsupported certificate metric "
             f"{metadata.certificate_metric_version!r}; expected "
-            f"{certificate_module.CERTIFICATE_METRIC_VERSION!r}."
+            f"{certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION!r}."
         )
     if metadata.target_backward_error_limit != TARGET_BACKWARD_ERROR_LIMIT:
         raise RuntimeError(
@@ -797,7 +1044,7 @@ def read_baseline(path: Path | None = None) -> Fig7PaperResult:
     sigma1_by_dbm: dict[float, np.ndarray] = {}
     certificate_arrays = {
         field: np.full((len(p_tuple), temps.size), np.nan, dtype=float)
-        for field in certificate_module.CERTIFICATE_FIELDS
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
     }
     for pi, p in enumerate(p_tuple):
         subset = data[data[:, 1] == p]
@@ -814,7 +1061,9 @@ def read_baseline(path: Path | None = None) -> Fig7PaperResult:
         Q_qp_by_dbm[p] = subset[:, 3]
         Q_tot_by_dbm[p] = subset[:, 4]
         sigma1_by_dbm[p] = subset[:, 5]
-        for field_index, field in enumerate(certificate_module.CERTIFICATE_FIELDS):
+        for field_index, field in enumerate(
+            certificate_module.NUMBER_CERTIFICATE_FIELDS
+        ):
             certificate_arrays[field][pi] = subset[:, 6 + field_index]
     result = Fig7PaperResult(
         T_bath=temps,
@@ -830,8 +1079,23 @@ def read_baseline(path: Path | None = None) -> Fig7PaperResult:
             "phonon_raw_backward_error"
         ],
         phonon_backward_error=certificate_arrays["phonon_backward_error"],
+        qp_number_backward_error=certificate_arrays[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
     )
     _validate_result_for_artifact(result)
+    if canonical_read and _validate_canonical_attestation:
+        attestation_path = promotion_attestation_path(path)
+        if not attestation_path.is_file():
+            raise LegacyArtifactError(
+                f"Fig. 7 canonical baseline at {path} has no current "
+                f"promotion attestation at {attestation_path}."
+            )
+        validate_promotion_attestation(
+            attestation_path,
+            csv_path=path,
+            pdf_path=cast(Path, companion_pdf_path),
+        )
     return result
 
 
@@ -864,6 +1128,10 @@ class BaselineMetadata:
     certificate_metric_version: str
     target_backward_error_limit: float
     solve_contract_digest: str
+    observable_contract_digest: str
+    runner_sha256: str
+    companion_pdf_sha256: str | None
+    companion_pdf_size_bytes: int
     generator_platform: str
     generator_python: str
     generator_numpy: str
@@ -902,6 +1170,10 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     versions = _CERTIFICATE_VERSION_RE.findall(text)
     limits = _CERTIFICATE_LIMIT_RE.findall(text)
     contracts = _SOLVE_CONTRACT_RE.findall(text)
+    observable_contracts = _OBSERVABLE_CONTRACT_RE.findall(text)
+    runner_hashes = _RUNNER_SHA_RE.findall(text)
+    companion_hashes = _COMPANION_PDF_SHA_RE.findall(text)
+    companion_sizes = _COMPANION_PDF_SIZE_RE.findall(text)
     if ne_m is None or len(versions) != 1 or len(limits) != 1:
         raise RuntimeError(
             f"Baseline header at {path} must contain NE and exactly one "
@@ -914,6 +1186,33 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     if len(contracts) != 1:
         raise RuntimeError(
             f"Fig. 7 baseline at {path} must contain exactly one solve-contract digest."
+        )
+    if not observable_contracts:
+        raise LegacyArtifactError(
+            f"Fig. 7 baseline at {path} predates observable-contract digest "
+            "provenance."
+        )
+    if len(observable_contracts) != 1:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} must contain exactly one "
+            "observable-contract digest."
+        )
+    if (
+        len(runner_hashes) != 1
+        or len(companion_hashes) != 1
+        or len(companion_sizes) != 1
+    ):
+        raise LegacyArtifactError(
+            f"Fig. 7 baseline at {path} has no unique runner/PDF provenance; "
+            "regenerate it through the guarded Fig. 7 publisher."
+        )
+    companion_sha = (
+        None if companion_hashes[0] == "none" else companion_hashes[0]
+    )
+    companion_size = int(companion_sizes[0])
+    if (companion_sha is None) != (companion_size == 0):
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} has inconsistent companion PDF provenance."
         )
     generator_values: dict[str, str] = {}
     for field, pattern in _GENERATOR_RE.items():
@@ -942,6 +1241,10 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
             "target_backward_error_limit",
         ),
         solve_contract_digest=contracts[0],
+        observable_contract_digest=observable_contracts[0],
+        runner_sha256=runner_hashes[0],
+        companion_pdf_sha256=companion_sha,
+        companion_pdf_size_bytes=companion_size,
         generator_platform=generator_values["platform"],
         generator_python=generator_values["python"],
         generator_numpy=generator_values["numpy"],
@@ -967,10 +1270,16 @@ def config_metadata() -> BaselineMetadata:
         e_min_factor=E_MIN_FACTOR,
         e_max_factor=E_MAX_FACTOR,
         certificate_metric_version=(
-            certificate_module.CERTIFICATE_METRIC_VERSION
+            certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
         ),
         target_backward_error_limit=TARGET_BACKWARD_ERROR_LIMIT,
         solve_contract_digest=str(provenance["solve_contract_digest"]),
+        observable_contract_digest=str(
+            provenance["observable_contract_digest"]
+        ),
+        runner_sha256=runner_source_sha256(Path(__file__).resolve()),
+        companion_pdf_sha256=None,
+        companion_pdf_size_bytes=0,
         generator_platform=str(provenance["platform"]),
         generator_python=str(provenance["python"]),
         generator_numpy=str(provenance["numpy"]),
@@ -986,6 +1295,11 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
 
     if path is None:
         path = plot_path()
+    if path.resolve() == plot_path().resolve():
+        raise RuntimeError(
+            "Direct writes to the canonical Fig. 7 PDF are forbidden; "
+            "use publish_baseline_pair() or generate_baseline()."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Paper Fig. 7 palette per readout power, matching standalone reproduction
@@ -1015,14 +1329,804 @@ def write_plot(result: Fig7PaperResult, path: Path | None = None) -> Path:
     ax.grid(True, which="both", ls=":", alpha=0.4)
     ax.legend(fontsize=8)
     fig.tight_layout()
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary: Path | None = None
     try:
+        with NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
         fig.savefig(temporary, format=path.suffix.removeprefix("."))
-        temporary.replace(path)
+        complete_pdf_record(temporary)
+        with temporary.open("r+b") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
     finally:
         plt.close(fig)
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return path
+
+
+def promotion_attestation_path(csv_path: Path | None = None) -> Path:
+    """Return the durable promotion-attestation path for a Fig. 7 CSV."""
+    if csv_path is None:
+        csv_path = baseline_path()
+    return csv_path.with_suffix(".promotion.json")
+
+
+def _assert_same_result(
+    expected: Fig7PaperResult,
+    actual: Fig7PaperResult,
+) -> None:
+    np.testing.assert_array_equal(actual.T_bath, expected.T_bath)
+    if actual.p_read_dbm != expected.p_read_dbm:
+        raise RuntimeError("Fig. 7 CSV round trip changed the power axis.")
+    if actual.n_bar_by_dbm != expected.n_bar_by_dbm:
+        raise RuntimeError("Fig. 7 CSV round trip changed the n_bar mapping.")
+    for power in expected.p_read_dbm:
+        np.testing.assert_array_equal(
+            actual.Q_qp_by_dbm[power],
+            expected.Q_qp_by_dbm[power],
+        )
+        np.testing.assert_array_equal(
+            actual.Q_tot_by_dbm[power],
+            expected.Q_tot_by_dbm[power],
+        )
+        np.testing.assert_array_equal(
+            actual.sigma1_by_dbm[power],
+            expected.sigma1_by_dbm[power],
+        )
+    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
+        np.testing.assert_array_equal(
+            getattr(actual, field),
+            getattr(expected, field),
+        )
+
+
+def _result_point_hashes(
+    result: Fig7PaperResult,
+    payload_hashes: Mapping[tuple[int, int], str] | None,
+) -> list[dict[str, object]]:
+    """Hash every exact persisted point, optionally binding worker payloads."""
+    expected_keys = {
+        (pi, ti)
+        for pi in range(len(result.p_read_dbm))
+        for ti in range(result.T_bath.size)
+    }
+    if payload_hashes is not None and set(payload_hashes) != expected_keys:
+        raise RuntimeError(
+            "Fig. 7 worker-payload hashes do not cover the exact point grid."
+        )
+    records: list[dict[str, object]] = []
+    for pi, power in enumerate(result.p_read_dbm):
+        for ti, temperature in enumerate(result.T_bath):
+            values = [
+                float(temperature),
+                float(power),
+                float(result.n_bar_by_dbm[power]),
+                float(result.Q_qp_by_dbm[power][ti]),
+                float(result.Q_tot_by_dbm[power][ti]),
+                float(result.sigma1_by_dbm[power][ti]),
+                *[
+                    float(getattr(result, field)[pi, ti])
+                    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+                ],
+            ]
+            point_payload = "\n".join(value.hex() for value in values).encode(
+                "ascii"
+            )
+            record: dict[str, object] = {
+                "power_index": pi,
+                "temperature_index": ti,
+                "power_dbm": float(power),
+                "temperature_K": float(temperature),
+                "result_sha256": hashlib.sha256(point_payload).hexdigest(),
+            }
+            if payload_hashes is not None:
+                payload_hash = payload_hashes[(pi, ti)]
+                if (
+                    len(payload_hash) != 64
+                    or any(
+                        char not in "0123456789abcdef"
+                        for char in payload_hash
+                    )
+                ):
+                    raise RuntimeError(
+                        f"Fig. 7 point ({pi}, {ti}) has a malformed payload hash."
+                    )
+                record["worker_payload_sha256"] = payload_hash
+            records.append(record)
+    return records
+
+
+def _write_json_durable(path: Path, payload: Mapping[str, object]) -> None:
+    """Atomically write canonical finite JSON with an fsync before replace."""
+    serialized = json.dumps(
+        payload,
+        allow_nan=False,
+        indent=2,
+        sort_keys=True,
+    )
+    with _atomic_text_file(path) as stream:
+        stream.write(serialized)
+        stream.write("\n")
+
+
+def _artifact_record(path: Path) -> ArtifactRecord:
+    size = path.stat().st_size
+    if size <= 0:
+        raise RuntimeError(f"Fig. 7 artifact at {path} is empty.")
+    return ArtifactRecord(sha256=file_sha256(path), size_bytes=size)
+
+
+def _restore_artifact(path: Path, previous: bytes | None) -> None:
+    """Best-effort atomic restoration used after a promotion exception."""
+    if previous is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.rollback.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(previous)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+_PROMOTION_ATTESTATION_KEYS = {
+    "artifacts",
+    "campaign",
+    "certificate_maxima",
+    "created_utc",
+    "observable_contract_digest",
+    "point_hashes",
+    "producer_runtime",
+    "runner_path",
+    "runner_sha256",
+    "schema",
+    "solve_contract_digest",
+}
+
+
+def _repo_relative_runner_path(runner_path: Path) -> str:
+    root = Path(__file__).resolve().parents[2]
+    resolved = runner_path.resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Fig. 7 producer runner {resolved} is outside repository {root}."
+        ) from exc
+
+
+def _current_attested_producer(
+    payload: Mapping[str, object],
+) -> tuple[Fig7ProducerIdentity, Path]:
+    runner_relative = payload.get("runner_path")
+    if not isinstance(runner_relative, str) or not runner_relative:
+        raise RuntimeError("Fig. 7 promotion attestation has malformed runner_path.")
+    root = Path(__file__).resolve().parents[2]
+    runner_path = (root / runner_relative).resolve()
+    try:
+        runner_path.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation runner escapes the repository."
+        ) from exc
+    if not runner_path.is_file():
+        raise RuntimeError(
+            f"Fig. 7 promotion attestation runner is missing: {runner_path}."
+        )
+    producer = capture_producer_identity(runner_path)
+    expected = {
+        "solve_contract_digest": producer.solve_contract_digest,
+        "observable_contract_digest": producer.observable_contract_digest,
+        "runner_sha256": producer.runner_sha256,
+    }
+    for field, value in expected.items():
+        if payload.get(field) != value:
+            raise RuntimeError(
+                f"Fig. 7 promotion attestation is stale for current {field}."
+            )
+    return producer, runner_path
+
+
+def _stable_file_sha256(path: Path, *, label: str) -> str:
+    """Hash a file while refusing a concurrently changing byte stream."""
+    try:
+        before = path.stat()
+        first = file_sha256(path)
+        middle = path.stat()
+        second = file_sha256(path)
+        after = path.stat()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot authenticate Fig. 7 {label} at {path}.") from exc
+    signatures = {
+        (record.st_size, record.st_mtime_ns)
+        for record in (before, middle, after)
+    }
+    if len(signatures) != 1 or first != second:
+        raise RuntimeError(
+            f"Fig. 7 {label} at {path} changed while it was authenticated."
+        )
+    return first
+
+
+def _validate_parallel_run_evidence(
+    attestation: Mapping[str, object],
+    *,
+    run_dir: Path,
+    status_path: Path,
+    csv_path: Path,
+    pdf_path: Path,
+    attestation_path: Path,
+) -> None:
+    """Independently bind a completed parallel run to its promoted artifacts."""
+    resolved_run_dir = run_dir.resolve()
+    if status_path.resolve() != (resolved_run_dir / "status.json"):
+        raise RuntimeError(
+            "Fig. 7 post-run status must be the status.json inside its run directory."
+        )
+    campaign = attestation.get("campaign")
+    if not isinstance(campaign, dict):
+        raise RuntimeError("Fig. 7 parallel attestation has malformed campaign data.")
+    expected_campaign_fields = {
+        "mode",
+        "run_identity",
+        "wall_s",
+        "aggregate_worker_s",
+        "resumed_points",
+        "new_points",
+    }
+    if set(campaign) != expected_campaign_fields:
+        raise RuntimeError(
+            "Fig. 7 parallel attestation has incomplete campaign identity."
+        )
+    run_identity = campaign.get("run_identity")
+    if (
+        not isinstance(run_identity, str)
+        or len(run_identity) != 64
+        or any(char not in "0123456789abcdef" for char in run_identity)
+        or resolved_run_dir.name != f"fig7-{run_identity}"
+        or campaign.get("mode") != "parallel-independent-points"
+    ):
+        raise RuntimeError("Fig. 7 parallel attestation has invalid run identity.")
+    expected_count = len(P_READ_DBM) * len(T_BATH_VALUES)
+    for field in ("resumed_points", "new_points"):
+        value = campaign.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RuntimeError(
+                f"Fig. 7 parallel attestation has invalid {field}."
+            )
+    if int(campaign["resumed_points"]) + int(campaign["new_points"]) != expected_count:
+        raise RuntimeError("Fig. 7 parallel campaign point counts are inconsistent.")
+    for field in ("wall_s", "aggregate_worker_s"):
+        value = campaign.get(field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not np.isfinite(value)
+            or value < 0.0
+        ):
+            raise RuntimeError(
+                f"Fig. 7 parallel attestation has invalid {field}."
+            )
+
+    points = attestation.get("point_hashes")
+    if not isinstance(points, list):
+        raise RuntimeError("Fig. 7 parallel attestation has malformed point hashes.")
+    stamped_worker_hashes: dict[str, str] = {}
+    for point in points:
+        if not isinstance(point, dict) or "worker_payload_sha256" not in point:
+            raise RuntimeError(
+                "Fig. 7 parallel attestation must authenticate every worker payload."
+            )
+        pi = int(point["power_index"])
+        ti = int(point["temperature_index"])
+        stamped_worker_hashes[f"p{pi:02d}-t{ti:02d}"] = str(
+            point["worker_payload_sha256"]
+        )
+
+    expected_point_paths = {
+        f"p{pi:02d}-t{ti:02d}": resolved_run_dir
+        / f"point-p{pi:02d}-t{ti:02d}.npz"
+        for pi in range(len(P_READ_DBM))
+        for ti in range(len(T_BATH_VALUES))
+    }
+    actual_point_paths = {path.resolve() for path in resolved_run_dir.glob("*.npz")}
+    if actual_point_paths != {
+        path.resolve() for path in expected_point_paths.values()
+    }:
+        raise RuntimeError(
+            "Fig. 7 run directory has missing or unexpected worker payloads."
+        )
+    actual_worker_hashes = {
+        key: _stable_file_sha256(path, label=f"worker payload {key}")
+        for key, path in expected_point_paths.items()
+    }
+    if stamped_worker_hashes != actual_worker_hashes:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation does not authenticate its worker payloads."
+        )
+
+    status_digest = _stable_file_sha256(status_path, label="run status")
+    try:
+        status_bytes = status_path.read_bytes()
+        status = json.loads(status_bytes.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Cannot parse Fig. 7 run status at {status_path}.") from exc
+    if hashlib.sha256(status_bytes).hexdigest() != status_digest:
+        raise RuntimeError("Fig. 7 run status changed while it was parsed.")
+    common_status_fields = {
+        "schema",
+        "state",
+        "run_identity",
+        "solve_contract_digest",
+        "observable_contract_digest",
+        "runner_sha256",
+        "producer_runtime",
+        "single_thread_environment",
+        "started_utc",
+        "updated_utc",
+        "attempt",
+        "completed_points",
+        "total_points",
+        "completion",
+    }
+    if not isinstance(status, dict) or set(status) != common_status_fields:
+        raise RuntimeError("Fig. 7 completed run status has the wrong schema fields.")
+    expected_status = {
+        "schema": "qpsim-fischer-2023-fig7-run-v1",
+        "state": "complete",
+        "run_identity": run_identity,
+        "solve_contract_digest": attestation["solve_contract_digest"],
+        "observable_contract_digest": attestation["observable_contract_digest"],
+        "runner_sha256": attestation["runner_sha256"],
+        "producer_runtime": attestation["producer_runtime"],
+        "single_thread_environment": {
+            "BLIS_NUM_THREADS": "1",
+            "MKL_DYNAMIC": "FALSE",
+            "MKL_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+            "OMP_DYNAMIC": "FALSE",
+            "OMP_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+        },
+        "completed_points": expected_count,
+        "total_points": expected_count,
+    }
+    for field, expected in expected_status.items():
+        if status.get(field) != expected:
+            raise RuntimeError(f"Fig. 7 completed run status has wrong {field}.")
+    attempt = status.get("attempt")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise RuntimeError("Fig. 7 completed run status has invalid attempt.")
+    for field in ("started_utc", "updated_utc"):
+        try:
+            datetime.fromisoformat(str(status[field]))
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Fig. 7 completed run status has invalid {field}."
+            ) from exc
+
+    completion = status.get("completion")
+    completion_fields = {
+        "csv",
+        "pdf",
+        "attestation",
+        "csv_sha256",
+        "pdf_sha256",
+        "attestation_sha256",
+        "wall_s",
+        "aggregate_worker_s",
+        "certificate_maxima",
+        "point_payload_sha256",
+    }
+    if not isinstance(completion, dict) or set(completion) != completion_fields:
+        raise RuntimeError("Fig. 7 completed run has malformed completion evidence.")
+    for field, expected_path in (
+        ("csv", csv_path),
+        ("pdf", pdf_path),
+        ("attestation", attestation_path),
+    ):
+        stamped_path = completion.get(field)
+        if not isinstance(stamped_path, str) or Path(stamped_path).resolve() != (
+            expected_path.resolve()
+        ):
+            raise RuntimeError(
+                f"Fig. 7 completed run points to the wrong {field} artifact."
+            )
+    expected_artifact_hashes = {
+        "csv_sha256": _stable_file_sha256(csv_path, label="promoted CSV"),
+        "pdf_sha256": _stable_file_sha256(pdf_path, label="promoted PDF"),
+        "attestation_sha256": _stable_file_sha256(
+            attestation_path, label="promotion attestation"
+        ),
+    }
+    for field, expected in expected_artifact_hashes.items():
+        if completion.get(field) != expected:
+            raise RuntimeError(f"Fig. 7 completed run has wrong {field}.")
+    if completion.get("certificate_maxima") != attestation.get("certificate_maxima"):
+        raise RuntimeError(
+            "Fig. 7 completed run certificate maxima differ from the attestation."
+        )
+    if completion.get("point_payload_sha256") != actual_worker_hashes:
+        raise RuntimeError(
+            "Fig. 7 completed run worker hashes differ from the payload bytes."
+        )
+    for field in ("wall_s", "aggregate_worker_s"):
+        value = completion.get(field)
+        if value != campaign.get(field):
+            raise RuntimeError(
+                f"Fig. 7 completed run and attestation disagree on {field}."
+            )
+
+
+def validate_promotion_attestation(
+    path: Path,
+    *,
+    csv_path: Path,
+    pdf_path: Path,
+    expected_producer: Fig7ProducerIdentity | None = None,
+    run_dir: Path | None = None,
+    status_path: Path | None = None,
+) -> dict[str, object]:
+    """Strictly validate the durable record for a promoted artifact pair."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Cannot read Fig. 7 promotion attestation at {path}."
+        ) from exc
+    if not isinstance(payload, dict) or set(payload) != _PROMOTION_ATTESTATION_KEYS:
+        raise RuntimeError(
+            f"Fig. 7 promotion attestation at {path} has the wrong schema fields."
+        )
+    if payload["schema"] != "qpsim-fischer-2023-fig7-promotion-v1":
+        raise RuntimeError(f"Fig. 7 promotion attestation at {path} is stale.")
+    for field in (
+        "solve_contract_digest",
+        "observable_contract_digest",
+        "runner_sha256",
+    ):
+        value = payload[field]
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(char not in "0123456789abcdef" for char in value)
+        ):
+            raise RuntimeError(
+                f"Fig. 7 promotion attestation has malformed {field}."
+            )
+    if not isinstance(payload["producer_runtime"], dict):
+        raise RuntimeError("Fig. 7 promotion attestation has malformed runtime.")
+    if not isinstance(payload["campaign"], dict):
+        raise RuntimeError("Fig. 7 promotion attestation has malformed campaign.")
+    try:
+        datetime.fromisoformat(str(payload["created_utc"]))
+    except ValueError as exc:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation has malformed creation time."
+        ) from exc
+    current_producer, _runner_path = _current_attested_producer(payload)
+    if expected_producer is not None and current_producer != expected_producer:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation has the wrong current producer identity."
+        )
+    artifacts = payload["artifacts"]
+    if not isinstance(artifacts, dict) or set(artifacts) != {"csv", "pdf"}:
+        raise RuntimeError(f"Fig. 7 promotion attestation at {path} is malformed.")
+    actual_records = {
+        "csv": _artifact_record(csv_path),
+        "pdf": complete_pdf_record(pdf_path),
+    }
+    for name, actual in actual_records.items():
+        stamped = artifacts[name]
+        if not isinstance(stamped, dict) or set(stamped) != {
+            "name",
+            "sha256",
+            "size_bytes",
+        }:
+            raise RuntimeError(
+                f"Fig. 7 promotion attestation at {path} has malformed {name}."
+            )
+        if stamped != {
+            "name": (csv_path.name if name == "csv" else pdf_path.name),
+            "sha256": actual.sha256,
+            "size_bytes": actual.size_bytes,
+        }:
+            raise RuntimeError(
+                f"Fig. 7 promotion attestation at {path} does not "
+                f"authenticate {name}."
+            )
+    maxima = payload["certificate_maxima"]
+    if (
+        not isinstance(maxima, dict)
+        or set(maxima) != set(certificate_module.NUMBER_CERTIFICATE_FIELDS)
+    ):
+        raise RuntimeError("Fig. 7 promotion attestation has malformed maxima.")
+    for field, value in maxima.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not np.isfinite(value)
+            or value < 0.0
+        ):
+            raise RuntimeError(
+                f"Fig. 7 promotion attestation has invalid maximum {field}."
+            )
+    restored = read_baseline(
+        csv_path,
+        companion_pdf_path=pdf_path,
+        require_companion_pdf=True,
+        _validate_canonical_attestation=False,
+    )
+    expected_maxima = {
+        field: float(np.max(np.asarray(getattr(restored, field))))
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+    }
+    if maxima != expected_maxima:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation maxima do not match its CSV."
+        )
+    points = payload["point_hashes"]
+    expected_count = len(P_READ_DBM) * len(T_BATH_VALUES)
+    if not isinstance(points, list) or len(points) != expected_count:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation has an incomplete point-hash set."
+        )
+    expected_indices = {
+        (pi, ti)
+        for pi in range(len(P_READ_DBM))
+        for ti in range(len(T_BATH_VALUES))
+    }
+    actual_indices: set[tuple[int, int]] = set()
+    for point in points:
+        if not isinstance(point, dict):
+            raise RuntimeError("Fig. 7 promotion point hash is malformed.")
+        required = {
+            "power_index",
+            "temperature_index",
+            "power_dbm",
+            "temperature_K",
+            "result_sha256",
+        }
+        actual_fields = set(point)
+        if (
+            actual_fields != required
+            and actual_fields != required | {"worker_payload_sha256"}
+        ):
+            raise RuntimeError("Fig. 7 promotion point hash has wrong fields.")
+        index = (int(point["power_index"]), int(point["temperature_index"]))
+        actual_indices.add(index)
+        for hash_field in ("result_sha256", "worker_payload_sha256"):
+            if hash_field in point:
+                value = point[hash_field]
+                if (
+                    not isinstance(value, str)
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise RuntimeError(
+                        f"Fig. 7 promotion point has malformed {hash_field}."
+                    )
+    if actual_indices != expected_indices or len(actual_indices) != len(points):
+        raise RuntimeError(
+            "Fig. 7 promotion attestation has duplicate or missing point hashes."
+        )
+    has_worker_hashes = all("worker_payload_sha256" in point for point in points)
+    if has_worker_hashes:
+        worker_hashes = {
+            (int(point["power_index"]), int(point["temperature_index"])): str(
+                point["worker_payload_sha256"]
+            )
+            for point in points
+        }
+    else:
+        if any("worker_payload_sha256" in point for point in points):
+            raise RuntimeError(
+                "Fig. 7 promotion attestation has a partial worker-hash set."
+            )
+        worker_hashes = None
+    if points != _result_point_hashes(restored, worker_hashes):
+        raise RuntimeError(
+            "Fig. 7 promotion attestation point hashes do not match its CSV."
+        )
+    if (run_dir is None) != (status_path is None):
+        raise RuntimeError(
+            "Fig. 7 post-run validation requires both run_dir and status_path."
+        )
+    if run_dir is not None and status_path is not None:
+        _validate_parallel_run_evidence(
+            payload,
+            run_dir=run_dir,
+            status_path=status_path,
+            csv_path=csv_path,
+            pdf_path=pdf_path,
+            attestation_path=path,
+        )
+    return cast(dict[str, object], payload)
+
+
+def publish_baseline_pair(
+    result: Fig7PaperResult,
+    *,
+    producer: Fig7ProducerIdentity,
+    runner_path: Path,
+    csv_path: Path | None = None,
+    pdf_path: Path | None = None,
+    attestation_path: Path | None = None,
+    worker_payload_hashes: Mapping[tuple[int, int], str] | None = None,
+    campaign: Mapping[str, object] | None = None,
+    replace_file: Callable[[Path, Path], object] | None = None,
+) -> tuple[Path, Path, Path]:
+    """Crash-safe, rollback-capable publication of one certified Fig. 7 pair.
+
+    The PDF and CSV are completed and cross-validated off-path. The PDF moves
+    first and its authenticating CSV moves last; a crash between those steps is
+    fail-closed because the old CSV cannot authenticate the new PDF. Ordinary
+    exceptions roll all canonical files back to their exact prior bytes. The
+    durable attestation is promoted last and binds source/runtime, every point,
+    certificate maxima, and both final artifact byte streams.
+    """
+    _validate_result_for_artifact(result)
+    assert_producer_identity_current(producer, runner_path)
+    if csv_path is None:
+        csv_path = baseline_path()
+    if pdf_path is None:
+        pdf_path = csv_path.with_suffix(".pdf")
+    if attestation_path is None:
+        attestation_path = promotion_attestation_path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    attestation_path.parent.mkdir(parents=True, exist_ok=True)
+    replace = os.replace if replace_file is None else replace_file
+
+    csv_stage: Path | None = None
+    pdf_stage: Path | None = None
+    attestation_stage: Path | None = None
+    canonical_paths = (pdf_path, csv_path, attestation_path)
+    previous = {
+        path: path.read_bytes() if path.exists() else None
+        for path in canonical_paths
+    }
+    try:
+        for destination, suffix in (
+            (pdf_path, ".pdf"),
+            (csv_path, ".csv"),
+            (attestation_path, ".json"),
+        ):
+            with NamedTemporaryFile(
+                mode="wb",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                suffix=suffix,
+                delete=False,
+            ) as stream:
+                stage = Path(stream.name)
+            if destination == pdf_path:
+                pdf_stage = stage
+            elif destination == csv_path:
+                csv_stage = stage
+            else:
+                attestation_stage = stage
+        assert pdf_stage is not None
+        assert csv_stage is not None
+        assert attestation_stage is not None
+
+        write_plot(result, pdf_stage)
+        pdf_record = complete_pdf_record(pdf_stage)
+        write_baseline(
+            result,
+            csv_stage,
+            producer=producer,
+            companion_pdf=pdf_record,
+        )
+        round_trip = read_baseline(
+            csv_stage,
+            companion_pdf_path=pdf_stage,
+            require_companion_pdf=True,
+        )
+        _assert_same_result(result, round_trip)
+        metadata = read_baseline_metadata(csv_stage)
+        if (
+            metadata.solve_contract_digest != producer.solve_contract_digest
+            or metadata.observable_contract_digest
+            != producer.observable_contract_digest
+            or metadata.runner_sha256 != producer.runner_sha256
+            or metadata.companion_pdf_sha256 != pdf_record.sha256
+            or metadata.companion_pdf_size_bytes != pdf_record.size_bytes
+        ):
+            raise RuntimeError("Staged Fig. 7 CSV has inconsistent provenance.")
+
+        csv_record = _artifact_record(csv_stage)
+        point_hashes = _result_point_hashes(result, worker_payload_hashes)
+        attestation: dict[str, object] = {
+            "schema": "qpsim-fischer-2023-fig7-promotion-v1",
+            "created_utc": datetime.now(UTC).isoformat(),
+            "solve_contract_digest": producer.solve_contract_digest,
+            "observable_contract_digest": producer.observable_contract_digest,
+            "runner_path": _repo_relative_runner_path(runner_path),
+            "runner_sha256": producer.runner_sha256,
+            "producer_runtime": producer.runtime,
+            "artifacts": {
+                "csv": {
+                    "name": csv_path.name,
+                    "sha256": csv_record.sha256,
+                    "size_bytes": csv_record.size_bytes,
+                },
+                "pdf": {
+                    "name": pdf_path.name,
+                    "sha256": pdf_record.sha256,
+                    "size_bytes": pdf_record.size_bytes,
+                },
+            },
+            "certificate_maxima": {
+                field: float(np.max(np.asarray(getattr(result, field))))
+                for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+            },
+            "point_hashes": point_hashes,
+            "campaign": dict(campaign or {}),
+        }
+        _write_json_durable(attestation_stage, attestation)
+        # The durable writer atomically replaced the originally reserved stage
+        # path; parse it before any canonical path changes.
+        staged_payload = json.loads(attestation_stage.read_text(encoding="utf-8"))
+        if staged_payload != attestation:
+            raise RuntimeError("Staged Fig. 7 promotion attestation changed.")
+        assert_producer_identity_current(producer, runner_path)
+
+        replace(pdf_stage, pdf_path)
+        pdf_stage = None
+        promoted_pdf = complete_pdf_record(pdf_path)
+        if promoted_pdf != pdf_record:
+            raise RuntimeError("Promoted Fig. 7 PDF changed during replacement.")
+        replace(csv_stage, csv_path)
+        csv_stage = None
+        promoted = read_baseline(
+            csv_path,
+            companion_pdf_path=pdf_path,
+            require_companion_pdf=True,
+            # The new attestation is staged but deliberately not canonical
+            # yet. Validate it after its final atomic replacement below.
+            _validate_canonical_attestation=False,
+        )
+        _assert_same_result(result, promoted)
+        replace(attestation_stage, attestation_path)
+        attestation_stage = None
+        assert_producer_identity_current(producer, runner_path)
+        validate_promotion_attestation(
+            attestation_path,
+            csv_path=csv_path,
+            pdf_path=pdf_path,
+            expected_producer=producer,
+        )
+        return csv_path, pdf_path, attestation_path
+    except BaseException:
+        for path in reversed(canonical_paths):
+            _restore_artifact(path, previous[path])
+        raise
+    finally:
+        for remaining_stage in (csv_stage, pdf_stage, attestation_stage):
+            if remaining_stage is not None:
+                remaining_stage.unlink(missing_ok=True)
 
 
 def generate_baseline() -> tuple[Path, Path]:
@@ -1033,11 +2137,18 @@ def generate_baseline() -> tuple[Path, Path]:
     )
     print(f"  P_read (dBm): {list(P_READ_DBM)}")
     print(f"  T_B: {list(T_BATH_VALUES)}")
+    runner_path = Path(__file__).resolve()
+    producer = capture_producer_identity(runner_path)
     result = run_cached()
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path, pdf_path, attestation_path = publish_baseline_pair(
+        result,
+        producer=producer,
+        runner_path=runner_path,
+        campaign={"mode": "generic-cached-generate-baseline"},
+    )
     print(f"  wrote {csv_path}")
     print(f"  wrote {pdf_path}")
+    print(f"  wrote {attestation_path}")
     return csv_path, pdf_path
 
 

@@ -48,7 +48,6 @@ def sub_gap_photon_collision_rates(
     E = ctx.E
     NE = E.size
     f = validated_occupation(f, E.shape, "Sub-gap photon collision")
-    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
 
     if not np.isfinite(omega_0) or omega_0 < 0.0:
         raise ValueError(f"omega_0 must be finite and non-negative; got {omega_0}.")
@@ -56,6 +55,10 @@ def sub_gap_photon_collision_rates(
         raise ValueError(f"n_bar must be finite and non-negative; got {n_bar}.")
     if not np.isfinite(c_phot) or c_phot < 0.0:
         raise ValueError(f"c_phot must be finite and non-negative; got {c_phot}.")
+    if omega_0 == 0.0 or c_phot == 0.0:
+        # Preserve disabled-channel equivalence: validate occupation/scalars,
+        # then bypass grid/model restrictions for an identically zero term.
+        return np.zeros(NE), np.zeros(NE)
     if ctx.dynes_gamma > 0.0:
         raise ValueError(
             "Sub-gap photon collisions do not support dynes_gamma > 0: "
@@ -68,9 +71,8 @@ def sub_gap_photon_collision_rates(
             "Use pair_breaking_photon_collision_rates for an above-gap drive."
         )
 
+    dE_scalar = uniform_grid_spacing(E, ctx.dE, "Sub-gap photon collision")
     m = round(omega_0 / dE_scalar)
-    if omega_0 == 0.0:
-        return np.zeros(NE), np.zeros(NE)
     if m <= 0:
         raise ValueError(
             f"omega_0={omega_0:.6g} μeV is below half the grid spacing "

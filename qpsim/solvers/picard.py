@@ -44,6 +44,32 @@ class PicardInfo:
     final_residual: float
 
 
+def _validated_real_finite_array(
+    values: object,
+    *,
+    context: str,
+    expected_shape: tuple[int, ...] | None = None,
+) -> np.ndarray:
+    """Return a float array after validating a Picard API boundary."""
+    try:
+        raw = np.asarray(values)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{context} must be a finite real numeric array.") from exc
+    if expected_shape is not None and raw.shape != expected_shape:
+        raise ValueError(
+            f"{context} must have shape {expected_shape}; got {raw.shape}."
+        )
+    if np.iscomplexobj(raw) or not np.issubdtype(raw.dtype, np.number):
+        raise ValueError(f"{context} must be a finite real numeric array.")
+    try:
+        result = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{context} must be a finite real numeric array.") from exc
+    if np.any(~np.isfinite(result)):
+        raise ValueError(f"{context} must contain only finite values.")
+    return result
+
+
 def picard_iterate(
     x0: np.ndarray,
     g: Callable[[np.ndarray], np.ndarray],
@@ -88,22 +114,59 @@ def picard_iterate(
     info
         :class:`PicardInfo` with ``n_iter``, ``converged``, and
         ``final_residual``.
+
+    Notes
+    -----
+    ``x0`` is flattened once before iteration. Every value returned by ``g``
+    must be a finite real numeric array with exactly the same one-dimensional
+    shape passed to ``g``; broadcastable or otherwise malformed outputs are
+    rejected before residual or update arithmetic.
     """
+    if not (np.isfinite(tol) and tol > 0.0):
+        raise ValueError(f"tol must be finite and positive; got {tol!r}.")
+    if (
+        isinstance(max_iter, (bool, np.bool_))
+        or not isinstance(max_iter, (int, np.integer))
+        or max_iter < 1
+    ):
+        raise ValueError(
+            f"max_iter must be a positive integer; got {max_iter!r}."
+        )
+    if (
+        isinstance(anderson_depth, (bool, np.bool_))
+        or not isinstance(anderson_depth, (int, np.integer))
+        or anderson_depth < 0
+    ):
+        raise ValueError(
+            "anderson_depth must be a non-negative integer; "
+            f"got {anderson_depth!r}."
+        )
+
     # mixing must be a genuine under-relaxation factor. At mixing == 0 the
     # update is x_mixed = x exactly, so the change-based residual is 0 on the
     # first pass and the solver reports `converged` without ever consulting
     # g(x) — a false positive. Reject the whole invalid range up front.
-    if not 0.0 < mixing <= 1.0:
+    if not (np.isfinite(mixing) and 0.0 < mixing <= 1.0):
         raise ValueError(f"mixing must lie in (0, 1]; got {mixing}.")
 
-    x = np.array(x0, dtype=float).ravel()
+    x_initial = _validated_real_finite_array(x0, context="x0")
+    if x_initial.size == 0:
+        raise ValueError("x0 must be non-empty.")
+    x = x_initial.ravel()
     use_anderson = anderson_depth > 0
     X_hist: list[np.ndarray] = []
     G_hist: list[np.ndarray] = []
     final_residual = float("inf")
 
     for it in range(1, max_iter + 1):
-        gx = g(x)
+        gx = _validated_real_finite_array(
+            # The map is an API boundary, not an owner of our live iterate.
+            # Pass a copy so an in-place implementation cannot alias ``gx``
+            # and ``x`` and erase its own fixed-point defect.
+            g(x.copy()),
+            context="g(x) output",
+            expected_shape=x.shape,
+        )
         x_mixed = (1.0 - mixing) * x + mixing * gx
 
         # Convergence belongs to the original fixed-point equation G(x)=x,
@@ -115,7 +178,29 @@ def picard_iterate(
         final_residual = float(np.max(change / scale))
 
         if final_residual < tol:
-            return x_mixed, PicardInfo(n_iter=it, converged=True, final_residual=final_residual)
+            # ``final_residual`` certifies the pre-update iterate ``x``.
+            # Returning ``x_mixed`` would expose a different, unevaluated
+            # state whose fixed-point defect can be arbitrarily larger for a
+            # nonlinear map.  Keep the state and diagnostic bound to the same
+            # snapshot; a caller that wants one more relaxed step can take it
+            # explicitly and re-certify it.
+            return x.copy(), PicardInfo(
+                n_iter=it,
+                converged=True,
+                final_residual=final_residual,
+            )
+
+        if it == max_iter:
+            # The diagnostic above belongs to ``x``.  Do not take and
+            # return one final mixed/Anderson step that has never had its
+            # fixed-point defect evaluated: for a nonlinear map that
+            # successor can be arbitrarily worse than this certified
+            # snapshot even though ``converged`` is false.
+            return x.copy(), PicardInfo(
+                n_iter=it,
+                converged=False,
+                final_residual=final_residual,
+            )
 
         if use_anderson:
             x_aa = anderson_extrapolate(
