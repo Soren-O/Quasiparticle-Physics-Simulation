@@ -69,6 +69,7 @@ import csv
 import hashlib
 import inspect
 import json
+import math
 import os
 import platform
 import re
@@ -798,6 +799,82 @@ def artifact_fingerprint() -> dict[str, Any]:
     }
 
 
+_ARTIFACT_FINGERPRINT_MAX_ULPS = 8
+
+
+def _fingerprint_mismatch(
+    claimed: object,
+    current: object,
+    *,
+    path: str = "fingerprint",
+) -> str | None:
+    """Return the first semantic fingerprint mismatch, if any.
+
+    JSON container shape, scalar types, strings, integers, booleans, and
+    source hashes remain exact.  Only finite floating-point leaves may
+    differ, and then by at most a few ULPs.  This admits the last-bit libm
+    drift observed for derived BCS constants on Windows versus Linux
+    without turning source/config authentication into an ``allclose`` test.
+    """
+    if type(claimed) is not type(current):
+        return f"{path} has type {type(claimed).__name__}, expected {type(current).__name__}"
+    if isinstance(current, dict):
+        if not isinstance(claimed, dict):  # narrowed by the exact-type gate above
+            return f"{path} is not an object"
+        if set(claimed) != set(current):
+            return f"{path} has different keys"
+        for key in sorted(current):
+            mismatch = _fingerprint_mismatch(
+                claimed[key],
+                current[key],
+                path=f"{path}.{key}",
+            )
+            if mismatch is not None:
+                return mismatch
+        return None
+    if isinstance(current, list):
+        if not isinstance(claimed, list):  # narrowed by the exact-type gate above
+            return f"{path} is not a list"
+        if len(claimed) != len(current):
+            return f"{path} has length {len(claimed)}, expected {len(current)}"
+        for index, (claimed_item, current_item) in enumerate(
+            zip(claimed, current, strict=True)
+        ):
+            mismatch = _fingerprint_mismatch(
+                claimed_item,
+                current_item,
+                path=f"{path}[{index}]",
+            )
+            if mismatch is not None:
+                return mismatch
+        return None
+    if isinstance(current, float):
+        if not isinstance(claimed, float):  # narrowed by the exact-type gate above
+            return f"{path} is not a float"
+        if not (math.isfinite(claimed) and math.isfinite(current)):
+            return f"{path} is non-finite"
+        tolerance = _ARTIFACT_FINGERPRINT_MAX_ULPS * max(
+            math.ulp(claimed),
+            math.ulp(current),
+        )
+        if abs(claimed - current) > tolerance:
+            return f"{path} differs by more than {_ARTIFACT_FINGERPRINT_MAX_ULPS} ULP"
+        return None
+    if claimed != current:
+        return f"{path} differs"
+    return None
+
+
+def _require_current_artifact_fingerprint(claimed: object) -> None:
+    """Require a current fingerprint, allowing only bounded float drift."""
+    mismatch = _fingerprint_mismatch(claimed, artifact_fingerprint())
+    if mismatch is not None:
+        raise ArtifactValidationError(
+            "Fig. 6 artifact fingerprint is stale "
+            f"(config, axes, solver, or source): {mismatch}."
+        )
+
+
 def _require_close(
     claimed: np.ndarray | float,
     recomputed: np.ndarray | float,
@@ -1180,10 +1257,7 @@ def _artifact_metadata(path: Path, rows: list[list[str]]) -> dict[str, Any]:
         raise ArtifactValidationError("Fig. 6 artifact row count is stale.")
     if rows[2] != list(_ARTIFACT_COLUMNS):
         raise ArtifactValidationError("Fig. 6 CSV header is stale or reordered.")
-    if metadata["fingerprint"] != artifact_fingerprint():
-        raise ArtifactValidationError(
-            "Fig. 6 artifact fingerprint is stale (config, axes, solver, or source)."
-        )
+    _require_current_artifact_fingerprint(metadata["fingerprint"])
     payload_hash = metadata["payload_sha256"]
     if (
         not isinstance(payload_hash, str)
@@ -1418,7 +1492,8 @@ def read_baseline(path: Path | None = None) -> Fig6PaperResult:
 
 
 PROMOTION_RECORD_SCHEMA = "qpsim.fischer2023.fig6_promotion.v2"
-GENERATION_EVIDENCE_SCHEMA = "qpsim.fischer2023.fig6_generation.v1"
+_LEGACY_GENERATION_EVIDENCE_SCHEMA = "qpsim.fischer2023.fig6_generation.v1"
+GENERATION_EVIDENCE_SCHEMA = "qpsim.fischer2023.fig6_generation.v2"
 _THREAD_ENVIRONMENT_NAMES = (
     "BLIS_NUM_THREADS",
     "MKL_DYNAMIC",
@@ -1451,15 +1526,28 @@ def _is_sha256(value: object) -> bool:
 
 def generation_run_identity(
     *,
+    artifact_fingerprint: Mapping[str, object],
     mode: str,
     runner: Mapping[str, object],
     runtime: Mapping[str, object],
     single_thread_environment: Mapping[str, object],
+    generation_schema: str = GENERATION_EVIDENCE_SCHEMA,
 ) -> str:
-    """Content address one Fig. 6 producer before expensive row work."""
+    """Content address one captured Fig. 6 producer before row work.
+
+    The fingerprint is explicit so a historical record never changes merely
+    because a reader runs on a host whose libm rounds a derived constant one
+    ULP differently.  ``generation_schema`` exists solely to authenticate
+    the migrated v1 campaign; new producers always use v2.
+    """
+    if generation_schema not in {
+        _LEGACY_GENERATION_EVIDENCE_SCHEMA,
+        GENERATION_EVIDENCE_SCHEMA,
+    }:
+        raise ValueError(f"Unsupported Fig. 6 generation schema {generation_schema!r}.")
     payload = {
-        "artifact_fingerprint": artifact_fingerprint(),
-        "generation_schema": GENERATION_EVIDENCE_SCHEMA,
+        "artifact_fingerprint": dict(artifact_fingerprint),
+        "generation_schema": generation_schema,
         "mode": mode,
         "runner": dict(runner),
         "runtime": dict(runtime),
@@ -1494,10 +1582,12 @@ def serial_generation_evidence() -> dict[str, object]:
         "sha256": source_sha256(runner_path),
     }
     runtime = generation_runtime_identity()
+    fingerprint = artifact_fingerprint()
     environment = {
         name: os.environ.get(name) for name in _THREAD_ENVIRONMENT_NAMES
     }
     return {
+        "artifact_fingerprint": fingerprint,
         "campaign": {
             "aggregate_worker_s": 0.0,
             "new_rows": 0,
@@ -1506,11 +1596,13 @@ def serial_generation_evidence() -> dict[str, object]:
         },
         "mode": "serial-in-process",
         "run_identity": generation_run_identity(
+            artifact_fingerprint=fingerprint,
             mode="serial-in-process",
             runner=runner,
             runtime=runtime,
             single_thread_environment=environment,
         ),
+        "run_identity_schema": GENERATION_EVIDENCE_SCHEMA,
         "runner": runner,
         "runtime": runtime,
         "schema": GENERATION_EVIDENCE_SCHEMA,
@@ -1539,9 +1631,11 @@ def validate_generation_evidence(
             "Fig. 6 generation evidence is not finite JSON data."
         ) from exc
     if not isinstance(frozen, dict) or set(frozen) != {
+        "artifact_fingerprint",
         "campaign",
         "mode",
         "run_identity",
+        "run_identity_schema",
         "runner",
         "runtime",
         "schema",
@@ -1551,6 +1645,33 @@ def validate_generation_evidence(
         raise ArtifactValidationError("Fig. 6 generation evidence shape is invalid.")
     if frozen["schema"] != GENERATION_EVIDENCE_SCHEMA:
         raise ArtifactValidationError("Fig. 6 generation evidence schema is stale.")
+    identity_schema = frozen["run_identity_schema"]
+    if identity_schema not in {
+        _LEGACY_GENERATION_EVIDENCE_SCHEMA,
+        GENERATION_EVIDENCE_SCHEMA,
+    }:
+        raise ArtifactValidationError("Fig. 6 generation identity schema is invalid.")
+    generation_fingerprint = frozen["artifact_fingerprint"]
+    if (
+        not isinstance(generation_fingerprint, dict)
+        or set(generation_fingerprint)
+        != {"axes", "config", "mode", "solver", "source_sha256"}
+        or not all(
+            isinstance(generation_fingerprint[field], dict)
+            for field in ("axes", "config", "mode", "solver", "source_sha256")
+        )
+    ):
+        raise ArtifactValidationError(
+            "Fig. 6 generation artifact fingerprint is invalid."
+        )
+    source_identities = generation_fingerprint["source_sha256"]
+    if not source_identities or any(
+        not isinstance(path, str) or not _is_sha256(digest)
+        for path, digest in source_identities.items()
+    ):
+        raise ArtifactValidationError(
+            "Fig. 6 generation source fingerprint is invalid."
+        )
     mode = frozen["mode"]
     if mode not in {"parallel-temperature-rows", "serial-in-process"}:
         raise ArtifactValidationError("Fig. 6 generation mode is invalid.")
@@ -1567,10 +1688,8 @@ def validate_generation_evidence(
         runner_path.relative_to(root)
     except ValueError as exc:
         raise ArtifactValidationError("Fig. 6 runner path escapes the repository.") from exc
-    if not runner_path.is_file() or not _is_sha256(runner["sha256"]):
+    if not _is_sha256(runner["sha256"]):
         raise ArtifactValidationError("Fig. 6 runner source identity is invalid.")
-    if source_sha256(runner_path) != runner["sha256"]:
-        raise ArtifactValidationError("Fig. 6 runner source has changed.")
 
     runtime = frozen["runtime"]
     environment = frozen["single_thread_environment"]
@@ -1588,6 +1707,20 @@ def validate_generation_evidence(
             "Fig. 6 thread-environment evidence is invalid."
         )
     if require_current_runtime:
+        if identity_schema != GENERATION_EVIDENCE_SCHEMA:
+            raise ArtifactValidationError(
+                "A current Fig. 6 producer must use the current generation "
+                "identity schema."
+            )
+        if (
+            not runner_path.is_file()
+            or source_sha256(runner_path) != runner["sha256"]
+        ):
+            raise ArtifactValidationError("Fig. 6 runner source has changed.")
+        if generation_fingerprint != artifact_fingerprint():
+            raise ArtifactValidationError(
+                "Fig. 6 source/configuration changed after producer capture."
+            )
         current_runtime = generation_runtime_identity()
         if runtime != current_runtime:
             raise ArtifactValidationError(
@@ -1605,12 +1738,14 @@ def validate_generation_evidence(
             "Fig. 6 parallel workers were not constrained to one numerical thread."
         )
     expected_identity = generation_run_identity(
+        artifact_fingerprint=generation_fingerprint,
         mode=str(mode),
         runner=runner,
         runtime=runtime,
         single_thread_environment=environment,
+        generation_schema=str(identity_schema),
     )
-    if frozen["run_identity"] != expected_identity:
+    if not _is_sha256(frozen["run_identity"]) or frozen["run_identity"] != expected_identity:
         raise ArtifactValidationError("Fig. 6 generation run identity is forged or stale.")
 
     campaign = frozen["campaign"]
@@ -1719,7 +1854,12 @@ def _publication_lock() -> Iterator[None]:
     """Serialize canonical publishers with a process-scoped OS file lock."""
     lock_path = promotion_record_path().with_suffix(".json.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    stream = lock_path.open("a+b")
+    # Avoid append mode: Python/WSL can reject seek+read on an ``a+b`` file
+    # backed by DrvFS even though native Linux and Windows accept it.  The
+    # atomic O_CREAT open retains one stable inode for the OS lock without
+    # truncating a file another process may already have locked.
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+    stream = os.fdopen(descriptor, "r+b")
     try:
         stream.seek(0)
         if stream.read(1) == b"":

@@ -502,6 +502,22 @@ def test_certificate_binding_allows_blas_roundoff_but_rejects_material_forgery()
     )
     assert bound == cross_thread
 
+    # Hosted Linux NumPy 2.5.1 (on both Python 3.13 and 3.14) changes the
+    # cancellation-limited raw residual by 1.28e-17 while leaving it eight
+    # million times below its independent physics gate.
+    hosted_linux: dict[str, float | str] = {
+        "metric": target.STEADY_STATE_CERTIFICATE_METRIC,
+        "qp_backward_error": 1.7194037161209342e-13,
+        "qp_residual_inf": 9.495442626628048e-16,
+        "qp_number_backward_error": 2.7314170710979955e-14,
+    }
+    bound = target._bind_steady_state_certificate(
+        stamped,
+        hosted_linux,
+        context="hosted-Linux regression",
+    )
+    assert bound == hosted_linux
+
     materially_forged: dict[str, float | str] = dict(stamped)
     materially_forged["qp_backward_error"] = float(materially_forged["qp_backward_error"]) * 1.01
     with pytest.raises(PhotonKickArtifactError, match="does not match fresh"):
@@ -509,6 +525,18 @@ def test_certificate_binding_allows_blas_roundoff_but_rejects_material_forgery()
             materially_forged,
             stamped,
             context="material-forgery regression",
+        )
+
+    forged_residual: dict[str, float | str] = dict(stamped)
+    forged_residual["qp_residual_inf"] = (
+        float(forged_residual["qp_residual_inf"])
+        + 2.0 * target.STEADY_STATE_RESIDUAL_BINDING_ATOL
+    )
+    with pytest.raises(PhotonKickArtifactError, match="does not match fresh"):
+        target._bind_steady_state_certificate(
+            forged_residual,
+            stamped,
+            context="raw-residual-forgery regression",
         )
 
 

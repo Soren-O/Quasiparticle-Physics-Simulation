@@ -39,7 +39,10 @@ python scripts/score_fischer_2023_fig6_paper_parity.py --verify
 ```
 
 The current canonical score is `score.json` SHA-256
-`360646f27610a22e746436abd8c0f3cd149ac6d7b41a37f3a01444f33cff2629`.
+`caaad6ff568327d51b523c07ea1995b549197344757b32d751dc8b3a148f11e8`.
+This digest changed only because the Fig. 6 CSV/promotion provenance bindings
+were migrated; every curve score and the `diagnostic_mismatch` result stayed
+unchanged.
 
 The dashed analytic curves are calibration/identity controls and agree with
 qpsim's independently transcribed Eq. 53 values. The solid published

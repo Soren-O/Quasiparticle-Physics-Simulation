@@ -87,6 +87,13 @@ CURVE_REGRESSION_RTOL = 1e-4
 CURVE_REGRESSION_ATOL_OVER_PEAK = 1e-6
 STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL = 1.5e-2
 VALIDATION_RECORD_SCHEMA = "qpsim-fischer-2023-fig3-validation-v4"
+# The persisted thermal curve is authenticated byte-for-byte by the validation
+# record.  Its additional current-code semantic check must nevertheless allow
+# the last-bit variation permitted by platform vector-exp implementations.
+# A Windows NumPy 2.5.1 recomputation is exact; a Linux/libm recomputation
+# measured one ULP in nine of 1620 cells.  Thirty-two ULPs is still a zero-floor
+# binary64 envelope (about 7e-15 relative), not a curve-level tolerance.
+THERMAL_REFERENCE_BINDING_ULPS = 32
 
 
 def curve_regression_rtol(
@@ -580,7 +587,23 @@ def _validate_persisted_grid_and_thermal_reference(
     if not np.array_equal(result.E, expected_E):
         raise RuntimeError("Fig. 3 persisted energy grid is not the current paper grid.")
     expected_f_FD = fermi_dirac_occupation(expected_E, T_BATH)
-    if not np.array_equal(result.f_FD, expected_f_FD):
+    persisted_f_FD = _real_occupation_array(
+        result.f_FD,
+        context="Fig. 3 persisted f_FD",
+    )
+    if persisted_f_FD.shape != expected_f_FD.shape:
+        raise RuntimeError(
+            "Fig. 3 persisted f_FD is not the current-grid thermal reference."
+        )
+    difference = np.abs(persisted_f_FD - expected_f_FD)
+    ulp_envelope = (
+        THERMAL_REFERENCE_BINDING_ULPS
+        * np.abs(np.spacing(expected_f_FD))
+    )
+    if (
+        np.any(~np.isfinite(persisted_f_FD))
+        or np.any(difference > ulp_envelope)
+    ):
         raise RuntimeError(
             "Fig. 3 persisted f_FD is not the current-grid thermal reference."
         )

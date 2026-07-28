@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 
 import numpy as np
 import pytest
@@ -16,7 +16,9 @@ from scripts import regenerate_fischer_fig6_parallel as runner
 
 def _producer() -> dict[str, object]:
     return {
+        "artifact_fingerprint": fig6_paper.artifact_fingerprint(),
         "run_identity": "a" * 64,
+        "run_identity_schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,
         "runner": {
             "path": "scripts/regenerate_fischer_fig6_parallel.py",
             "sha256": "b" * 64,
@@ -268,7 +270,9 @@ def test_worker_writes_only_after_row_recertification(
     assert Path(record["path"]).is_file()
 
 
-def test_parallel_generation_evidence_binds_current_runner_and_all_rows() -> None:
+def test_parallel_generation_evidence_binds_current_runner_and_all_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runner_path = Path(runner.__file__).resolve()
     producer = runner._producer_base(runner_path)
     payloads = {
@@ -279,6 +283,7 @@ def test_parallel_generation_evidence_binds_current_runner_and_all_rows() -> Non
         for index, temperature in enumerate(fig6_solve.T_BATH_VALUES)
     }
     evidence = {
+        "artifact_fingerprint": producer["artifact_fingerprint"],
         "campaign": {
             "aggregate_worker_s": 3.0,
             "new_rows": 2,
@@ -287,6 +292,7 @@ def test_parallel_generation_evidence_binds_current_runner_and_all_rows() -> Non
         },
         "mode": "parallel-temperature-rows",
         "run_identity": producer["run_identity"],
+        "run_identity_schema": producer["run_identity_schema"],
         "runner": producer["runner"],
         "runtime": producer["runtime"],
         "schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,
@@ -294,10 +300,26 @@ def test_parallel_generation_evidence_binds_current_runner_and_all_rows() -> Non
         "worker_payloads": payloads,
     }
     assert fig6_paper.validate_generation_evidence(evidence) == evidence
-    evidence["runner"] = dict(cast(dict[str, object], evidence["runner"]))
-    cast(dict[str, object], evidence["runner"])["sha256"] = "0" * 64
-    with pytest.raises(fig6_paper.ArtifactValidationError, match="runner source"):
-        fig6_paper.validate_generation_evidence(evidence)
+    monkeypatch.setattr(fig6_paper, "source_sha256", lambda _path: "0" * 64)
+    # Reading historical evidence authenticates its captured producer;
+    # it does not pretend the historical runner is today's source.
+    assert fig6_paper.validate_generation_evidence(evidence) == evidence
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="runner source",
+    ):
+        fig6_paper.validate_generation_evidence(
+            evidence,
+            require_current_runtime=True,
+        )
+
+    forged = json.loads(json.dumps(evidence))
+    forged["runner"]["sha256"] = "0" * 64
+    with pytest.raises(fig6_paper.ArtifactValidationError, match="run identity"):
+        fig6_paper.validate_generation_evidence(
+            forged,
+            require_current_runtime=True,
+        )
 
 
 def test_campaign_lock_and_worker_bound_are_fail_closed(

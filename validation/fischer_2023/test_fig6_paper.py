@@ -25,6 +25,7 @@ import ast
 import csv
 import inspect
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -222,6 +223,7 @@ def test_publication_record_binds_parallel_campaign_evidence(
         }
     }
     evidence = {
+        "artifact_fingerprint": producer["artifact_fingerprint"],
         "campaign": {
             "aggregate_worker_s": 10.0,
             "new_rows": 1,
@@ -230,6 +232,7 @@ def test_publication_record_binds_parallel_campaign_evidence(
         },
         "mode": "parallel-temperature-rows",
         "run_identity": producer["run_identity"],
+        "run_identity_schema": producer["run_identity_schema"],
         "runner": producer["runner"],
         "runtime": producer["runtime"],
         "schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,
@@ -300,10 +303,13 @@ def test_serial_generation_rejects_source_change_during_solve(
 ) -> None:
     revision = {"value": "before"}
     published: list[bool] = []
+    before = fig6_paper.artifact_fingerprint()
+    after = json.loads(json.dumps(before))
+    after["config"]["delta_0"] = float(after["config"]["delta_0"]) + 1.0
     monkeypatch.setattr(
         fig6_paper,
         "artifact_fingerprint",
-        lambda: {"revision": revision["value"]},
+        lambda: before if revision["value"] == "before" else after,
     )
 
     def fake_run_cached(**_kwargs):
@@ -318,7 +324,7 @@ def test_serial_generation_rejects_source_change_during_solve(
     )
     with pytest.raises(
         fig6_paper.ArtifactValidationError,
-        match="run identity",
+        match="source/configuration changed",
     ):
         fig6_paper.generate_baseline()
     assert not published
@@ -406,6 +412,80 @@ def test_artifact_fingerprint_includes_sweep_cache_source(
     monkeypatch.setattr(fig6_paper, "source_manifest", fake_source_manifest)
     fig6_paper.artifact_fingerprint()
     assert Path(fig6_paper.sweep_cache.__file__) in captured["extra"]
+
+
+def test_artifact_fingerprint_allows_only_bounded_float_ulp_drift() -> None:
+    current = fig6_paper.artifact_fingerprint()
+    claimed = json.loads(json.dumps(current))
+    key = "finite_cutoff_delta0_over_kbtc"
+    for _ in range(fig6_paper._ARTIFACT_FINGERPRINT_MAX_ULPS):
+        claimed["config"][key] = math.nextafter(claimed["config"][key], math.inf)
+    assert fig6_paper._fingerprint_mismatch(claimed, current) is None
+
+    claimed["config"][key] = math.nextafter(claimed["config"][key], math.inf)
+    assert "ULP" in str(fig6_paper._fingerprint_mismatch(claimed, current))
+
+
+def test_artifact_fingerprint_keeps_shape_types_and_sources_exact() -> None:
+    current = fig6_paper.artifact_fingerprint()
+    forged = json.loads(json.dumps(current))
+    forged["config"]["num_bins"] = float(forged["config"]["num_bins"])
+    assert "type" in str(fig6_paper._fingerprint_mismatch(forged, current))
+
+    forged = json.loads(json.dumps(current))
+    source_path = next(iter(forged["source_sha256"]))
+    forged["source_sha256"][source_path] = "0" * 64
+    assert source_path in str(fig6_paper._fingerprint_mismatch(forged, current))
+
+    forged = json.loads(json.dumps(current))
+    forged["axes"]["T_bath_K"] = list(reversed(forged["axes"]["T_bath_K"]))
+    assert "T_bath_K" in str(fig6_paper._fingerprint_mismatch(forged, current))
+
+
+def test_generation_identity_uses_captured_not_live_fingerprint(monkeypatch) -> None:
+    evidence = fig6_paper.serial_generation_evidence()
+    captured = evidence["artifact_fingerprint"]
+    identity = evidence["run_identity"]
+    monkeypatch.setattr(
+        fig6_paper,
+        "artifact_fingerprint",
+        lambda: {"different": "host"},
+    )
+    assert (
+        fig6_paper.generation_run_identity(
+            artifact_fingerprint=captured,
+            mode=str(evidence["mode"]),
+            runner=evidence["runner"],
+            runtime=evidence["runtime"],
+            single_thread_environment=evidence["single_thread_environment"],
+            generation_schema=str(evidence["run_identity_schema"]),
+        )
+        == identity
+    )
+
+
+def test_migrated_v1_generation_identity_remains_historical() -> None:
+    evidence = fig6_paper.serial_generation_evidence()
+    evidence["run_identity_schema"] = (
+        fig6_paper._LEGACY_GENERATION_EVIDENCE_SCHEMA
+    )
+    evidence["run_identity"] = fig6_paper.generation_run_identity(
+        artifact_fingerprint=evidence["artifact_fingerprint"],
+        mode=str(evidence["mode"]),
+        runner=evidence["runner"],
+        runtime=evidence["runtime"],
+        single_thread_environment=evidence["single_thread_environment"],
+        generation_schema=fig6_paper._LEGACY_GENERATION_EVIDENCE_SCHEMA,
+    )
+    assert fig6_paper.validate_generation_evidence(evidence) == evidence
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="current generation identity schema",
+    ):
+        fig6_paper.validate_generation_evidence(
+            evidence,
+            require_current_runtime=True,
+        )
 
 
 def test_pdf_validator_rejects_token_shaped_non_pdf(tmp_path) -> None:

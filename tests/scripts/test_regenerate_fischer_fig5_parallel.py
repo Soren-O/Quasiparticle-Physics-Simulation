@@ -6,12 +6,13 @@ Fig. 5 solver.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, cast
 
 import numpy as np
@@ -203,7 +204,17 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
     assert campaign_path.is_file()
     campaign_bytes = campaign_path.read_bytes()
     status = _load_strict_canonical_json(campaign_path)
+    promotion = fig5_paper.read_promotion_record()
     producer = driver._producer_base(Path(driver.__file__).resolve())
+    # The campaign binds the numerical runtime that actually produced the
+    # promoted bundle, not whichever Python/NumPy/SciPy/BLAS runtime happens
+    # to read it later.  read_promotion_record() has already authenticated
+    # that historical producer against the current source fingerprint and
+    # exact artifact triple.  Keep recomputing the runner record locally:
+    # its source hash is newline-normalized and must remain current.
+    producer["artifact_producer"] = deepcopy(
+        cast(dict[str, object], promotion["producer"])
+    )
 
     assert set(status) == {
         "attempt",
@@ -314,10 +325,12 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
         assert set(evidence) == {"path", "sha256"}
         # Absolute Windows paths are host annotations.  Filename + digest are
         # the portable identity carried by the committed companion.
-        assert Path(cast(str, evidence["path"])).name == path.name
+        # The authenticated campaign was produced on Windows, so its
+        # historical path uses backslashes even when a Linux CI reader
+        # verifies it.
+        assert PureWindowsPath(cast(str, evidence["path"])).name == path.name
         assert evidence["sha256"] == driver._sha256_file(path)
 
-    fig5_paper.read_promotion_record()
     rows = fig5_paper._read_csv_rows(fig5_paper.baseline_path())
     metadata = fig5_paper._artifact_metadata(fig5_paper.baseline_path(), rows)
     assert completion["certificate_maxima"] == metadata["certificate_maxima"]
@@ -399,6 +412,32 @@ def test_run_identity_is_deterministic_and_sensitive_to_every_provenance_lens(
         driver._run_identity(changed_runtime),
     }
     assert len(identities) == 4
+
+
+def test_runner_record_hashes_logical_source_across_newline_policies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LF/CRLF checkout policy must not change the campaign identity."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    runner_path = scripts_dir / "runner.py"
+    monkeypatch.setattr(
+        driver,
+        "__file__",
+        str(scripts_dir / "regenerate_fischer_fig5_parallel.py"),
+    )
+
+    records: list[dict[str, object]] = []
+    for payload in (b"alpha\nbeta\n", b"alpha\r\nbeta\r\n", b"alpha\rbeta\r"):
+        runner_path.write_bytes(payload)
+        records.append(driver._runner_record(runner_path))
+
+    expected = {
+        "path": "scripts/runner.py",
+        "sha256": hashlib.sha256(b"alpha\nbeta\n").hexdigest(),
+    }
+    assert records == [expected, expected, expected]
 
 
 def test_thread_controls_are_enforced_before_driver_numpy_import() -> None:

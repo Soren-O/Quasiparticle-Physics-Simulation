@@ -171,14 +171,18 @@ def _runner_record(runner_path: Path) -> dict[str, object]:
 def _producer_base(runner_path: Path) -> dict[str, object]:
     runner = _runner_record(runner_path)
     runtime = _runtime_identity()
+    fingerprint = fig6_paper.artifact_fingerprint()
     run_identity = fig6_paper.generation_run_identity(
+        artifact_fingerprint=fingerprint,
         mode="parallel-temperature-rows",
         runner=runner,
         runtime=runtime,
         single_thread_environment=SINGLE_THREAD_ENVIRONMENT,
     )
     return {
+        "artifact_fingerprint": fingerprint,
         "run_identity": run_identity,
+        "run_identity_schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,
         "runner": runner,
         "runtime": runtime,
         "single_thread_environment": dict(SINGLE_THREAD_ENVIRONMENT),
@@ -729,6 +733,7 @@ def run_campaign(
                 record["elapsed_s"] for record in records.values()
             )
             generation = {
+                "artifact_fingerprint": producer["artifact_fingerprint"],
                 "campaign": {
                     "aggregate_worker_s": aggregate_worker_s,
                     "new_rows": len(missing),
@@ -737,6 +742,7 @@ def run_campaign(
                 },
                 "mode": "parallel-temperature-rows",
                 "run_identity": producer["run_identity"],
+                "run_identity_schema": producer["run_identity_schema"],
                 "runner": producer["runner"],
                 "runtime": producer["runtime"],
                 "schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,

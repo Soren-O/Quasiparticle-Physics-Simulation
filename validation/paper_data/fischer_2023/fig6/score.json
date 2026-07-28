@@ -548,7 +548,7 @@
   "inputs": {
     "comparison_spec": {
       "path": "validation/paper_data/fischer_2023/fig6/comparison-spec.json",
-      "sha256": "47c5cb97419a8aeda8e34eaf47740da63b2b863fab80cac1cae76058183ccb27"
+      "sha256": "e6d6438f1f5e7576ae6ea910bf2a303c82f00a72ea274d2448dafe8adb16ca9d"
     },
     "paper_oracle": {
       "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
@@ -567,9 +567,9 @@
         "status": "promotion_attested_not_replayed"
       },
       "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
-      "csv_sha256": "8a833204a6f3c718d821f62fcfc171704f9453f5ab3e76480539c1c9b18842ac",
+      "csv_sha256": "384f82344fd2e194e733f184f608587670afc1c23f2e4585cc313e2136d01c11",
       "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
-      "promotion_sha256": "af620406d2f9007d8f4135a8ec6678931318d4de70c7f10bb7fd964568f958bd"
+      "promotion_sha256": "bfefdb0f728d1486dde35a2f9fcdd3ae08df51ee8d14c8f91ad6047d368f00f7"
     },
     "scorer_sources": {
       "validation/fischer_2023/fig6_paper_parity.py": "7c4cc3365d1272ed4ef8655d9e045a8adf768024a44dadbb6e3cab950fd71ade",

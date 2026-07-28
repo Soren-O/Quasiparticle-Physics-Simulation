@@ -532,6 +532,23 @@ def test_reassembly_preflight_rejects_forged_thermal_reference() -> None:
         expected,
         expected_E=result.E.copy(),
     )
+
+    portable = np.asarray(expected.f_FD, dtype=float).copy()
+    for _ in range(fig3_target.THERMAL_REFERENCE_BINDING_ULPS):
+        portable[0] = np.nextafter(portable[0], np.inf)
+    fig3_target._validate_persisted_grid_and_thermal_reference(
+        replace(expected, f_FD=portable),
+        expected_E=result.E.copy(),
+    )
+
+    outside_envelope = portable.copy()
+    outside_envelope[0] = np.nextafter(outside_envelope[0], np.inf)
+    with pytest.raises(RuntimeError, match="thermal reference"):
+        fig3_target._validate_persisted_grid_and_thermal_reference(
+            replace(expected, f_FD=outside_envelope),
+            expected_E=result.E.copy(),
+        )
+
     forged = replace(expected, f_FD=np.full_like(expected.f_FD, 0.123))
     with pytest.raises(RuntimeError, match="thermal reference"):
         fig3_target._validate_persisted_grid_and_thermal_reference(

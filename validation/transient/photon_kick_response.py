@@ -135,6 +135,16 @@ STEADY_STATE_NUMBER_ERROR_LIMIT = 1.0e-6
 # effect for stamp binding; _validated_steady_state_certificate() still applies
 # every absolute physics gate independently to both the stamp and fresh result.
 STEADY_STATE_CERTIFICATE_BINDING_RTOL = 1.0e-3
+# The raw max residual is a cancellation-limited dimensional scalar, unlike
+# the two normalized backward errors above.  Reassembling the canonical state
+# on hosted Linux (NumPy 2.5.1, Python 3.13 and 3.14) moved it from
+# 9.367506770274758e-16 to 9.495442626628048e-16: 1.37% relatively, but only
+# 1.28e-17 absolutely.  Bind this field with a small absolute roundoff
+# allowance instead of broadening every certificate field.  The allowance is
+# only 2e-7 of the independently enforced 1e-10 physics gate.
+STEADY_STATE_RESIDUAL_BINDING_ATOL = (
+    2.0e-7 * STEADY_STATE_RESIDUAL_INF_LIMIT
+)
 FINAL_X_QP_RELATIVE_GAP_LIMIT = 1.0e-2
 FINAL_OCCUPATION_WEIGHTED_L1_LIMIT = 2.0e-2
 
@@ -932,11 +942,16 @@ def _bind_steady_state_certificate(
         context=f"{context} reassembled",
     )
     for field in STEADY_STATE_CERTIFICATE_FIELDS:
+        binding_atol = (
+            STEADY_STATE_RESIDUAL_BINDING_ATOL
+            if field == "qp_residual_inf"
+            else 0.0
+        )
         if not np.isclose(
             float(stamped_valid[field]),
             float(reassembled_valid[field]),
             rtol=STEADY_STATE_CERTIFICATE_BINDING_RTOL,
-            atol=0.0,
+            atol=binding_atol,
         ):
             raise PhotonKickArtifactError(
                 f"{context} field {field!r} does not match fresh reassembly."

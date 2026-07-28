@@ -20,7 +20,8 @@ def rasterize_first_page(pdf: Path, out_png: Path, *, dpi: int = 200) -> None:
     """Rasterize page one of ``pdf`` to a real PNG at ``out_png``."""
     if not isinstance(dpi, int) or isinstance(dpi, bool) or dpi <= 0:
         raise ValueError(f"dpi must be a positive integer; got {dpi!r}.")
-    if shutil.which("pdftoppm") is None:
+    pdftoppm = shutil.which("pdftoppm")
+    if pdftoppm is None:
         raise RuntimeError(
             "pdftoppm not found on PATH; install Poppler to enable PDF "
             "rasterization."
@@ -30,7 +31,7 @@ def rasterize_first_page(pdf: Path, out_png: Path, *, dpi: int = 200) -> None:
         prefix = Path(td) / "page"
         subprocess.run(
             [
-                "pdftoppm",
+                pdftoppm,
                 "-singlefile",
                 "-r",
                 str(dpi),
