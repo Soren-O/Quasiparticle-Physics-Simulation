@@ -20,6 +20,7 @@ from validation.fischer_2024._artifact import (
     LegacyArtifactError,
     QPCertificate,
     capture_producer_identity,
+    write_artifact,
 )
 from validation.fischer_2024.fig8_xqp_pb import (
     DELTA_0,
@@ -48,6 +49,7 @@ def _synthetic_result() -> target.Figs57Result:
         },
         qp_backward_error_by_power=dict.fromkeys(POWER_LEVELS, 1e-08),
         qp_residual_inf_by_power=dict.fromkeys(POWER_LEVELS, 1e-16),
+        qp_number_backward_error_by_power=dict.fromkeys(POWER_LEVELS, 1e-9),
     )
 
 
@@ -69,7 +71,7 @@ def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         target,
         "qp_certificate",
-        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16),
+        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16, 1.0e-9),
     )
 
 
@@ -88,6 +90,43 @@ def test_current_artifact_round_trips(
     assert decoded.powers == POWER_LEVELS
     for power in POWER_LEVELS:
         assert decoded.qp_backward_error_by_power[power] == 1.0e-8
+        assert decoded.qp_number_backward_error_by_power[power] == 1.0e-9
+
+
+def test_reader_returns_fresh_certificate_across_runtime_diagnostic_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid cross-runtime diagnostic drift must not stale a state-backed pin."""
+    producer_certificate = QPCertificate(8.0e-7, 8.0e-15, 8.0e-7)
+    monkeypatch.setattr(
+        target,
+        "qp_certificate",
+        lambda *_args, **_kwargs: producer_certificate,
+    )
+    path = _write_baseline(_synthetic_result(), tmp_path / "producer.csv")
+
+    reader_certificate = QPCertificate(2.0e-7, 2.0e-15, 2.0e-7)
+    monkeypatch.setattr(
+        target,
+        "qp_certificate",
+        lambda *_args, **_kwargs: reader_certificate,
+    )
+    decoded = target.read_baseline(path)
+
+    for power in POWER_LEVELS:
+        assert (
+            decoded.qp_backward_error_by_power[power]
+            == reader_certificate.backward_error
+        )
+        assert (
+            decoded.qp_residual_inf_by_power[power]
+            == reader_certificate.residual_inf
+        )
+        assert (
+            decoded.qp_number_backward_error_by_power[power]
+            == reader_certificate.qp_number_backward_error
+        )
 
 
 def test_thermal_seed_accepts_ulp_roundoff_but_rejects_drift(
@@ -157,6 +196,33 @@ def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> No
         _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
+def test_reader_reassembles_and_rejects_self_consistent_forgery(
+    tmp_path: Path,
+) -> None:
+    state = _build_state(_material(), target.T_BATH_FE)
+    path = tmp_path / "self-consistent-forgery.csv"
+    write_artifact(
+        path,
+        schema=target.ARTIFACT_SCHEMA,
+        fingerprint=target.solver_fingerprint(),
+        columns=target._columns(),
+        rows=[
+            [float(state.spectral.E[i]), float(state.f[i])]
+            + [float(state.f[i])] * len(POWER_LEVELS)
+            for i in range(state.f.size)
+        ],
+        certificates={
+            target._point_id(power): QPCertificate(0.0, 0.0, 0.0)
+            for power in POWER_LEVELS
+        },
+        target_qp_residual_inf=target.NEWTON_TOL,
+        producer=capture_producer_identity(target.solver_fingerprint()),
+    )
+
+    with pytest.raises(ArtifactValidationError, match="fresh QP-equation"):
+        target.read_baseline(path)
+
+
 def test_reduced_live_run_writes_bound_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -215,7 +281,7 @@ def test_archived_legacy_artifact_is_explicitly_rejected() -> None:
 
 def test_promoted_canonical_is_current_and_certified() -> None:
     path = target.baseline_path()
-    assert path.is_file(), f"Promoted strict-v2 canonical is missing at {path}."
+    assert path.is_file(), f"Promoted current-schema canonical is missing at {path}."
     baseline = target.read_baseline(path)
     assert baseline.E.shape == (shared.NUM_BINS,)
     assert baseline.powers == POWER_LEVELS

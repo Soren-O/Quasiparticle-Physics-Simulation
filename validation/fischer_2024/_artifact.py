@@ -32,6 +32,7 @@ import numpy as np
 import scipy
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.collisions.pair_breaking_photon import (
+    pair_breaking_photon_collision_components,
     pair_breaking_photon_collision_rates,
 )
 from qpsim.collisions.phonon import (
@@ -43,10 +44,14 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.physics.kernels import thermal_phonon_occupation
 
-from validation.source_provenance import source_sha256
+from validation.fischer_2024._pdf import validate_single_nonempty_matplotlib_pdf
+from validation.source_provenance import source_manifest
 
-QP_CERTIFICATE_METRIC_VERSION = "qp-gain-loss-l1-maxabs-thermal-pb-v1"
+QP_CERTIFICATE_METRIC_VERSION = (
+    "qp-gain-loss-l1-maxabs-pair-number-thermal-pb-v2"
+)
 TARGET_QP_BACKWARD_ERROR_LIMIT = 1.0e-6
+TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT = 1.0e-6
 TARGET_QP_RESIDUAL_INF_LIMIT = 1.0e-10
 THERMAL_OCCUPATION_RTOL = 8.0 * np.finfo(np.float64).eps
 
@@ -97,34 +102,14 @@ def source_hashes(
     harmless over-invalidation to stale numerical evidence. Source newlines
     are normalized so LF and CRLF checkouts have the same identity.
     """
-    root = Path(__file__).resolve().parents[2]
-    qpsim_root = root / "qpsim"
-    qpsim_sources = sorted(
-        {
-            *qpsim_root.rglob("*.py"),
-            *qpsim_root.rglob("*.yaml"),
-            *qpsim_root.rglob("*.yml"),
-        },
-        key=lambda path: path.relative_to(root).as_posix(),
+    return source_manifest(
+        validation_module,
+        extra_validation_modules=(
+            Path(__file__),
+            Path(__file__).with_name("_pdf.py"),
+            *extra_validation_modules,
+        ),
     )
-    sources = {
-        path.relative_to(root).as_posix(): path
-        for path in qpsim_sources
-    }
-    sources.update({
-        "validation/source_provenance.py": root / "validation/source_provenance.py",
-        "validation/fischer_2024/_artifact.py": Path(__file__).resolve(),
-    })
-    for module in (validation_module, *extra_validation_modules):
-        resolved = module.resolve()
-        try:
-            name = resolved.relative_to(root).as_posix()
-        except ValueError as exc:
-            raise ValueError(
-                f"Validation fingerprint source {resolved} is outside {root}."
-            ) from exc
-        sources[name] = resolved
-    return {name: source_sha256(path) for name, path in sources.items()}
 
 
 class ArtifactValidationError(RuntimeError):
@@ -141,6 +126,7 @@ class QPCertificate:
 
     backward_error: float
     residual_inf: float
+    qp_number_backward_error: float
 
 
 @dataclass(frozen=True)
@@ -334,17 +320,20 @@ def require_staging_path(
 
 
 def companion_artifact_record(path: Path) -> CompanionArtifactRecord:
-    """Hash a complete staged PDF and reject empty/non-PDF payloads."""
+    """Parse and hash exactly one complete, nonempty Matplotlib PDF page."""
     try:
         payload = path.read_bytes()
     except OSError as exc:
         raise ArtifactValidationError(
             f"Cannot read staged companion PDF at {path}: {exc}"
         ) from exc
-    if not payload.startswith(b"%PDF-") or b"%%EOF" not in payload[-1024:]:
+    try:
+        validate_single_nonempty_matplotlib_pdf(payload, path=path)
+    except ValueError as exc:
         raise ArtifactValidationError(
-            f"Companion artifact at {path} is not a complete PDF."
-        )
+            f"Companion artifact at {path} is not a valid one-page "
+            "Matplotlib PDF."
+        ) from exc
     return CompanionArtifactRecord(
         sha256=hashlib.sha256(payload).hexdigest(),
         size_bytes=len(payload),
@@ -379,6 +368,54 @@ def _require_staged_csv_pdf_binding(
         )
 
 
+@contextmanager
+def _artifact_pair_lock(csv_path: Path, *, operation: str) -> Iterator[None]:
+    """Hold the OS lock shared by canonical pair publishers and readers.
+
+    The CSV is the pair's commit marker, so its adjacent ``.lock`` file is
+    the stable rendezvous point even while the CSV/PDF payloads are replaced.
+    The lock is deliberately non-blocking: validation should fail loudly
+    instead of waiting on, or sampling state from, another publication.
+    OS locks are released automatically if a process exits unexpectedly.
+    """
+    lock_path = csv_path.with_suffix(csv_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as stream:
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(  # type: ignore[attr-defined]
+                    stream.fileno(),
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,  # type: ignore[attr-defined]
+                )
+        except OSError as exc:
+            raise ArtifactValidationError(
+                f"Fischer 2024 artifact pair at {csv_path} is locked by "
+                f"another reader or publisher; refusing concurrent {operation}."
+            ) from exc
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(  # type: ignore[attr-defined]
+                    stream.fileno(),
+                    fcntl.LOCK_UN,  # type: ignore[attr-defined]
+                )
+
+
 def publish_artifact_pair(
     *,
     csv_path: Path,
@@ -397,8 +434,33 @@ def publish_artifact_pair(
     byte count are passed to ``write_csv`` for inclusion in CSV metadata.
     After a final source/runtime drift check, the PDF is promoted first and
     the binding CSV last. A crash in between is fail-closed: the old CSV
-    cannot authenticate the new PDF.
+    cannot authenticate the new PDF. An OS lock shared with
+    :func:`read_artifact` covers the complete transaction.
     """
+    with _artifact_pair_lock(csv_path, operation="publication"):
+        return _publish_artifact_pair_locked(
+            csv_path=csv_path,
+            pdf_path=pdf_path,
+            producer=producer,
+            current_fingerprint=current_fingerprint,
+            render_pdf=render_pdf,
+            write_csv=write_csv,
+        )
+
+
+def _publish_artifact_pair_locked(
+    *,
+    csv_path: Path,
+    pdf_path: Path,
+    producer: ProducerIdentity,
+    current_fingerprint: Callable[[], Mapping[str, Any]],
+    render_pdf: Callable[[Path], Path],
+    write_csv: Callable[
+        [Path, ProducerIdentity, CompanionArtifactRecord],
+        Path,
+    ],
+) -> tuple[Path, Path]:
+    """Implement pair publication while :func:`_artifact_pair_lock` is held."""
     assert_producer_identity_current(producer, current_fingerprint())
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
@@ -484,7 +546,16 @@ def bind_certificate(
     context: str,
     residual_inf_limit: float,
 ) -> QPCertificate:
-    """Require a result's certificate stamp to match a fresh reassembly."""
+    """Validate both certificate claims and return the fresh reassembly.
+
+    The persisted stamp records what the producer measured, while
+    ``reassembled`` is the reader's current-runtime measurement of the same
+    stored state.  Normwise diagnostics at the cancellation floor depend on
+    reduction order (including BLAS thread count), so their last bits are not
+    portable observables and must not be pinned to each other.  Each claim is
+    instead required independently to satisfy the advertised acceptance
+    bounds; the reader then consumes the freshly reassembled certificate.
+    """
     validate_certificate(
         stamped,
         context=f"{context} stamped certificate",
@@ -495,16 +566,6 @@ def bind_certificate(
         context=f"{context} reassembled certificate",
         residual_inf_limit=residual_inf_limit,
     )
-    pairs = (
-        ("QP backward error", stamped.backward_error, reassembled.backward_error),
-        ("QP residual_inf", stamped.residual_inf, reassembled.residual_inf),
-    )
-    for name, actual, expected in pairs:
-        if not np.isclose(float(actual), float(expected), rtol=1.0e-12, atol=0.0):
-            raise ArtifactValidationError(
-                f"{context} {name} stamp {actual:.17e} does not match "
-                f"the persisted state's reassembled value {expected:.17e}."
-            )
     return reassembled
 
 
@@ -526,6 +587,35 @@ def _normwise_backward_error(
     numerator = float(np.sum(np.abs(residual) / common))
     denominator = float(np.sum(np.abs(gain) / common) + np.sum(np.abs(loss_term) / common))
     return numerator / denominator if denominator > 0.0 else float("inf")
+
+
+def _weighted_pair_number_error(
+    pair_gain: np.ndarray,
+    pair_loss_rate: np.ndarray,
+    f: np.ndarray,
+    weights: np.ndarray,
+    active: np.ndarray,
+) -> float:
+    """Certify the number-changing mode without scattering turnover."""
+    gain = pair_gain[active]
+    loss_term = pair_loss_rate[active] * f[active]
+    weight = weights[active]
+    common = float(
+        max(
+            np.max(np.abs(gain), initial=0.0),
+            np.max(np.abs(loss_term), initial=0.0),
+        )
+    )
+    if common == 0.0:
+        return float("inf")
+    gain_scaled = weight * (gain / common)
+    loss_scaled = weight * (loss_term / common)
+    denominator = float(
+        np.sum(np.abs(gain_scaled)) + np.sum(np.abs(loss_scaled))
+    )
+    if denominator == 0.0:
+        return float("inf")
+    return abs(float(np.sum(gain_scaled - loss_scaled))) / denominator
 
 
 def qp_certificate(
@@ -602,7 +692,28 @@ def qp_certificate(
         N_emit_override=N_emit,
         N_abs_override=N_abs,
     )
+    gain_pair_phonon, loss_pair_phonon = phonon_collision_rates(
+        state.f,
+        spectral,
+        None,
+        K_r0,
+        state.T_bath,
+        N_emit_override=N_emit,
+        N_abs_override=N_abs,
+    )
     gain_pb, loss_pb = pair_breaking_photon_collision_rates(
+        state.f,
+        spectral,
+        float(values[0]),
+        float(values[1]),
+        float(values[2]),
+    )
+    (
+        _gain_pb_scattering,
+        _loss_pb_scattering,
+        gain_pair_pb,
+        loss_pair_pb,
+    ) = pair_breaking_photon_collision_components(
         state.f,
         spectral,
         float(values[0]),
@@ -624,6 +735,13 @@ def qp_certificate(
             loss_term,
         ),
         residual_inf=float(np.max(np.abs(residual), initial=0.0)),
+        qp_number_backward_error=_weighted_pair_number_error(
+            gain_pair_phonon + gain_pair_pb,
+            loss_pair_phonon + loss_pair_pb,
+            state.f,
+            spectral.cell_weights,
+            active,
+        ),
     )
     validate_certificate(
         certificate,
@@ -642,6 +760,7 @@ def validate_certificate(
     """Reject non-finite, negative, or over-target certificate values."""
     backward = float(certificate.backward_error)
     residual = float(certificate.residual_inf)
+    number_backward = float(certificate.qp_number_backward_error)
     residual_limit = float(residual_inf_limit)
     if not np.isfinite(residual_limit) or residual_limit <= 0.0:
         raise ValueError("residual_inf_limit must be finite and positive.")
@@ -649,6 +768,10 @@ def validate_certificate(
         raise RuntimeError(f"{context}: invalid QP backward error {backward}.")
     if not np.isfinite(residual) or residual < 0.0:
         raise RuntimeError(f"{context}: invalid QP residual_inf {residual}.")
+    if not np.isfinite(number_backward) or number_backward < 0.0:
+        raise RuntimeError(
+            f"{context}: invalid QP number backward error {number_backward}."
+        )
     if backward > TARGET_QP_BACKWARD_ERROR_LIMIT:
         raise RuntimeError(
             f"{context}: QP backward error {backward:.3e} exceeds target "
@@ -657,6 +780,11 @@ def validate_certificate(
     if residual >= residual_limit:
         raise RuntimeError(
             f"{context}: QP residual_inf {residual:.3e} exceeds target {residual_limit:.3e}."
+        )
+    if number_backward > TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT:
+        raise RuntimeError(
+            f"{context}: QP number backward error {number_backward:.3e} "
+            f"exceeds target {TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT:.3e}."
         )
 
 
@@ -710,6 +838,10 @@ def _certified_payload_sha256(
         digest.update(f"{float(certificate.backward_error):.17e}".encode())
         digest.update(b"\0")
         digest.update(f"{float(certificate.residual_inf):.17e}".encode())
+        digest.update(b"\0")
+        digest.update(
+            f"{float(certificate.qp_number_backward_error):.17e}".encode()
+        )
         digest.update(b"\n")
     return digest.hexdigest()
 
@@ -772,17 +904,27 @@ def write_artifact(
             {
                 "point_id": point_id,
                 "qp_backward_error": float(certificate.backward_error),
+                "qp_number_backward_error": float(
+                    certificate.qp_number_backward_error
+                ),
                 "qp_residual_inf": float(certificate.residual_inf),
             }
         )
     backward_max = max(float(c.backward_error) for c in certificates.values())
     residual_max = max(float(c.residual_inf) for c in certificates.values())
+    number_backward_max = max(
+        float(c.qp_number_backward_error) for c in certificates.values()
+    )
     metadata = {
         "certificate_max_qp_backward_error": backward_max,
+        "certificate_max_qp_number_backward_error": number_backward_max,
         "certificate_max_qp_residual_inf": residual_max,
         "certificate_metric_version": QP_CERTIFICATE_METRIC_VERSION,
         "certificate_points": certificate_rows,
         "certificate_target_qp_backward_error": TARGET_QP_BACKWARD_ERROR_LIMIT,
+        "certificate_target_qp_number_backward_error": (
+            TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT
+        ),
         "certificate_target_qp_residual_inf": target_qp_residual_inf,
         "certified_payload_sha256": _certified_payload_sha256(data, certificates),
         "columns": column_list,
@@ -812,10 +954,12 @@ def write_artifact(
 
 _METADATA_KEYS = {
     "certificate_max_qp_backward_error",
+    "certificate_max_qp_number_backward_error",
     "certificate_max_qp_residual_inf",
     "certificate_metric_version",
     "certificate_points",
     "certificate_target_qp_backward_error",
+    "certificate_target_qp_number_backward_error",
     "certificate_target_qp_residual_inf",
     "certified_payload_sha256",
     "columns",
@@ -839,7 +983,34 @@ def read_artifact(
     companion_pdf_path: Path | None = None,
     require_companion_pdf: bool = False,
 ) -> ArtifactTable:
-    """Read a current artifact, rejecting every incomplete/stale variant."""
+    """Read one pair snapshot while holding the publisher's OS lock."""
+    with _artifact_pair_lock(path, operation="read"):
+        return _read_artifact_locked(
+            path,
+            schema=schema,
+            fingerprint=fingerprint,
+            columns=columns,
+            expected_row_count=expected_row_count,
+            expected_certificate_ids=expected_certificate_ids,
+            target_qp_residual_inf=target_qp_residual_inf,
+            companion_pdf_path=companion_pdf_path,
+            require_companion_pdf=require_companion_pdf,
+        )
+
+
+def _read_artifact_locked(
+    path: Path,
+    *,
+    schema: str,
+    fingerprint: Mapping[str, Any],
+    columns: Sequence[str],
+    expected_row_count: int,
+    expected_certificate_ids: Sequence[str],
+    target_qp_residual_inf: float = TARGET_QP_RESIDUAL_INF_LIMIT,
+    companion_pdf_path: Path | None = None,
+    require_companion_pdf: bool = False,
+) -> ArtifactTable:
+    """Decode a current artifact while :func:`_artifact_pair_lock` is held."""
     try:
         with path.open(encoding="utf-8", newline="") as fp:
             csv_rows = list(csv.reader(fp))
@@ -889,6 +1060,9 @@ def read_artifact(
         "row_count": expected_row_count,
         "certificate_metric_version": QP_CERTIFICATE_METRIC_VERSION,
         "certificate_target_qp_backward_error": TARGET_QP_BACKWARD_ERROR_LIMIT,
+        "certificate_target_qp_number_backward_error": (
+            TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT
+        ),
         "certificate_target_qp_residual_inf": target_qp_residual_inf,
     }
     for field, expected in checks.items():
@@ -955,6 +1129,7 @@ def read_artifact(
         if not isinstance(point, dict) or set(point) != {
             "point_id",
             "qp_backward_error",
+            "qp_number_backward_error",
             "qp_residual_inf",
         }:
             raise ArtifactValidationError(f"Artifact at {path} has a malformed certificate point.")
@@ -967,6 +1142,9 @@ def read_artifact(
             certificate = QPCertificate(
                 backward_error=float(point["qp_backward_error"]),
                 residual_inf=float(point["qp_residual_inf"]),
+                qp_number_backward_error=float(
+                    point["qp_number_backward_error"]
+                ),
             )
         except (TypeError, ValueError) as exc:
             raise ArtifactValidationError(
@@ -994,8 +1172,12 @@ def read_artifact(
 
     backward_max = max(c.backward_error for c in certificates.values())
     residual_max = max(c.residual_inf for c in certificates.values())
+    number_backward_max = max(
+        c.qp_number_backward_error for c in certificates.values()
+    )
     maxima = {
         "certificate_max_qp_backward_error": backward_max,
+        "certificate_max_qp_number_backward_error": number_backward_max,
         "certificate_max_qp_residual_inf": residual_max,
     }
     for field, expected in maxima.items():

@@ -22,7 +22,13 @@ from qpsim.physics.bcs_quadrature import (
 
 def _finite_array(name: str, values: np.ndarray) -> np.ndarray:
     """Convert an array-like input to float and reject NaN/infinity."""
-    result = np.asarray(values, dtype=float)
+    raw = np.asarray(values)
+    if np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be real-valued.")
+    try:
+        result = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a real numeric array.") from exc
     if np.any(~np.isfinite(result)):
         raise ValueError(f"{name} must contain only finite values.")
     return result
@@ -30,7 +36,14 @@ def _finite_array(name: str, values: np.ndarray) -> np.ndarray:
 
 def _finite_scalar(name: str, value: float) -> float:
     """Convert a scalar input to float and reject NaN/infinity."""
-    result = float(value)
+    if isinstance(value, (bool, np.bool_)) or np.iscomplexobj(value):
+        raise ValueError(f"{name} must be a finite real scalar; got {value!r}.")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {value!r}."
+        ) from exc
     if not np.isfinite(result):
         raise ValueError(f"{name} must be finite; got {result}.")
     return result
@@ -42,6 +55,67 @@ def _non_negative_scalar(name: str, value: float) -> float:
     if result < 0.0:
         raise ValueError(f"{name} must be non-negative; got {result}.")
     return result
+
+
+def _fermi_dirac_from_exponent(exponent: np.ndarray) -> np.ndarray:
+    """Evaluate ``1 / (exp(x) + 1)`` over the full binary64 range."""
+    x = np.asarray(exponent, dtype=float)
+    if np.any(np.isnan(x)):
+        raise ValueError("Fermi-Dirac exponents must not contain NaN.")
+    occupation = np.empty_like(x)
+    non_negative = x >= 0.0
+    with np.errstate(over="ignore", under="ignore"):
+        exp_negative = np.exp(-x[non_negative])
+        occupation[non_negative] = exp_negative / (1.0 + exp_negative)
+        exp_positive = np.exp(x[~non_negative])
+        occupation[~non_negative] = 1.0 / (1.0 + exp_positive)
+    return occupation
+
+
+def _energy_over_kbt(
+    energy: np.ndarray,
+    temperature: float,
+) -> np.ndarray:
+    """Evaluate ``energy / (k_B * temperature)`` without scale loss.
+
+    Neither multiplying ``k_B * temperature`` nor either sequential division
+    is safe over the whole binary64 range: an intermediate can overflow or
+    underflow even when the final ratio is representable. Decomposing both
+    variable inputs into mantissa and power of two keeps that intermediate in
+    range and leaves only mathematically correct final overflow/underflow.
+    """
+    energy_mantissa, energy_exponent = np.frexp(energy)
+    temperature_mantissa, temperature_exponent = np.frexp(temperature)
+    mantissa = (
+        energy_mantissa
+        / temperature_mantissa
+        / _KB_UEV_PER_K
+    )
+    with np.errstate(over="ignore", under="ignore"):
+        return np.ldexp(
+            mantissa,
+            energy_exponent - temperature_exponent,
+        )
+
+
+def fermi_dirac_occupation(
+    energy: np.ndarray | float,
+    temperature: float,
+) -> np.ndarray:
+    """Return the Fermi-Dirac occupation on a non-negative energy grid.
+
+    The sign-split exponential form preserves representable cold tails without
+    overflowing at large ``E / (k_B T)``. At exactly zero temperature every
+    positive-energy quasiparticle occupation is zero.
+    """
+    energy_array = _finite_array("energy", np.asarray(energy))
+    if np.any(energy_array < 0.0):
+        raise ValueError("energy must contain only non-negative values.")
+    temperature_value = _non_negative_scalar("temperature", temperature)
+    if temperature_value == 0.0:
+        return np.zeros_like(energy_array)
+    exponent = _energy_over_kbt(energy_array, temperature_value)
+    return _fermi_dirac_from_exponent(exponent)
 
 
 def bcs_density_of_states(E: np.ndarray, gap: float) -> np.ndarray:
@@ -114,9 +188,7 @@ def thermal_qp_weights(
     rho = dynes_density_of_states(E_bins, gap, dynes_gamma)
     if temperature <= 0:
         return np.zeros_like(rho)
-    kT = _KB_UEV_PER_K * temperature
-    exponent = np.minimum(E_bins / kT, 500.0)
-    fermi = 1.0 / (np.exp(exponent) + 1.0)
+    fermi = fermi_dirac_occupation(E_bins, temperature)
     return rho * fermi
 
 

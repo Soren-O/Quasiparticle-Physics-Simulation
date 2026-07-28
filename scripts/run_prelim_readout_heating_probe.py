@@ -29,11 +29,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from scripts.run_prelim_spatial_finite_phonon_one import (
     FinitePhononSpatialRunner,
     readout_drive_from_resonator,
@@ -41,8 +40,8 @@ from scripts.run_prelim_spatial_finite_phonon_one import (
 )
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
-    LENGTH_UM,
     SweepConfig,
+    _cell_centered_strip_grid,
     _resonator_shifts,
     _source_calibration,
     _source_flux,
@@ -75,8 +74,7 @@ CONFIG = SweepConfig(
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _build_state(D0: float) -> T3Spatial1DState:
@@ -94,7 +92,7 @@ def _build_state(D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x = np.linspace(0.0, LENGTH_UM, CONFIG.NX)
+    x, _dx_um = _cell_centered_strip_grid(CONFIG.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], CONFIG.NX, axis=1)
     return T3Spatial1DState(
         f=f0,

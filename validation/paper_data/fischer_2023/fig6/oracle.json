@@ -1,0 +1,228 @@
+{
+  "asset": {
+    "dpi": [
+      99.9998,
+      99.9998
+    ],
+    "member": "gap_test.png",
+    "panel_crop_pixels": [
+      183,
+      24,
+      617,
+      394
+    ],
+    "pixel_dimensions": [
+      640,
+      478
+    ],
+    "sha256": "31ea18e5361af1e9a118676c739760043e5fceb3de08b99c8f845d72bc311a29",
+    "software": "matplotlib version3.2.2, http://matplotlib.org/"
+  },
+  "curves": [
+    {
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_analytic",
+      "point_count": 7,
+      "source_style": "dashed",
+      "temperature_K": 0.1
+    },
+    {
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_numerical",
+      "point_count": 7,
+      "source_style": "solid",
+      "temperature_K": 0.1
+    },
+    {
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_analytic",
+      "point_count": 7,
+      "source_style": "dashed",
+      "temperature_K": 0.15
+    },
+    {
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_numerical",
+      "point_count": 7,
+      "source_style": "solid",
+      "temperature_K": 0.15
+    },
+    {
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_analytic",
+      "point_count": 7,
+      "source_style": "dashed",
+      "temperature_K": 0.2
+    },
+    {
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_numerical",
+      "point_count": 7,
+      "source_style": "solid",
+      "temperature_K": 0.2
+    }
+  ],
+  "data": {
+    "columns": [
+      "curve_id",
+      "curve_kind",
+      "x_pixel",
+      "y_pixel",
+      "trace_min_y_pixel",
+      "trace_max_y_pixel",
+      "x_value",
+      "y_value",
+      "x_uncertainty",
+      "y_uncertainty"
+    ],
+    "path": "points.csv",
+    "sha256": "26c61da67da06da1c7fcbd3de5def71a1a625cfb1cfff61ba38f60992d2d6882"
+  },
+  "dataset_id": "fischer-catelani-2023-fig6-arxiv-v2-v1",
+  "extraction": {
+    "accepted_y_value_window": [
+      0.08,
+      0.25
+    ],
+    "color_curve_order": [
+      "T_bath_0.10K",
+      "T_bath_0.15K",
+      "T_bath_0.20K"
+    ],
+    "color_masks": {
+      "T_bath_0.10K": {
+        "channel": "green",
+        "dominance_ratio": 1.35,
+        "minimum": 70.0
+      },
+      "T_bath_0.15K": {
+        "channel": "blue",
+        "dominance_ratio": 1.5,
+        "minimum": 120.0
+      },
+      "T_bath_0.20K": {
+        "channel": "red",
+        "dominance_ratio": 1.5,
+        "minimum": 150.0
+      }
+    },
+    "curve_order_top_to_bottom": [
+      "paper_analytic",
+      "paper_numerical"
+    ],
+    "horizontal_half_window_px": 1,
+    "method": "Deterministic RGB trace isolation on the original author raster; caption-bound style identity with an explicit non-crossing check",
+    "minimum_trace_separation_px": 12.0,
+    "plot_rows_inclusive": [
+      24,
+      393
+    ],
+    "sample_x_values": [
+      0.25,
+      0.28,
+      0.31,
+      0.34,
+      0.37,
+      0.4,
+      0.41
+    ],
+    "script": "validation/fischer_2023/extract_fig6_paper_data.py",
+    "script_sha256": "488646f1ffe2a7cdcabfdf8e5483759c5a466a8ad619de869380d1eff16be6e5",
+    "trace_identity_policy": "caption-bound analytic-above-numerical; no crossings",
+    "uncertainty": {
+      "minimum_y_uncertainty": 0.002,
+      "model": "Conservative deterministic raster bound: horizontal window plus sampling and calibration residuals; vertical trace half-width plus sampling and calibration residuals",
+      "sampling_half_width_px": 1.5,
+      "serialization_absolute_tolerance": 5e-12
+    },
+    "version": "qpsim.fischer2023.fig6-digitizer.v1"
+  },
+  "panel": {
+    "x_axis": {
+      "calibration": {
+        "fit_control_points": [
+          {
+            "pixel": 270,
+            "value": 0.3
+          },
+          {
+            "pixel": 562,
+            "value": 0.6
+          }
+        ],
+        "held_out_control_points": [
+          {
+            "pixel": 367,
+            "value": 0.4
+          },
+          {
+            "pixel": 464,
+            "value": 0.5
+          }
+        ],
+        "held_out_max_residual_px": 0.666666666666745,
+        "held_out_residual_limit_px": 1.0,
+        "intercept_data": 0.022602739726027388,
+        "slope_data_per_pixel": 0.0010273972602739725
+      },
+      "quantity": "T_star_over_Delta",
+      "scale": "linear",
+      "unit": "dimensionless"
+    },
+    "y_axis": {
+      "calibration": {
+        "fit_control_points": [
+          {
+            "pixel": 24,
+            "value": 0.25
+          },
+          {
+            "pixel": 393,
+            "value": 0.0
+          }
+        ],
+        "held_out_control_points": [
+          {
+            "pixel": 99,
+            "value": 0.2
+          },
+          {
+            "pixel": 172,
+            "value": 0.15
+          },
+          {
+            "pixel": 246,
+            "value": 0.1
+          },
+          {
+            "pixel": 319,
+            "value": 0.05
+          }
+        ],
+        "held_out_max_residual_px": 1.2000000000000557,
+        "held_out_residual_limit_px": 1.5,
+        "intercept_data": 0.266260162601626,
+        "slope_data_per_pixel": -0.0006775067750677507
+      },
+      "quantity": "(delta_Delta_T - delta_Delta) / delta_Delta_T",
+      "scale": "linear",
+      "unit": "dimensionless"
+    }
+  },
+  "paper": {
+    "arxiv_id": "2212.08155",
+    "citation": "P. B. Fischer and G. Catelani, Phys. Rev. Applied 19, 054087 (2023)",
+    "doi": "10.1103/PhysRevApplied.19.054087",
+    "figure": "Figure 6",
+    "panel": "full",
+    "pdf_page_1_based": 12,
+    "version": "arXiv:2212.08155v2"
+  },
+  "schema": "qpsim.paper-data.v1",
+  "source": {
+    "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
+    "redistribution_note": "The author raster is not redistributed here. The checked numeric points can be reproduced only from the exact source archive identified by URL and SHA-256.",
+    "retrieved_utc": "2026-07-28T19:49:18Z",
+    "url": "https://export.arxiv.org/e-print/2212.08155v2"
+  }
+}

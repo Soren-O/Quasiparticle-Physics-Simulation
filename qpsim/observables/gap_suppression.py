@@ -6,7 +6,36 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from qpsim.constants import KB_UEV_PER_K
+from qpsim.physics import fermi_dirac_occupation
+
+
+def _finite_real_scalar(name: str, raw: float) -> float:
+    """Return one finite real scalar without silently dropping complexity."""
+    if isinstance(raw, (bool, np.bool_)) or np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be a finite real scalar; got {raw!r}.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {raw!r}."
+        ) from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value!r}.")
+    return value
+
+
+def _finite_real_array(name: str, values: np.ndarray) -> np.ndarray:
+    """Return a finite float array, rejecting complex input before casting."""
+    raw = np.asarray(values)
+    if np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be real-valued.")
+    try:
+        result = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a real numeric array.") from exc
+    if np.any(~np.isfinite(result)):
+        raise ValueError(f"{name} must contain only finite values.")
+    return result
 
 
 @dataclass(frozen=True)
@@ -24,6 +53,8 @@ def gap_suppression_from_deltas(
     delta_final: float,
 ) -> GapSuppressionResult:
     """Package ``Δ_eq`` and ``Δ_final`` as suppression observables."""
+    delta_eq = _finite_real_scalar("delta_eq", delta_eq)
+    delta_final = _finite_real_scalar("delta_final", delta_final)
     if delta_eq < 0:
         raise ValueError("delta_eq must be non-negative.")
     if delta_final < 0:
@@ -55,24 +86,30 @@ def compute_gap_suppression(
     """
     from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 
+    f_arr = _finite_real_array("f", f)
+    E_arr = _finite_real_array("E_bins", E_bins)
+    T_c = _finite_real_scalar("T_c", T_c)
+    T_bath = _finite_real_scalar("T_bath", T_bath)
+    if T_c <= 0.0:
+        raise ValueError("T_c must be positive.")
+    if T_bath < 0.0:
+        raise ValueError("T_bath must be non-negative.")
     calibration = calibrate_gap(T_c=T_c, T_bath=T_bath)
     delta_final = solve_gap(
         calibration,
-        np.asarray(f, dtype=float),
-        np.asarray(E_bins, dtype=float),
+        f_arr,
+        E_arr,
     )
     return gap_suppression_from_deltas(calibration.delta_eq, delta_final)
 
 
 def left_edges_from_centers(E_bins: np.ndarray) -> np.ndarray:
     """Return left bin edges for an approximately uniform center grid."""
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_real_array("E_bins", E_bins).reshape(-1)
     if E.size == 0:
         raise ValueError("E_bins must be non-empty.")
     if E.size == 1:
         raise ValueError("At least two energy bins are required.")
-    if np.any(~np.isfinite(E)):
-        raise ValueError("E_bins must contain finite values.")
     dE = np.diff(E)
     if np.any(dE <= 0.0):
         raise ValueError("E_bins must be strictly increasing.")
@@ -84,8 +121,8 @@ def left_edges_from_centers(E_bins: np.ndarray) -> np.ndarray:
 
 def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     """Map center-grid occupations to the left-edge nodes used by Fischer Fig. 6."""
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
-    f_arr = np.asarray(f, dtype=float).reshape(-1)
+    E = _finite_real_array("E_bins", E_bins).reshape(-1)
+    f_arr = _finite_real_array("f", f).reshape(-1)
     if f_arr.shape != E.shape:
         raise ValueError(f"f and E_bins must have the same shape, got {f_arr.shape} and {E.shape}.")
     edges = left_edges_from_centers(E)
@@ -97,12 +134,11 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
 
 def fermi_dirac_distribution(E: np.ndarray, T_bath: float) -> np.ndarray:
     """Fermi-Dirac occupation at bath temperature ``T_bath`` in kelvin."""
-    E_arr = np.asarray(E, dtype=float)
-    if T_bath <= 0.0:
-        return np.zeros_like(E_arr)
-    kT = KB_UEV_PER_K * T_bath
-    x = np.minimum(E_arr / kT, 700.0)
-    return 1.0 / (np.exp(x) + 1.0)
+    E_arr = _finite_real_array("E", E)
+    temperature = _finite_real_scalar("T_bath", T_bath)
+    if temperature < 0.0:
+        raise ValueError("T_bath must be non-negative.")
+    return fermi_dirac_occupation(E_arr, temperature)
 
 
 def gap_integral_from_distribution_direct(
@@ -120,12 +156,15 @@ def gap_integral_from_distribution_direct(
     occupations onto the left-edge nodes first; ``samples="edges"`` treats
     ``f`` as already sampled at those left edges.
     """
-    if not np.isfinite(gap) or gap <= 0.0:
+    gap = _finite_real_scalar("gap", gap)
+    if gap <= 0.0:
         raise ValueError("gap must be finite and positive.")
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
-    f_arr = np.asarray(f, dtype=float).reshape(-1)
+    E = _finite_real_array("E_bins", E_bins).reshape(-1)
+    f_arr = _finite_real_array("f", f).reshape(-1)
     if f_arr.shape != E.shape:
         raise ValueError(f"f and E_bins must have the same shape, got {f_arr.shape} and {E.shape}.")
+    if np.any((f_arr < 0.0) | (f_arr > 1.0)):
+        raise ValueError("f must contain physical occupations in [0, 1].")
     if E.size < 2:
         raise ValueError("At least two energy bins are required.")
 
@@ -217,7 +256,9 @@ def gap_from_distribution_direct(
     samples: str = "centers",
 ) -> float:
     """Return the non-self-consistent gap ``Delta[f] = Delta0 * exp(-I[f])``."""
-    gap0 = gap if delta0 is None else float(delta0)
+    gap0 = _finite_real_scalar(
+        "delta0", gap if delta0 is None else delta0
+    )
     if gap0 <= 0.0:
         raise ValueError("delta0 must be positive.")
     integral = gap_integral_from_distribution_direct(
@@ -251,6 +292,8 @@ def gap_suppression_ratio_from_integrals(
     thermal_integral: float,
 ) -> float:
     """Return ``(delta_T - delta_driven) / delta_T`` from direct integrals."""
+    driven_integral = _finite_real_scalar("driven_integral", driven_integral)
+    thermal_integral = _finite_real_scalar("thermal_integral", thermal_integral)
     if thermal_integral <= 0.0:
         return float("nan")
     denominator = -np.expm1(-thermal_integral)
@@ -267,6 +310,9 @@ def gap_suppression_from_integrals_direct(
     delta0: float,
 ) -> GapSuppressionResult:
     """Package a thermal-vs-driven direct gap comparison without cancellation."""
+    driven_integral = _finite_real_scalar("driven_integral", driven_integral)
+    thermal_integral = _finite_real_scalar("thermal_integral", thermal_integral)
+    delta0 = _finite_real_scalar("delta0", delta0)
     if delta0 <= 0.0:
         raise ValueError("delta0 must be positive.")
     delta_eq = delta0 * float(np.exp(-thermal_integral))
@@ -289,7 +335,7 @@ def thermal_gap_integral_direct(
     samples: str = "centers",
 ) -> float:
     """Direct gap integral for a thermal Fermi-Dirac distribution."""
-    E = np.asarray(E_bins, dtype=float).reshape(-1)
+    E = _finite_real_array("E_bins", E_bins).reshape(-1)
     mode = samples.lower()
     if mode in {"edge", "edges", "authors"}:
         sample_E = left_edges_from_centers(E)

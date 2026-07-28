@@ -4,10 +4,9 @@ Pins :func:`fig5_paper._xqp_analytic_eq47` against:
 
 * The closed-form thermal limit  x_qp = sqrt(π T_B / (2 Δ)) e^{-Δ/T_B},
   recovered when n̄ = 0 and τ_l = 0 (Eq. 47 reduces to R N² = G_T).
-* The standalone reproduction at
-  ``paper reproductions/fischer2023-repro/src/fischer2023/solver.py``,
-  values pre-computed and pinned here so the test does not depend on
-  that external source tree.
+* Adjudicated float64 pins. Some originated in an external standalone
+  implementation, but finite-τ_l values were subsequently corrected in
+  this repository and no external implementation is rerun by this test.
 
 These are fast (no PDE solves), unmarked — they run in the default suite.
 """
@@ -67,10 +66,10 @@ _STANDALONE_REFERENCES = [
 
 
 @pytest.mark.parametrize("inputs,expected", _STANDALONE_REFERENCES)
-def test_matches_standalone_reproduction(
+def test_matches_adjudicated_eq47_float64_pins(
     inputs: tuple[float, float, float], expected: float,
 ) -> None:
-    """Eq. 47 algebra ports 1:1 from standalone solver.nqp_steady."""
+    """Pin the currently adjudicated Eq. 47 helper values."""
     T_bath, n_bar, tau_l = inputs
     got = _xqp_analytic_eq47(
         T_bath, n_bar, tau_l=tau_l, tau_0_pb=TAU_0_PB_NS,
@@ -84,8 +83,7 @@ def test_drive_dominated_grows_with_nbar() -> None:
     Note: Eq. 47 + Appendix-E is non-monotonic across the full sweep —
     at very small n̄ the (1 + c₁ε + c₂ε²) recombination correction
     enhances R̄ before G(x) lifts the numerator, so x_qp dips slightly
-    below thermal before rising. Standalone reproduction reproduces the
-    same shape; this test only pins the post-knee behavior.
+    below thermal before rising. This test only pins the post-knee behavior.
     """
     nbars = [1e7, 1e8, 1e9]
     xs = [

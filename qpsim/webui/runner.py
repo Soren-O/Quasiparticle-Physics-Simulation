@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,6 +48,9 @@ class JobState:
     progress: float = 0.0
     message: str = ""
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    # Retaining the Future lets a queued job be cancelled before it ever
+    # occupies the sole worker. Running jobs still use cooperative checks.
+    future: Future[None] | None = field(default=None, repr=False)
     started_monotonic: float | None = None
     # Terminal manifest whose disk write failed; overlay retries it.
     pending_manifest: dict[str, Any] | None = None
@@ -100,14 +103,26 @@ class JobRunner:
         job = JobState(run_id=run_id)
         with self._lock:
             self._jobs[run_id] = job
-        self._executor.submit(self._run, job, envelope, manifest)
+        job.future = self._executor.submit(self._run, job, envelope, manifest)
         return run_id
 
     def _run(self, job: JobState, envelope: SetupEnvelope, manifest: dict[str, Any]) -> None:
         with job.manifest_lock:
-            job.status = "running"
-            job.started_monotonic = time.monotonic()
-            manifest["status"] = "running"
+            if job.cancel_event.is_set():
+                job.status = "cancelled"
+                manifest["status"] = "cancelled"
+            else:
+                job.status = "running"
+                job.started_monotonic = time.monotonic()
+                manifest["status"] = "running"
+
+        if job.status == "cancelled":
+            manifest["elapsed_s"] = 0.0
+            try:
+                self._write_manifest_or_stash(job, manifest)
+            finally:
+                job.worker_finished.set()
+            return
 
         def progress(fraction: float, message: str) -> None:
             job.progress = max(0.0, min(1.0, fraction))
@@ -118,15 +133,20 @@ class JobRunner:
             payload = execute_setup(
                 envelope.setup, progress, job.cancel_event.is_set
             )
+            if job.cancel_event.is_set():
+                raise RunCancelledError
             # Result persistence is part of the worker transaction. Keeping it
             # inside this try ensures an I/O failure becomes a durable failed
             # run instead of escaping through the discarded Future and
             # stranding both the live JobState and manifest at "running".
             self.workspace.write_arrays(job.run_id, payload.arrays)
+            if job.cancel_event.is_set():
+                raise RunCancelledError
         except RunCancelledError:
             with job.manifest_lock:
                 job.status = "cancelled"
                 manifest["status"] = "cancelled"
+            self._discard_cancelled_arrays(job, manifest)
         except Exception as exc:  # a failed run must not kill the worker
             with job.manifest_lock:
                 job.status = "failed"
@@ -134,12 +154,25 @@ class JobRunner:
                 manifest["error"] = f"{type(exc).__name__}: {exc}"
                 manifest["traceback"] = traceback.format_exc()
         else:
+            cancelled_after_persistence = False
             with job.manifest_lock:
-                job.status = "done"
-                job.progress = 1.0
-                manifest["status"] = "done"
-                manifest["summary"] = payload.summary
-                manifest["notes"] = list(manifest.get("notes", [])) + payload.notes
+                # Close the tiny race between the post-persistence check and
+                # terminal-state publication. If cancel() returned True, the
+                # represented job must never subsequently become ``done``.
+                if job.cancel_event.is_set():
+                    job.status = "cancelled"
+                    manifest["status"] = "cancelled"
+                    cancelled_after_persistence = True
+                else:
+                    job.status = "done"
+                    job.progress = 1.0
+                    manifest["status"] = "done"
+                    manifest["summary"] = payload.summary
+                    manifest["notes"] = (
+                        list(manifest.get("notes", [])) + payload.notes
+                    )
+            if cancelled_after_persistence:
+                self._discard_cancelled_arrays(job, manifest)
         finally:
             with job.manifest_lock:
                 manifest["elapsed_s"] = round(
@@ -149,6 +182,19 @@ class JobRunner:
                 self._write_manifest_or_stash(job, manifest)
             finally:
                 job.worker_finished.set()
+
+    def _discard_cancelled_arrays(
+        self, job: JobState, manifest: dict[str, Any],
+    ) -> None:
+        """Best-effort removal of a payload that lost a cancellation race."""
+        try:
+            self.workspace.delete_arrays(job.run_id)
+        except OSError as exc:
+            with job.manifest_lock:
+                manifest["notes"] = [
+                    *manifest.get("notes", []),
+                    f"Cancelled result cleanup failed: {exc}",
+                ]
 
     def _write_manifest_or_stash(self, job: JobState, manifest: dict[str, Any]) -> None:
         """Persist the manifest; on failure stash it so overlay can retry.
@@ -225,9 +271,43 @@ class JobRunner:
     def cancel(self, run_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(run_id)
-        if job is None or job.status not in _ACTIVE:
+        if job is None:
             return False
-        job.cancel_event.set()
+        with job.manifest_lock:
+            if job.status not in _ACTIVE:
+                return False
+            job.cancel_event.set()
+            future = job.future
+            cancelled_before_start = (
+                job.status == "queued"
+                and future is not None
+                and future.cancel()
+            )
+
+        if cancelled_before_start:
+            # No worker will run its normal finalizer, so publish the terminal
+            # state here and mark the job safe for deletion.
+            try:
+                manifest = self.workspace.read_manifest(run_id)
+            except (OSError, ValueError):
+                manifest = {
+                    "id": run_id,
+                    "name": run_id,
+                    "mode": "?",
+                    "status": "cancelled",
+                    "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "setup": {},
+                    "summary": {},
+                    "notes": [],
+                    "error": None,
+                    "elapsed_s": 0.0,
+                }
+            with job.manifest_lock:
+                job.status = "cancelled"
+                manifest["status"] = "cancelled"
+                manifest["elapsed_s"] = 0.0
+                job.worker_finished.set()
+            self._write_manifest_or_stash(job, manifest)
         return True
 
     def overlay(self, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -275,5 +355,8 @@ class JobRunner:
         with self._lock:
             jobs = list(self._jobs.values())
         for job in jobs:
-            job.cancel_event.set()
+            # Reuse the ordinary cancellation transaction. In particular, a
+            # queued Future cancelled by the executor will never run its
+            # worker finalizer and would otherwise remain durably ``queued``.
+            self.cancel(job.run_id)
         self._executor.shutdown(wait=False, cancel_futures=True)

@@ -1,16 +1,16 @@
 """Fischer & Catelani 2024 Fig. 5 — qpsim-native characterization at paper topology.
 
-This is the **structural** Fischer 2024 Fig. 5 reproduction --- three drive
+This is a **paper-topology** Fischer 2024 Fig. 5 characterization --- three drive
 levels at $\\omega_{\\rm PB} = 2.8\\Delta$ with $\\tau_\\ell = 0$, plotted in
-the paper's $\\gamma = (E - \\Delta)/\\Delta$ coordinate. The paper-faithful
-Neumann-series analytic overlays $f^{(0)}$, $f^{(0)}+f^{(1)}$, and
-$f^{(0)}+f^{(1)}+f^{(2)}$ are **placeholders** (see :func:`_neumann_f0`
-etc.), and the Hz $\\leftrightarrow$ ns$^{-1}$ unit conversion of the
-drive product carries a paper-parity audit warning. Until both gaps
-close, the artifact this script writes is **not** a paper-faithful
-reproduction; it is a qpsim-native characterization at the paper's
-sweep topology. The CSV / PDF filenames and plot title make that
-explicit so a downstream consumer is not misled.
+the paper's $\\gamma = (E - \\Delta)/\\xi$ coordinate, where
+$\\xi=\\omega_{\\rm PB}-2\\Delta$. The paper's
+Neumann-series analytic overlays are not implemented. Earlier versions
+computed heuristic stand-ins; those values are deliberately excluded
+from the v4 result, CSV, and plot so they cannot be mistaken for paper
+formulas or quantitative validation data. The Hz $\\leftrightarrow$
+ns$^{-1}$ unit conversion of the drive product also carries a
+paper-parity audit warning. This remains a qpsim-native characterization
+at the paper's sweep topology, not a paper-faithful reproduction.
 
 The published Fischer & Catelani 2024 Fig. 5 is a two-panel comparison:
 
@@ -23,11 +23,10 @@ Neumann-series order: green $f^{(0)}$, red $f^{(0)} + f^{(1)}$, blue
 $f^{(0)} + f^{(1)} + f^{(2)}$. Three curve families per panel — one per
 drive level $c_{\\rm phot,PB} \\bar n_{\\rm PB}$.
 
-The existing :mod:`figs_5_7_fe_pb` script combines Figs. 5–7 into one
-overlay with five drive levels (qpsim-native ns$^{-1}$ values) and no
-analytic overlay. This script is the dedicated paper-target Fig. 5
-reproduction at the paper's three drive levels (caption-quoted in Hz)
-with the analytic Neumann-series overlay in place.
+The existing :mod:`figs_5_7_fe_pb` script combines the Figs. 5–7 sweep
+topologies into one qpsim-native overlay with five drive levels
+(ns$^{-1}$ values). This script uses the paper's three caption-quoted
+drive levels in Hz, but plots and persists numerical qpsim results only.
 
 Outstanding paper-parity gaps (load-bearing)
 --------------------------------------------
@@ -54,12 +53,11 @@ Outstanding paper-parity gaps (load-bearing)
    curve. The closed-form expressions are derived in F24 Sec. III but
    require careful tracking of the BCS coherence factors and partner-
    energy reflections. :func:`_neumann_f0`, :func:`_neumann_f1`,
-   :func:`_neumann_f2` currently return clearly-labelled placeholder
-   shapes (linear-interpolated thermal background plus a partner-
-   reflection step). The dashed analytic overlays on the plot are
-   therefore qualitative, not paper-faithful. Replace the function
-   bodies with the verified Neumann series once they have been hand-
-   checked against the paper text.
+   :func:`_neumann_f2` retain clearly-labelled development prototypes
+   (linear-interpolated thermal background plus a partner-reflection
+   step), but their values are not part of the result, CSV, or plot.
+   Replace the function bodies with the verified Neumann series and add
+   independently checked acceptance tests before publishing overlays.
 
 Once both tickets land, this script becomes the paper-faithful Fig. 5
 reproduction. At that point: rename the artifacts to
@@ -72,7 +70,7 @@ F24 Sec. IV parameters:
     τ_0     = 63 ns
     ω_PB    = 2.8·Δ = 529.2 μeV (above 2Δ, pair-breaking active)
     τ_ℓ     = 0          (thermal-phonon shortcut)
-    n̄_PB    = 1e6        (kept fixed; only c·n̄ matters for f shape)
+    n̄_PB    = 1e6        (kept fixed; c·n̄ dominates at large n̄)
     c_phot,PB · n̄_PB ∈ {1e-2, 1e-4, 1e-6} Hz  (paper caption)
 
 Grid: 810 bins so ω_PB/dE = 252 is integer-commensurate (inherits the
@@ -99,7 +97,7 @@ from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
@@ -133,7 +131,10 @@ OMEGA_PB = 2.8 * DELTA_0  # 529.2 μeV
 # producing a vertical-cliff plot artifact when matplotlib connects
 # the last active bin to the first masked bin on log y.
 XI = OMEGA_PB - 2.0 * DELTA_0  # 151.2 μeV
-N_BAR_PB = 1e6  # photon population (only c·n̄ matters for f shape)
+# Holding c·n̄ fixed controls the stimulated terms. The kernel also contains
+# a spontaneous c·(n̄+1) term, so the factorization is only a large-n̄
+# approximation (relative correction ≈ 1/N_BAR_PB = 1e-6 here).
+N_BAR_PB = 1e6
 
 # Paper grid: 810 bins gives ω_PB/dE = 252 exactly. dE = 9·Δ/810 = 2.1 μeV.
 E_MIN_FACTOR = 1.0
@@ -161,7 +162,7 @@ PAPER_DRIVES_NS_INV: tuple[float, ...] = tuple(p * HZ_TO_NS_INV for p in PAPER_D
 # kernel prefactor audit.
 EXISTING_F24_NATIVE_RANGE_NS_INV = (1e-6, 1e-2)
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.fig5_qpsim_native.v3"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig5_qpsim_native.v5"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
@@ -177,11 +178,9 @@ class Fig5PaperResult:
     f_thermal: np.ndarray  # shape (NE,); f_FD at T_bath
     f_by_drive: dict[float, np.ndarray]  # drive_hz → numerical f
     x_qp_by_drive: dict[float, float]  # drive_hz → scalar x_qp
-    f0_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) (placeholder)
-    f01_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) + f^(1)
-    f012_by_drive: dict[float, np.ndarray]  # drive_hz → f^(0) + f^(1) + f^(2)
     qp_backward_error_by_drive: dict[float, float]
     qp_residual_inf_by_drive: dict[float, float]
+    qp_number_backward_error_by_drive: dict[float, float]
 
 
 def solver_fingerprint() -> dict[str, Any]:
@@ -214,14 +213,7 @@ def _columns() -> list[str]:
     columns = ["E_uev", "f_thermal"]
     for drive_hz in PAPER_DRIVES_HZ:
         suffix = f"{drive_hz:.17e}_hz"
-        columns.extend(
-            [
-                f"f_num_{suffix}",
-                f"f0_{suffix}",
-                f"f01_{suffix}",
-                f"f012_{suffix}",
-            ]
-        )
+        columns.append(f"f_num_{suffix}")
     return columns
 
 
@@ -300,8 +292,7 @@ def _build_state(material: Material, spectral: SpectralContext) -> T3DiffusionSt
         model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    kT = KB_UEV_PER_K * T_BATH
-    f_FD = 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(spectral.E, T_BATH)
     return T3DiffusionState(
         f=f_FD,
         gap=DELTA_0,
@@ -330,8 +321,7 @@ def _neumann_f0(
     Neumann expansion of the pair-breaking integral operator about the
     thermal fixed point.
     """
-    kT = KB_UEV_PER_K * T_BATH
-    return 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(spectral.E, T_BATH)
 
 
 def _neumann_f1(
@@ -397,7 +387,7 @@ def _neumann_f2(
 
 def run() -> Fig5PaperResult:
     """Solve F24 Fig. 5 — three drive levels at fixed T_B = 0.1 K."""
-    print("F24 Fig. 5 paper-target reproduction ...")
+    print("F24 Fig. 5 paper-topology qpsim characterization ...")
     print(
         f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
         f"omega_PB={OMEGA_PB:.2f} micro-eV, T_B={T_BATH} K, tau_l=0"
@@ -425,19 +415,18 @@ def run() -> Fig5PaperResult:
 
     f_by_drive: dict[float, np.ndarray] = {}
     x_qp_by_drive: dict[float, float] = {}
-    f0_by_drive: dict[float, np.ndarray] = {}
-    f01_by_drive: dict[float, np.ndarray] = {}
-    f012_by_drive: dict[float, np.ndarray] = {}
     qp_backward: dict[float, float] = {}
     qp_residual: dict[float, float] = {}
+    qp_number_backward: dict[float, float] = {}
 
     for drive_hz, drive_ns_inv in zip(
         PAPER_DRIVES_HZ,
         PAPER_DRIVES_NS_INV,
         strict=True,
     ):
-        # ω_PB and n̄_PB held fixed; only c_phot_PB · n̄_PB matters for the
-        # f-shape, so distribute the product into c_phot_PB at fixed n̄_PB.
+        # Hold n̄_PB fixed and distribute the quoted stimulated product into
+        # c_phot_PB. The kernel's c·(n̄+1) term retains a relative 1e-6
+        # dependence on this factorization (large-n̄ approximation).
         pb_params = {
             "omega_PB": OMEGA_PB,
             "n_bar_PB": N_BAR_PB,
@@ -461,13 +450,7 @@ def run() -> Fig5PaperResult:
         )
         qp_backward[drive_hz] = certificate.backward_error
         qp_residual[drive_hz] = certificate.residual_inf
-
-        f0 = _neumann_f0(spectral, drive_ns_inv)
-        f1 = _neumann_f1(spectral, drive_ns_inv)
-        f2 = _neumann_f2(spectral, drive_ns_inv)
-        f0_by_drive[drive_hz] = f0
-        f01_by_drive[drive_hz] = f0 + f1
-        f012_by_drive[drive_hz] = f0 + f1 + f2
+        qp_number_backward[drive_hz] = certificate.qp_number_backward_error
 
         print(
             f"    c*nbar = {drive_hz:g} Hz ({drive_ns_inv:.2e} ns^-1): x_qp = {x_qp:.4e}",
@@ -481,11 +464,9 @@ def run() -> Fig5PaperResult:
         f_thermal=f_thermal,
         f_by_drive=f_by_drive,
         x_qp_by_drive=x_qp_by_drive,
-        f0_by_drive=f0_by_drive,
-        f01_by_drive=f01_by_drive,
-        f012_by_drive=f012_by_drive,
         qp_backward_error_by_drive=qp_backward,
         qp_residual_inf_by_drive=qp_residual,
+        qp_number_backward_error_by_drive=qp_number_backward,
     )
 
 
@@ -498,9 +479,8 @@ def baseline_path() -> Path:
        but the resulting drive products fall outside the regime of
        qpsim's existing F24 native sweep — pending a kernel-prefactor
        audit.
-    2. The Neumann-series analytic overlays (`f0`, `f01`, `f012`
-       columns) are placeholders, not the paper's closed-form
-       expressions.
+    2. The paper's Neumann-series analytic overlays are not implemented
+       and are deliberately absent from the v4 artifact.
 
     Rename to ``fischer2024_fig5_paper.csv`` once both gaps close.
     """
@@ -519,7 +499,7 @@ def write_baseline(
     producer: ProducerIdentity,
     companion_pdf: CompanionArtifactRecord | None = None,
 ) -> Path:
-    """Write the three drive-level f(E) arrays + Neumann overlays to CSV."""
+    """Write the three numerical drive-level f(E) arrays to CSV."""
     require_staging_path(path, baseline_path(), artifact_kind="CSV")
     expected_E, _, spectral = _build_grid_and_spectral()
     if not np.array_equal(result.E, expected_E):
@@ -531,11 +511,12 @@ def write_baseline(
     mapping_keys = (
         ("f_by_drive", set(result.f_by_drive)),
         ("x_qp_by_drive", set(result.x_qp_by_drive)),
-        ("f0_by_drive", set(result.f0_by_drive)),
-        ("f01_by_drive", set(result.f01_by_drive)),
-        ("f012_by_drive", set(result.f012_by_drive)),
         ("qp_backward_error_by_drive", set(result.qp_backward_error_by_drive)),
         ("qp_residual_inf_by_drive", set(result.qp_residual_inf_by_drive)),
+        (
+            "qp_number_backward_error_by_drive",
+            set(result.qp_number_backward_error_by_drive),
+        ),
     )
     for name, keys in mapping_keys:
         if keys != set(PAPER_DRIVES_HZ):
@@ -589,6 +570,9 @@ def write_baseline(
         stamped = QPCertificate(
             backward_error=float(result.qp_backward_error_by_drive[drive_hz]),
             residual_inf=float(result.qp_residual_inf_by_drive[drive_hz]),
+            qp_number_backward_error=float(
+                result.qp_number_backward_error_by_drive[drive_hz]
+            ),
         )
         certificates[_point_id(drive_hz)] = bind_certificate(
             stamped,
@@ -601,14 +585,7 @@ def write_baseline(
     for i, energy in enumerate(result.E):
         row = [float(energy), float(f_thermal[i])]
         for drive_hz in result.drives_hz:
-            row.extend(
-                [
-                    float(f_by_drive[drive_hz][i]),
-                    float(result.f0_by_drive[drive_hz][i]),
-                    float(result.f01_by_drive[drive_hz][i]),
-                    float(result.f012_by_drive[drive_hz][i]),
-                ]
-            )
+            row.append(float(f_by_drive[drive_hz][i]))
         rows.append(row)
     fingerprint = solver_fingerprint()
     return write_artifact(
@@ -645,9 +622,8 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
         raise ArtifactValidationError(f"Artifact at {path} has a stale energy axis.")
     if np.any(np.diff(data[:, 0]) <= 0.0):
         raise ArtifactValidationError(f"Artifact at {path} energy axis is not strictly increasing.")
-    numerical_columns = [1] + [2 + 4 * i for i in range(len(PAPER_DRIVES_HZ))]
     validated_numeric_array(
-        data[:, numerical_columns],
+        data[:, 1:],
         context=f"Artifact at {path} occupations",
         expected_shape=(NUM_BINS, 1 + len(PAPER_DRIVES_HZ)),
         lower=0.0,
@@ -661,17 +637,36 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
             f"Artifact at {path} thermal occupation is not the live Fermi-Dirac state."
         )
     f_by_drive: dict[float, np.ndarray] = {}
-    f0_by_drive: dict[float, np.ndarray] = {}
-    f01_by_drive: dict[float, np.ndarray] = {}
-    f012_by_drive: dict[float, np.ndarray] = {}
-    # Column layout: E_uev, f_thermal, then for each drive:
-    # f_num, f0, f01, f012 (4 cols per drive).
-    for i, d in enumerate(PAPER_DRIVES_HZ):
-        col0 = 2 + 4 * i
-        f_by_drive[d] = data[:, col0]
-        f0_by_drive[d] = data[:, col0 + 1]
-        f01_by_drive[d] = data[:, col0 + 2]
-        f012_by_drive[d] = data[:, col0 + 3]
+    certificates: dict[float, QPCertificate] = {}
+    base_state = _build_state(_material(), spectral)
+    # Column layout: E_uev, f_thermal, then one numerical f per drive.
+    for i, (drive_hz, drive_ns_inv) in enumerate(
+        zip(PAPER_DRIVES_HZ, PAPER_DRIVES_NS_INV, strict=True)
+    ):
+        f = data[:, 2 + i]
+        f_by_drive[drive_hz] = f
+        pb_params = {
+            "omega_PB": OMEGA_PB,
+            "n_bar_PB": N_BAR_PB,
+            "c_phot_PB": drive_ns_inv / N_BAR_PB,
+        }
+        try:
+            reassembled = qp_certificate(
+                replace(base_state, f=f.copy()),
+                pb_photon_params=pb_params,
+                residual_inf_limit=NEWTON_TOL,
+            )
+        except (RuntimeError, ValueError) as exc:
+            raise ArtifactValidationError(
+                f"Artifact at {path} drive={drive_hz:g} Hz fails fresh "
+                "QP-equation certificate reassembly."
+            ) from exc
+        certificates[drive_hz] = bind_certificate(
+            artifact.certificates[_point_id(drive_hz)],
+            reassembled,
+            context=f"Artifact at {path} drive={drive_hz:g} Hz",
+            residual_inf_limit=NEWTON_TOL,
+        )
     return Fig5PaperResult(
         E=data[:, 0],
         drives_hz=PAPER_DRIVES_HZ,
@@ -681,25 +676,25 @@ def read_baseline(path: Path | None = None) -> Fig5PaperResult:
         x_qp_by_drive={
             d: float(qp_fraction(f_by_drive[d], spectral, delta_0=DELTA_0)) for d in PAPER_DRIVES_HZ
         },
-        f0_by_drive=f0_by_drive,
-        f01_by_drive=f01_by_drive,
-        f012_by_drive=f012_by_drive,
         qp_backward_error_by_drive={
-            d: artifact.certificates[_point_id(d)].backward_error for d in PAPER_DRIVES_HZ
+            d: certificates[d].backward_error for d in PAPER_DRIVES_HZ
         },
         qp_residual_inf_by_drive={
-            d: artifact.certificates[_point_id(d)].residual_inf for d in PAPER_DRIVES_HZ
+            d: certificates[d].residual_inf for d in PAPER_DRIVES_HZ
+        },
+        qp_number_backward_error_by_drive={
+            d: certificates[d].qp_number_backward_error
+            for d in PAPER_DRIVES_HZ
         },
     )
 
 
 def write_plot(result: Fig5PaperResult, path: Path) -> Path:
-    """Two-panel plot in paper style: $f(\\gamma)$ on log-y, $\\gamma$ on x.
+    """Plot numerical qpsim curves in the paper's two-panel topology.
 
     Left panel: $\\gamma \\in [0, 1]$.
     Right panel: $\\gamma \\in [0, 0.10]$ (zoom on the near-gap region).
-    Black solid: numerics. Green: $f^{(0)}$. Red: $f^{(0)}+f^{(1)}$.
-    Blue: $f^{(0)}+f^{(1)}+f^{(2)}$.
+    Black solid: qpsim numerics. No paper-analytic curves are included.
     """
     import matplotlib
 
@@ -721,23 +716,10 @@ def write_plot(result: Fig5PaperResult, path: Path) -> Path:
 
     fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(11, 5))
 
-    # Style per Neumann order — matches paper colour mapping:
-    # green = f^(0), red = f^(0)+f^(1), blue = f^(0)+f^(1)+f^(2).
-    # Underscore-prefixed: kept as documentation of the paper mapping while
-    # the curves stay unplotted (see comment below).
-    _style_f0 = {"color": "green", "lw": 1.2, "ls": "-", "alpha": 0.9}
-    _style_f01 = {"color": "red", "lw": 1.2, "ls": "-", "alpha": 0.9}
-    _style_f012 = {"color": "blue", "lw": 1.2, "ls": "-", "alpha": 0.9}
     style_num = {"color": "black", "lw": 1.5, "ls": "-"}
 
-    # The colored Neumann curves (_style_f0 / _style_f01 / _style_f012) are
-    # NOT plotted: their _neumann_f0 / _f1 / _f2 implementations are
-    # placeholders, not the F24 Eq. 25 + Appendix B closed forms (which
-    # require φ → f conversion via Eq. 21 with γ'_* from Eq. 22 and the
-    # numerical x_qp). Plotting placeholders alongside the real numerical
-    # curve was visually misleading (red/blue overlay sat O(10³–10⁶)×
-    # above the black numerics across the band). Black numerics only
-    # until the real Neumann series is wired in.
+    # The development-only _neumann_f* prototypes are intentionally absent
+    # from both this plot and the v4 CSV. They are not paper formulas.
     for ax, gamma_max in ((ax_l, 1.0), (ax_r, 0.10)):
         mask = active & (gamma <= gamma_max + 1e-12)
         for d in result.drives_hz:
@@ -763,8 +745,9 @@ def write_plot(result: Fig5PaperResult, path: Path) -> Path:
 
     drives_str = ", ".join(f"{d:g}" for d in PAPER_DRIVES_HZ)
     fig.suptitle(
-        "Fischer & Catelani 2024 Fig. 5 — numerical kinetic-equation "
-        "solution (Neumann-series overlays not implemented)\n"
+        "F24 Fig. 5 topology only — qpsim-native numerical curves\n"
+        "No digitized-paper parity; drive normalization unaudited; "
+        "Neumann-series overlays not implemented\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\tau_0={TAU_0:.0f}$ ns, "
         rf"$\omega_{{\mathrm{{PB}}}}=2.8\,\Delta_0$, "
         rf"$T_B={T_BATH}$ K, $\tau_\ell=0$, "

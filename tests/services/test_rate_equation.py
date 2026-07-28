@@ -145,8 +145,12 @@ class TestReferenceValue:
 
 class TestInputValidation:
     @pytest.mark.parametrize("name", ["Delta", "r", "g"])
-    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
-    def test_nonfinite_inputs_rejected(self, name: str, bad: float) -> None:
+    @pytest.mark.parametrize(
+        "bad", [float("nan"), float("inf"), complex(1.0, 0.0)]
+    )
+    def test_nonfinite_or_complex_inputs_rejected(
+        self, name: str, bad: complex | float
+    ) -> None:
         values = {
             "Delta_R_kelvin": 2.35,
             "r_Rlt_rate_Hz": 1e6,
@@ -168,6 +172,14 @@ class TestInputValidation:
             g_photon_R_rate_Hz=1e-308,
         )
         assert value == pytest.approx(0.00141475784, rel=1e-8)
+
+    def test_unrepresentable_temperature_fails_loudly(self) -> None:
+        with pytest.raises(RuntimeError, match="not representable"):
+            crossover_temperature_kelvin(
+                Delta_R_kelvin=1e308,
+                r_Rlt_rate_Hz=1e-300,
+                g_photon_R_rate_Hz=1.0,
+            )
 
     def test_negative_Delta_rejected(self) -> None:
         with pytest.raises(ValueError, match="Delta_R_kelvin"):

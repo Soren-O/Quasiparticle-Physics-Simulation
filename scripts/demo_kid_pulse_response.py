@@ -45,7 +45,7 @@ from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.transient import run_time_dependent
 
 # ── Fischer 2024 Al parameters (as in the photon-kick demo) ─────────
@@ -84,8 +84,7 @@ def _material() -> Material:
 
 
 def _fermi_dirac(E: np.ndarray) -> np.ndarray:
-    kT = KB_UEV_PER_K * T_BATH
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T_BATH)
 
 
 def _build_state(f_init: np.ndarray | None = None) -> T3DiffusionState:

@@ -13,10 +13,9 @@ to the textbook BCS coherence-factor expressions (Mattis-Bardeen
 from __future__ import annotations
 
 import numpy as np
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.observables.ac_conductivity import compute_ac_conductivity
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 
 def _fischer_like_ctx(num: int = 1620) -> SpectralContext:
@@ -29,8 +28,7 @@ def _fischer_like_ctx(num: int = 1620) -> SpectralContext:
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 class TestMBThermalLimit:

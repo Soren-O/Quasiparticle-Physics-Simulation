@@ -23,6 +23,21 @@ from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
 
 
+def _finite_real_scalar(name: str, raw: float) -> float:
+    """Return one finite real scalar without silent complex coercion."""
+    if isinstance(raw, (bool, np.bool_)) or np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be a finite real scalar; got {raw!r}.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {raw!r}."
+        ) from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value!r}.")
+    return value
+
+
 def compute_ac_conductivity(
     f: np.ndarray,
     ctx: SpectralContext,
@@ -56,7 +71,10 @@ def compute_ac_conductivity(
     f_raw = np.asarray(f)
     if np.iscomplexobj(f_raw):
         raise ValueError("f must be real-valued.")
-    f_arr = np.asarray(f_raw, dtype=float)
+    try:
+        f_arr = np.asarray(f_raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("f must be a real numeric array.") from exc
     if f_arr.shape != ctx.E.shape:
         raise ValueError(
             f"f must have the same shape as ctx.E; got {f_arr.shape} "
@@ -68,10 +86,16 @@ def compute_ac_conductivity(
         raise ValueError("f must contain physical occupations in [0, 1].")
     f = f_arr
 
-    if omega_0 <= 0:
+    omega_0 = _finite_real_scalar("omega_0", omega_0)
+    if omega_0 <= 0.0:
         raise ValueError("omega_0 must be positive.")
-    if n_subgap <= 0:
+    if (
+        not isinstance(n_subgap, (int, np.integer))
+        or isinstance(n_subgap, (bool, np.bool_))
+        or n_subgap <= 0
+    ):
         raise ValueError("n_subgap must be a positive integer.")
+    n_subgap = int(n_subgap)
     if ctx.dynes_gamma > 0:
         raise ValueError(
             "Mattis-Bardeen observables assume pure BCS spectral functions. "

@@ -1,6 +1,8 @@
-r"""Marchegiani 2025 Fig 4 — paper-faithful parity-rate reproduction.
+r"""M25 Fig. 4 paper-topology qpsim parity-rate regression.
 
-Reproduces the two stacked panels of the published Fig. 4
+Recreates the two-panel topology of the published Fig. 4 using qpsim
+outputs. Broad trends are checked against manual paper readings; no
+digitized paper points are used.
 (Marchegiani & Catelani, *Commun. Phys.* **8**, 120 (2025); arXiv
 2408.17218):
 
@@ -67,8 +69,7 @@ Usage::
 
 from __future__ import annotations
 
-import csv
-import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,6 +80,19 @@ from qpsim.services.rate_equation import (
 )
 from scipy.special import erf, erfc
 
+from validation.marchegiani_2025 import fig3_chemical_potentials as _chem
+from validation.marchegiani_2025._artifact import (
+    ArtifactValidationError,
+    ProducerIdentity,
+    capture_producer_identity,
+    manifest_path_for,
+    publish_bundle,
+    read_table,
+    require_staging_path,
+    source_fingerprint,
+    verified_bundle,
+    write_table,
+)
 from validation.marchegiani_2025.fig3_chemical_potentials import (
     DELTA_R_OVER_H_GHZ,
     GAMMA_PH_00_HZ,
@@ -101,10 +115,37 @@ MODEL_LABELS: dict[str, str] = {
     MODEL_GLOBAL: "Global quasiequilibrium",
     MODEL_RENORM: "Renormalized",
 }
+LIVE_CERTIFICATE_SCOPE = "independently-reassembled-live-state"
+SUMMARY_CERTIFICATE_SCOPE = (
+    "producer-asserted-summary-only; full-state-and-closure-iterates-omitted"
+)
 
 # Fig. 4 caption parameters for the renormalized (dot-dashed) curves.
 RENORM_GAMMA_PH_00_HZ = 600.0
 RENORM_OMEGA_LR_GHZ = 6.0
+_BUNDLE = "m25-fig4-paper"
+_CERTIFICATE = {
+    "assertion": (
+        "summary observables only; full states and reduced closure iterates "
+        "not persisted; no reader-side residual reconstruction"
+    ),
+    "kind": "producer_assertion",
+    "scope": SUMMARY_CERTIFICATE_SCOPE,
+}
+_COLUMNS = (
+    "omega_LR_GHz",
+    "model",
+    "T_kelvin",
+    "Gamma_P_Hz",
+    "ratio_eo_01_over_10",
+)
+_EXPECTED_KEYS = {
+    (0.5, MODEL_FULL),
+    (0.5, MODEL_GLOBAL),
+    (5.0, MODEL_FULL),
+    (5.0, MODEL_GLOBAL),
+    (5.0, MODEL_RENORM),
+}
 
 
 @dataclass(frozen=True)
@@ -120,7 +161,7 @@ class Fig4PanelResult:
 
 @dataclass(frozen=True)
 class Fig4Result:
-    """Full Fig 4 reproduction.
+    """Full paper-topology qpsim regression payload.
 
     Five panels: full + global quasiequilibrium for both ω_LR cases,
     plus the renormalized global-quasiequilibrium curve for the
@@ -128,6 +169,7 @@ class Fig4Result:
     """
 
     panels: dict[tuple[float, str], Fig4PanelResult]
+    certificate_scope: str = LIVE_CERTIFICATE_SCOPE
 
     def get(self, omega_LR_GHz: float, model: str) -> Fig4PanelResult:
         return self.panels[(omega_LR_GHz, model)]
@@ -411,12 +453,53 @@ def _baseline_dir() -> Path:
 
 
 def baseline_path() -> Path:
-    """Output CSV path (paper-faithful reproduction)."""
+    """Output CSV path (paper-topology qpsim regression)."""
     return _baseline_dir() / "m25_fig4_paper.csv"
 
 
 def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
+
+
+def manifest_path() -> Path:
+    return manifest_path_for(baseline_path())
+
+
+def _artifact_config() -> dict[str, object]:
+    return {
+        "models": [
+            [0.5, MODEL_FULL],
+            [0.5, MODEL_GLOBAL],
+            [5.0, MODEL_FULL],
+            [5.0, MODEL_GLOBAL],
+            [5.0, MODEL_RENORM],
+        ],
+        "renormalized": {
+            "Gamma_ph_00_Hz": RENORM_GAMMA_PH_00_HZ,
+            "omega_LR_over_h_GHz": RENORM_OMEGA_LR_GHZ,
+        },
+        "source_branch_config": _chem._artifact_config(),
+    }
+
+
+def artifact_fingerprint() -> dict[str, object]:
+    return source_fingerprint(
+        bundle=_BUNDLE,
+        config=_artifact_config(),
+        producer_module=Path(__file__),
+        extra_validation_modules=(Path(_chem.__file__),),
+    )
+
+
+def _member_paths() -> dict[str, Path]:
+    return {
+        baseline_path().name: baseline_path(),
+        plot_path().name: plot_path(),
+    }
+
+
+def _expected_members() -> dict[str, str]:
+    return {baseline_path().name: "csv", plot_path().name: "pdf"}
 
 
 def write_baseline(result: Fig4Result, path: Path | None = None) -> Path:
@@ -427,84 +510,126 @@ def write_baseline(result: Fig4Result, path: Path | None = None) -> Path:
     """
     if path is None:
         path = baseline_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        # ``lineterminator='\n'`` avoids CRLF line endings (matches
-        # fig3_chemical_potentials._write_panel_csv convention).
-        writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 4 — paper-faithful "
-            "reproduction (full model via branch-continuation driver; "
-            "global-quasiequilibrium + renormalized reductions per "
-            "SI Note 1 / Fig. 4 caption)"
-        ])
-        writer.writerow([
-            f"# Delta_R_GHz={DELTA_R_OVER_H_GHZ:g}  "
-            f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
-            f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}  "
-            f"renorm: Gamma_ph_00_Hz={RENORM_GAMMA_PH_00_HZ:g} "
-            f"omega_LR_GHz={RENORM_OMEGA_LR_GHZ:g}"
-        ])
-        writer.writerow([f"# pinned_on: {sys.platform}"])
-        writer.writerow([
-            "# omega_LR cases: 0.5 and 5.0 GHz; models: full + global "
-            "(both) and renorm (5.0 GHz family only; global QE at the "
-            "caption-renormalized parameters)"
-        ])
-        writer.writerow([
-            "omega_LR_GHz", "model", "T_kelvin",
-            "Gamma_P_Hz", "ratio_eo_01_over_10",
-        ])
-        for (omega_LR_GHz, model), panel in result.panels.items():
-            for i in range(panel.T_kelvin.size):
-                writer.writerow([
-                    f"{omega_LR_GHz:g}",
+    require_staging_path(path, baseline_path(), kind="CSV")
+    if result.certificate_scope != LIVE_CERTIFICATE_SCOPE:
+        raise ArtifactValidationError(
+            "M25 Fig. 4 publication requires live model results; a "
+            "summary readback carries producer assertions only."
+        )
+    if set(result.panels) != _EXPECTED_KEYS:
+        raise ArtifactValidationError(
+            "M25 Fig. 4 result does not contain the exact model/panel set."
+        )
+    rows: list[list[str | float | int]] = []
+    for omega_LR_GHz, model in sorted(_EXPECTED_KEYS):
+        panel = result.panels[(omega_LR_GHz, model)]
+        rows.extend(
+            [
+                [
+                    omega_LR_GHz,
                     model,
-                    f"{panel.T_kelvin[i]:.17e}",
-                    f"{panel.Gamma_P_Hz[i]:.17e}",
-                    f"{panel.ratio_eo_01_over_10[i]:.17e}",
-                ])
-    return path
+                    panel.T_kelvin[index],
+                    panel.Gamma_P_Hz[index],
+                    panel.ratio_eo_01_over_10[index],
+                ]
+                for index in range(panel.T_kelvin.size)
+            ]
+        )
+    return write_table(
+        path,
+        bundle=_BUNDLE,
+        role="all_models_summary",
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        rows=rows,
+        certificate=_CERTIFICATE,
+    )
 
 
-def read_baseline(path: Path | None = None) -> Fig4Result:
-    """Read a pinned baseline CSV back into a :class:`Fig4Result`."""
+def read_baseline(
+    path: Path | None = None,
+    *,
+    accept_producer_certificate_claims: bool = False,
+) -> Fig4Result:
+    """Read summary data only after explicit producer-claim acceptance."""
+    if not accept_producer_certificate_claims:
+        raise ArtifactValidationError(
+            "M25 Fig. 4 summary omits full states and reduced closure "
+            "iterates, so its certificate is a producer assertion only. "
+            "Pass accept_producer_certificate_claims=True to read the "
+            "summary, or regenerate for independently reassembled evidence."
+        )
     if path is None:
         path = baseline_path()
-    rows: list[tuple[float, str, float, float, float]] = []
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line:
-                continue
-            first = line[0]
-            if first.startswith("#") or first == "omega_LR_GHz":
-                continue
-            omega = float(line[0])
-            model = line[1]
-            T = float(line[2])
-            G = float(line[3])
-            r = float(line[4])
-            rows.append((omega, model, T, G, r))
+    canonical = path.resolve() == baseline_path().resolve()
 
-    by_key: dict[tuple[float, str], list[tuple[float, float, float]]] = {}
-    for omega, model, T, G, r in rows:
-        by_key.setdefault((omega, model), []).append((T, G, r))
-
-    panels: dict[tuple[float, str], Fig4PanelResult] = {}
-    for key, triples in by_key.items():
-        triples.sort(key=lambda x: x[0])
-        T_arr = np.array([t[0] for t in triples], dtype=float)
-        G_arr = np.array([t[1] for t in triples], dtype=float)
-        r_arr = np.array([t[2] for t in triples], dtype=float)
-        panels[key] = Fig4PanelResult(
-            omega_LR_GHz=key[0],
-            model=key[1],
-            T_kelvin=T_arr,
-            Gamma_P_Hz=G_arr,
-            ratio_eo_01_over_10=r_arr,
+    def _decode() -> Fig4Result:
+        payload = read_table(
+            path,
+            bundle=_BUNDLE,
+            role="all_models_summary",
+            config=_artifact_config(),
+            columns=_COLUMNS,
+            certificate=_CERTIFICATE,
         )
-    return Fig4Result(panels=panels)
+        by_key: dict[tuple[float, str], list[tuple[float, float, float]]] = {}
+        for row in payload.rows:
+            try:
+                omega = float(row[0])
+                model = row[1]
+                triple = (float(row[2]), float(row[3]), float(row[4]))
+            except (IndexError, ValueError) as exc:
+                raise ArtifactValidationError(
+                    f"M25 Fig. 4 table {path} contains malformed rows."
+                ) from exc
+            key = (omega, model)
+            if key not in _EXPECTED_KEYS:
+                raise ArtifactValidationError(
+                    f"M25 Fig. 4 table {path} contains an unknown model key."
+                )
+            by_key.setdefault(key, []).append(triple)
+        if set(by_key) != _EXPECTED_KEYS:
+            raise ArtifactValidationError(
+                f"M25 Fig. 4 table {path} omits a required model curve."
+            )
+        expected_T = np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
+        panels: dict[tuple[float, str], Fig4PanelResult] = {}
+        for key, triples in by_key.items():
+            if len(triples) != NUM_T_POINTS:
+                raise ArtifactValidationError(
+                    f"M25 Fig. 4 table {path} has duplicate/missing points."
+                )
+            data = np.array(triples, dtype=float)
+            if (
+                not np.all(np.isfinite(data))
+                or not np.array_equal(data[:, 0], expected_T)
+                or np.any(data[:, 1:] < 0.0)
+            ):
+                raise ArtifactValidationError(
+                    f"M25 Fig. 4 table {path} has invalid grid/observables."
+                )
+            panels[key] = Fig4PanelResult(
+                omega_LR_GHz=key[0],
+                model=key[1],
+                T_kelvin=data[:, 0],
+                Gamma_P_Hz=data[:, 1],
+                ratio_eo_01_over_10=data[:, 2],
+            )
+        return Fig4Result(
+            panels=panels,
+            certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
+        )
+
+    if not canonical:
+        return _decode()
+    with verified_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        fingerprint=artifact_fingerprint(),
+        expected_members=_expected_members(),
+        member_paths=_member_paths(),
+    ):
+        return _decode()
 
 
 def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
@@ -524,9 +649,11 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     if path is None:
         path = plot_path()
+    require_staging_path(path, plot_path(), kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # M25 Fig 4 colors (matches the paper figure, sampled by eye).
@@ -556,8 +683,8 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
 
     # Panel (a) carries the model-style legend.
     style_handles = [
-        plt.Line2D([0], [0], color="black", ls=linestyle_for_model[m], lw=1.8,
-                   label=MODEL_LABELS[m])
+        Line2D([0], [0], color="black", ls=linestyle_for_model[m], lw=1.8,
+               label=MODEL_LABELS[m])
         for m in (MODEL_FULL, MODEL_GLOBAL, MODEL_RENORM)
     ]
     ax_a.legend(handles=style_handles, fontsize=10, loc="upper left",
@@ -591,8 +718,8 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
 
     # Panel (b) carries the ω_LR-color legend.
     color_handles = [
-        plt.Line2D([0], [0], color=color_for_omega[w], lw=1.8,
-                   label=f"{w:g}")
+        Line2D([0], [0], color=color_for_omega[w], lw=1.8,
+               label=f"{w:g}")
         for w in (0.5, 5.0)
     ]
     leg_b = ax_b.legend(
@@ -603,7 +730,8 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
     leg_b.get_title().set_fontsize(10)
 
     fig.suptitle(
-        "Marchegiani 2025 Fig 4 — parity-switching rates vs temperature\n"
+        "M25 Fig. 4 topology — qpsim parity-rate regression\n"
+        "(manual broad paper anchors; no digitized paper points)\n"
         rf"$\Delta_R/h={DELTA_R_OVER_H_GHZ:g}$ GHz, "
         rf"$\omega_{{10}}/(2\pi)={OMEGA_10_OVER_H_GHZ:g}$ GHz, "
         rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}}={GAMMA_PH_00_HZ:g}$ Hz "
@@ -617,16 +745,37 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
     return path
 
 
+def _validate_staged_bundle(stages: Mapping[Path, Path]) -> None:
+    read_baseline(
+        stages[baseline_path()],
+        accept_producer_certificate_claims=True,
+    )
+
+
 def generate_baseline() -> tuple[Path, Path]:
-    print("M25 Fig 4 — paper-faithful reproduction ...")
+    fingerprint = artifact_fingerprint()
+    producer: ProducerIdentity = capture_producer_identity(fingerprint)
+    print("M25 Fig 4 — paper-topology qpsim regression ...")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz, T ∈ [{T_MIN_K*1e3:.0f}, {T_MAX_K*1e3:.0f}] mK")
     print("  models: full + global QE (0.5, 5.0 GHz); renorm "
           f"(5.0 GHz family; Γ̃^ph_00 = {RENORM_GAMMA_PH_00_HZ:g} Hz, "
           f"ω_LR/2π = {RENORM_OMEGA_LR_GHZ:g} GHz)")
     result = run()
-    csv_p = write_baseline(result)
-    pdf_p = write_plot(result)
+    csv_p, pdf_p, _manifest = publish_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        producer=producer,
+        current_fingerprint=artifact_fingerprint,
+        members={
+            baseline_path(): (
+                "csv",
+                lambda path: write_baseline(result, path),
+            ),
+            plot_path(): ("pdf", lambda path: write_plot(result, path)),
+        },
+        validate_staged=_validate_staged_bundle,
+    )
     print(f"  Baseline: {csv_p}")
     print(f"  PDF plot: {pdf_p}")
     return csv_p, pdf_p

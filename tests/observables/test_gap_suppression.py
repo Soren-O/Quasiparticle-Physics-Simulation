@@ -12,12 +12,15 @@ from qpsim.observables.gap_suppression import (
     compute_gap_suppression,
     compute_gap_suppression_direct,
     delta_suppression_from_distribution_direct,
+    fermi_dirac_distribution,
     gap_from_distribution_direct,
     gap_integral_from_distribution_direct,
     gap_suppression_from_deltas,
+    gap_suppression_from_integrals_direct,
     gap_suppression_ratio_from_integrals,
     thermal_gap_integral_direct,
 )
+from qpsim.physics import fermi_dirac_occupation
 from qpsim.physics.gap_equation import calibrate_gap
 
 
@@ -58,6 +61,68 @@ class TestGapSuppressionFromDeltas:
             gap_suppression_from_deltas(-1.0, 0.5)
         with pytest.raises(ValueError, match="delta_final"):
             gap_suppression_from_deltas(1.0, -0.5)
+
+    @pytest.mark.parametrize(
+        ("parameter", "bad_value"),
+        [
+            ("delta_eq", np.nan),
+            ("delta_eq", np.inf),
+            ("delta_final", -np.inf),
+            ("delta_final", complex(0.9, 0.0)),
+        ],
+    )
+    def test_rejects_nonfinite_or_complex_inputs(
+        self, parameter: str, bad_value: complex | float
+    ) -> None:
+        values: dict[str, complex | float] = {
+            "delta_eq": 1.0,
+            "delta_final": 0.9,
+        }
+        values[parameter] = bad_value
+        with pytest.raises(ValueError, match=parameter):
+            gap_suppression_from_deltas(**values)  # type: ignore[arg-type]
+
+
+class TestFermiDiracValidation:
+    def test_zero_temperature_remains_the_vacuum_limit(self) -> None:
+        np.testing.assert_array_equal(
+            fermi_dirac_distribution(np.array([1.0, 2.0]), 0.0),
+            np.zeros(2),
+        )
+
+    def test_cold_representable_tail_uses_shared_stable_evaluator(self) -> None:
+        temperature = 0.01
+        energy = np.array([720.0 * KB_UEV_PER_K * temperature])
+
+        actual = fermi_dirac_distribution(energy, temperature)
+        expected = fermi_dirac_occupation(energy, temperature)
+
+        np.testing.assert_array_equal(actual, expected)
+        assert 0.0 < actual[0] < np.exp(-700.0)
+
+    @pytest.mark.parametrize(
+        "bad_temperature",
+        [np.nan, np.inf, -np.inf, -0.1, complex(0.1, 0.0)],
+    )
+    def test_rejects_invalid_temperature(
+        self, bad_temperature: complex | float
+    ) -> None:
+        with pytest.raises(ValueError, match="T_bath"):
+            fermi_dirac_distribution(np.array([1.0, 2.0]), bad_temperature)
+
+    @pytest.mark.parametrize(
+        "bad_energy",
+        [
+            np.array([1.0, np.nan]),
+            np.array([1.0, np.inf]),
+            np.array([1.0 + 0.0j, 2.0 + 0.0j]),
+        ],
+    )
+    def test_rejects_nonfinite_or_complex_energy(
+        self, bad_energy: np.ndarray
+    ) -> None:
+        with pytest.raises(ValueError, match="E"):
+            fermi_dirac_distribution(bad_energy, 0.2)
 
 
 class TestComputeGapSuppression:
@@ -106,6 +171,86 @@ class TestComputeGapSuppression:
 
 
 class TestDirectGapSuppression:
+    @pytest.mark.parametrize(
+        ("bad_f", "bad_E", "match"),
+        [
+            (
+                np.array([1e-3 + 0.0j, 1e-3 + 0.0j]),
+                np.array([180.5, 181.5]),
+                "f",
+            ),
+            (
+                np.array([1e-3, 1e-3]),
+                np.array([180.5 + 0.0j, 181.5 + 0.0j]),
+                "E_bins",
+            ),
+            (
+                np.array([1e-3, np.nan]),
+                np.array([180.5, 181.5]),
+                "f",
+            ),
+        ],
+    )
+    def test_direct_integral_rejects_malformed_arrays(
+        self, bad_f: np.ndarray, bad_E: np.ndarray, match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
+            gap_integral_from_distribution_direct(
+                bad_f,
+                bad_E,
+                gap=180.0,
+            )
+
+    @pytest.mark.parametrize("bad_occupation", [-1e-12, 1.0 + 1e-12])
+    def test_direct_integral_rejects_out_of_range_occupation_before_interpolation(
+        self, bad_occupation: float
+    ) -> None:
+        E = np.array([180.5, 181.5, 182.5])
+        f = np.full(3, 1e-3)
+        f[0] = bad_occupation
+
+        with pytest.raises(ValueError, match=r"occupations in \[0, 1\]"):
+            gap_integral_from_distribution_direct(f, E, gap=180.0)
+
+    @pytest.mark.parametrize(
+        "bad_delta0", [np.nan, np.inf, complex(180.0, 0.0)]
+    )
+    def test_direct_gap_rejects_invalid_delta0(
+        self, bad_delta0: complex | float
+    ) -> None:
+        E = np.array([180.5, 181.5, 182.5])
+        with pytest.raises(ValueError, match="delta0"):
+            gap_from_distribution_direct(
+                np.full(3, 1e-3),
+                E,
+                gap=180.0,
+                delta0=bad_delta0,
+            )
+
+    @pytest.mark.parametrize(
+        ("parameter", "bad_value"),
+        [
+            ("driven_integral", np.nan),
+            ("thermal_integral", np.inf),
+            ("delta0", complex(180.0, 0.0)),
+        ],
+    )
+    def test_integral_packager_rejects_invalid_scalars(
+        self, parameter: str, bad_value: complex | float
+    ) -> None:
+        values: dict[str, complex | float] = {
+            "driven_integral": 1e-3,
+            "thermal_integral": 2e-3,
+            "delta0": 180.0,
+        }
+        values[parameter] = bad_value
+        with pytest.raises(ValueError, match=parameter):
+            gap_suppression_from_integrals_direct(  # type: ignore[arg-type]
+                values["driven_integral"],
+                values["thermal_integral"],
+                delta0=values["delta0"],
+            )
+
     def test_subgap_guard_cells_have_zero_measure(self) -> None:
         gap = 180.0
         E_reference, _ = build_energy_grid(

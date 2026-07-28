@@ -17,11 +17,13 @@ sidecar and are only loaded to render plots or CSV exports.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,11 +42,17 @@ _SETUP_SCHEMA_VERSION = 2
 # untouched.
 _RHO_F_MIGRATION_CUTOFF_EV = _LEGACY_RHO_F_MAX
 _RUN_STATUSES = {"queued", "running", "done", "failed", "cancelled"}
+_MAX_PATH_SEGMENT_LENGTH = 120
+_MAX_AUTO_SLUG_BASE_LENGTH = 96
 
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return slug or "setup"
+    slug = slug or "setup"
+    if len(slug) > _MAX_AUTO_SLUG_BASE_LENGTH:
+        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+        slug = f"{slug[:_MAX_AUTO_SLUG_BASE_LENGTH].rstrip('-')}-{digest}"
+    return slug
 
 
 # A stored slug / run_id becomes a single path component. Anything with a
@@ -56,9 +64,44 @@ _SAFE_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def _safe_segment(value: str, kind: str) -> str:
-    if value in {".", ".."} or not _SAFE_SEGMENT.fullmatch(value):
+    if (
+        value in {".", ".."}
+        or len(value) > _MAX_PATH_SEGMENT_LENGTH
+        or not _SAFE_SEGMENT.fullmatch(value)
+    ):
         raise ValueError(f"unsafe {kind}: {value!r}")
     return value
+
+
+def _collision_safe_slug(directory: Path, name: str) -> str:
+    """Return a stable automatic slug without overwriting another name."""
+    base = slugify(name)
+    candidate = base
+    path = directory / f"{candidate}.json"
+    if not path.exists():
+        return candidate
+
+    try:
+        existing_name = _read_json(path).get("name")
+    except (OSError, ValueError, json.JSONDecodeError):
+        existing_name = None
+    if existing_name == name:
+        return candidate
+
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+    max_base = _MAX_PATH_SEGMENT_LENGTH - len(digest) - 1
+    candidate = f"{base[:max_base].rstrip('-')}-{digest}"
+    collision_path = directory / f"{candidate}.json"
+    if collision_path.exists():
+        try:
+            collision_name = _read_json(collision_path).get("name")
+        except (OSError, ValueError, json.JSONDecodeError):
+            collision_name = None
+        if collision_name not in {None, name}:
+            raise ValueError(
+                "setup-name hash collision; provide an explicit unique slug."
+            )
+    return candidate
 
 
 def json_sanitize(value: Any) -> Any:
@@ -188,6 +231,11 @@ class Workspace:
     """Filesystem-backed store for setups and runs."""
 
     root: Path
+    _setup_save_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         self.root = Path(self.root)
@@ -204,7 +252,26 @@ class Workspace:
 
     def save_setup(self, envelope: SetupEnvelope, *, slug: str | None = None) -> str:
         """Persist a named setup; returns the slug it was stored under."""
-        slug = _safe_segment(slug or slugify(envelope.name), "slug")
+        if slug is None:
+            # Automatic slug selection is a read-then-write transaction.
+            # Serialize it across request threads so colliding names cannot
+            # both observe the base slug as free and overwrite one another.
+            # Explicit slugs retain caller-controlled last-writer-wins
+            # behavior.
+            with self._setup_save_lock:
+                slug = _collision_safe_slug(self.setups_dir, envelope.name)
+                slug = _safe_segment(slug, "slug")
+                _write_json(
+                    self.setups_dir / f"{slug}.json",
+                    {
+                        "name": envelope.name,
+                        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "schema_version": _SETUP_SCHEMA_VERSION,
+                        "setup": envelope.setup.model_dump(),
+                    },
+                )
+                return slug
+        slug = _safe_segment(slug, "slug")
         _write_json(
             self.setups_dir / f"{slug}.json",
             {
@@ -222,11 +289,22 @@ class Workspace:
             for path in sorted(self.setups_dir.glob("*.json")):
                 try:
                     data = _read_json(path)
+                    setup_data = data.get("setup")
+                    if not isinstance(setup_data, dict):
+                        raise ValueError(
+                            f"{path} has an invalid or missing 'setup' object."
+                        )
+                    name = data.get("name", path.stem)
+                    if not isinstance(name, str):
+                        raise ValueError(f"{path} has a non-string setup name.")
+                    mode = setup_data.get("mode", "?")
+                    if not isinstance(mode, str):
+                        raise ValueError(f"{path} has a non-string setup mode.")
                     entries.append(
                         {
                             "slug": path.stem,
-                            "name": data.get("name", path.stem),
-                            "mode": data.get("setup", {}).get("mode", "?"),
+                            "name": name,
+                            "mode": mode,
                             "saved_at": data.get("saved_at", ""),
                         }
                     )
@@ -237,6 +315,11 @@ class Workspace:
     def load_setup(self, slug: str) -> SetupEnvelope:
         slug = _safe_segment(slug, "slug")
         data = _read_json(self.setups_dir / f"{slug}.json")
+        setup_data = data.get("setup")
+        if not isinstance(setup_data, dict):
+            raise ValueError(
+                f"setup {slug!r} has an invalid or missing 'setup' object."
+            )
         version_raw = data.get("schema_version", 1)
         if type(version_raw) is not int or not (1 <= version_raw <= _SETUP_SCHEMA_VERSION):
             raise ValueError(
@@ -244,7 +327,6 @@ class Workspace:
                 f"{version_raw!r}; supported versions are 1..{_SETUP_SCHEMA_VERSION}"
             )
         version = version_raw
-        setup_data = data["setup"]
         if version < 2:
             # v1 files are ambiguous between the shipped eV^-1 m^-3 contract
             # and the short-lived µeV^-1 m^-3 build — see
@@ -280,6 +362,15 @@ class Workspace:
         return _read_manifest(self.run_dir(run_id) / "manifest.json")
 
     def write_arrays(self, run_id: str, arrays: dict[str, np.ndarray]) -> None:
+        safe_arrays: dict[str, np.ndarray] = {}
+        for name, value in arrays.items():
+            array = np.asarray(value)
+            if array.dtype.hasobject:
+                raise ValueError(
+                    f"result array {name!r} has object dtype, which cannot be "
+                    "loaded safely with allow_pickle=False."
+                )
+            safe_arrays[name] = array
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         # Same atomic discipline as the manifests: a killed writer must
@@ -289,12 +380,20 @@ class Workspace:
         tmp = directory / f"result.{uuid.uuid4().hex}.tmp.npz"
         # numpy's stub types the **kwds of savez_compressed as the
         # allow_pickle flag; the call itself is the documented form.
-        np.savez_compressed(tmp, **arrays)  # type: ignore[arg-type]
-        _replace_with_retry(tmp, directory / "result.npz")
+        try:
+            np.savez_compressed(tmp, **safe_arrays)  # type: ignore[arg-type]
+            _replace_with_retry(tmp, directory / "result.npz")
+        except BaseException:
+            _unlink_with_retry(tmp)
+            raise
 
     def read_arrays(self, run_id: str) -> dict[str, np.ndarray]:
         with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
             return {name: np.asarray(data[name]) for name in data.files}
+
+    def delete_arrays(self, run_id: str) -> None:
+        """Remove a result payload, if present, without deleting its manifest."""
+        _unlink_with_retry(self.run_dir(run_id) / "result.npz")
 
     def array_names(self, run_id: str) -> set[str]:
         """Array names from the NPZ zip directory — no decompression."""

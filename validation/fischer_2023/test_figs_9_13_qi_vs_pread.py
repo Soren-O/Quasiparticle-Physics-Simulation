@@ -1,11 +1,13 @@
-"""Regression test: Fischer Figs 9-13 Q_i(P_read) matches baseline to 1e-4.
+"""Quarantine/development tests for Fischer Sec. V Q_i(P_read).
 
-Iterative-mode tolerance per NFP §6.4.1 (nbar-loop tol × MB sub-gap
-quadrature). Slow-marked (21 P_read points × variable nbar-loop
-iterations).
+The nominal post-promotion tolerance would be 1e-4 per NFP §6.4.1
+(nbar-loop tolerance × MB sub-gap quadrature). No current artifact is accepted
+at that tolerance. The slow comparison is retained so it becomes active only
+after an independently refined artifact is deliberately promoted.
 
 The legacy canonical artifact is intentionally xfailed because it predates the
-current schema and certificates. Development-only generation (not promotion)::
+current schema and certificates. Development-only generation writes distinct
+``*.development.{csv,pdf}`` files and is not promotion::
 
     python -m validation.fischer_2023.figs_9_13_qi_vs_pread
 """
@@ -33,19 +35,33 @@ from validation.fischer_2023.figs_9_13_qi_vs_pread import (
     LegacyBaselineError,
     _nbar_fixed_point_residual,
     baseline_path,
+    development_baseline_path,
+    development_plot_path,
     read_baseline,
     run,
     write_baseline,
 )
 
 
+def test_development_generation_paths_do_not_alias_quarantined_canonical() -> None:
+    canonical = baseline_path().resolve()
+    development_csv = development_baseline_path().resolve()
+    development_pdf = development_plot_path().resolve()
+
+    assert development_csv != canonical
+    assert development_pdf != canonical.with_suffix(".pdf")
+    assert development_csv.name.endswith(".development.csv")
+    assert development_pdf.name.endswith(".development.pdf")
+
+
 @pytest.mark.slow
-def test_matches_pinned_baseline() -> None:
+def test_matches_promoted_baseline_or_xfails_quarantine() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip(
-            f"Baseline not found at {path}. "
-            "Generate it with: python -m validation.fischer_2023.figs_9_13_qi_vs_pread"
+            f"No promoted baseline found at {path}. Development output can be "
+            "generated with: python -m "
+            "validation.fischer_2023.figs_9_13_qi_vs_pread"
         )
 
     try:

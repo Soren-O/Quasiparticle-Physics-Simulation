@@ -1,19 +1,21 @@
 r"""Marchegiani 2025 Fig 3 — analytic crossover temperature T̄(g^ph_R).
 
-Closed-form reproduction of M25 Eq. 8 — the Lambert-W crossover
-that separates the low-``T`` nonequilibrium regime from the local-
-quasiequilibrium regime in a gap-asymmetric transmon junction.
+Direct formula transcription and self-regression of M25 Eq. 8 — the
+Lambert-W crossover that separates the low-``T`` nonequilibrium regime
+from the local-quasiequilibrium regime in a gap-asymmetric transmon
+junction. The reader recomputes the same closed form from the persisted
+axis; this module does not independently solve the full rate equations
+or validate Eq. 8 against them.
 
-The paper validates Eq. 8 "within a few percent of the numerical
-results" from the full three-chemical-potential rate-equation
-integration (which is deferred per NFP §7.10 Gate 8 strategy A).
+The *paper* states that Eq. 8 agrees "within a few percent" with its
+numerical results. That paper-reported comparison is context, not an
+independent result produced by this module.
 
 Reproduces the Fig 3 caption parameter set (Δ_R/h = 49 GHz,
 r^L = r^{R<} = 6.25 MHz) and sweeps the photon-generation rate
-``g^\mathrm{ph}_R`` across the physically interesting range
-(1 Hz → 1 MHz). The output is the monotonic T̄(g^ph_R) curve —
-projecting onto the paper's figure the crossover T̄ ≈ 70 mK (small
-ω_LR) and T̄ ≈ 150 mK (large ω_LR) dashed lines in panels (a)/(b).
+``g^\mathrm{ph}_R`` from ``1e-25`` Hz to ``1e6`` Hz. The output is the
+monotonic T̄(g^ph_R) curve, annotated with a broad manual reading of the
+published dashed line near 150 mK. No digitized paper points are used.
 
 Usage::
 
@@ -22,12 +24,25 @@ Usage::
 
 from __future__ import annotations
 
-import csv
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from qpsim.services.rate_equation import crossover_temperature_kelvin
+
+from validation.marchegiani_2025._artifact import (
+    ArtifactValidationError,
+    ProducerIdentity,
+    capture_producer_identity,
+    manifest_path_for,
+    publish_bundle,
+    read_table,
+    require_staging_path,
+    source_fingerprint,
+    verified_bundle,
+    write_table,
+)
 
 # ── M25 Fig 3 caption parameters ─────────────────────────────────────
 _H_J_S = 6.62607015e-34
@@ -37,18 +52,22 @@ DELTA_R_OVER_H_HZ = 49.0e9           # Δ_R/h = 49 GHz
 DELTA_R_KELVIN = DELTA_R_OVER_H_HZ * _H_J_S / _KB_J_PER_K  # ≈ 2.352 K
 R_RLT_RATE_HZ = 6.25e6                # r^{R<} = 6.25 MHz
 
-# Sweep span: the only T̄ value actually readable from the published
-# M25 Fig 3 is the ≈150 mK dashed-line position (both panels; the qpsim
-# full-pipeline reproduction gives ≈146 mK, and the paper itself calls
-# Eq. 8 accurate to "a few percent"). Inverting Eq. 8 at 150 mK with
-# the caption parameters gives g^{ph}_R ~ 5e−8 Hz; the sweep extends
-# far below that to expose the Lambert-W tail and up to the Δ_R
-# asymptote at the high-g^{ph} end. (An earlier revision also quoted a
-# "paper ≈70 mK" anchor — that value is not in the paper; fabricated
-# anchor removed per the 2026-07-19 audit.)
+# Sweep span: the only T̄ value broadly readable from the published M25
+# Fig. 3 is the ≈150 mK dashed-line position. Inverting the same Eq. 8
+# transcription at 150 mK with the caption parameters gives
+# g^{ph}_R ~ 5e−8 Hz; this is not an independent numerical crossing.
+# The sweep extends far below that point to expose the Lambert-W tail
+# and up to the Δ_R asymptote at high g^{ph}. An earlier revision quoted
+# a "paper ≈70 mK" anchor; that value is not in the paper and was removed.
 G_PHOTON_MIN_HZ = 1.0e-25
 G_PHOTON_MAX_HZ = 1.0e6
 NUM_POINTS = 63  # ~2 points per decade
+_BUNDLE = "m25-fig3-crossover-temperature"
+_CERTIFICATE = {
+    "kind": "formula_transcription_self_regression",
+    "metric_version": "m25-eq8-lambert-w-v1",
+}
+_COLUMNS = ("g_photon_R_Hz", "T_bar_kelvin")
 
 
 @dataclass(frozen=True)
@@ -89,42 +108,124 @@ def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
 
 
+def manifest_path() -> Path:
+    return manifest_path_for(baseline_path())
+
+
+def _artifact_config() -> dict[str, object]:
+    return {
+        "Delta_R_kelvin": DELTA_R_KELVIN,
+        "Delta_R_over_h_Hz": DELTA_R_OVER_H_HZ,
+        "g_photon_R_grid_Hz": np.logspace(
+            np.log10(G_PHOTON_MIN_HZ),
+            np.log10(G_PHOTON_MAX_HZ),
+            NUM_POINTS,
+        ).tolist(),
+        "r_Rlt_rate_Hz": R_RLT_RATE_HZ,
+    }
+
+
+def artifact_fingerprint() -> dict[str, object]:
+    return source_fingerprint(
+        bundle=_BUNDLE,
+        config=_artifact_config(),
+        producer_module=Path(__file__),
+    )
+
+
+def _member_paths() -> dict[str, Path]:
+    return {
+        baseline_path().name: baseline_path(),
+        plot_path().name: plot_path(),
+    }
+
+
+def _expected_members() -> dict[str, str]:
+    return {baseline_path().name: "csv", plot_path().name: "pdf"}
+
+
 def write_baseline(result: Fig3Result, path: Path | None = None) -> Path:
     if path is None:
         path = baseline_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 3 — Eq. 8 Lambert-W T̄; "
-            "pinned by qpsim"
-        ])
-        writer.writerow([
-            f"# Delta_R_over_h_Hz={DELTA_R_OVER_H_HZ:g}  "
-            f"Delta_R_kelvin={DELTA_R_KELVIN:.6f}  "
-            f"r_Rlt_rate_Hz={R_RLT_RATE_HZ:g}"
-        ])
-        writer.writerow(["g_photon_R_Hz", "T_bar_kelvin"])
-        for g, T in zip(result.g_photon_R_Hz, result.T_bar_kelvin, strict=True):
-            writer.writerow([f"{g:.17e}", f"{T:.17e}"])
-    return path
+    require_staging_path(path, baseline_path(), kind="CSV")
+    return write_table(
+        path,
+        bundle=_BUNDLE,
+        role="closed_form_sweep",
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        rows=list(
+            zip(
+                result.g_photon_R_Hz,
+                result.T_bar_kelvin,
+                strict=True,
+            )
+        ),
+        certificate=_CERTIFICATE,
+    )
 
 
 def read_baseline(path: Path | None = None) -> Fig3Result:
     if path is None:
         path = baseline_path()
-    rows: list[list[float]] = []
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line:
-                continue
-            first = line[0]
-            if first.startswith("#") or first == "g_photon_R_Hz":
-                continue
-            rows.append([float(x) for x in line])
-    data = np.array(rows, dtype=float)
-    return Fig3Result(g_photon_R_Hz=data[:, 0], T_bar_kelvin=data[:, 1])
+    canonical = path.resolve() == baseline_path().resolve()
+
+    def _decode() -> Fig3Result:
+        payload = read_table(
+            path,
+            bundle=_BUNDLE,
+            role="closed_form_sweep",
+            config=_artifact_config(),
+            columns=_COLUMNS,
+            certificate=_CERTIFICATE,
+        )
+        try:
+            data = np.array(payload.rows, dtype=float)
+        except ValueError as exc:
+            raise ArtifactValidationError(
+                f"M25 crossover table {path} contains nonnumeric cells."
+            ) from exc
+        if data.shape != (NUM_POINTS, len(_COLUMNS)) or not np.all(
+            np.isfinite(data)
+        ):
+            raise ArtifactValidationError(
+                f"M25 crossover table {path} has invalid shape/nonfinite data."
+            )
+        expected_g = np.logspace(
+            np.log10(G_PHOTON_MIN_HZ),
+            np.log10(G_PHOTON_MAX_HZ),
+            NUM_POINTS,
+        )
+        if not np.array_equal(data[:, 0], expected_g):
+            raise ArtifactValidationError(
+                f"M25 crossover table {path} has the wrong generation grid."
+            )
+        expected_T = np.array(
+            [
+                crossover_temperature_kelvin(
+                    Delta_R_kelvin=DELTA_R_KELVIN,
+                    r_Rlt_rate_Hz=R_RLT_RATE_HZ,
+                    g_photon_R_rate_Hz=float(g_photon),
+                )
+                for g_photon in expected_g
+            ]
+        )
+        if not np.allclose(data[:, 1], expected_T, rtol=2e-13, atol=0.0):
+            raise ArtifactValidationError(
+                f"M25 crossover table {path} fails closed-form reassembly."
+            )
+        return Fig3Result(g_photon_R_Hz=data[:, 0], T_bar_kelvin=data[:, 1])
+
+    if not canonical:
+        return _decode()
+    with verified_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        fingerprint=artifact_fingerprint(),
+        expected_members=_expected_members(),
+        member_paths=_member_paths(),
+    ):
+        return _decode()
 
 
 def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
@@ -135,6 +236,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
 
     if path is None:
         path = plot_path()
+    require_staging_path(path, plot_path(), kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 5.5))
@@ -144,15 +246,12 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
         label=r"$\bar T = 2\Delta_R / W(4\pi r^{R<}/g^\mathrm{ph}_R)$",
     )
 
-    # Annotate the one T̄ value actually readable from the published
-    # figure: the ≈150 mK dashed-line position (both panels). The qpsim
-    # full-pipeline reproduction lands at ≈146 mK, consistent with the
-    # paper's stated few-percent accuracy of Eq. 8. (A fabricated
-    # "Fig 3(a) ≈70 mK" paper anchor was removed here — 2026-07-19
-    # audit.)
+    # Annotate the one broad T̄ value manually readable from the published
+    # figure: the ≈150 mK dashed-line position. The curve itself is the same
+    # Eq. 8 transcription, not an independently located numerical crossing.
     ax.axhline(150.0, color="tab:olive", ls=":", lw=1.0, alpha=0.7,
                label=r"M25 Fig 3 dashed lines: $\bar T \approx 150$ mK "
-                     r"(paper reading; qpsim pipeline $\approx 146$ mK)")
+                     r"(broad manual reading)")
 
     # Δ_R upper bound (T̄ cannot exceed Δ_R since W > 0 for positive args).
     ax.axhline(DELTA_R_KELVIN * 1e3, color="red", ls="--", lw=0.8, alpha=0.4,
@@ -162,7 +261,8 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
                   fontsize=12)
     ax.set_ylabel(r"$\bar T$ [mK]", fontsize=12)
     ax.set_title(
-        "Marchegiani 2025 Eq. 8: Lambert-W crossover temperature\n"
+        "M25 Eq. 8 transcription: Lambert-W self-regression\n"
+        "(one manual broad paper anchor; no digitized paper points)\n"
         rf"Fig 3 params: $\Delta_R/h={DELTA_R_OVER_H_HZ/1e9:.0f}$ GHz, "
         rf"$r^{{R<}}={R_RLT_RATE_HZ/1e6:.2f}$ MHz",
         fontsize=10,
@@ -175,8 +275,14 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     return path
 
 
+def _validate_staged_bundle(stages: Mapping[Path, Path]) -> None:
+    read_baseline(stages[baseline_path()])
+
+
 def generate_baseline() -> tuple[Path, Path]:
-    print("M25 Fig 3 — Lambert-W crossover temperature T̄(g^ph_R)")
+    fingerprint = artifact_fingerprint()
+    producer: ProducerIdentity = capture_producer_identity(fingerprint)
+    print("M25 Fig 3 — Eq. 8 Lambert-W transcription/self-regression")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_HZ/1e9:.1f} GHz → Δ_R = {DELTA_R_KELVIN:.4f} K")
     print(f"  r^{{R<}} = {R_RLT_RATE_HZ/1e6:.2f} MHz")
     print(
@@ -188,8 +294,20 @@ def generate_baseline() -> tuple[Path, Path]:
         f"  T̄ spans {result.T_bar_kelvin.min() * 1e3:.2f} → "
         f"{result.T_bar_kelvin.max() * 1e3:.2f} mK"
     )
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    csv_path, pdf_path, _manifest = publish_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        producer=producer,
+        current_fingerprint=artifact_fingerprint,
+        members={
+            baseline_path(): (
+                "csv",
+                lambda path: write_baseline(result, path),
+            ),
+            plot_path(): ("pdf", lambda path: write_plot(result, path)),
+        },
+        validate_staged=_validate_staged_bundle,
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path

@@ -35,6 +35,7 @@ dev = [
     "ruff==0.15.17",
     "mypy",
     "matplotlib>=3.9",
+    "Pillow>=10",  # exact-source paper-raster metadata/pixel decoding
     "httpx",  # fastapi.testclient transport (webui tests)
     "sympy",  # papers/qp-diffusion verify_*.py symbolic proof-checks
 ]

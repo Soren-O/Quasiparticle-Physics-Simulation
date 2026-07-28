@@ -1,8 +1,11 @@
-"""Side-by-side: paper figures (left) vs reproduction outputs (right).
+"""Manual raster side-by-side: local paper image vs qpsim output.
 
 Edit MAPPING to pin which paper-figure panel each output should pair with.
 Any output without a paper-figure match is skipped with a notice.
+This helper performs no digitization, curve extraction, alignment, or
+quantitative comparison and is not part of an automated parity gate.
 """
+
 import os
 import tempfile
 from pathlib import Path
@@ -18,14 +21,13 @@ ROOT = Path(__file__).parent
 PAPER_DIR = ROOT / "paper_figures"
 OUT_DIR = ROOT / "output"
 CMP_DIR = ROOT / "comparisons"
-CMP_DIR.mkdir(exist_ok=True)
 
 # paper figure filename (in paper_figures/) -> output filename (in output/)
 MAPPING = {
-    "Fischer2023Fig3.png":  "fig3_paper.png",
+    "Fischer2023Fig3.png": "fig3_paper.png",
     "Fischer2023Fig5a.png": "fig5_paper_a.png",
     "Fischer2023Fig5b.png": "fig5_paper_b.png",
-    "Fischer2023Fig6.png":  "fig6_paper.png",
+    "Fischer2023Fig6.png": "fig6_paper.png",
     "Fischer2023Fig7a.png": "fig7_paper.png",
 }
 
@@ -49,6 +51,7 @@ def make_pair(paper_path: Path, repro_path: Path, out_path: Path) -> None:
 
 
 def main() -> None:
+    created = 0
     for paper_name, out_name in MAPPING.items():
         paper_path = PAPER_DIR / paper_name
         out_path = OUT_DIR / out_name
@@ -58,9 +61,17 @@ def main() -> None:
         if not out_path.exists():
             print(f"[skip] missing output: {out_name}")
             continue
+        CMP_DIR.mkdir(parents=True, exist_ok=True)
         cmp_path = CMP_DIR / f"{paper_path.stem}_sidebyside.png"
         make_pair(paper_path, out_path, cmp_path)
+        created += 1
         print(f"[ok] {cmp_path.name}")
+    if created == 0:
+        raise SystemExit(
+            "No side-by-side comparisons were created. Supply at least one "
+            "mapped local paper raster and its qpsim output; this helper does "
+            "not download or digitize paper data."
+        )
 
 
 if __name__ == "__main__":

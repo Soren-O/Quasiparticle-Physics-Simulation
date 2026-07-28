@@ -17,11 +17,25 @@ from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 from qpsim.physics.gap_equation import (
     GapBelowGridSupportError,
     GapRootIsolationError,
+    _fermi_dirac,
     _gap_integral_f,
     _positive_gap_integral_upper_bound,
     calibrate_gap,
     solve_gap,
 )
+
+
+def test_cold_fermi_tail_is_not_floored_at_exp_minus_500() -> None:
+    E = np.array([360.0])
+    T_bath = 0.007
+    exponent = E / (KB_UEV_PER_K * T_bath)
+    exp_negative = np.exp(-exponent)
+    expected = exp_negative / (1.0 + exp_negative)
+
+    got = _fermi_dirac(E, T_bath)
+
+    np.testing.assert_array_equal(got, expected)
+    assert 0.0 < float(np.asarray(got)[0]) < np.exp(-500.0)
 
 
 def _legacy_interpolated_gap_integral(

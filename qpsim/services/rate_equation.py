@@ -40,6 +40,21 @@ from scipy.optimize import brentq, least_squares, root
 from scipy.special import erf, erfc, wrightomega
 
 
+def _finite_real_scalar(name: str, raw: float) -> float:
+    """Return one finite real scalar, rejecting bool/complex coercions."""
+    if isinstance(raw, (bool, np.bool_)) or np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be a finite real scalar; got {raw!r}.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {raw!r}."
+        ) from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value!r}.")
+    return value
+
+
 def crossover_temperature_kelvin(
     *,
     Delta_R_kelvin: float,
@@ -81,31 +96,49 @@ def crossover_temperature_kelvin(
         For non-positive inputs.
     RuntimeError
         If the Lambert-W argument lands outside its real-valued
-        domain ``[−1/e, ∞)``.
+        domain ``[−1/e, ∞)`` or the resulting positive temperature is
+        outside the binary64 range.
     """
     inputs = {
         "Delta_R_kelvin": Delta_R_kelvin,
         "r_Rlt_rate_Hz": r_Rlt_rate_Hz,
         "g_photon_R_rate_Hz": g_photon_R_rate_Hz,
     }
-    for name, raw in inputs.items():
-        value = float(raw)
-        if not np.isfinite(value) or value <= 0.0:
+    values = {
+        name: _finite_real_scalar(name, raw)
+        for name, raw in inputs.items()
+    }
+    for name, value in values.items():
+        if value <= 0.0:
             raise ValueError(f"{name} must be finite and positive.")
 
     # Evaluate W(4*pi*r/g) without ever forming the ratio: both rates can
     # be finite while their quotient overflows or underflows binary64.
     log_arg = (
         math.log(4.0 * math.pi)
-        + math.log(float(r_Rlt_rate_Hz))
-        - math.log(float(g_photon_R_rate_Hz))
+        + math.log(values["r_Rlt_rate_Hz"])
+        - math.log(values["g_photon_R_rate_Hz"])
     )
     w = float(wrightomega(log_arg))  # wrightomega(x) == W(exp(x))
     if not np.isfinite(w) or w <= 0.0:
         raise RuntimeError(
             f"Lambert-W evaluation was not finite and positive (W={w!r})."
         )
-    return 2.0 * float(Delta_R_kelvin) / w
+    log_temperature = (
+        math.log(2.0)
+        + math.log(values["Delta_R_kelvin"])
+        - math.log(w)
+    )
+    try:
+        temperature = math.exp(log_temperature)
+    except OverflowError:
+        temperature = float("inf")
+    if not np.isfinite(temperature) or temperature <= 0.0:
+        raise RuntimeError(
+            "The crossover temperature is positive but not representable "
+            f"in binary64 (log(T/K)={log_temperature:.6g})."
+        )
+    return temperature
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -861,7 +894,8 @@ def analytic_low_T_seed(
             f"case must be 'large_asymmetry' or 'small_asymmetry'; "
             f"got {case!r}"
         )
-    if T_kelvin <= 0:
+    T_kelvin = _finite_real_scalar("T_kelvin", T_kelvin)
+    if T_kelvin <= 0.0:
         raise ValueError(f"T_kelvin must be positive; got {T_kelvin}")
 
     # ── p_1 from SI Eq. S73 at zeroth iteration ─────────────────────
@@ -1029,6 +1063,10 @@ def thermal_equilibrium_seed(
     ValueError
         Unless ``Δ_L > Δ_R > 0``, ``ω_10 > 0`` and ``T > 0``.
     """
+    Delta_L_kelvin = _finite_real_scalar("Delta_L_kelvin", Delta_L_kelvin)
+    Delta_R_kelvin = _finite_real_scalar("Delta_R_kelvin", Delta_R_kelvin)
+    omega_10_kelvin = _finite_real_scalar("omega_10_kelvin", omega_10_kelvin)
+    T_kelvin = _finite_real_scalar("T_kelvin", T_kelvin)
     if not (Delta_L_kelvin > Delta_R_kelvin > 0.0):
         raise ValueError(
             f"Require Delta_L_kelvin > Delta_R_kelvin > 0; got "
@@ -1120,17 +1158,30 @@ def chemical_potentials_kelvin(
     ValueError
         Unless ``Δ_L > Δ_R > 0`` and all temperatures are positive.
     """
+    Delta_L_kelvin = _finite_real_scalar("Delta_L_kelvin", Delta_L_kelvin)
+    Delta_R_kelvin = _finite_real_scalar("Delta_R_kelvin", Delta_R_kelvin)
     if not (Delta_L_kelvin > Delta_R_kelvin > 0.0):
         raise ValueError(
             f"Require Delta_L_kelvin > Delta_R_kelvin > 0; got "
             f"{Delta_L_kelvin}, {Delta_R_kelvin}."
         )
-    T = np.asarray(T_kelvin, dtype=float)
-    if not np.all(T > 0.0):
+    T_raw = np.asarray(T_kelvin)
+    if np.iscomplexobj(T_raw):
+        raise ValueError("T_kelvin must be real-valued.")
+    T = np.asarray(T_raw, dtype=float)
+    if np.any(~np.isfinite(T)) or not np.all(T > 0.0):
         raise ValueError(f"T_kelvin must be positive; got {T_kelvin}")
-    xL = np.asarray(x_L, dtype=float)
-    xRgt = np.asarray(x_Rgt, dtype=float)
-    xRlt = np.asarray(x_Rlt, dtype=float)
+    density_raw = {
+        "x_L": np.asarray(x_L),
+        "x_Rgt": np.asarray(x_Rgt),
+        "x_Rlt": np.asarray(x_Rlt),
+    }
+    for name, raw in density_raw.items():
+        if np.iscomplexobj(raw):
+            raise ValueError(f"{name} must be real-valued.")
+    xL = np.asarray(density_raw["x_L"], dtype=float)
+    xRgt = np.asarray(density_raw["x_Rgt"], dtype=float)
+    xRlt = np.asarray(density_raw["x_Rlt"], dtype=float)
 
     omega_LR_kelvin = Delta_L_kelvin - Delta_R_kelvin
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -1194,6 +1245,28 @@ class M25BranchSweep:
     photon_states: tuple[M25SteadyState | None, ...]
     thermal_states: tuple[M25SteadyState | None, ...]
     coefficients: tuple[M25Coefficients, ...]
+
+    def __post_init__(self) -> None:
+        raw = np.asarray(self.T_kelvin)
+        if np.iscomplexobj(raw):
+            raise ValueError("T_kelvin must be real-valued.")
+        temperatures = np.array(raw, dtype=float, copy=True)
+        if temperatures.ndim != 1 or temperatures.size == 0:
+            raise ValueError("T_kelvin must be a nonempty 1-D grid.")
+        if (
+            np.any(~np.isfinite(temperatures))
+            or np.any(temperatures <= 0.0)
+            or (
+                temperatures.size > 1
+                and np.any(np.diff(temperatures) <= 0.0)
+            )
+        ):
+            raise ValueError(
+                "T_kelvin must contain finite, positive, strictly "
+                "increasing values."
+            )
+        temperatures.flags.writeable = False
+        object.__setattr__(self, "T_kelvin", temperatures)
 
 
 def _branch_corrector(
@@ -1665,7 +1738,7 @@ def solve_rate_equation_branch(
     T_grid_input = np.asarray(T_grid_kelvin)
     if np.iscomplexobj(T_grid_input):
         raise ValueError("T_grid_kelvin must be real-valued.")
-    T_grid = np.asarray(T_grid_input, dtype=float)
+    T_grid = np.array(T_grid_input, dtype=float, copy=True)
     if T_grid.ndim != 1 or T_grid.size == 0:
         raise ValueError(f"T_grid_kelvin must be a nonempty 1-D grid; got shape {T_grid.shape}")
     if np.any(~np.isfinite(T_grid)) or np.any(T_grid <= 0.0):
@@ -1673,16 +1746,25 @@ def solve_rate_equation_branch(
     if T_grid.size > 1 and not np.all(np.diff(T_grid) > 0.0):
         raise ValueError("T_grid_kelvin must be strictly increasing.")
 
+    merge_rtol = _finite_real_scalar("merge_rtol", merge_rtol)
+    jump_tol_decades = _finite_real_scalar(
+        "jump_tol_decades", jump_tol_decades
+    )
+    residual_tol_relative = _finite_real_scalar(
+        "residual_tol_relative", residual_tol_relative
+    )
+    scan_window_decades = _finite_real_scalar(
+        "scan_window_decades", scan_window_decades
+    )
     finite_positive_controls = {
         "merge_rtol": merge_rtol,
         "jump_tol_decades": jump_tol_decades,
         "residual_tol_relative": residual_tol_relative,
         "scan_window_decades": scan_window_decades,
     }
-    for name, raw in finite_positive_controls.items():
-        value = float(raw)
-        if not np.isfinite(value) or value <= 0.0:
-            raise ValueError(f"{name} must be finite and positive; got {raw!r}.")
+    for name, value in finite_positive_controls.items():
+        if value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive; got {value!r}.")
     if (
         not isinstance(max_step_bisections, (int, np.integer))
         or isinstance(max_step_bisections, (bool, np.bool_))
@@ -1695,21 +1777,19 @@ def solve_rate_equation_branch(
         or max_function_evaluations < 1
     ):
         raise ValueError("max_function_evaluations must be a positive integer.")
-    if T_exchange_hint_kelvin is not None and (
-        not np.isfinite(T_exchange_hint_kelvin) or T_exchange_hint_kelvin <= 0.0
-    ):
-        raise ValueError(
-            "T_exchange_hint_kelvin must be finite and positive when provided."
+    if T_exchange_hint_kelvin is not None:
+        T_exchange_hint_kelvin = _finite_real_scalar(
+            "T_exchange_hint_kelvin", T_exchange_hint_kelvin
         )
+        if T_exchange_hint_kelvin <= 0.0:
+            raise ValueError(
+                "T_exchange_hint_kelvin must be finite and positive when provided."
+            )
     if len(full_scan_bounds) != 2:
         raise ValueError("full_scan_bounds must contain exactly (lower, upper).")
-    scan_lo, scan_hi = map(float, full_scan_bounds)
-    if (
-        not np.isfinite(scan_lo)
-        or not np.isfinite(scan_hi)
-        or scan_lo <= 0.0
-        or scan_hi <= scan_lo
-    ):
+    scan_lo = _finite_real_scalar("full_scan_bounds[0]", full_scan_bounds[0])
+    scan_hi = _finite_real_scalar("full_scan_bounds[1]", full_scan_bounds[1])
+    if scan_lo <= 0.0 or scan_hi <= scan_lo:
         raise ValueError(
             "full_scan_bounds must be finite positive values with lower < upper."
         )

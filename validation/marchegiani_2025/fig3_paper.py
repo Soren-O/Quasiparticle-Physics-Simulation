@@ -1,4 +1,4 @@
-r"""Marchegiani 2025 Fig 3 — paper-target reproduction of μ_α(T).
+r"""M25 Fig. 3 paper-topology qpsim regression of μ_α(T).
 
 This script targets the published Marchegiani & Catelani 2025 Fig 3:
 three sub-band chemical potentials $\mu_L(T)$, $\mu_{R>}(T)$,
@@ -32,7 +32,7 @@ driver :func:`qpsim.services.rate_equation.solve_rate_equation_branch`
 (photon branch continued up from the SI low-T analytic seed, thermal
 branch continued down from the full-equilibrium seed, composite per
 the driver's documented exchange rule). Chemical potentials are
-recovered with the paper-exact inversions of arXiv Eqs. (10)–(13)
+recovered with the transcribed paper-formula inversions of arXiv Eqs. (10)–(13)
 (published SI Eqs. S2–S5), including the ``√(Δ_α/2πT)`` and
 erf/erfc partition factors.
 
@@ -43,10 +43,11 @@ artifact of running the density equations on the ensemble ``Γ̃``
 rates; with the Γ̄ normalization the Fig 3 parameter set has a unique
 physical root at every temperature, both continuation passes agree
 everywhere ("merged"), and the μ_α(T) curves are smooth through the
-crossover with μ → 0 near T̄ ≈ 146 mK — matching the published
-figure without any per-point branch picking. The bidirectional
-tracker remains the guard against genuine folds at other parameter
-sets.
+crossover and become small by 150 mK. This is consistent with the broad
+manual ≈150 mK dashed-line anchor in the published figure; no digitized
+curve comparison or independently extracted crossing is claimed. The
+bidirectional tracker remains the guard against genuine folds at other
+parameter sets.
 
 Usage::
 
@@ -55,23 +56,48 @@ Usage::
 
 from __future__ import annotations
 
-import csv
-import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from validation.marchegiani_2025 import fig3_chemical_potentials as _chem
+from validation.marchegiani_2025._artifact import (
+    ArtifactValidationError,
+    ProducerIdentity,
+    capture_producer_identity,
+    manifest_path_for,
+    publish_bundle,
+    read_table,
+    require_staging_path,
+    source_fingerprint,
+    verified_bundle,
+    write_table,
+)
 from validation.marchegiani_2025.fig3_chemical_potentials import (
+    _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
     DELTA_R_OVER_H_GHZ,
+    DRIVE_TEMPLATE,
+    E_C_OVER_H_GHZ,
+    E_J_OVER_H_GHZ,
+    GAMMA_EE_10_HZ,
     GAMMA_PH_00_HZ,
     NUM_T_POINTS,
     OMEGA_10_OVER_H_GHZ,
+    R_RECOMB_HZ,
     T_MAX_K,
     T_MIN_K,
+    _certificate_metrics,
     _chemical_potentials_GHz,
+    _require_close,
     _T_bar_estimate,
+    _validate_reassembled_certificate,
     solve_panel_branch_sweep,
+)
+from validation.marchegiani_2025.fig3_chemical_potentials import (
+    Fig3PanelResult as ChemicalPanelResult,
 )
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
@@ -79,6 +105,26 @@ _H_OVER_KB = 4.799243e-11   # K / Hz
 # Panel-omega_LR pairs.
 PANEL_A_OMEGA_LR_GHZ = 0.5
 PANEL_B_OMEGA_LR_GHZ = 5.0
+_BUNDLE = "m25-fig3-paper"
+_RESIDUAL_RATIO_LIMIT = 1.0
+_CERTIFICATE = {
+    "kind": "reassembled_m25_full_residual",
+    "metric_version": "m25-source-scaled-residual-v2",
+    "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
+    "stamp_reassembly_atol": _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
+}
+_COLUMNS = (
+    "T_kelvin",
+    "x_L",
+    "x_Rgt",
+    "x_Rlt",
+    "p_1",
+    "mu_L_GHz",
+    "mu_Rgt_GHz",
+    "mu_Rlt_GHz",
+    "residual_inf_norm_Hz",
+    "max_abs_residual_over_tolerance",
+)
 
 
 @dataclass(frozen=True)
@@ -145,108 +191,235 @@ def _baseline_dir() -> Path:
 
 
 def baseline_path_a() -> Path:
-    """Panel-a CSV path (paper-faithful reproduction)."""
+    """Panel-a CSV path (paper-topology qpsim regression)."""
     return _baseline_dir() / "m25_fig3a_paper.csv"
 
 
 def baseline_path_b() -> Path:
-    """Panel-b CSV path (paper-faithful reproduction)."""
+    """Panel-b CSV path (paper-topology qpsim regression)."""
     return _baseline_dir() / "m25_fig3b_paper.csv"
 
 
 def plot_path() -> Path:
-    """Combined two-panel PDF (paper-faithful reproduction)."""
+    """Combined paper-topology qpsim-regression PDF."""
     return _baseline_dir() / "m25_fig3_paper.pdf"
 
 
-def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        # ``lineterminator='\n'`` overrides csv.writer's default CRLF
-        # so the baseline CSVs don't trigger ``git diff --check``
-        # trailing-whitespace warnings.
-        writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 3 — paper-target μ_α(T); "
-            "branch-continuation driver on the Γ̄-normalized moment system; "
-            "paper-exact μ inversion (SI Eqs. S2–S5)"
-        ])
-        writer.writerow([
-            f"# omega_LR_GHz={panel.omega_LR_GHz:g}  "
-            f"Delta_L_GHz={panel.Delta_L_GHz:g}  "
-            f"Delta_R_GHz={DELTA_R_OVER_H_GHZ:g}  "
-            f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
-            f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}  "
-            f"T_bar_kelvin={panel.T_bar_kelvin:.6e}"
-        ])
-        # The platform stamp selects the pin-test tolerance: strict
-        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
-        # (see validation/marchegiani_2025/_robust.py).
-        writer.writerow([f"# pinned_on: {sys.platform}"])
-        writer.writerow([
-            "T_kelvin", "x_L", "x_Rgt", "x_Rlt", "p_1",
-            "mu_L_GHz", "mu_Rgt_GHz", "mu_Rlt_GHz",
-        ])
-        for i in range(panel.T_kelvin.size):
-            writer.writerow([
-                f"{panel.T_kelvin[i]:.17e}",
-                f"{panel.x_L[i]:.17e}",
-                f"{panel.x_Rgt[i]:.17e}",
-                f"{panel.x_Rlt[i]:.17e}",
-                f"{panel.p_1[i]:.17e}",
-                f"{panel.mu_L_GHz[i]:.17e}",
-                f"{panel.mu_Rgt_GHz[i]:.17e}",
-                f"{panel.mu_Rlt_GHz[i]:.17e}",
-            ])
-    return path
+def manifest_path() -> Path:
+    return manifest_path_for(plot_path())
 
 
-def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig3PanelResult:
-    rows: list[list[float]] = []
-    T_bar_kelvin: float | None = None
-    Delta_L_GHz = DELTA_R_OVER_H_GHZ + omega_LR_GHz
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line:
-                continue
-            first = line[0]
-            if first.startswith("#"):
-                # Parse T_bar from the metadata line if present.
-                if "T_bar_kelvin=" in first:
-                    for token in first.split():
-                        if token.startswith("T_bar_kelvin="):
-                            T_bar_kelvin = float(token.split("=", 1)[1])
-                continue
-            if first == "T_kelvin":
-                continue
-            rows.append([float(x) for x in line])
-    if T_bar_kelvin is None:
-        # Fallback for older CSVs without T̄ in the header.
-        T_bar_kelvin = _T_bar_estimate(omega_LR_GHz)
-    data = np.array(rows, dtype=float)
-    return Fig3PanelResult(
-        omega_LR_GHz=omega_LR_GHz,
-        Delta_L_GHz=Delta_L_GHz,
-        T_kelvin=data[:, 0],
-        x_L=data[:, 1], x_Rgt=data[:, 2], x_Rlt=data[:, 3], p_1=data[:, 4],
-        mu_L_GHz=data[:, 5], mu_Rgt_GHz=data[:, 6], mu_Rlt_GHz=data[:, 7],
-        T_bar_kelvin=T_bar_kelvin,
+def _artifact_config() -> dict[str, object]:
+    return {
+        "Delta_R_over_h_GHz": DELTA_R_OVER_H_GHZ,
+        "E_C_over_h_GHz": E_C_OVER_H_GHZ,
+        "E_J_over_h_GHz": E_J_OVER_H_GHZ,
+        "Gamma_ee_10_Hz": GAMMA_EE_10_HZ,
+        "Gamma_ph_00_Hz": GAMMA_PH_00_HZ,
+        "T_bar_kelvin": {
+            "panel_a": _T_bar_estimate(PANEL_A_OMEGA_LR_GHZ),
+            "panel_b": _T_bar_estimate(PANEL_B_OMEGA_LR_GHZ),
+        },
+        "T_grid_kelvin": np.linspace(
+            T_MIN_K, T_MAX_K, NUM_T_POINTS
+        ).tolist(),
+        "drive": {
+            "Gamma_nu_scale_Hz": DRIVE_TEMPLATE.Gamma_nu_scale_Hz,
+            "nu_0_per_J_per_m3": DRIVE_TEMPLATE.nu_0_per_J_per_m3,
+            "omega_nu_kelvin": DRIVE_TEMPLATE.omega_nu_kelvin,
+            "volume_m3": DRIVE_TEMPLATE.volume_m3,
+        },
+        "omega_10_over_h_GHz": OMEGA_10_OVER_H_GHZ,
+        "omega_LR_over_h_GHz": [
+            PANEL_A_OMEGA_LR_GHZ,
+            PANEL_B_OMEGA_LR_GHZ,
+        ],
+        "r_recomb_Hz": R_RECOMB_HZ,
+        "residual_tol_relative": _chem._RESIDUAL_TOL_RELATIVE,
+    }
+
+
+def artifact_fingerprint() -> dict[str, object]:
+    return source_fingerprint(
+        bundle=_BUNDLE,
+        config=_artifact_config(),
+        producer_module=Path(__file__),
+        extra_validation_modules=(Path(_chem.__file__),),
     )
 
 
-def write_baseline(result: Fig3Result) -> tuple[Path, Path]:
+def _member_paths() -> dict[str, Path]:
+    return {
+        baseline_path_a().name: baseline_path_a(),
+        baseline_path_b().name: baseline_path_b(),
+        plot_path().name: plot_path(),
+    }
+
+
+def _expected_members() -> dict[str, str]:
+    return {
+        baseline_path_a().name: "csv",
+        baseline_path_b().name: "csv",
+        plot_path().name: "pdf",
+    }
+
+
+def _panel_role(omega_LR_GHz: float) -> str:
+    if omega_LR_GHz == PANEL_A_OMEGA_LR_GHZ:
+        return "panel_a"
+    if omega_LR_GHz == PANEL_B_OMEGA_LR_GHZ:
+        return "panel_b"
+    raise ArtifactValidationError(
+        f"Unexpected M25 Fig. 3 paper panel frequency {omega_LR_GHz!r}."
+    )
+
+
+def _as_chemical_panel(panel: Fig3PanelResult) -> ChemicalPanelResult:
+    return ChemicalPanelResult(
+        omega_LR_GHz=panel.omega_LR_GHz,
+        T_kelvin=panel.T_kelvin,
+        x_L=panel.x_L,
+        x_Rgt=panel.x_Rgt,
+        x_Rlt=panel.x_Rlt,
+        p_1=panel.p_1,
+        mu_L_GHz=panel.mu_L_GHz,
+        mu_Rgt_GHz=panel.mu_Rgt_GHz,
+        mu_Rlt_GHz=panel.mu_Rlt_GHz,
+    )
+
+
+def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
+    residual_inf, residual_ratio = _certificate_metrics(_as_chemical_panel(panel))
+    rows = [
+        [
+            panel.T_kelvin[index],
+            panel.x_L[index],
+            panel.x_Rgt[index],
+            panel.x_Rlt[index],
+            panel.p_1[index],
+            panel.mu_L_GHz[index],
+            panel.mu_Rgt_GHz[index],
+            panel.mu_Rlt_GHz[index],
+            residual_inf[index],
+            residual_ratio[index],
+        ]
+        for index in range(panel.T_kelvin.size)
+    ]
+    return write_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(panel.omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        rows=rows,
+        certificate=_CERTIFICATE,
+    )
+
+
+def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig3PanelResult:
+    payload = read_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        certificate=_CERTIFICATE,
+    )
+    try:
+        data = np.array(payload.rows, dtype=float)
+    except ValueError as exc:
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 paper table {path} contains nonnumeric cells."
+        ) from exc
+    if data.shape != (NUM_T_POINTS, len(_COLUMNS)) or not np.all(
+        np.isfinite(data)
+    ):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 paper table {path} has invalid shape/nonfinite data."
+        )
+    expected_T = np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
+    if not np.array_equal(data[:, 0], expected_T):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 paper table {path} has the wrong temperature grid."
+        )
+    if (
+        np.any(data[:, 1:4] < 0.0)
+        or np.any(data[:, 4] < 0.0)
+        or np.any(data[:, 4] > 1.0)
+    ):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 paper table {path} contains an unphysical state."
+        )
+    panel = Fig3PanelResult(
+        omega_LR_GHz=omega_LR_GHz,
+        Delta_L_GHz=DELTA_R_OVER_H_GHZ + omega_LR_GHz,
+        T_kelvin=data[:, 0],
+        x_L=data[:, 1],
+        x_Rgt=data[:, 2],
+        x_Rlt=data[:, 3],
+        p_1=data[:, 4],
+        mu_L_GHz=data[:, 5],
+        mu_Rgt_GHz=data[:, 6],
+        mu_Rlt_GHz=data[:, 7],
+        T_bar_kelvin=_T_bar_estimate(omega_LR_GHz),
+    )
+    expected_mu = _chemical_potentials_GHz(
+        omega_LR_GHz,
+        panel.T_kelvin,
+        panel.x_L,
+        panel.x_Rgt,
+        panel.x_Rlt,
+    )
+    for label, actual, expected in zip(
+        ("mu_L", "mu_Rgt", "mu_Rlt"),
+        (panel.mu_L_GHz, panel.mu_Rgt_GHz, panel.mu_Rlt_GHz),
+        expected_mu,
+        strict=True,
+    ):
+        _require_close(actual, expected, name=label, atol=2e-13)
+    _validate_reassembled_certificate(
+        _as_chemical_panel(panel),
+        data[:, 8],
+        data[:, 9],
+        context=f"M25 Fig. 3 paper table {path}",
+    )
+    return panel
+
+
+def write_baseline(
+    result: Fig3Result,
+    paths: tuple[Path, Path] | None = None,
+) -> tuple[Path, Path]:
+    if paths is None:
+        paths = (baseline_path_a(), baseline_path_b())
+    for path, canonical in zip(
+        paths,
+        (baseline_path_a(), baseline_path_b()),
+        strict=True,
+    ):
+        require_staging_path(path, canonical, kind="CSV")
     return (
-        _write_panel_csv(result.panel_a, baseline_path_a()),
-        _write_panel_csv(result.panel_b, baseline_path_b()),
+        _write_panel_csv(result.panel_a, paths[0]),
+        _write_panel_csv(result.panel_b, paths[1]),
     )
 
 
 def read_baseline() -> Fig3Result:
-    return Fig3Result(
-        panel_a=_read_panel_csv(baseline_path_a(), PANEL_A_OMEGA_LR_GHZ),
-        panel_b=_read_panel_csv(baseline_path_b(), PANEL_B_OMEGA_LR_GHZ),
-    )
+    with verified_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        fingerprint=artifact_fingerprint(),
+        expected_members=_expected_members(),
+        member_paths=_member_paths(),
+    ):
+        return Fig3Result(
+            panel_a=_read_panel_csv(
+                baseline_path_a(), PANEL_A_OMEGA_LR_GHZ
+            ),
+            panel_b=_read_panel_csv(
+                baseline_path_b(), PANEL_B_OMEGA_LR_GHZ
+            ),
+        )
 
 
 # ── plotting ─────────────────────────────────────────────────────────
@@ -269,8 +442,8 @@ _SHADE_PANEL_B = ("#9FC2E6", "#B7D497", "#F4DC74")
 
 
 def _plot_panel(
-    ax,
-    inset_ax,
+    ax: Any,
+    inset_ax: Any,
     panel: Fig3PanelResult,
     *,
     shading: tuple[str, str, str],
@@ -344,9 +517,9 @@ def _plot_panel(
         transform=ax.transAxes, ha="right", va="bottom", fontsize=12,
     )
     ax.text(
-        1.01, 0.5, asym_label,
-        transform=ax.transAxes, ha="left", va="center",
-        rotation=90, fontsize=10,
+        0.02, 0.96, asym_label,
+        transform=ax.transAxes, ha="left", va="top",
+        fontsize=8.5,
     )
 
     if show_legend:
@@ -419,10 +592,11 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes  # type: ignore[import-untyped]
 
     if path is None:
         path = plot_path()
+    require_staging_path(path, plot_path(), kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, (ax_a, ax_b) = plt.subplots(
@@ -465,20 +639,37 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     ax_b.set_xlabel(r"$T$ [K]", fontsize=12)
 
     fig.suptitle(
-        "Marchegiani 2025 Fig 3 — μ_α(T), branch-continuation tracked\n"
+        "M25 Fig. 3 topology — qpsim branch-continuation regression\n"
+        "(manual broad paper anchors; no digitized paper points)\n"
         rf"$\Delta_R/h = {DELTA_R_OVER_H_GHZ:g}$ GHz, "
         rf"$\omega_{{10}}/(2\pi) = {OMEGA_10_OVER_H_GHZ:g}$ GHz, "
         rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}} = {GAMMA_PH_00_HZ:g}$ Hz",
         fontsize=10,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    # ``tight_layout`` does not understand the inset/secondary axes and
+    # previously clipped the inset's right-axis labels. Reserve those
+    # margins explicitly and avoid the misleading layout warning.
+    fig.subplots_adjust(
+        left=0.13,
+        right=0.82,
+        bottom=0.08,
+        top=0.76,
+        hspace=0.08,
+    )
     fig.savefig(path)
     plt.close(fig)
     return path
 
 
+def _validate_staged_bundle(stages: Mapping[Path, Path]) -> None:
+    _read_panel_csv(stages[baseline_path_a()], PANEL_A_OMEGA_LR_GHZ)
+    _read_panel_csv(stages[baseline_path_b()], PANEL_B_OMEGA_LR_GHZ)
+
+
 def generate_baseline() -> tuple[Path, Path, Path]:
-    print("M25 Fig 3 paper-target reproduction")
+    fingerprint = artifact_fingerprint()
+    producer: ProducerIdentity = capture_producer_identity(fingerprint)
+    print("M25 Fig 3 paper-topology qpsim regression")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, "
           f"ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz (recalibrated at each T)")
@@ -495,8 +686,24 @@ def generate_baseline() -> tuple[Path, Path, Path]:
     print(f"  Panel b (ω_LR = {PANEL_B_OMEGA_LR_GHZ} GHz) ...")
     panel_b = _run_panel(PANEL_B_OMEGA_LR_GHZ)
     result = Fig3Result(panel_a=panel_a, panel_b=panel_b)
-    csv_a, csv_b = write_baseline(result)
-    pdf = write_plot(result)
+    csv_a, csv_b, pdf, _manifest = publish_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        producer=producer,
+        current_fingerprint=artifact_fingerprint,
+        members={
+            baseline_path_a(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_a, path),
+            ),
+            baseline_path_b(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_b, path),
+            ),
+            plot_path(): ("pdf", lambda path: write_plot(result, path)),
+        },
+        validate_staged=_validate_staged_bundle,
+    )
     print(f"  Baselines: {csv_a.name}, {csv_b.name}")
     print(f"  PDF plot:  {pdf.name}")
     return csv_a, csv_b, pdf

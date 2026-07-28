@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from qpsim.observables.ac_conductivity import compute_ac_conductivity
+from qpsim.observables.ac_conductivity import (
+    _finite_real_scalar,
+    compute_ac_conductivity,
+)
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -45,8 +48,9 @@ def compute_quality_factor(
     n_subgap
         Quadrature points for the ``σ₂`` sub-gap integral.
     """
-    if alpha <= 0:
-        raise ValueError("alpha must be positive.")
+    alpha = _finite_real_scalar("alpha", alpha)
+    if not 0.0 < alpha <= 1.0:
+        raise ValueError("alpha must lie in (0, 1].")
 
     s1, s2 = compute_ac_conductivity(f, ctx, omega_0, n_subgap=n_subgap)
     # sigma_1 < 0 is microwave gain (negative damping), not the zero-loss
@@ -55,7 +59,8 @@ def compute_quality_factor(
     Q_qp = s2 / (alpha * s1) if s1 != 0.0 else float(np.inf)
 
     if Q_ext is not None:
-        if not np.isfinite(Q_ext) or Q_ext <= 0.0:
+        Q_ext = _finite_real_scalar("Q_ext", Q_ext)
+        if Q_ext <= 0.0:
             raise ValueError("Q_ext must be finite and positive when provided.")
         inverse_total = 1.0 / Q_qp + 1.0 / Q_ext
         # Exact gain/loss cancellation is the net zero-damping threshold.

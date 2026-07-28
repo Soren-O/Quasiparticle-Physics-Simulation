@@ -5,6 +5,7 @@ import csv
 import inspect
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -14,17 +15,41 @@ import pytest
 from validation.fischer_2024 import _artifact as artifact_module
 from validation.fischer_2024 import fig5_paper, fig8_paper, fig8_xqp_pb, figs_5_7_fe_pb
 from validation.fischer_2024._artifact import (
+    TARGET_QP_BACKWARD_ERROR_LIMIT,
+    TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT,
+    TARGET_QP_RESIDUAL_INF_LIMIT,
     THERMAL_OCCUPATION_RTOL,
     ArtifactValidationError,
     QPCertificate,
+    bind_certificate,
     capture_producer_identity,
+    companion_artifact_record,
     publish_artifact_pair,
     read_artifact,
     source_hashes,
     thermal_occupations_match,
+    validate_certificate,
     validated_numeric_array,
     write_artifact,
 )
+
+
+def _write_one_page_matplotlib_pdf(path: Path, label: str) -> Path:
+    from matplotlib.backends.backend_pdf import FigureCanvasPdf
+    from matplotlib.figure import Figure
+
+    figure = Figure(figsize=(2.0, 1.0))
+    figure.text(0.5, 0.5, label, ha="center", va="center")
+    FigureCanvasPdf(figure).print_pdf(path)
+    return path
+
+
+def _write_blank_one_page_matplotlib_pdf(path: Path) -> Path:
+    from matplotlib.backends.backend_pdf import FigureCanvasPdf
+    from matplotlib.figure import Figure
+
+    FigureCanvasPdf(Figure(figsize=(2.0, 1.0))).print_pdf(path)
+    return path
 
 
 def test_thermal_occupation_match_is_ulp_scale_and_shape_strict() -> None:
@@ -74,7 +99,70 @@ def test_complex_numeric_payloads_fail_loudly(tmp_path: Path) -> None:
             fingerprint={"source": "test"},
             columns=("value",),
             rows=((1.0 + 2.0j,),),
-            certificates={"point": QPCertificate(0.0, 0.0)},
+            certificates={"point": QPCertificate(0.0, 0.0, 0.0)},
+        )
+
+
+def test_pair_number_certificate_rejects_number_mode_when_other_gates_pass() -> None:
+    """The aggregate gates alone must not certify a wrong QP-number mode."""
+    certificate = QPCertificate(
+        backward_error=0.0,
+        residual_inf=0.0,
+        qp_number_backward_error=(
+            2.0 * TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="QP number backward error"):
+        validate_certificate(certificate, context="number-only regression")
+
+
+def test_certificate_binding_accepts_runtime_diagnostic_drift_but_not_bad_claims() -> None:
+    """Producer stamps are validity claims, not cross-runtime bit pins."""
+    stamped = QPCertificate(
+        backward_error=0.75 * TARGET_QP_BACKWARD_ERROR_LIMIT,
+        residual_inf=0.75 * TARGET_QP_RESIDUAL_INF_LIMIT,
+        qp_number_backward_error=0.75 * TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT,
+    )
+    reassembled = QPCertificate(
+        backward_error=0.25 * TARGET_QP_BACKWARD_ERROR_LIMIT,
+        residual_inf=0.25 * TARGET_QP_RESIDUAL_INF_LIMIT,
+        qp_number_backward_error=0.25 * TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT,
+    )
+
+    # These diagnostics deliberately differ by far more than the former
+    # rtol=1e-12 stamp pin, yet both independently satisfy the contract.
+    assert bind_certificate(
+        stamped,
+        reassembled,
+        context="cross-runtime regression",
+        residual_inf_limit=TARGET_QP_RESIDUAL_INF_LIMIT,
+    ) is reassembled
+
+    bad_stamped = QPCertificate(
+        backward_error=2.0 * TARGET_QP_BACKWARD_ERROR_LIMIT,
+        residual_inf=reassembled.residual_inf,
+        qp_number_backward_error=reassembled.qp_number_backward_error,
+    )
+    with pytest.raises(RuntimeError, match="stamped certificate"):
+        bind_certificate(
+            bad_stamped,
+            reassembled,
+            context="bad producer claim",
+            residual_inf_limit=TARGET_QP_RESIDUAL_INF_LIMIT,
+        )
+
+    bad_reassembled = QPCertificate(
+        backward_error=stamped.backward_error,
+        residual_inf=2.0 * TARGET_QP_RESIDUAL_INF_LIMIT,
+        qp_number_backward_error=stamped.qp_number_backward_error,
+    )
+    with pytest.raises(RuntimeError, match="reassembled certificate"):
+        bind_certificate(
+            stamped,
+            bad_reassembled,
+            context="bad fresh claim",
+            residual_inf_limit=TARGET_QP_RESIDUAL_INF_LIMIT,
         )
 
 
@@ -249,8 +337,7 @@ def test_pair_publication_binds_pdf_and_promotes_csv_last(
     monkeypatch.setattr(os, "replace", tracking_replace)
 
     def render_pdf(path: Path) -> Path:
-        path.write_bytes(b"%PDF-1.4\nunit-test\n%%EOF\n")
-        return path
+        return _write_one_page_matplotlib_pdf(path, "unit test")
 
     def write_csv(path, identity, pdf_record):
         return write_artifact(
@@ -259,7 +346,7 @@ def test_pair_publication_binds_pdf_and_promotes_csv_last(
             fingerprint=fingerprint,
             columns=("value",),
             rows=((1.0,),),
-            certificates={"point": QPCertificate(0.0, 0.0)},
+            certificates={"point": QPCertificate(0.0, 0.0, 0.0)},
             producer=identity,
             companion_pdf=pdf_record,
         )
@@ -296,8 +383,13 @@ def test_pair_publication_binds_pdf_and_promotes_csv_last(
         metadata = json.loads(list(csv.reader(fp))[1][0].split("=", 1)[1])
     assert metadata["companion_pdf"]["size_bytes"] == pdf_path.stat().st_size
     assert metadata["producer_runtime"] == producer.runtime
+    assert metadata["certificate_target_qp_number_backward_error"] == (
+        TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT
+    )
+    assert metadata["certificate_max_qp_number_backward_error"] == 0.0
+    assert metadata["certificate_points"][0]["qp_number_backward_error"] == 0.0
 
-    pdf_path.write_bytes(b"%PDF-1.4\ntampered\n%%EOF\n")
+    _write_one_page_matplotlib_pdf(pdf_path, "tampered")
     with pytest.raises(ArtifactValidationError, match="does not authenticate"):
         read_artifact(
             csv_path,
@@ -320,7 +412,7 @@ def test_pair_publication_refuses_mid_solve_identity_drift(tmp_path: Path) -> No
     producer = capture_producer_identity(current)
 
     def render_pdf(path: Path) -> Path:
-        path.write_bytes(b"%PDF-1.4\nnew\n%%EOF\n")
+        _write_one_page_matplotlib_pdf(path, "new")
         current["source"] = "after"
         return path
 
@@ -331,7 +423,7 @@ def test_pair_publication_refuses_mid_solve_identity_drift(tmp_path: Path) -> No
             fingerprint=producer.fingerprint,
             columns=("value",),
             rows=((1.0,),),
-            certificates={"point": QPCertificate(0.0, 0.0)},
+            certificates={"point": QPCertificate(0.0, 0.0, 0.0)},
             producer=identity,
             companion_pdf=pdf_record,
         )
@@ -347,3 +439,118 @@ def test_pair_publication_refuses_mid_solve_identity_drift(tmp_path: Path) -> No
         )
     assert csv_path.read_text(encoding="utf-8") == "old csv"
     assert pdf_path.read_bytes() == b"%PDF-1.4\nold\n%%EOF\n"
+
+
+def test_pair_lock_rejects_concurrent_publisher_and_reader(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "artifact.csv"
+    pdf_path = tmp_path / "artifact.pdf"
+    fingerprint = {"source": "stable"}
+    producer = capture_producer_identity(fingerprint)
+    renderer_entered = threading.Event()
+    release_renderer = threading.Event()
+    thread_errors: list[BaseException] = []
+
+    def render_pdf(path: Path) -> Path:
+        _write_one_page_matplotlib_pdf(path, "locked publisher")
+        renderer_entered.set()
+        if not release_renderer.wait(timeout=10.0):
+            raise RuntimeError("test did not release the locked publisher")
+        return path
+
+    def write_csv(path: Path, identity: Any, pdf_record: Any) -> Path:
+        return write_artifact(
+            path,
+            schema="test-pair-v1",
+            fingerprint=fingerprint,
+            columns=("value",),
+            rows=((1.0,),),
+            certificates={"point": QPCertificate(0.0, 0.0, 0.0)},
+            producer=identity,
+            companion_pdf=pdf_record,
+        )
+
+    def publish_in_thread() -> None:
+        try:
+            publish_artifact_pair(
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                producer=producer,
+                current_fingerprint=lambda: fingerprint,
+                render_pdf=render_pdf,
+                write_csv=write_csv,
+            )
+        except BaseException as exc:  # pragma: no cover - reported below
+            thread_errors.append(exc)
+
+    thread = threading.Thread(target=publish_in_thread, daemon=True)
+    thread.start()
+    assert renderer_entered.wait(timeout=10.0)
+    try:
+        with pytest.raises(ArtifactValidationError, match="concurrent publication"):
+            publish_artifact_pair(
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                producer=producer,
+                current_fingerprint=lambda: fingerprint,
+                render_pdf=lambda path: path,
+                write_csv=write_csv,
+            )
+        with pytest.raises(ArtifactValidationError, match="concurrent read"):
+            read_artifact(
+                csv_path,
+                schema="test-pair-v1",
+                fingerprint=fingerprint,
+                columns=("value",),
+                expected_row_count=1,
+                expected_certificate_ids=("point",),
+                companion_pdf_path=pdf_path,
+                require_companion_pdf=True,
+            )
+    finally:
+        release_renderer.set()
+        thread.join(timeout=10.0)
+
+    assert not thread.is_alive()
+    assert thread_errors == []
+    decoded = read_artifact(
+        csv_path,
+        schema="test-pair-v1",
+        fingerprint=fingerprint,
+        columns=("value",),
+        expected_row_count=1,
+        expected_certificate_ids=("point",),
+        companion_pdf_path=pdf_path,
+        require_companion_pdf=True,
+    )
+    assert decoded.data[0, 0] == 1.0
+
+
+def test_companion_parser_rejects_header_eof_decoy(tmp_path: Path) -> None:
+    fake = tmp_path / "fake.pdf"
+    fake.write_bytes(b"%PDF-1.4\nnot a page tree\n%%EOF\n")
+    with pytest.raises(ArtifactValidationError, match="one-page Matplotlib PDF"):
+        companion_artifact_record(fake)
+
+    valid = tmp_path / "valid.pdf"
+    _write_one_page_matplotlib_pdf(valid, "nonempty")
+    record = companion_artifact_record(valid)
+    assert record.size_bytes == valid.stat().st_size
+    assert len(record.sha256) == 64
+
+
+def test_companion_parser_rejects_visually_blank_matplotlib_page(
+    tmp_path: Path,
+) -> None:
+    blank = _write_blank_one_page_matplotlib_pdf(tmp_path / "blank.pdf")
+    with pytest.raises(ArtifactValidationError, match="one-page Matplotlib PDF"):
+        companion_artifact_record(blank)
+
+    # Text alone is a semantic page mark; the validator must not require
+    # axes, plotted data, or an arbitrary byte-count floor.
+    text_only = _write_one_page_matplotlib_pdf(
+        tmp_path / "text-only.pdf",
+        "semantic content",
+    )
+    companion_artifact_record(text_only)

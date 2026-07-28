@@ -7,15 +7,18 @@ Usage:
 The first arg is the file in output/ to use for the right panel. The
 second arg is the paper-figure file (in paper_figures/) to use for the
 left panel. The third arg is the output sidebyside path.
+
+This is an unscored manual visual aid. It performs no image registration,
+axis calibration, curve extraction, uncertainty analysis, or quantitative
+paper-data parity test.
 """
+
 import os
 import sys
 import tempfile
 from pathlib import Path
 
-os.environ.setdefault(
-    "MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "qpsim-fischer2023-mpl")
-)
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "qpsim-fischer2023-mpl"))
 import matplotlib
 
 matplotlib.use("Agg", force=True)

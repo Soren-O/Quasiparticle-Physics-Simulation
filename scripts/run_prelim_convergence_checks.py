@@ -17,18 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import (
-    AL_STRIP_LENGTH_UM,
     EXPERIMENT_BATH_TEMPERATURE_K,
 )
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from scripts.run_prelim_spatial_finite_phonon_one import FinitePhononSpatialRunner
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
     SweepConfig,
+    _cell_centered_strip_grid,
     _resonator_shifts,
     _source_calibration,
     _source_flux,
@@ -83,8 +82,7 @@ CASES = (
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _case_config(case: ConvergenceCase, source_rate_per_ns: float) -> SweepConfig:
@@ -127,7 +125,7 @@ def _build_state(case: ConvergenceCase) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0_UM2_PER_NS,
     )
-    x = np.linspace(0.0, AL_STRIP_LENGTH_UM, case.NX)
+    x, _dx_um = _cell_centered_strip_grid(case.NX)
     f0 = np.repeat(
         _fermi_dirac(E, EXPERIMENT_BATH_TEMPERATURE_K)[:, None],
         case.NX,
@@ -204,7 +202,7 @@ def _run_case(
         "NX": case.NX,
         "NE": case.NE,
         "dt_ns": config.dt_ns,
-        "dx_um": AL_STRIP_LENGTH_UM / (case.NX - 1),
+        "dx_um": state.dx,
         "D0_um2_per_ns": D0_UM2_PER_NS,
         "tau_l_ns": TAU_L_NS,
         "T_bath_K": EXPERIMENT_BATH_TEMPERATURE_K,

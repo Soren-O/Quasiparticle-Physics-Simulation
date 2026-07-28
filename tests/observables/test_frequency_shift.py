@@ -43,6 +43,23 @@ class TestComputeFrequencyShift:
         shift = compute_frequency_shift(f_hot, f_ref, ctx, omega_0=1.0, alpha=0.0)
         assert shift == 0.0
 
+    @pytest.mark.parametrize(
+        "bad_alpha",
+        [np.nan, np.inf, -np.inf, -0.1, 1.1, complex(0.1, 0.0), True],
+    )
+    def test_rejects_alpha_outside_finite_real_fraction(
+        self, bad_alpha: complex | float
+    ) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="alpha"):
+            compute_frequency_shift(
+                f,
+                f,
+                ctx,
+                omega_0=1.0,
+                alpha=bad_alpha,
+            )
+
     def test_zero_reference_sigma2_with_change_fails_loudly(self) -> None:
         # A normal reference has sigma2=0, so a nonzero current response makes
         # the relative shift undefined and must not be mislabeled as zero.

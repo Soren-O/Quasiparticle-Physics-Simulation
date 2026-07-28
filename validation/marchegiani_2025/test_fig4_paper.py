@@ -1,4 +1,4 @@
-"""Regression test: M25 Fig 4 paper-faithful run matches the pinned baseline CSV.
+"""Regression test: M25 Fig. 4 paper-topology qpsim run matches its pin.
 
 Fast since the branch-continuation driver landed: the full-model
 sweeps are warm-started Newton solves on the well-conditioned
@@ -39,14 +39,20 @@ def test_matches_pinned_baseline() -> None:
             "Generate it with: python -m validation.marchegiani_2025.fig4_paper"
         )
 
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
     result = run()
 
     # Same set of (ω_LR, model) panels in both: full + global for both
     # ω_LR cases, renorm for the 5 GHz family only (paper Fig. 4).
     expected_keys = {
-        (0.5, MODEL_FULL), (0.5, MODEL_GLOBAL),
-        (5.0, MODEL_FULL), (5.0, MODEL_GLOBAL), (5.0, MODEL_RENORM),
+        (0.5, MODEL_FULL),
+        (0.5, MODEL_GLOBAL),
+        (5.0, MODEL_FULL),
+        (5.0, MODEL_GLOBAL),
+        (5.0, MODEL_RENORM),
     }
     assert set(result.panels.keys()) == expected_keys
     assert set(baseline.panels.keys()) == expected_keys
@@ -56,31 +62,41 @@ def test_matches_pinned_baseline() -> None:
         omega, model = key
 
         np.testing.assert_allclose(
-            actual.T_kelvin, expected.T_kelvin,
-            rtol=0.0, atol=1e-14,
+            actual.T_kelvin,
+            expected.T_kelvin,
+            rtol=0.0,
+            atol=1e-14,
             err_msg=f"(ω_LR={omega} GHz, model={model}): T_kelvin drifted",
         )
         assert_pinned_match(
-            actual.Gamma_P_Hz, expected.Gamma_P_Hz,
+            actual.Gamma_P_Hz,
+            expected.Gamma_P_Hz,
             f"(ω_LR={omega} GHz, model={model}): Gamma_P_Hz",
             baseline_path=path,
         )
         assert_pinned_match(
-            actual.ratio_eo_01_over_10, expected.ratio_eo_01_over_10,
+            actual.ratio_eo_01_over_10,
+            expected.ratio_eo_01_over_10,
             f"(ω_LR={omega} GHz, model={model}): ratio",
             baseline_path=path,
         )
 
 
-def test_full_model_matches_paper_scale_and_shape() -> None:
-    """Paper Fig. 4a values: purple (0.5 GHz) full model starts near
-    1.9 kHz with a shallow nonmonotonic dip below ~25 mK, rising to
-    ~6 kHz at 150 mK; teal (5 GHz) starts near 0.8 kHz and rises
-    monotonically to ~4.5 kHz."""
+def test_full_model_satisfies_manual_broad_scale_and_shape_anchor() -> None:
+    """Broad manual Fig. 4a sanity bands, not digitized parity.
+
+    A manual reading places the 0.5 GHz curve near 1.9 kHz initially,
+    with a shallow low-temperature dip and a rise toward 6 kHz, while the
+    5 GHz curve rises from roughly 0.8 to 4.5 kHz. These intentionally
+    broad bands do not represent extracted paper points or uncertainties.
+    """
     path = baseline_path()
     if not path.exists():
         pytest.skip("Baseline missing.")
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
 
     a = baseline.get(0.5, MODEL_FULL)
     assert 1.2e3 < a.Gamma_P_Hz[0] < 2.5e3
@@ -104,7 +120,10 @@ def test_gamma_P_smooth_no_multistability_scatter() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip("Baseline missing.")
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
     for key, panel in baseline.panels.items():
         dlog = np.abs(np.diff(np.log10(panel.Gamma_P_Hz)))
         assert float(dlog.max()) < 0.2, (
@@ -121,7 +140,10 @@ def test_panel_b_ratio_increases_with_T_full_model() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip("Baseline missing.")
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
     omega_10_K = 5.5e9 * 4.799243e-11
     for omega_LR_GHz in (0.5, 5.0):
         panel = baseline.get(omega_LR_GHz, MODEL_FULL)
@@ -141,12 +163,17 @@ def test_global_quasiequilibrium_tracks_full_model_small_asymmetry() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip("Baseline missing.")
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
     full = baseline.get(0.5, MODEL_FULL)
     glob = baseline.get(0.5, MODEL_GLOBAL)
     mask = full.T_kelvin > 0.060
     np.testing.assert_allclose(
-        glob.Gamma_P_Hz[mask], full.Gamma_P_Hz[mask], rtol=0.15,
+        glob.Gamma_P_Hz[mask],
+        full.Gamma_P_Hz[mask],
+        rtol=0.15,
     )
     assert glob.Gamma_P_Hz[0] < full.Gamma_P_Hz[0]
 
@@ -160,12 +187,17 @@ def test_renormalized_mimics_full_model_on_Gamma_P_but_not_ratio() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip("Baseline missing.")
-    baseline = read_baseline(path)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
     full = baseline.get(5.0, MODEL_FULL)
     renorm = baseline.get(5.0, MODEL_RENORM)
     # Γ_P agreement to ~35% across the sweep (paper: "reasonably well").
     np.testing.assert_allclose(
-        renorm.Gamma_P_Hz, full.Gamma_P_Hz, rtol=0.35,
+        renorm.Gamma_P_Hz,
+        full.Gamma_P_Hz,
+        rtol=0.35,
     )
     # Ratio deviates strongly at the lowest temperatures (paper panel
     # b: the dot-dashed curve starts several times above the solid).

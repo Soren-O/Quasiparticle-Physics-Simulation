@@ -8,6 +8,7 @@ import csv
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -16,15 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from scripts.run_prelim_spatial_finite_phonon_one import FinitePhononSpatialRunner
 from scripts.run_prelim_spatial_overnight import (
     ENERGY_MAX_FACTOR,
-    LENGTH_UM,
     SweepConfig,
+    _cell_centered_strip_grid,
     _resonator_shifts,
     _source_calibration,
     _source_flux,
@@ -55,8 +55,7 @@ TAU_L_VALUES_NS = (0.1, 0.3, 1.0, 3.0, 10.0)
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _build_state(D0: float) -> T3Spatial1DState:
@@ -74,7 +73,7 @@ def _build_state(D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x = np.linspace(0.0, LENGTH_UM, CONFIG.NX)
+    x, _dx_um = _cell_centered_strip_grid(CONFIG.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], CONFIG.NX, axis=1)
     return T3Spatial1DState(
         f=f0,
@@ -185,29 +184,33 @@ def _append_rows(path: Path, rows: list[dict[str, object]], fieldnames: list[str
         writer.writerows(rows)
 
 
+def _write_metadata_atomically(path: Path, payload: dict[str, object]) -> None:
+    """Replace campaign metadata without exposing a partial JSON document."""
+    tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    with (OUT_DIR / "metadata.json").open("w") as fp:
-        json.dump(
-            {
-                "description": __doc__,
-                "config": CONFIG.__dict__,
-                "tau_l_values_ns": TAU_L_VALUES_NS,
-                "model_note": (
-                    "Dynamic local Ph0 phonons with finite escape to bath; "
-                    "no lateral phonon transport."
-                ),
-            },
-            fp,
-            indent=2,
-        )
-
+    metadata_path = OUT_DIR / "metadata.json"
+    metadata: dict[str, object] = {
+        "description": __doc__,
+        "config": CONFIG.__dict__,
+        "tau_l_values_ns": TAU_L_VALUES_NS,
+        "model_note": (
+            "Dynamic local Ph0 phonons with finite escape to bath; "
+            "no lateral phonon transport."
+        ),
+    }
     summary_path = OUT_DIR / "summary.csv"
     shifts_path = OUT_DIR / "resonator_shifts.csv"
-    summary_path.unlink(missing_ok=True)
-    shifts_path.unlink(missing_ok=True)
     total = len(CONFIG.D0_values) * len(CONFIG.source_rates_per_ns) * len(TAU_L_VALUES_NS)
     count = 0
+    reset_aggregates = True
     summary_fields: list[str] | None = None
     shift_fields: list[str] | None = None
     start_all = time.monotonic()
@@ -222,6 +225,16 @@ def main() -> None:
                     flush=True,
                 )
                 row, shift_rows = _run_case(D0, source_rate, tau_l_ns)
+                # Preserve the previous completed aggregates until one new
+                # case has survived the integration and observable stages.
+                # Keep its metadata too: replacing metadata before the first
+                # successful case would falsely label preserved old CSVs as
+                # results from the new configuration.
+                if reset_aggregates:
+                    _write_metadata_atomically(metadata_path, metadata)
+                    summary_path.unlink(missing_ok=True)
+                    shifts_path.unlink(missing_ok=True)
+                    reset_aggregates = False
                 if summary_fields is None:
                     summary_fields = list(row.keys())
                 if shift_fields is None:

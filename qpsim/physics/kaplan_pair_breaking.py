@@ -68,6 +68,21 @@ from scipy.integrate import quad
 from scipy.special import ellipe
 
 
+def _finite_real_scalar(name: str, raw: float) -> float:
+    """Return one finite real scalar, rejecting bool/complex coercions."""
+    if isinstance(raw, (bool, np.bool_)) or np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be a finite real scalar; got {raw!r}.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {raw!r}."
+        ) from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value!r}.")
+    return value
+
+
 def kaplan_S_plus(x: float) -> float:
     r"""Dimensionless Kaplan integral :math:`S_+(x)`, closed form.
 
@@ -95,6 +110,7 @@ def kaplan_S_plus(x: float) -> float:
         singular endpoints, but their finite right-limit is
         :math:`S_+(2) = \pi`.
     """
+    x = _finite_real_scalar("x", x)
     if x < 2.0:
         return 0.0
     # m = k² with k² = 1 - 4/x². For x → 2⁺, m → 0; for x → ∞, m → 1.
@@ -108,6 +124,7 @@ def kaplan_S_plus_numerical(x: float) -> float:
     Used by the test suite to cross-check :func:`kaplan_S_plus`
     against a direct evaluation of the integrand.
     """
+    x = _finite_real_scalar("x", x)
     if x < 2.0:
         return 0.0
     if x == 2.0:
@@ -174,6 +191,11 @@ def tau_PB_inverse_Hz(
     ValueError
         If any input is nonpositive.
     """
+    omega_kelvin = _finite_real_scalar("omega_kelvin", omega_kelvin)
+    gap_kelvin = _finite_real_scalar("gap_kelvin", gap_kelvin)
+    tau_0_phonon_ns = _finite_real_scalar(
+        "tau_0_phonon_ns", tau_0_phonon_ns
+    )
     if omega_kelvin <= 0.0:
         raise ValueError(f"omega_kelvin must be positive; got {omega_kelvin}")
     if gap_kelvin <= 0.0:
@@ -182,7 +204,11 @@ def tau_PB_inverse_Hz(
         raise ValueError(
             f"tau_0_phonon_ns must be positive; got {tau_0_phonon_ns}"
         )
-    Delta_0 = gap_kelvin if Delta_0_kelvin is None else Delta_0_kelvin
+    Delta_0 = (
+        gap_kelvin
+        if Delta_0_kelvin is None
+        else _finite_real_scalar("Delta_0_kelvin", Delta_0_kelvin)
+    )
     if Delta_0 <= 0.0:
         raise ValueError(f"Delta_0_kelvin must be positive; got {Delta_0}")
 

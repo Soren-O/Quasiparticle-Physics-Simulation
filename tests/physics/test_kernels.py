@@ -35,9 +35,36 @@ class TestThermalPhononOccupation:
         assert np.isfinite(got[0])
         assert got[0] > 0.0
 
+    def test_cold_representable_tail_is_not_floored_at_exp_minus_500(self) -> None:
+        # Actual preliminary-campaign bath/gap scale: 2*Delta/kT ~= 596.8.
+        # exp(-x) remains representable here and must not be replaced by the
+        # much larger historical exp(-500) floor.
+        omega = np.array([360.0])
+        temperature = 0.007
+        exponent = omega / (KB_UEV_PER_K * temperature)
+        exp_negative = np.exp(-exponent)
+        expected = exp_negative / (-np.expm1(-exponent))
+
+        got = thermal_phonon_occupation(omega, temperature)
+
+        np.testing.assert_allclose(got, expected, rtol=2e-14)
+        assert 0.0 < got[0] < np.exp(-500.0)
+
+    def test_mathematically_underflowed_cold_tail_is_zero(self) -> None:
+        temperature = 0.007
+        omega = np.array([800.0 * KB_UEV_PER_K * temperature])
+        np.testing.assert_array_equal(
+            thermal_phonon_occupation(omega, temperature),
+            np.array([0.0]),
+        )
+
     def test_exact_zero_frequency_is_decoupled_bookkeeping_mode(self) -> None:
         got = thermal_phonon_occupation(np.array([0.0]), 1.0)
         np.testing.assert_array_equal(got, np.array([0.0]))
+
+    def test_rejects_complex_frequency_before_casting(self) -> None:
+        with pytest.raises(ValueError, match="real-valued"):
+            thermal_phonon_occupation(np.array([1.0 + 2.0j]), 0.1)
 
     def test_finite_extreme_temperature_saturates_without_overflow(self) -> None:
         got = thermal_phonon_occupation(
@@ -45,6 +72,18 @@ class TestThermalPhononOccupation:
             np.finfo(float).max,
         )
         np.testing.assert_array_equal(got, np.array([np.finfo(float).max]))
+
+    def test_subnormal_energy_temperature_ratio_remains_representable(
+        self,
+    ) -> None:
+        smallest = np.nextafter(0.0, 1.0)
+        omega = np.array([smallest, 10.0 * smallest])
+        exponent = (omega / smallest) / KB_UEV_PER_K
+        expected = np.exp(-exponent) / (-np.expm1(-exponent))
+
+        got = thermal_phonon_occupation(omega, smallest)
+
+        np.testing.assert_allclose(got, expected, rtol=2e-15)
 
     def test_non_negative(self) -> None:
         occ = thermal_phonon_occupation(np.linspace(0.0, 10.0, 50), 1.0)

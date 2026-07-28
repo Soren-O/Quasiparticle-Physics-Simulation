@@ -18,6 +18,7 @@ from validation.fischer_2024._artifact import (
     LegacyArtifactError,
     QPCertificate,
     capture_producer_identity,
+    write_artifact,
 )
 
 
@@ -27,30 +28,6 @@ def _synthetic_result() -> target.Fig5PaperResult:
     f_by_drive = {
         drive: np.clip(state.f + drive * np.exp(-(E - E[0]) / 100.0), 0.0, 1.0)
         for drive in target.PAPER_DRIVES_HZ
-    }
-    f0 = {
-        drive: target._neumann_f0(spectral, drive_ns)
-        for drive, drive_ns in zip(
-            target.PAPER_DRIVES_HZ,
-            target.PAPER_DRIVES_NS_INV,
-            strict=True,
-        )
-    }
-    f01 = {
-        drive: f0[drive] + target._neumann_f1(spectral, drive_ns)
-        for drive, drive_ns in zip(
-            target.PAPER_DRIVES_HZ,
-            target.PAPER_DRIVES_NS_INV,
-            strict=True,
-        )
-    }
-    f012 = {
-        drive: f01[drive] + target._neumann_f2(spectral, drive_ns)
-        for drive, drive_ns in zip(
-            target.PAPER_DRIVES_HZ,
-            target.PAPER_DRIVES_NS_INV,
-            strict=True,
-        )
     }
     return target.Fig5PaperResult(
         E=E,
@@ -62,11 +39,11 @@ def _synthetic_result() -> target.Fig5PaperResult:
             d: float(qp_fraction(f_by_drive[d], spectral, delta_0=target.DELTA_0))
             for d in target.PAPER_DRIVES_HZ
         },
-        f0_by_drive=f0,
-        f01_by_drive=f01,
-        f012_by_drive=f012,
         qp_backward_error_by_drive=dict.fromkeys(target.PAPER_DRIVES_HZ, 1e-08),
         qp_residual_inf_by_drive=dict.fromkeys(target.PAPER_DRIVES_HZ, 1e-16),
+        qp_number_backward_error_by_drive=dict.fromkeys(
+            target.PAPER_DRIVES_HZ, 1e-9
+        ),
     )
 
 
@@ -88,7 +65,7 @@ def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         target,
         "qp_certificate",
-        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16),
+        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16, 1.0e-9),
     )
 
 
@@ -101,6 +78,48 @@ def test_unit_audit_conversion_pinned() -> None:
     ):
         assert ns_inv == pytest.approx(hz * 1.0e-9, rel=0.0, abs=1e-30)
     target._assert_unit_audit()
+
+
+def test_v5_schema_contains_numerical_curves_only() -> None:
+    assert target.ARTIFACT_SCHEMA.endswith(".v5")
+    columns = target._columns()
+    assert len(columns) == 2 + len(target.PAPER_DRIVES_HZ)
+    assert all("f_num_" in column for column in columns[2:])
+    assert not any(
+        token in column
+        for column in columns
+        for token in ("f0_", "f01_", "f012_", "analytic", "placeholder")
+    )
+
+
+def test_gamma_definition_and_plot_title_are_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from matplotlib.figure import Figure
+
+    assert target.__doc__ is not None
+    assert r"\gamma = (E - \Delta)/\xi" in target.__doc__
+    assert (target.OMEGA_PB - target.DELTA_0 - target.DELTA_0) / target.XI == 1.0
+
+    titles: list[str] = []
+    original_suptitle = Figure.suptitle
+
+    def recording_suptitle(
+        self: Figure,
+        text: str,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        titles.append(text)
+        return original_suptitle(self, text, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "suptitle", recording_suptitle)
+    target.write_plot(_synthetic_result(), tmp_path / "fig5.pdf")
+    assert len(titles) == 1
+    assert "topology only" in titles[0]
+    assert "drive normalization unaudited" in titles[0]
+    assert "No digitized-paper parity" in titles[0]
 
 
 def test_current_artifact_round_trips(
@@ -118,6 +137,43 @@ def test_current_artifact_round_trips(
     assert decoded.drives_hz == target.PAPER_DRIVES_HZ
     for drive in target.PAPER_DRIVES_HZ:
         assert decoded.qp_backward_error_by_drive[drive] == 1.0e-8
+        assert decoded.qp_number_backward_error_by_drive[drive] == 1.0e-9
+
+
+def test_reader_returns_fresh_certificate_across_runtime_diagnostic_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid cross-runtime diagnostic drift must not stale a state-backed pin."""
+    producer_certificate = QPCertificate(8.0e-7, 8.0e-15, 8.0e-7)
+    monkeypatch.setattr(
+        target,
+        "qp_certificate",
+        lambda *_args, **_kwargs: producer_certificate,
+    )
+    path = _write_baseline(_synthetic_result(), tmp_path / "producer.csv")
+
+    reader_certificate = QPCertificate(2.0e-7, 2.0e-15, 2.0e-7)
+    monkeypatch.setattr(
+        target,
+        "qp_certificate",
+        lambda *_args, **_kwargs: reader_certificate,
+    )
+    decoded = target.read_baseline(path)
+
+    for drive in target.PAPER_DRIVES_HZ:
+        assert (
+            decoded.qp_backward_error_by_drive[drive]
+            == reader_certificate.backward_error
+        )
+        assert (
+            decoded.qp_residual_inf_by_drive[drive]
+            == reader_certificate.residual_inf
+        )
+        assert (
+            decoded.qp_number_backward_error_by_drive[drive]
+            == reader_certificate.qp_number_backward_error
+        )
 
 
 def test_thermal_seed_accepts_ulp_roundoff_but_rejects_drift(
@@ -187,6 +243,34 @@ def test_writer_reassembles_and_rejects_forged_certificate(tmp_path: Path) -> No
         _write_baseline(_synthetic_result(), tmp_path / "forged.csv")
 
 
+def test_reader_reassembles_and_rejects_self_consistent_forgery(
+    tmp_path: Path,
+) -> None:
+    E, _, spectral = target._build_grid_and_spectral()
+    thermal = target._build_state(target._material(), spectral).f
+    path = tmp_path / "self-consistent-forgery.csv"
+    write_artifact(
+        path,
+        schema=target.ARTIFACT_SCHEMA,
+        fingerprint=target.solver_fingerprint(),
+        columns=target._columns(),
+        rows=[
+            [float(E[i]), float(thermal[i])]
+            + [float(thermal[i])] * len(target.PAPER_DRIVES_HZ)
+            for i in range(E.size)
+        ],
+        certificates={
+            target._point_id(drive): QPCertificate(0.0, 0.0, 0.0)
+            for drive in target.PAPER_DRIVES_HZ
+        },
+        target_qp_residual_inf=target.NEWTON_TOL,
+        producer=capture_producer_identity(target.solver_fingerprint()),
+    )
+
+    with pytest.raises(ArtifactValidationError, match="fresh QP-equation"):
+        target.read_baseline(path)
+
+
 def test_writer_rejects_out_of_domain_occupation(tmp_path: Path) -> None:
     result = _synthetic_result()
     result.f_by_drive[target.PAPER_DRIVES_HZ[0]][0] = 1.1
@@ -231,7 +315,7 @@ def test_archived_legacy_artifact_is_explicitly_rejected() -> None:
 
 def test_promoted_canonical_is_current_and_certified() -> None:
     path = target.baseline_path()
-    assert path.is_file(), f"Promoted strict-v2 canonical is missing at {path}."
+    assert path.is_file(), f"Promoted current-schema canonical is missing at {path}."
     baseline = target.read_baseline(path)
     assert baseline.E.shape == (target.NUM_BINS,)
     assert baseline.drives_hz == target.PAPER_DRIVES_HZ

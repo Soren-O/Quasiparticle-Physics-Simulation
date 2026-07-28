@@ -29,6 +29,8 @@ from qpsim.services.rate_equation import (
     M25BranchSweep,
     M25Coefficients,
     _relocate_root_1d,
+    analytic_low_T_seed,
+    chemical_potentials_kelvin,
     crossover_temperature_kelvin,
     solve_rate_equation_branch,
     solve_rate_equation_steady_state_multi_seed,
@@ -383,6 +385,76 @@ def _toy_coefs() -> M25Coefficients:
     )
 
 
+class TestSeedAndInversionValidation:
+    @pytest.mark.parametrize(
+        "bad_temperature",
+        [np.nan, np.inf, -np.inf, complex(0.02, 0.0)],
+    )
+    def test_analytic_seed_rejects_nonfinite_or_complex_temperature(
+        self, bad_temperature: complex | float
+    ) -> None:
+        with pytest.raises(ValueError, match="T_kelvin"):
+            analytic_low_T_seed(_toy_coefs(), bad_temperature)
+
+    @pytest.mark.parametrize(
+        ("parameter", "bad_value"),
+        [
+            ("Delta_L_kelvin", np.nan),
+            ("Delta_R_kelvin", np.inf),
+            ("omega_10_kelvin", np.nan),
+            ("T_kelvin", np.inf),
+            ("T_kelvin", complex(0.02, 0.0)),
+        ],
+    )
+    def test_thermal_seed_rejects_nonfinite_or_complex_scalars(
+        self, parameter: str, bad_value: complex | float
+    ) -> None:
+        values: dict[str, complex | float] = {
+            "Delta_L_kelvin": 2.5,
+            "Delta_R_kelvin": 2.0,
+            "omega_10_kelvin": 0.25,
+            "T_kelvin": 0.02,
+        }
+        values[parameter] = bad_value
+        with pytest.raises(ValueError, match=parameter):
+            thermal_equilibrium_seed(**values)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "bad_temperature", [np.nan, np.inf, complex(0.02, 0.0)]
+    )
+    def test_chemical_potential_inversion_rejects_invalid_temperature(
+        self, bad_temperature: complex | float
+    ) -> None:
+        with pytest.raises(ValueError, match="T_kelvin"):
+            chemical_potentials_kelvin(
+                Delta_L_kelvin=2.5,
+                Delta_R_kelvin=2.0,
+                T_kelvin=bad_temperature,
+                x_L=1e-6,
+                x_Rgt=1e-7,
+                x_Rlt=1e-5,
+            )
+
+    def test_chemical_potential_inversion_preserves_failed_point_markers(
+        self,
+    ) -> None:
+        # This plotting/inversion API intentionally accepts non-positive and
+        # NaN densities so a failed sweep point can remain aligned with its
+        # temperature grid as NaN/-inf rather than aborting the whole curve.
+        mu_L, mu_Rgt, mu_Rlt = chemical_potentials_kelvin(
+            Delta_L_kelvin=2.5,
+            Delta_R_kelvin=2.0,
+            T_kelvin=0.02,
+            x_L=np.nan,
+            x_Rgt=0.0,
+            x_Rlt=-1.0,
+        )
+
+        assert bool(np.isnan(mu_L))
+        assert bool(np.isneginf(mu_Rgt))
+        assert bool(np.isnan(mu_Rlt))
+
+
 class TestExchangeSelectionContiguity:
     """Hint-less exchange selection: contiguous-suffix validation.
 
@@ -440,3 +512,16 @@ class TestSweepCoefficientsExposure:
         assert len(sweep.coefficients) == T_grid.size
         assert all(c is coefs for c in sweep.coefficients)
         assert built == [0.010, 0.020]
+
+    def test_sweep_owns_a_read_only_temperature_axis(self) -> None:
+        coefs = _toy_coefs()
+        caller_grid = np.array([0.010, 0.020])
+
+        sweep = solve_rate_equation_branch(lambda T: coefs, caller_grid)
+        caller_grid[:] = [0.110, 0.220]
+
+        np.testing.assert_array_equal(sweep.T_kelvin, [0.010, 0.020])
+        assert not np.shares_memory(caller_grid, sweep.T_kelvin)
+        assert not sweep.T_kelvin.flags.writeable
+        with pytest.raises(ValueError, match="read-only"):
+            sweep.T_kelvin[0] = 0.030

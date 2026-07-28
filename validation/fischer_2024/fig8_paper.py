@@ -1,10 +1,10 @@
 """Fischer & Catelani 2024 Fig. 8 — qpsim-native characterization at paper topology.
 
-This is the **structural** Fig. 8 reproduction: $x_{\\rm qp}$ vs $T_B$
+This is a **paper-topology** Fig. 8 characterization: $x_{\\rm qp}$ vs $T_B$
 in the low-heating regime at three fixed pair-breaking drive products
 $c_{\\rm phot,PB}\\bar n_{\\rm PB}\\in\\{10^{-2},10^{-4},10^{-6}\\}$~Hz.
-Solid: kinetic-equation numerics. Dashed: analytical steady-state
-density prediction (Eq.~placeholder; see paper-parity gap below).
+The artifact and plot contain kinetic-equation numerics only. The
+paper's analytical steady-state density curve is not implemented.
 
 The companion script :mod:`fig8_xqp_pb` already exists but (a) bakes
 the drive products in as ns$^{-1}$ rather than Hz (a 9-decade unit
@@ -26,16 +26,12 @@ Outstanding paper-parity gaps (load-bearing)
    the two scripts are **not** comparable.
 
 2. **Analytical density-equation dashed overlay.** The paper plots
-   solid (numerical) + dashed (analytic steady-state density). The
-   analytic curve is **not** implemented here yet —
-   :func:`_xqp_analytic_pb` currently returns the photon-driven
-   steady-state estimate $x_{\\rm qp} \\approx \\sqrt{c_{\\rm phot,PB}
-   \\bar n_{\\rm PB}\\,\\tau_0\\,U(\\omega_{\\rm PB})}$, which captures
-   the $T_B$-independent floor at low $T_B$ but is **not** the paper
-   formula. Replace the function body with the verified analytic
-   density expression once it has been hand-checked against the
-   paper text (likely an algebraic rearrangement of the recombination
-   ↔ pair-breaking detailed-balance condition at fixed $\\bar n_{\\rm PB}$).
+   solid numerical curves with dashed analytic steady-state density
+   curves. The analytic formula is not implemented here. A former
+   heuristic $\\sqrt{c\\bar n\\tau_0 U}$ stand-in was neither the paper
+   formula nor an acceptance test; v4 removes it from the result, CSV,
+   and plot. Add an independently checked implementation and tests
+   before publishing an analytical overlay.
 
 Once both tickets land, this script becomes the paper-faithful Fig. 8
 reproduction. At that point: rename the artifacts to
@@ -48,7 +44,7 @@ Fischer & Catelani — SciPost Phys. 17, 070 (2024), Sec. IV:
     τ_0     = 63 ns      (faster than F23 — different Al film)
     ω_PB    = 2.8 · Δ_0  (above 2Δ, pair-breaking active)
     τ_ℓ     = 0          (thermal-phonon shortcut)
-    n̄_PB    = 1 × 10^6   (factored arbitrarily; only the product matters)
+    n̄_PB    = 1 × 10^6   (large-n̄ split; stimulated product dominates)
     c·n̄ ∈ {1e-2, 1e-4, 1e-6} Hz   (paper Fig. 8 stratification)
 
 Usage --- generate baseline + PDF::
@@ -72,7 +68,7 @@ from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
@@ -96,7 +92,10 @@ DELTA_0 = 189.0  # μeV
 TAU_0 = 63.0  # ns
 T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
 OMEGA_PB = 2.8 * DELTA_0  # 529.2 μeV  (pair-breaking active above 2Δ)
-N_BAR_PB = 1e6  # factored arbitrarily; only c·n̄ matters
+# Holding c·n̄ fixed controls the stimulated terms. The kernel also contains
+# a spontaneous c·(n̄+1) term, so this split is a large-n̄ approximation
+# with relative correction ≈ 1/N_BAR_PB = 1e-6.
+N_BAR_PB = 1e6
 
 # Paper grid: 810 bins so ω_PB / dE = 252 is integer-commensurate.
 # Same grid as :mod:`fig8_xqp_pb` and :mod:`figs_5_7_fe_pb`.
@@ -144,10 +143,12 @@ T_BATH_VALUES: np.ndarray = np.linspace(0.05, 0.30, 12)
 RHO_F_INV_UEV_UM3 = 1.74e4
 NQP_PER_X_QP_QPSIM = 4.0 * RHO_F_INV_UEV_UM3 * DELTA_0  # ≈ 1.32e7 [1/μm³]
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_qpsim_native.v3"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_qpsim_native.v5"
 NEWTON_TOL = 1.0e-10
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
+LIVE_CERTIFICATE_SCOPE = "independently-reassembled-live-state"
+SUMMARY_CERTIFICATE_SCOPE = "producer-asserted-summary-only; f(E)-state-omitted"
 
 
 @dataclass(frozen=True)
@@ -159,12 +160,14 @@ class Fig8PaperResult:
     drives_ns_inv: tuple[float, ...]  # converted to ns⁻¹
     x_qp_thermal: np.ndarray  # shape (NT,)
     x_qp_num_by_drive: dict[float, np.ndarray]  # drive (Hz) → (NT,) numerical
-    x_qp_ana_by_drive: dict[float, np.ndarray]  # drive (Hz) → (NT,) analytic
     qp_backward_error_by_drive: dict[float, np.ndarray]
     qp_residual_inf_by_drive: dict[float, np.ndarray]
+    qp_number_backward_error_by_drive: dict[float, np.ndarray]
     # Live runs retain f(E) so artifact generation can bind the summary and
-    # certificate to the actual solved state. Readback is summary-only.
+    # certificate to the actual solved state. Readback is summary-only and
+    # cannot independently reassemble those certificates.
     f_by_drive: dict[float, np.ndarray] | None = None
+    certificate_scope: str = LIVE_CERTIFICATE_SCOPE
 
 
 def solver_fingerprint() -> dict[str, Any]:
@@ -182,6 +185,7 @@ def solver_fingerprint() -> dict[str, Any]:
         "newton_tol": NEWTON_TOL,
         "num_bins": NUM_BINS,
         "omega_pb_uev": OMEGA_PB,
+        "persisted_certificate_scope": SUMMARY_CERTIFICATE_SCOPE,
         "source_sha256": source_hashes(Path(__file__)),
         "t_bath_k": np.asarray(T_BATH_VALUES, dtype=float).tolist(),
         "t_c_k": T_C,
@@ -198,7 +202,7 @@ def _columns() -> list[str]:
     columns = ["T_bath_K", "x_qp_thermal"]
     for drive_hz in PAPER_DRIVES_HZ:
         suffix = f"{drive_hz:.17e}_hz"
-        columns.extend([f"x_qp_num_drive_{suffix}", f"x_qp_ana_drive_{suffix}"])
+        columns.append(f"x_qp_num_drive_{suffix}")
     return columns
 
 
@@ -229,8 +233,7 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    kT = KB_UEV_PER_K * T_bath
-    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(E, T_bath)
     return T3DiffusionState(
         f=f_FD,
         gap=DELTA_0,
@@ -239,26 +242,6 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         material=material,
         T_bath=T_bath,
     )
-
-
-def _xqp_analytic_pb(drive_ns_inv: float) -> float:
-    """Placeholder for the F24 analytical density equation overlay.
-
-    TODO(paper-parity): replace with the paper's analytic steady-state
-    density formula. For now this returns
-
-        x_qp ≈ sqrt(c·n̄ · τ_0 · U(ω_PB))
-
-    where ``U(ω_PB) = (ω_PB / Δ_0)`` is a crude Kaplan-style
-    coherence-factor stand-in. This captures the $T_B$-independent
-    photon-driven floor (horizontal curves in the paper figure) but
-    is **not** the paper formula and should not be used as a
-    quantitative acceptance test.
-    """
-    if drive_ns_inv <= 0.0:
-        return 0.0
-    U_eff = OMEGA_PB / DELTA_0
-    return float(np.sqrt(drive_ns_inv * TAU_0 * U_eff))
 
 
 def _assert_unit_audit() -> None:
@@ -295,7 +278,7 @@ def _assert_unit_audit() -> None:
 
 
 def run() -> Fig8PaperResult:
-    """Solve Fischer 2024 Fig. 8 — sweep T_B at three paper drive products."""
+    """Sweep T_B at the three paper-caption drive products."""
     _assert_unit_audit()
 
     material = _material()
@@ -319,9 +302,11 @@ def run() -> Fig8PaperResult:
     nT = T_values.size
     x_thermal = np.zeros(nT)
     x_num: dict[float, np.ndarray] = {d: np.zeros(nT) for d in PAPER_DRIVES_HZ}
-    x_ana: dict[float, np.ndarray] = {d: np.zeros(nT) for d in PAPER_DRIVES_HZ}
     qp_backward: dict[float, np.ndarray] = {d: np.zeros(nT) for d in PAPER_DRIVES_HZ}
     qp_residual: dict[float, np.ndarray] = {d: np.zeros(nT) for d in PAPER_DRIVES_HZ}
+    qp_number_backward: dict[float, np.ndarray] = {
+        d: np.zeros(nT) for d in PAPER_DRIVES_HZ
+    }
     f_by_drive: dict[float, np.ndarray] = {d: np.zeros((nT, NUM_BINS)) for d in PAPER_DRIVES_HZ}
 
     for i, T in enumerate(T_values):
@@ -334,7 +319,9 @@ def run() -> Fig8PaperResult:
             pb_params = {
                 "omega_PB": OMEGA_PB,
                 "n_bar_PB": N_BAR_PB,
-                "c_phot_PB": d_ns / N_BAR_PB,  # factor c out of the c·n̄ product
+                # Fix the stimulated c·n̄ product. The spontaneous c term
+                # leaves a relative 1/N_BAR_PB factorization dependence.
+                "c_phot_PB": d_ns / N_BAR_PB,
             }
             driven = backend.steady_state(
                 seed,
@@ -362,11 +349,12 @@ def run() -> Fig8PaperResult:
             )
             qp_backward[d_hz][i] = certificate.backward_error
             qp_residual[d_hz][i] = certificate.residual_inf
-            x_ana[d_hz][i] = _xqp_analytic_pb(d_ns)
+            qp_number_backward[d_hz][i] = (
+                certificate.qp_number_backward_error
+            )
             print(
                 f"  T_B={T:.3f} K  c*nbar={d_hz:.0e} Hz "
-                f"({d_ns:.2e} ns^-1)  x_qp(num)={x_num[d_hz][i]:.3e}  "
-                f"x_qp(ana)={x_ana[d_hz][i]:.3e}",
+                f"({d_ns:.2e} ns^-1)  x_qp(num)={x_num[d_hz][i]:.3e}",
                 flush=True,
             )
 
@@ -376,9 +364,9 @@ def run() -> Fig8PaperResult:
         drives_ns_inv=drives_ns_inv,
         x_qp_thermal=x_thermal,
         x_qp_num_by_drive=x_num,
-        x_qp_ana_by_drive=x_ana,
         qp_backward_error_by_drive=qp_backward,
         qp_residual_inf_by_drive=qp_residual,
+        qp_number_backward_error_by_drive=qp_number_backward,
         f_by_drive=f_by_drive,
     )
 
@@ -386,12 +374,9 @@ def run() -> Fig8PaperResult:
 def baseline_path() -> Path:
     """Output CSV path.
 
-    Named ``fischer2024_fig8_qpsim_native.csv`` to flag that the
-    analytic dashed overlay is the placeholder
-    :func:`_xqp_analytic_pb` estimate, not the paper's analytic
-    density formula. Rename to ``fischer2024_fig8_paper.csv`` once the
-    Eq.-placeholder ticket lands and this becomes a paper-faithful
-    reproduction.
+    Named ``fischer2024_fig8_qpsim_native.csv`` to flag that this is a
+    qpsim-native numerical sweep at paper topology. The paper's analytic
+    density formula is not implemented or serialized.
     """
     root = Path(__file__).resolve().parents[2]
     return root / "validation" / "baselines" / "ph0_constant" / "fischer2024_fig8_qpsim_native.csv"
@@ -408,7 +393,7 @@ def write_baseline(
     producer: ProducerIdentity,
     companion_pdf: CompanionArtifactRecord | None = None,
 ) -> Path:
-    """Write the T_B grid + thermal + per-drive (num, analytic) curves."""
+    """Write the T_B grid, thermal curve, and per-drive numerical curves."""
     require_staging_path(path, baseline_path(), artifact_kind="CSV")
     expected_T = np.asarray(T_BATH_VALUES, dtype=float)
     expected_ns = tuple(d * HZ_TO_NS_INV for d in PAPER_DRIVES_HZ)
@@ -423,11 +408,18 @@ def write_baseline(
             "Fig. 8 baseline generation requires full returned f(E) states; "
             "a summary readback cannot be re-certified."
         )
+    if result.certificate_scope != LIVE_CERTIFICATE_SCOPE:
+        raise ArtifactValidationError(
+            "Fig. 8 baseline generation accepts only independently "
+            "reassembled live-state certificates."
+        )
     mappings = {
         "x_qp_num_by_drive": result.x_qp_num_by_drive,
-        "x_qp_ana_by_drive": result.x_qp_ana_by_drive,
         "qp_backward_error_by_drive": result.qp_backward_error_by_drive,
         "qp_residual_inf_by_drive": result.qp_residual_inf_by_drive,
+        "qp_number_backward_error_by_drive": (
+            result.qp_number_backward_error_by_drive
+        ),
         "f_by_drive": result.f_by_drive,
     }
     for name, mapping in mappings.items():
@@ -472,12 +464,6 @@ def write_baseline(
                 expected_shape=(expected_T.size,),
                 lower=0.0,
             )
-            x_ana = validated_numeric_array(
-                result.x_qp_ana_by_drive[drive_hz],
-                context=f"Fig. 8 analytic x_qp at drive={drive_hz:g} Hz",
-                expected_shape=(expected_T.size,),
-                lower=0.0,
-            )
             expected_x_qp = float(qp_fraction(f_states[i], base_state.spectral, delta_0=DELTA_0))
             if not np.isclose(
                 float(x_num[i]),
@@ -489,22 +475,7 @@ def write_baseline(
                     f"Fig. 8 numerical x_qp at T_bath={T_bath:g} K, "
                     f"drive={drive_hz:g} Hz is inconsistent with f(E)."
                 )
-            expected_analytic = _xqp_analytic_pb(drive_ns_inv)
-            if not np.isclose(
-                float(x_ana[i]),
-                expected_analytic,
-                rtol=1.0e-12,
-                atol=0.0,
-            ):
-                raise ArtifactValidationError(
-                    f"Fig. 8 analytic x_qp at drive={drive_hz:g} Hz is stale."
-                )
-            row.extend(
-                [
-                    float(x_num[i]),
-                    float(x_ana[i]),
-                ]
-            )
+            row.append(float(x_num[i]))
             pb_params = {
                 "omega_PB": OMEGA_PB,
                 "n_bar_PB": N_BAR_PB,
@@ -518,6 +489,9 @@ def write_baseline(
             stamped = QPCertificate(
                 backward_error=float(result.qp_backward_error_by_drive[drive_hz][i]),
                 residual_inf=float(result.qp_residual_inf_by_drive[drive_hz][i]),
+                qp_number_backward_error=float(
+                    result.qp_number_backward_error_by_drive[drive_hz][i]
+                ),
             )
             certificates[_point_id(float(T_bath), drive_hz)] = bind_certificate(
                 stamped,
@@ -540,8 +514,25 @@ def write_baseline(
     )
 
 
-def read_baseline(path: Path | None = None) -> Fig8PaperResult:
-    """Read a pinned baseline CSV back into a :class:`Fig8PaperResult`."""
+def read_baseline(
+    path: Path | None = None,
+    *,
+    accept_producer_certificate_claims: bool = False,
+) -> Fig8PaperResult:
+    """Read the summary only after explicit acceptance of producer claims.
+
+    The CSV omits every solved ``f(E)`` state. Its certificate stamps are
+    authenticated producer records, but a reader cannot independently
+    reconstruct the QP equation from the persisted summary. Callers needing
+    independently reassembled physics evidence must regenerate the sweep.
+    """
+    if not accept_producer_certificate_claims:
+        raise ArtifactValidationError(
+            "Fig. 8 summary omits solved f(E) states, so its QP certificate "
+            "stamps are producer assertions only. Pass "
+            "accept_producer_certificate_claims=True to read the summary, "
+            "or regenerate for independent live-state certification."
+        )
     if path is None:
         path = baseline_path()
     T_values = np.asarray(T_BATH_VALUES, dtype=float)
@@ -566,24 +557,19 @@ def read_baseline(path: Path | None = None) -> Fig8PaperResult:
     validated_numeric_array(
         data[:, 1:],
         context=f"Artifact at {path} x_qp values",
-        expected_shape=(T_values.size, 1 + 2 * len(PAPER_DRIVES_HZ)),
+        expected_shape=(T_values.size, 1 + len(PAPER_DRIVES_HZ)),
         lower=0.0,
     )
-    # Column layout: T_bath, x_qp_thermal,
-    #                (x_qp_num_d0, x_qp_ana_d0,
-    #                 x_qp_num_d1, x_qp_ana_d1, ...).
+    # Column layout: T_bath, x_qp_thermal, then one numerical x_qp per drive.
     x_num: dict[float, np.ndarray] = {}
-    x_ana: dict[float, np.ndarray] = {}
     for i, d in enumerate(PAPER_DRIVES_HZ):
-        x_num[d] = data[:, 2 + 2 * i]
-        x_ana[d] = data[:, 2 + 2 * i + 1]
+        x_num[d] = data[:, 2 + i]
     return Fig8PaperResult(
         T_bath=data[:, 0],
         drives_hz=PAPER_DRIVES_HZ,
         drives_ns_inv=tuple(d * HZ_TO_NS_INV for d in PAPER_DRIVES_HZ),
         x_qp_thermal=data[:, 1],
         x_qp_num_by_drive=x_num,
-        x_qp_ana_by_drive=x_ana,
         qp_backward_error_by_drive={
             d: np.asarray(
                 [artifact.certificates[_point_id(float(T), d)].backward_error for T in T_values]
@@ -596,12 +582,24 @@ def read_baseline(path: Path | None = None) -> Fig8PaperResult:
             )
             for d in PAPER_DRIVES_HZ
         },
+        qp_number_backward_error_by_drive={
+            d: np.asarray(
+                [
+                    artifact.certificates[
+                        _point_id(float(T), d)
+                    ].qp_number_backward_error
+                    for T in T_values
+                ]
+            )
+            for d in PAPER_DRIVES_HZ
+        },
         f_by_drive=None,
+        certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
     )
 
 
 def write_plot(result: Fig8PaperResult, path: Path) -> Path:
-    """Paper-style log-log plot: x_qp vs T_B with three drive curves."""
+    """Plot numerical x_qp vs T_B with the paper's axes and drive topology."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -630,7 +628,6 @@ def write_plot(result: Fig8PaperResult, path: Path) -> Path:
     for d_hz in result.drives_hz:
         color = color_by_drive[d_hz]
         nqp_num = NQP_PER_X_QP_QPSIM * result.x_qp_num_by_drive[d_hz]
-        nqp_ana = NQP_PER_X_QP_QPSIM * result.x_qp_ana_by_drive[d_hz]
         ax.loglog(
             x,
             nqp_num,
@@ -639,10 +636,15 @@ def write_plot(result: Fig8PaperResult, path: Path) -> Path:
             lw=1.6,
             label=rf"$c\,\bar n_{{PB}} = {d_hz:g}$ Hz",
         )
-        ax.loglog(x, nqp_ana, "--", color=color, lw=1.0, alpha=0.85)
 
     ax.set_xlabel(r"$T_B / T_c$", fontsize=13)
     ax.set_ylabel(r"$N_{\mathrm{qp}}$ $[1/\mu\mathrm{m}^3]$", fontsize=13)
+    ax.set_title(
+        "F24 Fig. 8 topology only — qpsim-native numerical curves\n"
+        "Drive levels borrowed from the Fig. 5 caption; Fig. 8 inset "
+        "values are unverified",
+        fontsize=10,
+    )
 
     # Twin right-axis carries the paper-convention dimensionless x_qp.
     # The conversion is N_qp = 2 ρ_F Δ x_qp_paper, so right_y/left_y =
@@ -662,27 +664,27 @@ def write_plot(result: Fig8PaperResult, path: Path) -> Path:
     paper_ratio_note = (
         f"qpsim-native (axes converted to paper convention)\n"
         rf"$\rho_F=1.74\!\times\!10^4 / (\mu eV\!\cdot\!\mu m^3)$, "
-        rf"$T_c={T_C:.3f}$ K; dashed = placeholder analytic"
+        rf"$T_c={T_C:.3f}$ K; paper analytic overlay not implemented"
+        "\nCSV omits f(E): persisted certificate stamps are producer claims"
     )
-    ax.text(
+    fig.text(
+        0.5,
         0.01,
-        0.02,
         paper_ratio_note,
-        transform=ax.transAxes,
-        ha="left",
+        ha="center",
         va="bottom",
-        fontsize=7,
+        fontsize=7.5,
         color="0.45",
     )
 
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.10, 1.0, 0.92))
     fig.savefig(path)
     plt.close(fig)
     return path
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer & Catelani 2024 Fig. 8 paper-target reproduction ...")
+    print("Fischer & Catelani 2024 Fig. 8 paper-topology qpsim characterization ...")
     print(
         f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
         f"omega_PB={OMEGA_PB:.2f} micro-eV, nbar_PB={N_BAR_PB:.0e}, tau_l=0"
@@ -697,12 +699,7 @@ def generate_baseline() -> tuple[Path, Path]:
         f"  T_B sweep: {T_BATH_VALUES.size} points, "
         f"{T_BATH_VALUES[0]:.3f} -> {T_BATH_VALUES[-1]:.3f} K"
     )
-    print(
-        "  WARNING: Analytic dashed overlay is the _xqp_analytic_pb placeholder, "
-        "NOT the paper formula.\n"
-        "    See module docstring; rename artifacts to *_paper.{csv,pdf} "
-        "once the analytic formula lands."
-    )
+    print("  NOTE: The paper's analytic dashed overlay is not implemented or emitted.")
     producer = capture_producer_identity(solver_fingerprint())
     result = run()
     csv_path, pdf_path = publish_artifact_pair(

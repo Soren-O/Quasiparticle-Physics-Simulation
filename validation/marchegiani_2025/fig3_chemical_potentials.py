@@ -1,4 +1,4 @@
-r"""Marchegiani 2025 Fig 3 — chemical potentials μ_α(T) full reproduction.
+r"""M25 Fig. 3 chemical potentials: paper-topology qpsim regression.
 
 Sweeps the bath temperature for the two M25 Fig 3 panels:
 
@@ -15,7 +15,7 @@ branch-continuation driver
 (photon branch continued upward from the SI low-T analytic seed,
 thermal branch continued downward from the full-equilibrium seed,
 composite per the driver's documented exchange rule), and extract
-the chemical potentials with the paper-exact density inversions
+the chemical potentials with the transcribed paper-formula density inversions
 (arXiv 2408.17218 Eqs. 10–13 / published SI Eqs. S2–S5):
 
     μ_L    = Δ_L + T · log( x_L    √(Δ_L/2πT) )
@@ -40,26 +40,40 @@ Usage::
 
 from __future__ import annotations
 
-import csv
 import functools
-import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 from qpsim.services.rate_equation import (
     M25BranchSweep,
+    M25Coefficients,
+    _rate_equation_residual,
+    _source_scaled_residual_tolerances,
     chemical_potentials_kelvin,
     crossover_temperature_kelvin,
     solve_rate_equation_branch,
     thermal_equilibrium_seed,
 )
 from qpsim.services.rate_equation_coefficients import (
-    M25Coefficients,
     M25PhotonDrive,
     M25PhysicalParameters,
     calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00,
     coefficients_from_physical_parameters_with_photon_drive,
+)
+
+from validation.marchegiani_2025._artifact import (
+    ArtifactValidationError,
+    ProducerIdentity,
+    capture_producer_identity,
+    manifest_path_for,
+    publish_bundle,
+    read_table,
+    require_staging_path,
+    source_fingerprint,
+    verified_bundle,
+    write_table,
 )
 
 _H_OVER_KB = 4.799243e-11   # K / Hz
@@ -87,6 +101,35 @@ DRIVE_TEMPLATE = M25PhotonDrive(
 T_MIN_K = 0.010
 T_MAX_K = 0.150
 NUM_T_POINTS = 29   # 5 mK spacing
+_RESIDUAL_TOL_RELATIVE = 1e-3
+_RESIDUAL_RATIO_LIMIT = 1.0
+# Persisted residual stamps are recomputed from the full saved state, but
+# their values sit at the cancellation/roundoff floor.  A 2026-07-27
+# cross-runtime replay (producer: NumPy 2.5.1/SciPy 1.18/OpenBLAS 0.3.33;
+# reader: NumPy 2.4.2/SciPy 1.17/OpenBLAS 0.3.31) measured a worst
+# source-scaled stamp delta of 1.702e-10.  The 1e-8 budget leaves ~59x
+# measured headroom while remaining eight orders below the acceptance
+# limit.  It is applied in source-scaled units, never as a raw-Hz floor.
+_CERTIFICATE_STAMP_REASSEMBLY_ATOL = 1e-8
+_BUNDLE = "m25-fig3-chemical-potentials"
+_CERTIFICATE = {
+    "kind": "reassembled_m25_full_residual",
+    "metric_version": "m25-source-scaled-residual-v2",
+    "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
+    "stamp_reassembly_atol": _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
+}
+_COLUMNS = (
+    "T_kelvin",
+    "x_L",
+    "x_Rgt",
+    "x_Rlt",
+    "p_1",
+    "mu_L_GHz",
+    "mu_Rgt_GHz",
+    "mu_Rlt_GHz",
+    "residual_inf_norm_Hz",
+    "max_abs_residual_over_tolerance",
+)
 
 
 @dataclass(frozen=True)
@@ -238,7 +281,7 @@ def _chemical_potentials_GHz(
     x_Rgt: np.ndarray,
     x_Rlt: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    r"""Paper-exact density → chemical-potential inversions, in GHz.
+    r"""Transcribed paper-formula density → chemical-potential inversions, in GHz.
 
     Thin GHz-unit alias for
     :func:`qpsim.services.rate_equation.chemical_potentials_kelvin`
@@ -308,75 +351,324 @@ def plot_path() -> Path:
     return _baseline_dir() / "m25_fig3_chemical_potentials.pdf"
 
 
-def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        # ``lineterminator='\n'`` overrides csv.writer's default CRLF
-        # so the baseline CSVs don't trigger ``git diff --check``
-        # trailing-whitespace warnings.
-        writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 3 — μ_α(T) full rate-eq "
-            "(branch-continuation driver; Γ̄-normalized density eqs; "
-            "paper-exact μ inversion); pinned by qpsim"
-        ])
-        writer.writerow([
-            f"# omega_LR_GHz={panel.omega_LR_GHz:g}  "
-            f"Delta_R_GHz={DELTA_R_OVER_H_GHZ:g}  "
-            f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
-            f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
-        ])
-        # The platform stamp selects the pin-test tolerance: strict
-        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
-        # (see validation/marchegiani_2025/_robust.py).
-        writer.writerow([f"# pinned_on: {sys.platform}"])
-        writer.writerow([
-            "T_kelvin", "x_L", "x_Rgt", "x_Rlt", "p_1",
-            "mu_L_GHz", "mu_Rgt_GHz", "mu_Rlt_GHz",
-        ])
-        for i in range(panel.T_kelvin.size):
-            writer.writerow([
-                f"{panel.T_kelvin[i]:.17e}",
-                f"{panel.x_L[i]:.17e}",
-                f"{panel.x_Rgt[i]:.17e}",
-                f"{panel.x_Rlt[i]:.17e}",
-                f"{panel.p_1[i]:.17e}",
-                f"{panel.mu_L_GHz[i]:.17e}",
-                f"{panel.mu_Rgt_GHz[i]:.17e}",
-                f"{panel.mu_Rlt_GHz[i]:.17e}",
-            ])
-    return path
+def manifest_path() -> Path:
+    return manifest_path_for(plot_path())
 
 
-def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig3PanelResult:
-    rows: list[list[float]] = []
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line or line[0].startswith("#") or line[0] == "T_kelvin":
-                continue
-            rows.append([float(x) for x in line])
-    data = np.array(rows, dtype=float)
-    return Fig3PanelResult(
-        omega_LR_GHz=omega_LR_GHz,
-        T_kelvin=data[:, 0],
-        x_L=data[:, 1], x_Rgt=data[:, 2], x_Rlt=data[:, 3], p_1=data[:, 4],
-        mu_L_GHz=data[:, 5], mu_Rgt_GHz=data[:, 6], mu_Rlt_GHz=data[:, 7],
+def _artifact_config() -> dict[str, object]:
+    """Exact numerical/figure configuration authenticated by the bundle."""
+    return {
+        "Delta_R_over_h_GHz": DELTA_R_OVER_H_GHZ,
+        "E_C_over_h_GHz": E_C_OVER_H_GHZ,
+        "E_J_over_h_GHz": E_J_OVER_H_GHZ,
+        "Gamma_ee_10_Hz": GAMMA_EE_10_HZ,
+        "Gamma_ph_00_Hz": GAMMA_PH_00_HZ,
+        "T_grid_kelvin": np.linspace(
+            T_MIN_K, T_MAX_K, NUM_T_POINTS
+        ).tolist(),
+        "drive": {
+            "Gamma_nu_scale_Hz": DRIVE_TEMPLATE.Gamma_nu_scale_Hz,
+            "nu_0_per_J_per_m3": DRIVE_TEMPLATE.nu_0_per_J_per_m3,
+            "omega_nu_kelvin": DRIVE_TEMPLATE.omega_nu_kelvin,
+            "volume_m3": DRIVE_TEMPLATE.volume_m3,
+        },
+        "omega_10_over_h_GHz": OMEGA_10_OVER_H_GHZ,
+        "omega_LR_over_h_GHz": [0.5, 5.0],
+        "r_recomb_Hz": R_RECOMB_HZ,
+        "residual_stamp_reassembly_atol": (
+            _CERTIFICATE_STAMP_REASSEMBLY_ATOL
+        ),
+        "residual_tol_relative": _RESIDUAL_TOL_RELATIVE,
+    }
+
+
+def artifact_fingerprint() -> dict[str, object]:
+    return source_fingerprint(
+        bundle=_BUNDLE,
+        config=_artifact_config(),
+        producer_module=Path(__file__),
     )
 
 
-def write_baseline(result: Fig3Result) -> tuple[Path, Path]:
+def _member_paths() -> dict[str, Path]:
+    return {
+        baseline_path_a().name: baseline_path_a(),
+        baseline_path_b().name: baseline_path_b(),
+        plot_path().name: plot_path(),
+    }
+
+
+def _expected_members() -> dict[str, str]:
+    return {
+        baseline_path_a().name: "csv",
+        baseline_path_b().name: "csv",
+        plot_path().name: "pdf",
+    }
+
+
+def _panel_role(omega_LR_GHz: float) -> str:
+    if omega_LR_GHz == 0.5:
+        return "panel_a"
+    if omega_LR_GHz == 5.0:
+        return "panel_b"
+    raise ArtifactValidationError(
+        f"Unexpected M25 Fig. 3 panel frequency {omega_LR_GHz!r}."
+    )
+
+
+def _certificate_metrics_with_scale(
+    panel: Fig3PanelResult,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    residual_inf: list[float] = []
+    residual_ratio: list[float] = []
+    minimum_tolerance: list[float] = []
+    for index, T_kelvin in enumerate(panel.T_kelvin):
+        y = np.array(
+            [
+                panel.p_1[index],
+                panel.x_L[index],
+                panel.x_Rgt[index],
+                panel.x_Rlt[index],
+            ],
+            dtype=float,
+        )
+        coefs = _coefficients_at(panel.omega_LR_GHz, float(T_kelvin))
+        residual = _rate_equation_residual(y, coefs)
+        tolerances = _source_scaled_residual_tolerances(
+            y,
+            coefs,
+            _RESIDUAL_TOL_RELATIVE,
+        )
+        residual_inf.append(float(np.max(np.abs(residual))))
+        residual_ratio.append(float(np.max(np.abs(residual) / tolerances)))
+        minimum_tolerance.append(float(np.min(tolerances)))
     return (
-        _write_panel_csv(result.panel_a, baseline_path_a()),
-        _write_panel_csv(result.panel_b, baseline_path_b()),
+        np.array(residual_inf),
+        np.array(residual_ratio),
+        np.array(minimum_tolerance),
+    )
+
+
+def _certificate_metrics(panel: Fig3PanelResult) -> tuple[np.ndarray, np.ndarray]:
+    residual_inf, residual_ratio, _minimum_tolerance = (
+        _certificate_metrics_with_scale(panel)
+    )
+    return residual_inf, residual_ratio
+
+
+def _certificate_stamps_match(
+    stamped_residual_inf: np.ndarray,
+    stamped_residual_ratio: np.ndarray,
+    reassembled_residual_inf: np.ndarray,
+    reassembled_residual_ratio: np.ndarray,
+    minimum_source_tolerance: np.ndarray,
+) -> bool:
+    """Compare roundoff-floor stamps in dimensionless source-scaled units."""
+    arrays = (
+        stamped_residual_inf,
+        stamped_residual_ratio,
+        reassembled_residual_inf,
+        reassembled_residual_ratio,
+        minimum_source_tolerance,
+    )
+    if (
+        not all(array.shape == stamped_residual_inf.shape for array in arrays)
+        or not all(np.all(np.isfinite(array)) for array in arrays)
+        or np.any(stamped_residual_inf < 0.0)
+        or np.any(stamped_residual_ratio < 0.0)
+        or np.any(reassembled_residual_inf < 0.0)
+        or np.any(reassembled_residual_ratio < 0.0)
+        or np.any(minimum_source_tolerance <= 0.0)
+    ):
+        return False
+    ratio_matches = np.isclose(
+        stamped_residual_ratio,
+        reassembled_residual_ratio,
+        rtol=2e-12,
+        atol=_CERTIFICATE_STAMP_REASSEMBLY_ATOL,
+    )
+    raw_hz_budget = (
+        _CERTIFICATE_STAMP_REASSEMBLY_ATOL * minimum_source_tolerance
+        + 2e-12 * np.abs(reassembled_residual_inf)
+    )
+    inf_matches = (
+        np.abs(stamped_residual_inf - reassembled_residual_inf)
+        <= raw_hz_budget
+    )
+    return bool(np.all(ratio_matches & inf_matches))
+
+
+def _validate_reassembled_certificate(
+    panel: Fig3PanelResult,
+    stamped_residual_inf: np.ndarray,
+    stamped_residual_ratio: np.ndarray,
+    *,
+    context: str,
+) -> None:
+    residual_inf, residual_ratio, minimum_tolerance = (
+        _certificate_metrics_with_scale(panel)
+    )
+    if not _certificate_stamps_match(
+        stamped_residual_inf,
+        stamped_residual_ratio,
+        residual_inf,
+        residual_ratio,
+        minimum_tolerance,
+    ):
+        raise ArtifactValidationError(
+            f"{context} has residual certificate stamps inconsistent with "
+            "the persisted state beyond the calibrated cross-runtime floor."
+        )
+    if (
+        np.any(stamped_residual_ratio > _RESIDUAL_RATIO_LIMIT)
+        or np.any(residual_ratio > _RESIDUAL_RATIO_LIMIT)
+    ):
+        raise ArtifactValidationError(
+            f"{context} fails its reassembled residual certificate."
+        )
+
+
+def _write_panel_csv(panel: Fig3PanelResult, path: Path) -> Path:
+    residual_inf, residual_ratio = _certificate_metrics(panel)
+    rows = [
+        [
+            panel.T_kelvin[index],
+            panel.x_L[index],
+            panel.x_Rgt[index],
+            panel.x_Rlt[index],
+            panel.p_1[index],
+            panel.mu_L_GHz[index],
+            panel.mu_Rgt_GHz[index],
+            panel.mu_Rlt_GHz[index],
+            residual_inf[index],
+            residual_ratio[index],
+        ]
+        for index in range(panel.T_kelvin.size)
+    ]
+    return write_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(panel.omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        rows=rows,
+        certificate=_CERTIFICATE,
+    )
+
+
+def _require_close(
+    actual: np.ndarray,
+    expected: np.ndarray,
+    *,
+    name: str,
+    rtol: float = 2e-12,
+    atol: float = 1e-24,
+) -> None:
+    if not np.allclose(actual, expected, rtol=rtol, atol=atol):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 {name} is inconsistent with the persisted state."
+        )
+
+
+def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig3PanelResult:
+    payload = read_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        certificate=_CERTIFICATE,
+    )
+    try:
+        data = np.array(payload.rows, dtype=float)
+    except ValueError as exc:
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 table {path} contains nonnumeric cells."
+        ) from exc
+    if data.shape != (NUM_T_POINTS, len(_COLUMNS)) or not np.all(
+        np.isfinite(data)
+    ):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 table {path} has an invalid shape or nonfinite values."
+        )
+    expected_T = np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
+    if not np.array_equal(data[:, 0], expected_T):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 table {path} does not contain the exact temperature grid."
+        )
+    if (
+        np.any(data[:, 1:4] < 0.0)
+        or np.any(data[:, 4] < 0.0)
+        or np.any(data[:, 4] > 1.0)
+    ):
+        raise ArtifactValidationError(
+            f"M25 Fig. 3 table {path} contains an unphysical state."
+        )
+    panel = Fig3PanelResult(
+        omega_LR_GHz=omega_LR_GHz,
+        T_kelvin=data[:, 0],
+        x_L=data[:, 1],
+        x_Rgt=data[:, 2],
+        x_Rlt=data[:, 3],
+        p_1=data[:, 4],
+        mu_L_GHz=data[:, 5],
+        mu_Rgt_GHz=data[:, 6],
+        mu_Rlt_GHz=data[:, 7],
+    )
+    expected_mu = _chemical_potentials_GHz(
+        omega_LR_GHz,
+        panel.T_kelvin,
+        panel.x_L,
+        panel.x_Rgt,
+        panel.x_Rlt,
+    )
+    for label, actual, expected in zip(
+        ("mu_L", "mu_Rgt", "mu_Rlt"),
+        (panel.mu_L_GHz, panel.mu_Rgt_GHz, panel.mu_Rlt_GHz),
+        expected_mu,
+        strict=True,
+    ):
+        _require_close(actual, expected, name=label, atol=2e-13)
+    _validate_reassembled_certificate(
+        panel,
+        data[:, 8],
+        data[:, 9],
+        context=f"M25 Fig. 3 table {path}",
+    )
+    return panel
+
+
+def write_baseline(
+    result: Fig3Result,
+    paths: tuple[Path, Path] | None = None,
+) -> tuple[Path, Path]:
+    """Write noncanonical staged tables; canonical writes use the publisher."""
+    if paths is None:
+        paths = (baseline_path_a(), baseline_path_b())
+    for path, canonical in zip(
+        paths,
+        (baseline_path_a(), baseline_path_b()),
+        strict=True,
+    ):
+        require_staging_path(path, canonical, kind="CSV")
+    return (
+        _write_panel_csv(result.panel_a, paths[0]),
+        _write_panel_csv(result.panel_b, paths[1]),
     )
 
 
 def read_baseline() -> Fig3Result:
-    return Fig3Result(
-        panel_a=_read_panel_csv(baseline_path_a(), 0.5),
-        panel_b=_read_panel_csv(baseline_path_b(), 5.0),
-    )
+    with verified_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        fingerprint=artifact_fingerprint(),
+        expected_members=_expected_members(),
+        member_paths=_member_paths(),
+    ):
+        return Fig3Result(
+            panel_a=_read_panel_csv(baseline_path_a(), 0.5),
+            panel_b=_read_panel_csv(baseline_path_b(), 5.0),
+        )
 
 
 def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
@@ -387,6 +679,7 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
 
     if path is None:
         path = plot_path()
+    require_staging_path(path, plot_path(), kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), sharey=True)
@@ -413,7 +706,8 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
         ax.legend(fontsize=10, loc="upper right")
 
     fig.suptitle(
-        "Marchegiani 2025 Fig 3 — chemical potentials vs temperature\n"
+        "M25 Fig. 3 topology — qpsim chemical-potential regression\n"
+        "(manual broad paper anchors; no digitized paper points)\n"
         rf"$\Delta_R/h = {DELTA_R_OVER_H_GHZ:g}$ GHz, "
         rf"$\omega_{{10}}/(2\pi) = {OMEGA_10_OVER_H_GHZ:g}$ GHz, "
         rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}} = {GAMMA_PH_00_HZ:g}$ Hz",
@@ -425,8 +719,15 @@ def write_plot(result: Fig3Result, path: Path | None = None) -> Path:
     return path
 
 
+def _validate_staged_bundle(stages: Mapping[Path, Path]) -> None:
+    _read_panel_csv(stages[baseline_path_a()], 0.5)
+    _read_panel_csv(stages[baseline_path_b()], 5.0)
+
+
 def generate_baseline() -> tuple[Path, Path, Path]:
-    print("M25 Fig 3 — chemical potentials μ_α(T) full rate-equation reproduction")
+    fingerprint = artifact_fingerprint()
+    producer: ProducerIdentity = capture_producer_identity(fingerprint)
+    print("M25 Fig 3 — qpsim chemical-potential regression")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz (recalibrated at each T)")
     print(
@@ -438,8 +739,24 @@ def generate_baseline() -> tuple[Path, Path, Path]:
     print("  Panel b (ω_LR = 5.0 GHz) ...")
     panel_b = _run_panel(5.0)
     result = Fig3Result(panel_a=panel_a, panel_b=panel_b)
-    csv_a, csv_b = write_baseline(result)
-    pdf = write_plot(result)
+    csv_a, csv_b, pdf, _manifest = publish_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        producer=producer,
+        current_fingerprint=artifact_fingerprint,
+        members={
+            baseline_path_a(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_a, path),
+            ),
+            baseline_path_b(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_b, path),
+            ),
+            plot_path(): ("pdf", lambda path: write_plot(result, path)),
+        },
+        validate_staged=_validate_staged_bundle,
+    )
     print(f"  Baselines: {csv_a.name}, {csv_b.name}")
     print(f"  PDF plot:  {pdf.name}")
     return csv_a, csv_b, pdf

@@ -20,10 +20,12 @@ companion driver services. The canonical reference remains
   derived from the QP grid as the union of `{|E_i − E_j|, E_i + E_j}`
   per D3. Guarantees no off-grid interpolation in the e-ph collision
   integral and exact discrete detailed balance at equilibrium. Thermal Bose
-  factors use `expm1` for small positive transfers; the exact zero-transfer
-  bin has zero occupation by convention because it is a decoupled bookkeeping
-  mode. A positive transfer whose occupation exceeds binary64 range saturates
-  at the largest finite value instead of becoming zero or infinity.
+  factors use the stable identity `exp(-x) / -expm1(-x)`; the exact
+  zero-transfer bin has zero occupation by convention because it is a
+  decoupled bookkeeping mode. This preserves positive occupations through
+  the binary64 subnormal range, returns zero only on physical underflow, and
+  saturates at the largest finite value only when the mathematical occupation
+  exceeds binary64 range.
 - **Spatial grid** (`qpsim.grid.spatial_grid`): uniform 1D mesh. The
   `T3Spatial1DBackend` uses a conservative finite-volume nearest-neighbour
   flux operator with reflective ends and optional two-gap interfaces.

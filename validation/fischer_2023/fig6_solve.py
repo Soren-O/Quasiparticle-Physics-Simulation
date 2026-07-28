@@ -1,6 +1,7 @@
-"""Fischer 2023 Fig. 6 — paper-topology gap-suppression reproduction.
+"""Fischer 2023 Fig. 6 — paper-topology qpsim gap-suppression regression.
 
-This is the **structural** Fig. 6 reproduction: gap suppression $\\delta\\Delta$
+This is a **structural qpsim regression** on the paper's axes and parameters:
+it does not compare against digitized paper-curve data. Gap suppression $\\delta\\Delta$
 caused by the nonequilibrium distribution, plotted in the paper's
 ordinate
 
@@ -10,7 +11,7 @@ ordinate
 
 against the Eq. 35 drive-equivalent temperature ratio $T_*/\\Delta$, swept
 over $\\bar n$ at three bath temperatures $T_B \\in \\{0.10, 0.15, 0.20\\}$ K
-on a paper-resolution grid (1640 bins: the original 1620 above-gap cells plus
+on a paper-parameter grid (1640 bins: the original 1620 above-gap cells plus
 20 sub-gap guard cells, $dE = 1\\,\\mu$eV). Solid lines: numerical
 joint kinetic-equation + self-consistent gap solve. Dashed lines:
 analytical Eq. 53.
@@ -93,13 +94,12 @@ from qpsim.observables.gap_suppression import (
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics import build_tau_l, calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.solvers.coupled_newton import CoupledNewtonLineSearchError
 
 from validation.fischer_2023.fig5_paper import _xqp_analytic_eq47
 from validation.fischer_2023.steady_state_certificate import (
-    CERTIFICATE_FIELDS,
-    CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_FIELDS,
     NUMBER_CERTIFICATE_METRIC_VERSION,
     QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
@@ -107,26 +107,25 @@ from validation.fischer_2023.steady_state_certificate import (
 
 # ── Fischer 2023 Table I parameters (shared with fig3_paper, fig5_paper) ──
 
-DELTA_0 = 180.0            # μeV (zero-T gap; also Eq. 53 normalization)
-TAU_0 = 438.0              # ns
+DELTA_0 = 180.0  # μeV (zero-T gap; also Eq. 53 normalization)
+TAU_0 = 438.0  # ns
 # The finite-cutoff calibrator, rather than the infinite-cutoff rounded 1.764
 # ratio, is the single pairing-scale anchor.  This makes the model's T=0 gap
 # equal DELTA_0 while preserving continuous closure at the declared T_C.
 GAP_SOLVE_XTOL_UEV = 1e-12
 FINITE_CUTOFF_DELTA0_OVER_KBTC = (
-    calibrate_gap(T_c=1.0, T_bath=0.0, xtol=GAP_SOLVE_XTOL_UEV).delta_0_bcs
-    / KB_UEV_PER_K
+    calibrate_gap(T_c=1.0, T_bath=0.0, xtol=GAP_SOLVE_XTOL_UEV).delta_0_bcs / KB_UEV_PER_K
 )
 T_C = DELTA_0 / (FINITE_CUTOFF_DELTA0_OVER_KBTC * KB_UEV_PER_K)
-OMEGA_0 = DELTA_0 / 9.0    # 20 μeV
-C_PHOT = 1e-9              # ns^-1 (1 Hz)
+OMEGA_0 = DELTA_0 / 9.0  # 20 μeV
+C_PHOT = 1e-9  # ns^-1 (1 Hz)
 
 # Acoustic-escape film geometry (Fischer 2023 §V text).
 FILM_THICKNESS_NM = 63.0
 SUBSTRATE_ETA = 0.2
 
 # Phonon-escape-time model (qpsim.physics.build_tau_l). The paper sets
-# τ_l = τ_0^PB ≈ 255 ps exactly, so "tau_0_pb" is the paper-faithful default.
+# τ_l = τ_0^PB ≈ 255 ps exactly, so "tau_0_pb" is the paper-parameter default.
 # The Kaplan thin-film acoustic estimate ("acoustic_escape") gives ~368 ps for
 # this 63 nm film (1.44× the paper) and inflates the Fig. 6 ordinate amplitude;
 # override with FISCHER2023_FIG6_TAU_L_MODEL to compare.
@@ -188,8 +187,11 @@ GAP_FIXED_POINT_REL_TOL = GAP_FIXED_POINT_ABS_TOL_UEV / DELTA_0
 """Backend relative tolerance implying the absolute target for gap <= DELTA_0."""
 
 GAP_FIXED_POINT_CERTIFICATE_FIELD = "gap_fixed_point_abs_error_uev"
-FIG6_CERTIFICATE_FIELDS = (*CERTIFICATE_FIELDS, GAP_FIXED_POINT_CERTIFICATE_FIELD)
-"""Certificate fields stored in the Fig. 6 raw payload and current CSV."""
+FIG6_CERTIFICATE_FIELDS = (
+    *NUMBER_CERTIFICATE_FIELDS,
+    GAP_FIXED_POINT_CERTIFICATE_FIELD,
+)
+"""Extended certificate fields stored in the Fig. 6 raw payload and artifact."""
 
 # τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
 PAPER_TAU_0_PB_PS = 255.0
@@ -236,7 +238,7 @@ def _build_grid_and_spectral() -> tuple[np.ndarray, np.ndarray, SpectralContext]
     m = round(OMEGA_0 / dE_scalar)
     if abs(OMEGA_0 - m * dE_scalar) / OMEGA_0 > 1e-10:
         raise RuntimeError(
-            f"Fischer Fig. 6 paper grid not commensurate: ω_0={OMEGA_0}, m·dE={m*dE_scalar}"
+            f"Fischer Fig. 6 paper grid not commensurate: ω_0={OMEGA_0}, m·dE={m * dE_scalar}"
         )
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
     return E, dE, spectral
@@ -250,25 +252,30 @@ def _compute_tau_0_pb(spectral: SpectralContext) -> float:
     ``TAU_L_MODEL`` (default ``"tau_0_pb"`` ties it to this extraction).
     """
     K_r0_phonon_side = build_recombination_kernel_phonon_side(
-        spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
+        spectral,
+        tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
     )
     omega_bins, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
         spectral.E,
     )
     f_zero = np.zeros(spectral.E.size)
     _, b_ph = compute_phonon_source_sink(
-        f_zero, spectral, None, None,
-        idx_diff, idx_sum, diff_sign,
+        f_zero,
+        spectral,
+        None,
+        None,
+        idx_diff,
+        idx_sum,
+        diff_sign,
         omega_bins.size,
-        enable_scattering=False, enable_recombination=True,
+        enable_scattering=False,
+        enable_recombination=True,
         K_r0_phonon_side=K_r0_phonon_side,
     )
     threshold = 2.0 * spectral.gap
     above = (omega_bins >= threshold) & (b_ph < -1e-30)
     if not np.any(above):
-        raise RuntimeError(
-            "Could not find a phonon bin above 2Δ with a pair-breaking rate."
-        )
+        raise RuntimeError("Could not find a phonon bin above 2Δ with a pair-breaking rate.")
     first_idx = int(np.argmax(above))
     return float(1.0 / -b_ph[first_idx])
 
@@ -280,14 +287,7 @@ def _kBTstar_eq35(n_bar: float) -> float:
     """
     if n_bar <= 0:
         return 0.0
-    A = (
-        (105.0 / 64.0)
-        * (KB_UEV_PER_K * T_C) ** 3
-        * C_PHOT
-        * TAU_0
-        * OMEGA_0 ** 2
-        * DELTA_0
-    )
+    A = (105.0 / 64.0) * (KB_UEV_PER_K * T_C) ** 3 * C_PHOT * TAU_0 * OMEGA_0**2 * DELTA_0
     return float((A * n_bar) ** (1.0 / 6.0))
 
 
@@ -339,10 +339,9 @@ def _paper_eq53_analytic_thermal(x_qp_th_qpsim: float, T_bath_over_delta: float)
 
 def _x_qp_thermal(spectral: SpectralContext, T_bath: float) -> float:
     """Thermal-equilibrium $x_\\mathrm{qp}$ at $T_B$ from Fermi-Dirac."""
-    kT = KB_UEV_PER_K * T_bath
-    if kT <= 0.0:
+    if T_bath <= 0.0:
         return 0.0
-    f_FD = 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(spectral.E, T_bath)
     return float(qp_fraction(f_FD, spectral, delta_0=DELTA_0))
 
 
@@ -364,9 +363,7 @@ def _build_state(
     """
     if continuation_seed is not None:
         if f_seed is not None or n_ph_seed is not None:
-            raise ValueError(
-                "continuation_seed is mutually exclusive with f_seed/n_ph_seed."
-            )
+            raise ValueError("continuation_seed is mutually exclusive with f_seed/n_ph_seed.")
         if continuation_seed.T_bath != T_bath:
             raise ValueError(
                 "Fig. 6 continuation seeds cannot cross temperature rows: "
@@ -378,13 +375,9 @@ def _build_state(
             and np.array_equal(seeded_spectral.dE, spectral.dE)
             and seeded_spectral.dynes_gamma == spectral.dynes_gamma
         ):
-            raise ValueError(
-                "Fig. 6 continuation seed must use the configured energy grid."
-            )
+            raise ValueError("Fig. 6 continuation seed must use the configured energy grid.")
         if continuation_seed.gap != seeded_spectral.gap:
-            raise ValueError(
-                "Fig. 6 continuation seed gap must match its SpectralContext."
-            )
+            raise ValueError("Fig. 6 continuation seed gap must match its SpectralContext.")
         return replace(
             continuation_seed,
             f=continuation_seed.f.copy(),
@@ -411,8 +404,7 @@ def _build_state(
         branches=[PhononBranchSpec(name="debye_average")],
     )
     if f_seed is None:
-        kT = KB_UEV_PER_K * T_bath
-        f_seed = 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
+        f_seed = fermi_dirac_occupation(spectral.E, T_bath)
     return T3DiffusionState(
         f=f_seed.copy(),
         gap=DELTA_0,
@@ -546,10 +538,7 @@ def _solve_fixed_gap_kinetics(
         # roundoff stall. Ordinary line-search failure above the configured
         # dimensional tolerance, singular Jacobians, non-finite states, and
         # iteration exhaustion remain fail-loud.
-        if (
-            not np.isfinite(coupled_error.residual_norm)
-            or coupled_error.residual_norm > PICARD_TOL
-        ):
+        if not np.isfinite(coupled_error.residual_norm) or coupled_error.residual_norm > PICARD_TOL:
             raise
         try:
             return _solve_picard_fixed_gap(backend, state, photon_params)
@@ -563,14 +552,14 @@ def _solve_fixed_gap_kinetics(
 def _check_tau_0_pb(tau_0_pb: float, tau_l: float) -> None:
     tau_pb_ps = tau_0_pb * 1000.0
     tau_l_ps = tau_l * 1000.0
-    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns "
-          f"({tau_pb_ps:.1f} ps)")
+    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns ({tau_pb_ps:.1f} ps)")
     print(f"  Paper-quoted tau_0^PB                 ~= {PAPER_TAU_0_PB_PS:.0f} ps")
-    print(f"  tau_l (model={TAU_L_MODEL!r})         = {tau_l:.4f} ns "
-          f"({tau_l_ps:.1f} ps)")
-    print(f"  tau_l / paper-tau_0^PB                ~= "
-          f"{tau_l_ps / PAPER_TAU_0_PB_PS:.2f}x "
-          f"(paper sets tau_l = tau_0^PB exactly)")
+    print(f"  tau_l (model={TAU_L_MODEL!r})         = {tau_l:.4f} ns ({tau_l_ps:.1f} ps)")
+    print(
+        f"  tau_l / paper-tau_0^PB                ~= "
+        f"{tau_l_ps / PAPER_TAU_0_PB_PS:.2f}x "
+        f"(paper sets tau_l = tau_0^PB exactly)"
+    )
     pb_ratio = tau_pb_ps / PAPER_TAU_0_PB_PS
     if pb_ratio > TAU_0_PB_WARN_FACTOR or pb_ratio < 1.0 / TAU_0_PB_WARN_FACTOR:
         print(
@@ -658,8 +647,7 @@ def _require_target_certificate(
     """
     if not np.isfinite(backward_error_limit) or backward_error_limit <= 0.0:
         raise ValueError(
-            "backward_error_limit must be finite and positive; "
-            f"got {backward_error_limit}."
+            f"backward_error_limit must be finite and positive; got {backward_error_limit}."
         )
     qp_backward = certificate["qp_backward_error"]
     qp_number_backward = certificate[QP_NUMBER_CERTIFICATE_FIELD]
@@ -682,8 +670,7 @@ def _require_target_certificate(
 
     gap_error = certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD]
     if require_gap_fixed_point and (
-        not np.isfinite(gap_error)
-        or gap_error > GAP_FIXED_POINT_ABS_TOL_UEV
+        not np.isfinite(gap_error) or gap_error > GAP_FIXED_POINT_ABS_TOL_UEV
     ):
         raise RuntimeError(
             "Fischer Fig. 6 converged target failed the independent "
@@ -725,7 +712,9 @@ def _solve_and_measure(
         continuation_seed=continuation_seed,
     )
     photon_params = {
-        "omega_0": OMEGA_0, "n_bar": float(n_bar_val), "c_phot": C_PHOT,
+        "omega_0": OMEGA_0,
+        "n_bar": float(n_bar_val),
+        "c_phot": C_PHOT,
     }
     if fixed_gap_kinetics:
         # Fixed-gap/direct mode has no outer gap-continuation fold. Its solver
@@ -738,17 +727,22 @@ def _solve_and_measure(
             # Only an explicitly classified superconducting collapse is
             # fold-to-NaN eligible. Singular/nonfinite failures, inner-solver
             # exhaustion, and ordinary outer-gap nonconvergence propagate.
-            raise _PointSolveError(
-                "Fischer Fig. 6 self-consistent gap collapsed."
-            ) from exc
+            raise _PointSolveError("Fischer Fig. 6 self-consistent gap collapsed.") from exc
     if direct_gap_observable:
         # _solve_sweep always supplies thermal_integral in direct-gap mode.
         assert thermal_integral is not None
         driven_integral = gap_integral_from_distribution_direct(
-            converged.f, spectral.E, gap=DELTA_0, samples="centers",
+            converged.f,
+            spectral.E,
+            gap=DELTA_0,
+            samples="centers",
         )
         delta_driven = gap_from_distribution_direct(
-            converged.f, spectral.E, gap=DELTA_0, delta0=DELTA_0, samples="centers",
+            converged.f,
+            spectral.E,
+            gap=DELTA_0,
+            delta0=DELTA_0,
+            samples="centers",
         )
         obs = gap_suppression_ratio_from_integrals(driven_integral, thermal_integral)
     else:
@@ -784,9 +778,7 @@ def _solve_and_measure(
             reference_gap=converged.gap,
             xtol=GAP_SOLVE_XTOL_UEV,
         )
-        certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD] = abs(
-            mapped_gap - converged.gap
-        )
+        certificate[GAP_FIXED_POINT_CERTIFICATE_FIELD] = abs(mapped_gap - converged.gap)
     return converged, obs, delta_driven, x_qp, certificate
 
 
@@ -798,25 +790,58 @@ def _solve_sweep(
     *,
     direct_gap_observable: bool = False,
     fixed_gap_kinetics: bool = False,
+    t_bath_values: tuple[float, ...] | None = None,
+    n_bar_values: np.ndarray | None = None,
 ) -> tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray,
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
     dict[str, np.ndarray],
+    np.ndarray,
+    np.ndarray,
 ]:
     """For each $T_B$, sweep n̄ low → high with (f, n_ph) continuation.
 
     Returns (T_star_over_delta, delta_eq, delta_driven, x_qp_num,
              x_qp_eq47, paper_observable_num, paper_observable_eq53,
-             tau_l_used, certificates).
-    All shaped ``(len(T_BATH_VALUES), N_BAR_VALUES.size)`` except
+             tau_l_used, certificates, returned_f, returned_n_ph).
+    All shaped ``(len(t_bath_values), n_bar_values.size)`` except
     ``delta_eq`` (per-T_B) and ``tau_l_used`` (scalar).
+
+    ``t_bath_values`` and ``n_bar_values`` default to the canonical module
+    axes.  The production parallel regenerator passes exactly one canonical
+    bath temperature while retaining the complete, ordered ``n_bar`` axis.
+    This preserves the continuation chain within a row while exposing the
+    three physically independent rows as safe process-level work units.
     """
     _require_supported_mode(
         direct_gap_observable=direct_gap_observable,
         fixed_gap_kinetics=fixed_gap_kinetics,
     )
-    n_T = len(T_BATH_VALUES)
-    n_n = N_BAR_VALUES.size
+    temperatures = (
+        tuple(float(value) for value in T_BATH_VALUES)
+        if t_bath_values is None
+        else tuple(float(value) for value in t_bath_values)
+    )
+    drives = (
+        np.asarray(N_BAR_VALUES, dtype=float).copy()
+        if n_bar_values is None
+        else np.asarray(n_bar_values, dtype=float).copy()
+    )
+    if not temperatures or not np.all(np.isfinite(temperatures)):
+        raise ValueError("t_bath_values must contain finite temperatures.")
+    if drives.ndim != 1 or drives.size == 0 or np.any(~np.isfinite(drives)):
+        raise ValueError("n_bar_values must be a non-empty finite 1-D array.")
+    if np.any(drives < 0.0) or np.any(np.diff(drives) <= 0.0):
+        raise ValueError("n_bar_values must be non-negative and strictly increasing.")
+
+    n_T = len(temperatures)
+    n_n = drives.size
     T_star = np.zeros((n_T, n_n))
     delta_driven = np.zeros((n_T, n_n))
     x_qp_num = np.zeros((n_T, n_n))
@@ -826,15 +851,21 @@ def _solve_sweep(
     delta_eq_per_T = np.zeros(n_T)
     tau_l_used: float | None = None
     certificates = {
-        field: np.full((n_T, n_n), np.nan, dtype=float)
-        for field in FIG6_CERTIFICATE_FIELDS
+        field: np.full((n_T, n_n), np.nan, dtype=float) for field in FIG6_CERTIFICATE_FIELDS
     }
+    returned_f = np.full((n_T, n_n, spectral.E.size), np.nan, dtype=float)
+    omega_bins, _, _, _ = build_phonon_frequency_map(spectral.E)
+    returned_n_ph = np.full(
+        (n_T, n_n, omega_bins.size),
+        np.nan,
+        dtype=float,
+    )
 
     # δΔ_T = Δ_0 − Δ_eq(T_B) is exponentially small at low T_B (≈ 8e-8 μeV
     # at T_B=0.10 K, ≈ 1e-4 at T_B=0.15 K). Default brentq xtol of
     # 1e-6 * kBTc ≈ 1e-4 μeV would round δΔ_T to zero at T_B ≤ 0.15 K and
     # collapse the paper observable. Tighten to ~1e-12 μeV.
-    for i, T_bath in enumerate(T_BATH_VALUES):
+    for i, T_bath in enumerate(temperatures):
         thermal_integral: float | None = None  # set below only in direct-gap mode
         if direct_gap_observable:
             thermal_integral = thermal_gap_integral_direct(
@@ -866,11 +897,9 @@ def _solve_sweep(
 
         continuation_seed: T3DiffusionState | None = None
         tau_l_val: float | None = None
-        for j, n_bar in enumerate(N_BAR_VALUES):
+        for j, n_bar in enumerate(drives):
             if tau_l_val is None:
-                tau_l_val = float(
-                    _build_state(material, spectral, T_bath).phonon.tau_l[0, 0]
-                )
+                tau_l_val = float(_build_state(material, spectral, T_bath).phonon.tau_l[0, 0])
                 if tau_l_used is None:
                     tau_l_used = tau_l_val
             kBT_star = _kBTstar_eq35(float(n_bar))
@@ -878,10 +907,13 @@ def _solve_sweep(
             # Analytic overlay fields are independent of the numerical solve; set
             # them first so a failed strong-drive point keeps its Eq. 53 overlay.
             x_qp_eq47[i, j] = _xqp_analytic_eq47(
-                T_bath, float(n_bar), tau_l=tau_l_val, tau_0_pb=tau_0_pb,
+                T_bath,
+                float(n_bar),
+                tau_l=tau_l_val,
+                tau_0_pb=tau_0_pb,
             )
-            delta_drive_analytic = (
-                DELTA_0 * _paper_eq53_analytic_drive(x_qp_eq47[i, j], T_star[i, j])
+            delta_drive_analytic = DELTA_0 * _paper_eq53_analytic_drive(
+                x_qp_eq47[i, j], T_star[i, j]
             )
             obs_eq53[i, j] = (delta_T - delta_drive_analytic) / delta_T
 
@@ -902,12 +934,17 @@ def _solve_sweep(
                     x_qp_pt,
                     certificate,
                 ) = _solve_and_measure(
-                    backend, material, spectral, T_bath, n_bar,
+                    backend,
+                    material,
+                    spectral,
+                    T_bath,
+                    n_bar,
                     continuation_seed,
                     fixed_gap_kinetics=fixed_gap_kinetics,
                     direct_gap_observable=direct_gap_observable,
                     thermal_integral=thermal_integral,
-                    delta_eq=delta_eq_per_T[i], delta_T=delta_T,
+                    delta_eq=delta_eq_per_T[i],
+                    delta_T=delta_T,
                 )
                 # Keep the sweep fail-loud even if a future test double or
                 # alternate point solver bypasses _solve_and_measure's check.
@@ -956,6 +993,8 @@ def _solve_sweep(
             obs_num[i, j] = obs
             delta_driven[i, j] = delta_driven_pt
             x_qp_num[i, j] = x_qp_pt
+            returned_f[i, j] = converged.f
+            returned_n_ph[i, j] = converged.phonon.n_ph[0, :, 0]
             # Carry the complete converged state within this temperature row.
             # In particular, preserve the self-consistent gap and its matching
             # SpectralContext instead of silently resetting both to DELTA_0.
@@ -970,12 +1009,19 @@ def _solve_sweep(
             )
 
     if tau_l_used is None:
-        raise RuntimeError(
-            "Sweep produced no points — every T_bath at or above T_c?"
-        )
+        raise RuntimeError("Sweep produced no points — every T_bath at or above T_c?")
     return (
-        T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
-        obs_num, obs_eq53, np.array([tau_l_used]), certificates,
+        T_star,
+        delta_eq_per_T,
+        delta_driven,
+        x_qp_num,
+        x_qp_eq47,
+        obs_num,
+        obs_eq53,
+        np.array([tau_l_used]),
+        certificates,
+        returned_f,
+        returned_n_ph,
     )
 
 
@@ -1014,13 +1060,19 @@ def solve(
         else:
             print("Sweep nbar at three T_B with direct Delta[f] observable:")
     else:
-        print(
-            "Sweep nbar at three T_B with self-consistent gap + "
-            f"tau_l (model={TAU_L_MODEL!r}):"
-        )
+        print(f"Sweep nbar at three T_B with self-consistent gap + tau_l (model={TAU_L_MODEL!r}):")
     (
-        T_star, delta_eq_per_T, delta_driven, x_qp_num, x_qp_eq47,
-        obs_num, obs_eq53, tau_l_arr, certificates,
+        T_star,
+        delta_eq_per_T,
+        delta_driven,
+        x_qp_num,
+        x_qp_eq47,
+        obs_num,
+        obs_eq53,
+        tau_l_arr,
+        certificates,
+        returned_f,
+        returned_n_ph,
     ) = _solve_sweep(
         backend,
         material,
@@ -1045,6 +1097,81 @@ def solve(
         "paper_observable_eq53": obs_eq53,
         "x_qp_num": x_qp_num,
         "x_qp_eq47": x_qp_eq47,
+        "state_f": returned_f,
+        "state_n_ph": returned_n_ph,
+        **certificates,
+    }
+
+
+def solve_temperature_row(
+    T_bath: float,
+    *,
+    direct_gap_observable: bool = False,
+    fixed_gap_kinetics: bool = False,
+) -> dict[str, np.ndarray]:
+    """Solve one canonical Fig. 6 temperature row in continuation order.
+
+    The three bath-temperature rows do not share continuation state.  This
+    entry point is therefore numerically identical to the corresponding row
+    of :func:`solve`, while allowing the production campaign runner to assign
+    one complete row to each process.  Individual ``n_bar`` points are
+    deliberately *not* exposed as independent work: every row remains a
+    low-to-high continuation chain.
+    """
+    _require_supported_mode(
+        direct_gap_observable=direct_gap_observable,
+        fixed_gap_kinetics=fixed_gap_kinetics,
+    )
+    temperature = float(T_bath)
+    canonical_temperatures = tuple(float(value) for value in T_BATH_VALUES)
+    if temperature not in canonical_temperatures:
+        raise ValueError(
+            "T_bath must be one of the canonical Fig. 6 temperatures; "
+            f"got {temperature!r}, expected {canonical_temperatures!r}."
+        )
+
+    material = _fischer_material()
+    _, _, spectral = _build_grid_and_spectral()
+    tau_0_pb = _compute_tau_0_pb(spectral)
+    backend = T3DiffusionBackend()
+    (
+        T_star,
+        delta_eq_per_T,
+        delta_driven,
+        x_qp_num,
+        x_qp_eq47,
+        obs_num,
+        obs_eq53,
+        tau_l_arr,
+        certificates,
+        returned_f,
+        returned_n_ph,
+    ) = _solve_sweep(
+        backend,
+        material,
+        spectral,
+        tau_0_pb,
+        direct_gap_observable=direct_gap_observable,
+        fixed_gap_kinetics=fixed_gap_kinetics,
+        t_bath_values=(temperature,),
+        n_bar_values=N_BAR_VALUES,
+    )
+    tau_l_ns = float(tau_l_arr[0])
+    _check_tau_0_pb(tau_0_pb, tau_l_ns)
+    return {
+        "tau_0_pb_ns": np.array([tau_0_pb]),
+        "tau_l_ns": np.array([tau_l_ns]),
+        "T_bath": np.array([temperature], dtype=float),
+        "n_bar": N_BAR_VALUES.copy(),
+        "T_star_over_delta": T_star,
+        "delta_eq": delta_eq_per_T,
+        "delta_driven": delta_driven,
+        "paper_observable_num": obs_num,
+        "paper_observable_eq53": obs_eq53,
+        "x_qp_num": x_qp_num,
+        "x_qp_eq47": x_qp_eq47,
+        "state_f": returned_f,
+        "state_n_ph": returned_n_ph,
         **certificates,
     }
 
@@ -1075,18 +1202,13 @@ def solver_fingerprint() -> dict[str, Any]:
         "picard_balance_tol": TARGET_BACKWARD_ERROR_LIMIT,
         "newton_backward_error_tol": NEWTON_BACKWARD_ERROR_TOL,
         "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
-        "direct_gap_newton_backward_error_tol": (
-            DIRECT_GAP_NEWTON_BACKWARD_ERROR_TOL
-        ),
+        "direct_gap_newton_backward_error_tol": (DIRECT_GAP_NEWTON_BACKWARD_ERROR_TOL),
         "direct_gap_backward_error_limit": DIRECT_GAP_BACKWARD_ERROR_LIMIT,
         "gap_solve_xtol_uev": GAP_SOLVE_XTOL_UEV,
         "gap_fixed_point_abs_tol_uev": GAP_FIXED_POINT_ABS_TOL_UEV,
         "gap_fixed_point_rel_tol": GAP_FIXED_POINT_REL_TOL,
         "certificate_fields": list(FIG6_CERTIFICATE_FIELDS),
-        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
-        "live_number_certificate_metric_version": (
-            NUMBER_CERTIFICATE_METRIC_VERSION
-        ),
+        "certificate_metric_version": NUMBER_CERTIFICATE_METRIC_VERSION,
         "tau_l_model": TAU_L_MODEL,
         "t_bath_values": [float(x) for x in T_BATH_VALUES],
         "n_bar_values": [float(x) for x in N_BAR_VALUES],

@@ -1,10 +1,13 @@
-"""Regression test: Fischer 2023 Fig. 6 paper-topology run matches the pinned CSV.
+"""Regression test: Fischer 2023 Fig. 6 qpsim run matches its pinned qpsim CSV.
 
-Iterative-mode tolerance per NFP §6.4.1 (1e-6). Slow-marked --- this
-sweep does $|T_B|\\times|\\bar n|$ joint Picard + self-consistent BCS gap
-solves on the 1640-bin paper-resolution grid (including sub-gap guard cells);
-total wall-time is on the order of an
-hour. Opt in with ``pytest -m slow``.
+Iterative-mode tolerance per NFP §6.4.1 (1e-6). The exact regeneration is
+both ``slow`` and ``manual_slow``: its sweep performs
+$|T_B|\\times|\\bar n|$ joint Picard + self-consistent BCS gap solves on the
+1640-bin paper-parameter grid (including sub-gap guard cells). This is not a
+numerical comparison against digitized paper-curve data. The promoted
+campaign measured 12.075 hours of aggregate worker time and 4.229 hours wall
+time with three concurrent single-thread rows.
+Opt in explicitly with ``pytest -m "slow and manual_slow"``.
 
 The expensive sweep range (``N_BAR_VALUES``) is tunable in
 :mod:`fig6_paper`; tighten it if this test starts to dominate the slow
@@ -19,8 +22,12 @@ First-time generation::
 from __future__ import annotations
 
 import ast
+import csv
 import inspect
+import json
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -45,10 +52,10 @@ import validation.fischer_2023.fig6_solve as fig6_solve
 from validation.fischer_2023.fig6_paper import (
     FIG6_BASELINE_COLUMNS,
     T_BATH_VALUES,
+    LegacyArtifactError,
     baseline_path,
     config_metadata,
     read_baseline,
-    read_baseline_metadata,
     run,
 )
 from validation.fischer_2023.fig6_solve import (
@@ -67,6 +74,354 @@ from validation.fischer_2023.fig6_solve import (
 from validation.fischer_2023.steady_state_certificate import (
     QP_NUMBER_CERTIFICATE_FIELD,
 )
+
+
+@pytest.fixture
+def schema_result(monkeypatch) -> fig6_paper.Fig6PaperResult:
+    """Cheap current-schema fixture whose claims are state-derived."""
+    monkeypatch.setattr(fig6_solve, "NUM_BINS", 82)
+    monkeypatch.setattr(fig6_solve, "N_BAR_VALUES", np.array([1.0e4]))
+    monkeypatch.setattr(fig6_solve, "T_BATH_VALUES", (0.20,))
+    monkeypatch.setattr(fig6_paper, "T_BATH_VALUES", (0.20,))
+
+    def fake_certificate(state, *, photon_params, tau_l):
+        del photon_params, tau_l
+        seed = (
+            1.0e-12
+            + 1.0e-4 * float(state.f[0])
+            + 1.0e-6 * float(state.phonon.n_ph[0, 0, 0])
+        )
+        return {
+            "qp_residual_inf": seed,
+            "qp_backward_error": 0.5 * seed,
+            "qp_number_backward_error": 0.6 * seed,
+            "phonon_residual_inf": 0.7 * seed,
+            "phonon_raw_backward_error": 0.8 * seed,
+            "phonon_backward_error": 0.9 * seed,
+        }
+
+    monkeypatch.setattr(
+        fig6_paper.certificate_module,
+        "steady_state_certificate",
+        fake_certificate,
+    )
+    delta_eq = 179.9
+    monkeypatch.setattr(
+        fig6_paper,
+        "calibrate_gap",
+        lambda **_kwargs: SimpleNamespace(delta_eq=delta_eq),
+    )
+    monkeypatch.setattr(
+        fig6_paper,
+        "solve_gap",
+        lambda *_args, reference_gap, **_kwargs: reference_gap,
+    )
+
+    _, _, spectral = fig6_solve._build_grid_and_spectral()
+    omega, _, _, _ = build_phonon_frequency_map(spectral.E)
+    f = np.full(spectral.E.size, 1.0e-8)
+    n_ph = np.full(omega.size, 1.0e-10)
+    gap = 179.8
+    state = fig6_paper._rebuild_state(
+        f=f,
+        n_ph=n_ph,
+        T_bath=0.20,
+        gap=gap,
+        base_spectral=spectral,
+    )
+    tau_l = float(state.phonon.tau_l[0, 0])
+    tau_0_pb = fig6_paper.config_metadata().tau_0_pb_ns
+    certificate = fake_certificate(state, photon_params={}, tau_l=tau_l)
+    T_star = fig6_solve._kBTstar_eq35(1.0e4) / DELTA_0
+    x_num = fig6_paper.qp_fraction(f, state.spectral, delta_0=DELTA_0)
+    x_eq47 = fig5_paper._xqp_analytic_eq47(
+        0.20,
+        1.0e4,
+        tau_l=tau_l,
+        tau_0_pb=tau_0_pb,
+    )
+    delta_T = DELTA_0 - delta_eq
+    obs_eq53 = (
+        delta_T
+        - DELTA_0 * fig6_solve._paper_eq53_analytic_drive(x_eq47, T_star)
+    ) / delta_T
+    return fig6_paper.Fig6PaperResult(
+        tau_0_pb_ns=tau_0_pb,
+        tau_l_ns=tau_l,
+        T_bath=np.array([0.20]),
+        n_bar=np.array([1.0e4]),
+        T_star_over_delta=np.array([[T_star]]),
+        delta_eq=np.array([delta_eq]),
+        delta_driven=np.array([[gap]]),
+        delta_thermal_T_bath=np.array([delta_eq]),
+        paper_observable_num=np.array([[(gap - delta_eq) / delta_T]]),
+        paper_observable_eq53=np.array([[obs_eq53]]),
+        x_qp_num=np.array([[x_num]]),
+        x_qp_eq47=np.array([[x_eq47]]),
+        qp_residual_inf=np.array([[certificate["qp_residual_inf"]]]),
+        qp_backward_error=np.array([[certificate["qp_backward_error"]]]),
+        qp_number_backward_error=np.array(
+            [[certificate["qp_number_backward_error"]]]
+        ),
+        phonon_residual_inf=np.array([[certificate["phonon_residual_inf"]]]),
+        phonon_raw_backward_error=np.array(
+            [[certificate["phonon_raw_backward_error"]]]
+        ),
+        phonon_backward_error=np.array(
+            [[certificate["phonon_backward_error"]]]
+        ),
+        gap_fixed_point_abs_error_uev=np.array([[0.0]]),
+        state_f=f.reshape(1, 1, -1),
+        state_n_ph=n_ph.reshape(1, 1, -1),
+    )
+
+
+def test_canonical_publication_record_rejects_mixed_pdf(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    csv_path = tmp_path / "fig6.csv"
+    pdf_path = tmp_path / "fig6.pdf"
+    record_path = tmp_path / "fig6.promotion.json"
+    monkeypatch.setattr(fig6_paper, "baseline_path", lambda **_kwargs: csv_path)
+    monkeypatch.setattr(fig6_paper, "plot_path", lambda **_kwargs: pdf_path)
+    monkeypatch.setattr(fig6_paper, "promotion_record_path", lambda: record_path)
+
+    fig6_paper.publish_artifacts(
+        schema_result,
+        generation_evidence=fig6_paper.serial_generation_evidence(),
+    )
+    fig6_paper.read_promotion_record()
+    pdf_path.write_bytes(pdf_path.read_bytes() + b"\n% mixed producer\n")
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="does not match",
+    ):
+        fig6_paper.read_promotion_record()
+
+
+def test_publication_record_binds_parallel_campaign_evidence(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    from scripts import regenerate_fischer_fig6_parallel as parallel
+
+    csv_path = tmp_path / "fig6.csv"
+    pdf_path = tmp_path / "fig6.pdf"
+    record_path = tmp_path / "fig6.promotion.json"
+    monkeypatch.setattr(fig6_paper, "baseline_path", lambda **_kwargs: csv_path)
+    monkeypatch.setattr(fig6_paper, "plot_path", lambda **_kwargs: pdf_path)
+    monkeypatch.setattr(fig6_paper, "promotion_record_path", lambda: record_path)
+    producer = parallel._producer_base(Path(parallel.__file__).resolve())
+    worker_payloads = {
+        "t00": {
+            "semantic_sha256": fig6_paper.result_row_sha256(schema_result, 0),
+            "temperature_K": 0.20,
+        }
+    }
+    evidence = {
+        "campaign": {
+            "aggregate_worker_s": 10.0,
+            "new_rows": 1,
+            "resumed_rows": 0,
+            "wall_s": 10.0,
+        },
+        "mode": "parallel-temperature-rows",
+        "run_identity": producer["run_identity"],
+        "runner": producer["runner"],
+        "runtime": producer["runtime"],
+        "schema": fig6_paper.GENERATION_EVIDENCE_SCHEMA,
+        "single_thread_environment": producer["single_thread_environment"],
+        "worker_payloads": worker_payloads,
+    }
+    fig6_paper.publish_artifacts(
+        schema_result,
+        generation_evidence=evidence,
+    )
+    assert fig6_paper.read_promotion_record()["generation"] == evidence
+    forged = json.loads(json.dumps(evidence))
+    forged["worker_payloads"]["t00"]["semantic_sha256"] = "0" * 64
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="semantic row digest",
+    ):
+        fig6_paper.validate_generation_evidence(
+            forged,
+            result=schema_result,
+        )
+
+
+def test_publication_lock_refuses_concurrent_writer(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    record_path = tmp_path / "fig6.promotion.json"
+    monkeypatch.setattr(fig6_paper, "promotion_record_path", lambda: record_path)
+    with (
+        fig6_paper._publication_lock(),
+        pytest.raises(RuntimeError, match=r"Another Fig\. 6 publisher"),
+        fig6_paper._publication_lock(),
+    ):
+        pytest.fail("nested publisher unexpectedly acquired the lock")
+
+
+def test_canonical_readers_hold_lock_across_artifact_and_record(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    csv_path = tmp_path / "fig6.csv"
+    pdf_path = tmp_path / "fig6.pdf"
+    record_path = tmp_path / "fig6.promotion.json"
+    monkeypatch.setattr(fig6_paper, "baseline_path", lambda **_kwargs: csv_path)
+    monkeypatch.setattr(fig6_paper, "plot_path", lambda **_kwargs: pdf_path)
+    monkeypatch.setattr(fig6_paper, "promotion_record_path", lambda: record_path)
+    fig6_paper.publish_artifacts(
+        schema_result,
+        generation_evidence=fig6_paper.serial_generation_evidence(),
+    )
+
+    # A publisher replaces PDF -> CSV -> record while holding this same lock.
+    # Both readers must refuse instead of observing an old/new mixed tuple.
+    with fig6_paper._publication_lock():
+        with pytest.raises(RuntimeError, match=r"Another Fig\. 6 publisher"):
+            fig6_paper.read_baseline()
+        with pytest.raises(RuntimeError, match=r"Another Fig\. 6 publisher"):
+            fig6_paper.read_baseline_metadata()
+        with pytest.raises(RuntimeError, match=r"Another Fig\. 6 publisher"):
+            fig6_paper.read_promotion_record()
+
+
+def test_serial_generation_rejects_source_change_during_solve(
+    monkeypatch,
+    schema_result,
+) -> None:
+    revision = {"value": "before"}
+    published: list[bool] = []
+    monkeypatch.setattr(
+        fig6_paper,
+        "artifact_fingerprint",
+        lambda: {"revision": revision["value"]},
+    )
+
+    def fake_run_cached(**_kwargs):
+        revision["value"] = "after"
+        return schema_result
+
+    monkeypatch.setattr(fig6_paper, "run_cached", fake_run_cached)
+    monkeypatch.setattr(
+        fig6_paper,
+        "publish_artifacts",
+        lambda *_args, **_kwargs: published.append(True),
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="run identity",
+    ):
+        fig6_paper.generate_baseline()
+    assert not published
+
+
+def test_plot_dashed_curve_is_the_stored_certified_eq53_array(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    import matplotlib.axes
+
+    dashed_y: list[np.ndarray] = []
+    real_plot = matplotlib.axes.Axes.plot
+
+    def capture_plot(self, *args, **kwargs):
+        if kwargs.get("ls") == (0, (5, 2)):
+            dashed_y.append(np.asarray(args[1], dtype=float).copy())
+        return real_plot(self, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "plot", capture_plot)
+    fig6_paper.write_plot(schema_result, tmp_path / "fig6.pdf")
+    assert len(dashed_y) == 1
+    np.testing.assert_array_equal(
+        dashed_y[0],
+        schema_result.paper_observable_eq53[0],
+    )
+
+
+def test_direct_writers_cannot_clobber_canonical_bundle(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    csv_path = tmp_path / "canonical.csv"
+    pdf_path = tmp_path / "canonical.pdf"
+    record_path = csv_path.with_suffix(".promotion.json")
+    csv_path.write_bytes(b"csv-sentinel")
+    pdf_path.write_bytes(b"pdf-sentinel")
+    record_path.write_bytes(b"record-sentinel")
+
+    def fake_baseline_path(*, direct_gap_observable: bool = False) -> Path:
+        if direct_gap_observable:
+            return tmp_path / "direct.csv"
+        return csv_path
+
+    def fake_plot_path(*, direct_gap_observable: bool = False) -> Path:
+        if direct_gap_observable:
+            return tmp_path / "direct.pdf"
+        return pdf_path
+
+    monkeypatch.setattr(fig6_paper, "baseline_path", fake_baseline_path)
+    monkeypatch.setattr(fig6_paper, "plot_path", fake_plot_path)
+    for writer in (
+        lambda: fig6_paper.write_baseline(schema_result),
+        lambda: fig6_paper.write_baseline(schema_result, csv_path),
+        lambda: fig6_paper.write_baseline(schema_result, pdf_path),
+        lambda: fig6_paper.write_plot(schema_result),
+        lambda: fig6_paper.write_plot(schema_result, pdf_path),
+        lambda: fig6_paper.write_plot(schema_result, record_path),
+    ):
+        with pytest.raises(
+            fig6_paper.ArtifactValidationError,
+            match="canonical",
+        ):
+            writer()
+    assert csv_path.read_bytes() == b"csv-sentinel"
+    assert pdf_path.read_bytes() == b"pdf-sentinel"
+    assert record_path.read_bytes() == b"record-sentinel"
+
+
+def test_artifact_fingerprint_includes_sweep_cache_source(
+    monkeypatch,
+) -> None:
+    captured: dict[str, tuple[Path, ...]] = {}
+
+    def fake_source_manifest(
+        _primary: Path,
+        *,
+        extra_validation_modules: tuple[Path, ...],
+    ) -> dict[str, str]:
+        captured["extra"] = extra_validation_modules
+        return {"unit-test": "0" * 64}
+
+    monkeypatch.setattr(fig6_paper, "source_manifest", fake_source_manifest)
+    fig6_paper.artifact_fingerprint()
+    assert Path(fig6_paper.sweep_cache.__file__) in captured["extra"]
+
+
+def test_pdf_validator_rejects_token_shaped_non_pdf(tmp_path) -> None:
+    path = tmp_path / "fake.pdf"
+    path.write_bytes(
+        b"%PDF-1.4\n"
+        + b"/Type /Catalog /Type /Pages /Type /Page\n"
+        + b"xref\n0 1\n0000000000 65535 f \n"
+        + b"trailer << /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"
+        + b" " * 2048
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="complete nonempty Matplotlib PDF",
+    ):
+        fig6_paper._require_valid_pdf(path)
 
 
 def test_console_diagnostic_literals_are_ascii() -> None:
@@ -119,8 +474,9 @@ def test_direct_plot_limits_expose_signed_low_drive_point() -> None:
 
 def test_programmatic_direct_generation_cannot_clobber_canonical(
     monkeypatch,
+    schema_result,
 ) -> None:
-    reference = read_baseline(baseline_path())
+    reference = schema_result
     written: dict[str, object] = {}
 
     monkeypatch.setattr(fig6_paper, "run_cached", lambda **_kwargs: reference)
@@ -134,7 +490,7 @@ def test_programmatic_direct_generation_cannot_clobber_canonical(
         written["direct"] = kwargs["direct_gap_observable"]
         return path
 
-    monkeypatch.setattr(fig6_paper, "write_baseline", record_csv)
+    monkeypatch.setattr(fig6_paper, "_legacy_write_baseline", record_csv)
     monkeypatch.setattr(fig6_paper, "write_plot", record_pdf)
 
     csv_path, pdf_path = fig6_paper.generate_baseline(
@@ -228,8 +584,9 @@ def _assert_certified_baseline_balances(path, axes) -> None:
         (line for line in text.splitlines() if line.startswith("T_bath_K,")),
         "",
     )
-    assert tuple(header.split(",")) == FIG6_BASELINE_COLUMNS, (
-        "certified Fig. 6 preflight requires the current 15-column schema"
+    assert tuple(header.split(",")) == fig6_paper._ARTIFACT_COLUMNS, (
+        "certified Fig. 6 preflight requires the current authenticated "
+        "artifact schema"
     )
     accepted = np.isfinite(axes.x_qp_num)
     for field in FIG6_CERTIFICATE_FIELDS:
@@ -237,7 +594,14 @@ def _assert_certified_baseline_balances(path, axes) -> None:
         assert np.all(np.isfinite(values)), (
             f"certified baseline has non-finite {field} at an accepted point"
         )
-    for field in ("qp_backward_error", "phonon_backward_error"):
+        assert np.all(values >= 0.0), (
+            f"certified baseline has negative {field} at an accepted point"
+        )
+    for field in (
+        "qp_backward_error",
+        QP_NUMBER_CERTIFICATE_FIELD,
+        "phonon_backward_error",
+    ):
         values = getattr(axes, field)[accepted]
         assert np.all(values <= TARGET_BACKWARD_ERROR_LIMIT), (
             f"certified baseline {field} exceeds "
@@ -250,19 +614,125 @@ def _assert_certified_baseline_balances(path, axes) -> None:
     )
 
 
+def _lightweight_canonical_preflight(
+    path: Path,
+) -> tuple[fig6_paper.BaselineMetadata, SimpleNamespace]:
+    """Authenticate bytes and parse scalar claims without decoding 66 states.
+
+    The public canonical readers deliberately decode and independently
+    re-certify every stored state.  That is the right publication/closeout
+    contract, but it made this advertised one-second configuration preflight
+    perform the full recertification four times (twice through each public
+    reader).  Here the promotion lock protects one cheap snapshot while we:
+
+    * bind the exact CSV/PDF bytes to the promotion record;
+    * validate current generation/source evidence without recomputing row
+      semantic digests; and
+    * parse only the scalar header, axes, and stored certificate columns.
+
+    Full state-derived recertification remains in ``read_baseline()`` and in
+    the signed-diagnostic/closeout path.
+    """
+
+    record_path = fig6_paper.promotion_record_path()
+    pdf_path = fig6_paper.plot_path()
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert isinstance(record, dict)
+    assert set(record) == {"artifact_schema", "artifacts", "generation", "schema"}
+    assert record["schema"] == fig6_paper.PROMOTION_RECORD_SCHEMA
+    assert record["artifact_schema"] == fig6_paper.ARTIFACT_SCHEMA
+    assert record["artifacts"] == {
+        "csv": fig6_paper._file_identity(path),
+        "pdf": fig6_paper._file_identity(pdf_path),
+    }
+    fig6_paper._require_valid_pdf(pdf_path)
+    fig6_paper.validate_generation_evidence(
+        record["generation"],
+        result=None,
+    )
+
+    rows = fig6_paper._read_csv_rows(path)
+    artifact_metadata = fig6_paper._artifact_metadata(path, rows)
+    config = artifact_metadata["fingerprint"]["config"]
+    metadata = fig6_paper.BaselineMetadata(
+        delta_0=float(config["delta_0"]),
+        finite_cutoff_delta0_over_kbtc=float(
+            config["finite_cutoff_delta0_over_kbtc"]
+        ),
+        tau_0=float(config["tau_0"]),
+        t_c=float(config["t_c"]),
+        omega_0=float(config["omega_0"]),
+        c_phot=float(config["c_phot"]),
+        film_thickness_nm=float(config["film_thickness_nm"]),
+        eta=float(config["eta"]),
+        num_bins=int(config["num_bins"]),
+        e_min_factor=float(config["e_min_factor"]),
+        e_max_factor=float(config["e_max_factor"]),
+        tau_0_pb_ns=float(config["tau_0_pb_ns"]),
+        tau_l_ns=float(config["tau_l_ns"]),
+        tau_l_model=str(config["tau_l_model"]),
+        gap_fixed_point_abs_tol_uev=float(
+            config["gap_fixed_point_abs_tol_uev"]
+        ),
+        certificate_metric_version=str(config["certificate_metric_version"]),
+    )
+    data_rows: list[dict[str, float]] = []
+    for row in rows[3:]:
+        assert len(row) == len(fig6_paper._ARTIFACT_COLUMNS)
+        values = {
+            name: float(row[index])
+            for index, name in enumerate(fig6_paper._ARTIFACT_COLUMNS[:16])
+        }
+        assert np.all(np.isfinite(tuple(values.values())))
+        data_rows.append(values)
+
+    assert data_rows
+    T_values = np.asarray(
+        list(dict.fromkeys(row["T_bath_K"] for row in data_rows)),
+        dtype=float,
+    )
+    n_values = np.asarray(
+        list(dict.fromkeys(row["n_bar"] for row in data_rows)),
+        dtype=float,
+    )
+    expected_coordinates = [
+        (float(T_bath), float(n_bar))
+        for T_bath in T_values
+        for n_bar in n_values
+    ]
+    actual_coordinates = [
+        (row["T_bath_K"], row["n_bar"]) for row in data_rows
+    ]
+    assert actual_coordinates == expected_coordinates
+    shape = (T_values.size, n_values.size)
+    arrays = {
+        name: np.asarray([row[name] for row in data_rows], dtype=float).reshape(shape)
+        for name in fig6_paper._ARTIFACT_COLUMNS[2:16]
+    }
+    return metadata, SimpleNamespace(
+        T_bath=T_values,
+        n_bar=n_values,
+        **arrays,
+    )
+
+
 def _assert_config_matches_baseline(path) -> None:
     """Cheap preflight (~1 s, no solve): the live module config must match the
     pinned baseline's stamped header + sweep axes.
 
-    Gating the ~6.04 h serial :func:`run` behind this turns a stale config/baseline
-    pairing — a ``TAU_L_MODEL`` swap, a grid change, a sweep-range edit — into
-    a seconds-long failure instead of one discovered only after the full
-    sweep. Compares the config fingerprint against the baseline header, and
-    the configured sweep axes against the baseline's data rows.
+    Gating the 12.075 h aggregate-worker :func:`run` behind this turns a stale
+    config/baseline pairing — a ``TAU_L_MODEL`` swap, a grid change, a
+    sweep-range edit — into a seconds-long failure instead of one discovered
+    only after the full sweep. Compares the config fingerprint against the
+    baseline header, and the configured sweep axes against the baseline's
+    data rows.
     """
     cfg = config_metadata()
-    meta = read_baseline_metadata(path)
-    axes = read_baseline(path)
+    with fig6_paper._publication_lock():
+        meta, axes = _lightweight_canonical_preflight(path)
+        # Keep this human-readable header check in the same authenticated
+        # snapshot as the promotion-record and row reads.
+        _assert_certified_baseline_balances(path, axes)
 
     assert cfg.tau_l_model == meta.tau_l_model, (
         f"TAU_L_MODEL config={cfg.tau_l_model!r} != baseline {meta.tau_l_model!r}; "
@@ -302,7 +772,6 @@ def _assert_config_matches_baseline(path) -> None:
         N_BAR_VALUES, axes.n_bar, rtol=1e-12, atol=0.0,
         err_msg="n_bar sweep axis (range/count) differs from baseline",
     )
-    _assert_certified_baseline_balances(path, axes)
 
 
 def test_config_matches_baseline_metadata() -> None:
@@ -310,14 +779,67 @@ def test_config_matches_baseline_metadata() -> None:
     baseline header.
 
     This is the standing fast-suite guard that would have caught the τ_ℓ-model
-    / baseline mismatch that once wasted 9.5 h. The slow
-    ``test_matches_pinned_baseline`` re-runs the same check inline so the 6.04 h
-    sweep is gated even when this fast test is not selected.
+    / baseline mismatch that once wasted 9.5 h. The ``manual_slow``
+    ``test_matches_pinned_baseline`` re-runs the same check inline so the
+    12.075 h aggregate-worker sweep is gated even when this fast test is not
+    selected.
     """
     path = baseline_path()
     if not path.exists():
         pytest.skip(f"Baseline not found at {path}.")
-    _assert_config_matches_baseline(path)
+    try:
+        _assert_config_matches_baseline(path)
+    except LegacyArtifactError as exc:
+        pytest.xfail(str(exc))
+
+
+@pytest.mark.slow
+def test_canonical_bundle_authenticates_and_recertifies() -> None:
+    """One explicit current-artifact gate performs full state recertification."""
+    path = baseline_path()
+    if not path.exists():
+        pytest.skip(f"Baseline not found at {path}.")
+    fig6_paper.read_promotion_record()
+
+
+def test_lightweight_preflight_rejects_bad_number_certificate(
+    tmp_path: Path,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    """The fast gate must retain the amplitude-sensitive QP-number check."""
+    path = tmp_path / "fig6-current-header.csv"
+    path.write_text(
+        ",".join(fig6_paper._ARTIFACT_COLUMNS) + "\n",
+        encoding="utf-8",
+    )
+    bad = replace(
+        schema_result,
+        qp_number_backward_error=np.full_like(
+            schema_result.qp_number_backward_error,
+            1.01 * TARGET_BACKWARD_ERROR_LIMIT,
+        ),
+    )
+
+    with pytest.raises(AssertionError, match="qp_number_backward_error exceeds"):
+        _assert_certified_baseline_balances(path, bad)
+
+
+def test_lightweight_preflight_rejects_negative_certificate(
+    tmp_path: Path,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    path = tmp_path / "fig6-current-header.csv"
+    path.write_text(
+        ",".join(fig6_paper._ARTIFACT_COLUMNS) + "\n",
+        encoding="utf-8",
+    )
+    bad = replace(
+        schema_result,
+        qp_residual_inf=np.full_like(schema_result.qp_residual_inf, -1.0),
+    )
+
+    with pytest.raises(AssertionError, match="negative qp_residual_inf"):
+        _assert_certified_baseline_balances(path, bad)
 
 
 def test_converged_target_with_bad_certificate_hard_fails() -> None:
@@ -615,7 +1137,7 @@ def test_legacy_nine_column_baseline_reads_with_nan_certificates(tmp_path) -> No
         encoding="utf-8",
     )
 
-    result = read_baseline(path)
+    result = fig6_paper._legacy_read_baseline(path)
     for field in (
         "qp_residual_inf",
         "qp_backward_error",
@@ -641,7 +1163,7 @@ def test_baseline_reader_rejects_duplicate_coordinates(tmp_path) -> None:
     )
 
     with pytest.raises(RuntimeError, match=r"duplicate \(T_bath, n_bar\)"):
-        read_baseline(path)
+        fig6_paper._legacy_read_baseline(path)
 
 
 def test_baseline_reader_rejects_missing_cartesian_coordinate(tmp_path) -> None:
@@ -658,7 +1180,7 @@ def test_baseline_reader_rejects_missing_cartesian_coordinate(tmp_path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="missing Cartesian"):
-        read_baseline(path)
+        fig6_paper._legacy_read_baseline(path)
 
 
 def test_old_thirteen_column_certificate_maps_without_reinterpretation(
@@ -676,13 +1198,16 @@ def test_old_thirteen_column_certificate_maps_without_reinterpretation(
         "2e-5,1e-20,1e-8\n",
         encoding="utf-8",
     )
-    result = read_baseline(path)
+    result = fig6_paper._legacy_read_baseline(path)
 
     assert result.phonon_backward_error[0, 0] == pytest.approx(1e-8)
     assert np.isnan(result.phonon_raw_backward_error[0, 0])
     assert np.isnan(result.gap_fixed_point_abs_error_uev[0, 0])
 
-    with pytest.raises(AssertionError, match="current 15-column schema"):
+    with pytest.raises(
+        AssertionError,
+        match="current authenticated artifact schema",
+    ):
         _assert_certified_baseline_balances(path, result)
 
 
@@ -697,10 +1222,11 @@ def test_current_baseline_preflight_rejects_bad_balance(tmp_path) -> None:
         "2e-5,1e-20,1e-8,1e-8,1e-12\n",
         encoding="utf-8",
     )
-    result = read_baseline(path)
-
-    with pytest.raises(AssertionError, match="qp_backward_error exceeds"):
-        _assert_certified_baseline_balances(path, result)
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="schema marker",
+    ):
+        read_baseline(path)
 
 
 def test_current_baseline_preflight_rejects_bad_gap_map_error(tmp_path) -> None:
@@ -717,10 +1243,11 @@ def test_current_baseline_preflight_rejects_bad_gap_map_error(tmp_path) -> None:
         f"1e-8,1e-20,1e-8,1e-8,{1.01 * GAP_FIXED_POINT_ABS_TOL_UEV}\n",
         encoding="utf-8",
     )
-    result = read_baseline(path)
-
-    with pytest.raises(AssertionError, match="gap-map error exceeds"):
-        _assert_certified_baseline_balances(path, result)
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="schema marker",
+    ):
+        read_baseline(path)
 
 
 def test_current_baseline_preflight_requires_finite_certificate_fields(
@@ -736,10 +1263,11 @@ def test_current_baseline_preflight_requires_finite_certificate_fields(
         "1e-8,1e-20,nan,1e-8,1e-12\n",
         encoding="utf-8",
     )
-    result = read_baseline(path)
-
-    with pytest.raises(AssertionError, match="non-finite phonon_raw_backward_error"):
-        _assert_certified_baseline_balances(path, result)
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match="schema marker",
+    ):
+        read_baseline(path)
 
 
 def test_sweep_carries_full_state_within_row_and_resets_between_rows(
@@ -811,7 +1339,7 @@ def test_sweep_carries_full_state_within_row_and_resets_between_rows(
     assert calls[3][0] == 0.20
     assert calls[3][1] == calls[3][2] == DELTA_0 - 0.51
 
-    certificates = result[-1]
+    certificates = result[-3]
     for field in FIG6_CERTIFICATE_FIELDS:
         np.testing.assert_array_equal(certificates[field], np.zeros((2, 2)))
 
@@ -1143,10 +1671,11 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
 @pytest.mark.slow
 @pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
-    """Run the full 1640-bin paper-resolution sweep (manual validation only).
+    """Run the full 1640-bin paper-parameter sweep (manual validation only).
 
-    The source itself documents a roughly 6.04-hour serial runtime, which is not a
-    bounded pull-request check. Keep this test executable with
+    The promoted campaign measured 12.075 aggregate worker-hours (4.229 wall
+    hours with three concurrent rows), which is not a bounded pull-request
+    check. Keep this test executable with
     ``pytest -m 'slow and manual_slow'`` while the author-style fixed-gap,
     direct-Delta[f] path is evaluated as the replacement CI target.
     """
@@ -1158,10 +1687,12 @@ def test_matches_pinned_baseline() -> None:
         )
 
     # Cheap preflight first (~1 s): reject a stale config/baseline pairing
-    # before the ~6.04 h serial run() below, instead of after it.
-    _assert_config_matches_baseline(path)
-
-    baseline = read_baseline(path)
+    # before the 12.075 h aggregate-worker run() below, instead of after it.
+    try:
+        _assert_config_matches_baseline(path)
+        baseline = read_baseline(path)
+    except LegacyArtifactError as exc:
+        pytest.xfail(str(exc))
     result = run()
 
     # τ values --- 1e-8 relative per the pattern in test_fig5_paper.py.
@@ -1221,9 +1752,10 @@ def test_matches_pinned_baseline() -> None:
 
 class TestFig6CacheIntegration:
     """The cached regen path (:func:`run_cached`) wraps the same solve/observables
-    split and serves the (otherwise ~6.04 h serial) solve from disk. The expensive solve is
-    stubbed so the test is fast; it exercises the real cache + observables (pure
-    unpack) wiring. Engine-level key/store properties are covered in
+    split and serves the otherwise 12.075 h aggregate-worker solve from disk.
+    The expensive solve is stubbed so the test is fast; it exercises the real
+    cache + observables (pure unpack) wiring. Engine-level key/store properties
+    are covered in
     ``tests/validation/test_sweep_cache.py``.
     """
 
@@ -1244,10 +1776,13 @@ class TestFig6CacheIntegration:
             "x_qp_eq47": np.array([[1.1e-5, 2.1e-5]]),
             "qp_residual_inf": np.array([[1.0e-15, 2.0e-15]]),
             "qp_backward_error": np.array([[1.0e-8, 2.0e-8]]),
+            "qp_number_backward_error": np.array([[1.1e-8, 2.1e-8]]),
             "phonon_residual_inf": np.array([[3.0e-15, 4.0e-15]]),
             "phonon_raw_backward_error": np.array([[3.1e-8, 4.1e-8]]),
             "phonon_backward_error": np.array([[3.0e-8, 4.0e-8]]),
             "gap_fixed_point_abs_error_uev": np.array([[1.0e-12, 2.0e-12]]),
+            "state_f": np.zeros((1, 2, 4)),
+            "state_n_ph": np.zeros((1, 2, 7)),
         }
 
     def test_run_cached_hits_disk_on_second_call(self, tmp_path, monkeypatch) -> None:
@@ -1281,10 +1816,14 @@ class TestFig6CacheIntegration:
                          "gap_fixed_point_abs_error_uev"):
                 np.testing.assert_array_equal(getattr(res, fld), getattr(ref, fld))
 
-    def test_certified_payload_csv_round_trip(self, tmp_path) -> None:
+    def test_certified_payload_csv_round_trip(
+        self,
+        tmp_path,
+        schema_result,
+    ) -> None:
         import validation.fischer_2023.fig6_paper as fp
 
-        reference = fp.observables(self._stub_payload())
+        reference = schema_result
         path = fp.write_baseline(reference, tmp_path / "certified_fig6.csv")
         restored = fp.read_baseline(path)
 
@@ -1295,6 +1834,7 @@ class TestFig6CacheIntegration:
         for field in (
             "qp_residual_inf",
             "qp_backward_error",
+            "qp_number_backward_error",
             "phonon_residual_inf",
             "phonon_raw_backward_error",
             "phonon_backward_error",
@@ -1319,21 +1859,60 @@ class TestFig6CacheIntegration:
         )
         assert (
             metadata.certificate_metric_version
-            == fp.certificate_module.CERTIFICATE_METRIC_VERSION
+            == fp.certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
         )
 
-    def test_baseline_write_is_atomic_on_failure(self, tmp_path) -> None:
+    def test_reforged_arbitrary_curves_and_certificates_are_rejected(
+        self,
+        tmp_path,
+        schema_result,
+    ) -> None:
+        """A fresh checksum cannot turn invented curves into validation."""
+        import validation.fischer_2023.fig6_paper as fp
+
+        path = fp.write_baseline(schema_result, tmp_path / "source.csv")
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            rows = list(csv.reader(stream))
+        header = rows[2]
+        for name in (
+            "x_qp_num",
+            "x_qp_eq47",
+            "paper_observable_num",
+            "paper_observable_eq53",
+        ):
+            rows[3][header.index(name)] = "1.23000000000000000e+02"
+        for name in fp._ARTIFACT_CERTIFICATE_FIELDS:
+            rows[3][header.index(name)] = "0.00000000000000000e+00"
+        prefix = "# qpsim_metadata="
+        metadata = json.loads(rows[1][0][len(prefix):])
+        metadata["payload_sha256"] = fp._payload_sha256(rows[3:])
+        rows[1][0] = prefix + fp._canonical_json(metadata)
+        forged = tmp_path / "forged.csv"
+        with forged.open("w", encoding="utf-8", newline="") as stream:
+            csv.writer(stream, lineterminator="\n").writerows(rows)
+
+        with pytest.raises(
+            fp.ArtifactValidationError,
+            match="persisted solver state",
+        ):
+            fp.read_baseline(forged)
+
+    def test_baseline_write_is_atomic_on_failure(
+        self,
+        tmp_path,
+        schema_result,
+    ) -> None:
         import validation.fischer_2023.fig6_paper as fp
 
         path = tmp_path / "certified_fig6.csv"
         path.write_text("previous-good-baseline\n", encoding="utf-8")
-        reference = fp.observables(self._stub_payload())
+        reference = schema_result
         malformed = replace(
             reference,
             T_star_over_delta=np.empty((0, 0)),
         )
 
-        with pytest.raises(IndexError):
+        with pytest.raises(fp.ArtifactValidationError):
             fp.write_baseline(malformed, path)
 
         assert path.read_text(encoding="utf-8") == "previous-good-baseline\n"

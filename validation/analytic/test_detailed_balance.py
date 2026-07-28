@@ -26,7 +26,7 @@ from qpsim.collisions.phonon import (
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 
 def _fischer_like_ctx(num: int = 405) -> tuple[SpectralContext, float]:
@@ -41,8 +41,7 @@ def _fischer_like_ctx(num: int = 405) -> tuple[SpectralContext, float]:
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 class TestEphDetailedBalance:

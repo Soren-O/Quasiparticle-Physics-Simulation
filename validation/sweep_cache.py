@@ -65,7 +65,7 @@ import numpy as np
 from validation.source_provenance import canonical_source_bytes, canonical_source_text
 
 # Bump to invalidate every existing entry on a key-schema / codec change.
-_FORMAT_VERSION = 3
+_FORMAT_VERSION = 4
 
 _ENV_ENABLE = "QPSIM_SWEEP_CACHE"
 _ENV_DIR = "QPSIM_SWEEP_CACHE_DIR"
@@ -311,6 +311,22 @@ def _cache_key_from_identity(identity: Mapping[str, Any]) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def _array_payload_sha256(arrays: Mapping[str, np.ndarray]) -> str:
+    """Canonical hash of the decoded array mapping, independent of NPZ bytes."""
+    digest = hashlib.sha256()
+    for name in sorted(arrays):
+        array = np.ascontiguousarray(np.asarray(arrays[name]))
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(array.dtype.str.encode("ascii"))
+        digest.update(b"\0")
+        digest.update(json.dumps(array.shape, separators=(",", ":")).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(array.tobytes(order="C"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def cache_key(
     figure: str,
     fingerprint: Mapping[str, Any],
@@ -424,6 +440,56 @@ def load(
         return None
 
 
+def _load_authenticated(
+    figure: str,
+    key: str,
+    *,
+    producer_identity: Mapping[str, Any],
+    cache_dir: Path,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]] | None:
+    """Load only a payload whose sidecar proves the exact expected identity."""
+    npz_path, meta_path = _entry_paths(cache_dir, figure, key)
+    if not npz_path.is_file() or not meta_path.is_file():
+        return None
+    try:
+        provenance = json.loads(meta_path.read_text(encoding="utf-8"))
+        expected = {
+            "extra_source": producer_identity["extra_source"],
+            "figure": figure,
+            "fingerprint": producer_identity["fingerprint"],
+            "key": key,
+            "kwargs": producer_identity["kwargs"],
+            "numeric_runtime": producer_identity["numeric_runtime"],
+            "solve_source": producer_identity["solve_source"],
+            "versions": producer_identity["versions"],
+        }
+        if (
+            not isinstance(provenance, dict)
+            or set(provenance) != {
+                *expected,
+                "array_payload_sha256",
+                "created_utc",
+            }
+            or any(provenance.get(name) != value for name, value in expected.items())
+            or not isinstance(provenance.get("created_utc"), str)
+            or not provenance["created_utc"]
+            or not isinstance(provenance.get("array_payload_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", provenance["array_payload_sha256"])
+            is None
+        ):
+            return None
+        arrays = load(figure, key, cache_dir=cache_dir)
+        if (
+            arrays is None
+            or _array_payload_sha256(arrays)
+            != provenance["array_payload_sha256"]
+        ):
+            return None
+        return arrays, provenance
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
 def store(
     figure: str,
     key: str,
@@ -452,6 +518,10 @@ def store(
     # be served without provenance. Both writes use temp+rename so an
     # interrupted write never leaves a truncated file (2026-07-19 audit).
     if provenance is not None:
+        provenance = {
+            **dict(provenance),
+            "array_payload_sha256": _array_payload_sha256(arrays),
+        }
         meta_fd, meta_tmp = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
         try:
             with os.fdopen(meta_fd, "w", encoding="utf-8") as fh:
@@ -489,9 +559,37 @@ def cached_solve(
     When disabled (``QPSIM_SWEEP_CACHE=0``) this is a transparent pass-through:
     ``solve_fn()`` runs and nothing is read or written.
     """
+    arrays, _evidence = cached_solve_with_evidence(
+        figure,
+        solve_fn,
+        fingerprint=fingerprint,
+        kwargs=kwargs,
+        extra_source=extra_source,
+        cache_dir=cache_dir,
+        qpsim_root=qpsim_root,
+    )
+    return arrays
+
+
+def cached_solve_with_evidence(
+    figure: str,
+    solve_fn: Callable[[], Mapping[str, np.ndarray]],
+    *,
+    fingerprint: Mapping[str, Any],
+    kwargs: Mapping[str, Any] | None = None,
+    extra_source: str = "",
+    cache_dir: Path | None = None,
+    qpsim_root: Path | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """Like :func:`cached_solve`, returning authenticated execution evidence."""
     kwargs = dict(kwargs or {})
     if not is_enabled():
-        return dict(solve_fn())
+        arrays = dict(solve_fn())
+        return arrays, {
+            "array_payload_sha256": _array_payload_sha256(arrays),
+            "cache_enabled": False,
+            "execution_mode": "solver_invoked",
+        }
 
     cache_dir = cache_dir or default_cache_dir()
     producer_identity = _cache_identity_payload(
@@ -502,9 +600,22 @@ def cached_solve(
         qpsim_root=qpsim_root,
     )
     key = _cache_key_from_identity(producer_identity)
-    hit = load(figure, key, cache_dir=cache_dir)
-    if hit is not None:
-        return hit
+    authenticated = _load_authenticated(
+        figure,
+        key,
+        producer_identity=producer_identity,
+        cache_dir=cache_dir,
+    )
+    if authenticated is not None:
+        arrays, provenance = authenticated
+        return arrays, {
+            "array_payload_sha256": provenance["array_payload_sha256"],
+            "cache_enabled": True,
+            "cache_key": key,
+            "cache_provenance": provenance,
+            "execution_mode": "authenticated_cache_hit",
+            "producer_identity": producer_identity,
+        }
 
     arrays = dict(solve_fn())
     provenance = {
@@ -518,9 +629,11 @@ def cached_solve(
         "solve_source": producer_identity["solve_source"],
         "extra_source": producer_identity["extra_source"],
     }
+    stored = True
     try:
         store(figure, key, arrays, provenance=provenance, cache_dir=cache_dir)
     except OSError as exc:
+        stored = False
         # The module contract is that the cache must never break a solve:
         # solve_fn() has already succeeded, and on Windows os.replace onto
         # an entry held open by any concurrent reader (second regen,
@@ -534,7 +647,14 @@ def cached_solve(
             RuntimeWarning,
             stacklevel=2,
         )
-    return arrays
+    return arrays, {
+        "array_payload_sha256": _array_payload_sha256(arrays),
+        "cache_enabled": True,
+        "cache_entry_stored": stored,
+        "cache_key": key,
+        "execution_mode": "solver_invoked",
+        "producer_identity": producer_identity,
+    }
 
 
 def clear(*, figure: str | None = None, cache_dir: Path | None = None) -> None:

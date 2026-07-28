@@ -1,9 +1,12 @@
-"""Fischer & Catelani 2024 Fig 8 — x_qp(T_B) under pair-breaking photon drive.
+"""Qpsim-native x_qp(T_B) sweep inspired by Fischer & Catelani 2024 Fig. 8.
 
 Exercises the pair-breaking photon collision channel
 (:mod:`qpsim.collisions.pair_breaking_photon`) at the Fischer-2024
 parameter set, sweeps ``T_bath`` for each of five power levels, and
-produces the 5-curve x_qp comparison from F24 Fig 8.
+produces a five-curve qpsim regression at the paper's broad topology.
+It is not a quantitative reproduction: the drive products below are
+qpsim-native ns⁻¹ values, not the paper-caption values interpreted as
+Hz, and no digitized paper data or paper analytic curve is compared.
 
 Fischer & Catelani — SciPost Phys. 17, 070 (2024), Sec. IV:
 
@@ -46,7 +49,7 @@ from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2024._artifact import (
     ArtifactValidationError,
@@ -70,10 +73,13 @@ DELTA_0 = 189.0
 TAU_0 = 63.0
 T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
 OMEGA_PB = 2.8 * DELTA_0  # 529.2 μeV
+# Holding c·n̄ fixed controls the stimulated terms. The kernel also has a
+# spontaneous c·(n̄+1) term, so this factorization is a large-n̄
+# approximation with relative correction ≈ 1/N_BAR_PB = 1e-6.
 N_BAR_PB = 1e6
 
 POWER_LEVELS: tuple[float, ...] = (1e-6, 1e-5, 1e-4, 1e-3, 1e-2)
-"""c_phot_PB · n̄_PB products in ns⁻¹ (F24 Sec. IV)."""
+"""Qpsim-native ``c_phot_PB · n̄_PB`` products in ns⁻¹."""
 
 E_MIN_FACTOR = 1.0
 E_MAX_FACTOR = 10.0
@@ -81,10 +87,12 @@ NUM_BINS = 810  # ω_PB/dE = 252 exactly at this grid
 
 T_BATH_VALUES: tuple[float, ...] = tuple(np.linspace(0.05, 0.22, 8).tolist())
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v3"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.fig8_xqp_pb.v4"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
+LIVE_CERTIFICATE_SCOPE = "independently-reassembled-live-state"
+SUMMARY_CERTIFICATE_SCOPE = "producer-asserted-summary-only; f(E)-state-omitted"
 
 
 @dataclass(frozen=True)
@@ -95,10 +103,13 @@ class Fig8Result:
     x_qp_by_power: dict[float, np.ndarray]  # power → shape (NT,)
     qp_backward_error_by_power: dict[float, np.ndarray]
     qp_residual_inf_by_power: dict[float, np.ndarray]
+    qp_number_backward_error_by_power: dict[float, np.ndarray]
     # Full returned states are retained in memory so baseline generation can
     # bind scalar x_qp values and certificate stamps to the solved f(E).
-    # Summary artifacts intentionally omit them; read_baseline returns None.
+    # Summary artifacts intentionally omit them; read_baseline returns None
+    # and exposes the resulting producer-assertion scope explicitly.
     f_by_power: dict[float, np.ndarray] | None = None
+    certificate_scope: str = LIVE_CERTIFICATE_SCOPE
 
 
 def solver_fingerprint() -> dict[str, Any]:
@@ -113,6 +124,7 @@ def solver_fingerprint() -> dict[str, Any]:
         "newton_tol": NEWTON_TOL,
         "num_bins": NUM_BINS,
         "omega_pb_uev": OMEGA_PB,
+        "persisted_certificate_scope": SUMMARY_CERTIFICATE_SCOPE,
         "source_sha256": source_hashes(Path(__file__)),
         "powers_ns_inv": list(POWER_LEVELS),
         "t_bath_k": list(T_BATH_VALUES),
@@ -156,8 +168,7 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    kT = KB_UEV_PER_K * T_bath
-    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(E, T_bath)
     return T3DiffusionState(
         f=f_FD,
         gap=DELTA_0,
@@ -176,6 +187,9 @@ def run() -> Fig8Result:
     x_by_power: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
     qp_backward: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
     qp_residual: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
+    qp_number_backward: dict[float, np.ndarray] = {
+        p: np.zeros_like(T_values) for p in POWER_LEVELS
+    }
     f_by_power: dict[float, np.ndarray] = {
         p: np.zeros((T_values.size, NUM_BINS)) for p in POWER_LEVELS
     }
@@ -221,6 +235,9 @@ def run() -> Fig8Result:
             )
             qp_backward[power][i] = certificate.backward_error
             qp_residual[power][i] = certificate.residual_inf
+            qp_number_backward[power][i] = (
+                certificate.qp_number_backward_error
+            )
 
     return Fig8Result(
         T_bath=T_values,
@@ -229,6 +246,7 @@ def run() -> Fig8Result:
         x_qp_by_power=x_by_power,
         qp_backward_error_by_power=qp_backward,
         qp_residual_inf_by_power=qp_residual,
+        qp_number_backward_error_by_power=qp_number_backward,
         f_by_power=f_by_power,
     )
 
@@ -260,10 +278,18 @@ def write_baseline(
             "Fig. 8 baseline generation requires full returned f(E) states; "
             "a summary readback cannot be re-certified."
         )
+    if result.certificate_scope != LIVE_CERTIFICATE_SCOPE:
+        raise ArtifactValidationError(
+            "Fig. 8 baseline generation accepts only independently "
+            "reassembled live-state certificates."
+        )
     mappings = {
         "x_qp_by_power": result.x_qp_by_power,
         "qp_backward_error_by_power": result.qp_backward_error_by_power,
         "qp_residual_inf_by_power": result.qp_residual_inf_by_power,
+        "qp_number_backward_error_by_power": (
+            result.qp_number_backward_error_by_power
+        ),
         "f_by_power": result.f_by_power,
     }
     for name, mapping in mappings.items():
@@ -326,6 +352,9 @@ def write_baseline(
             stamped = QPCertificate(
                 backward_error=float(result.qp_backward_error_by_power[power][i]),
                 residual_inf=float(result.qp_residual_inf_by_power[power][i]),
+                qp_number_backward_error=float(
+                    result.qp_number_backward_error_by_power[power][i]
+                ),
             )
             certificates[_point_id(T_bath, power)] = bind_certificate(
                 stamped,
@@ -353,7 +382,24 @@ def write_baseline(
     )
 
 
-def read_baseline(path: Path | None = None) -> Fig8Result:
+def read_baseline(
+    path: Path | None = None,
+    *,
+    accept_producer_certificate_claims: bool = False,
+) -> Fig8Result:
+    """Read the summary only after explicit acceptance of producer claims.
+
+    The persisted table omits the solved ``f(E)`` arrays. Certificate stamps
+    are authenticated producer records, not reader-reassembled physics
+    evidence. Regenerate the sweep when independent certification is needed.
+    """
+    if not accept_producer_certificate_claims:
+        raise ArtifactValidationError(
+            "Fig. 8 summary omits solved f(E) states, so its QP certificate "
+            "stamps are producer assertions only. Pass "
+            "accept_producer_certificate_claims=True to read the summary, "
+            "or regenerate for independent live-state certification."
+        )
     if path is None:
         path = baseline_path()
     expected_ids = [_point_id(T_bath, power) for T_bath in T_BATH_VALUES for power in POWER_LEVELS]
@@ -382,12 +428,21 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
     )
     qp_backward: dict[float, np.ndarray] = {}
     qp_residual: dict[float, np.ndarray] = {}
+    qp_number_backward: dict[float, np.ndarray] = {}
     for power in POWER_LEVELS:
         qp_backward[power] = np.asarray(
             [artifact.certificates[_point_id(T, power)].backward_error for T in T_BATH_VALUES]
         )
         qp_residual[power] = np.asarray(
             [artifact.certificates[_point_id(T, power)].residual_inf for T in T_BATH_VALUES]
+        )
+        qp_number_backward[power] = np.asarray(
+            [
+                artifact.certificates[
+                    _point_id(T, power)
+                ].qp_number_backward_error
+                for T in T_BATH_VALUES
+            ]
         )
     return Fig8Result(
         T_bath=data[:, 0],
@@ -396,7 +451,9 @@ def read_baseline(path: Path | None = None) -> Fig8Result:
         x_qp_by_power={p: data[:, i + 2] for i, p in enumerate(POWER_LEVELS)},
         qp_backward_error_by_power=qp_backward,
         qp_residual_inf_by_power=qp_residual,
+        qp_number_backward_error_by_power=qp_number_backward,
         f_by_power=None,
+        certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
     )
 
 
@@ -430,9 +487,12 @@ def write_plot(result: Fig8Result, path: Path) -> Path:
     ax.set_xlabel(r"$T_B$ [K]", fontsize=14)
     ax.set_ylabel(r"$x_{qp} = N_{qp}/(2\rho_F\Delta_0)$  (F24 Eq. 7)", fontsize=14)
     ax.set_title(
-        "Fischer & Catelani 2024 Fig 8 — PB-photon drive\n"
+        "qpsim-native PB-photon sweep — F24 Fig. 8 topology only\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\tau_0={TAU_0:.0f}$ ns, "
-        rf"$\omega_{{\mathrm{{PB}}}}=2.8\,\Delta_0$",
+        rf"$\omega_{{\mathrm{{PB}}}}=2.8\,\Delta_0$; "
+        r"drive products are qpsim-native ns$^{-1}$"
+        "\nLarge-$\\bar n$ factorization; CSV omits f(E), so persisted "
+        "certificate stamps are producer claims",
         fontsize=10,
     )
     ax.grid(True, which="both", ls=":", alpha=0.3)
@@ -444,7 +504,7 @@ def write_plot(result: Fig8Result, path: Path) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer & Catelani 2024 Fig 8 -- x_qp(T_B) with PB-photon drive ...")
+    print("qpsim-native PB x_qp(T_B) sweep -- F24 Fig. 8 topology only ...")
     print(
         f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
         f"omega_PB={OMEGA_PB:.2f} micro-eV, nbar_PB={N_BAR_PB:.0e}"

@@ -1,0 +1,120 @@
+{
+  "artifact_schema": "qpsim.fischer2023.fig6_paper.v2",
+  "artifacts": {
+    "csv": {
+      "sha256": "8a833204a6f3c718d821f62fcfc171704f9453f5ab3e76480539c1c9b18842ac",
+      "size_bytes": 3678644
+    },
+    "pdf": {
+      "sha256": "52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837",
+      "size_bytes": 19006
+    }
+  },
+  "generation": {
+    "campaign": {
+      "aggregate_worker_s": 43470.212874200195,
+      "new_rows": 3,
+      "resumed_rows": 0,
+      "wall_s": 15223.849898100365
+    },
+    "mode": "parallel-temperature-rows",
+    "run_identity": "cbfb0006b55835435ba5e0d84580d03b3ae8ab996f34203c6c8119071bdf9a43",
+    "runner": {
+      "path": "scripts/regenerate_fischer_fig6_parallel.py",
+      "sha256": "a0a9cdf2573d14510cf723b77ba0cd216e341e254d6f3cd438dcf28549e4084b"
+    },
+    "runtime": {
+      "machine": "amd64",
+      "matplotlib": "3.11.1",
+      "numeric_runtime": {
+        "blas": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "lapack": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "logical_cpu_count": 32,
+        "machine": "amd64",
+        "os_family": "win32",
+        "python_implementation": "cpython",
+        "runtime_cpu_features": [
+          "AVX",
+          "AVX2",
+          "BMI",
+          "BMI2",
+          "CX16",
+          "F16C",
+          "FMA3",
+          "LAHF",
+          "LZCNT",
+          "MMX",
+          "MOVBE",
+          "POPCNT",
+          "SSE",
+          "SSE2",
+          "SSE3",
+          "SSE41",
+          "SSE42",
+          "SSSE3",
+          "X86_V2",
+          "X86_V3"
+        ],
+        "simd": {
+          "baseline": [
+            "X86_V2"
+          ],
+          "found": [
+            "X86_V3"
+          ]
+        },
+        "thread_controls": {
+          "BLIS_NUM_THREADS": "1",
+          "MKL_CBWR": null,
+          "MKL_DYNAMIC": "FALSE",
+          "MKL_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1",
+          "OMP_DYNAMIC": "FALSE",
+          "OMP_NUM_THREADS": "1",
+          "OPENBLAS_CORETYPE": null,
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1"
+        }
+      },
+      "numpy": "2.5.1",
+      "os_family": "win32",
+      "python": "3.14.3",
+      "python_implementation": "cpython",
+      "scipy": "1.18.0"
+    },
+    "schema": "qpsim.fischer2023.fig6_generation.v1",
+    "single_thread_environment": {
+      "BLIS_NUM_THREADS": "1",
+      "MKL_DYNAMIC": "FALSE",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_DYNAMIC": "FALSE",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "worker_payloads": {
+      "t00": {
+        "semantic_sha256": "7adf86a9883575c8baec19e508a56e34d395e929f913c0d675bfbfc30dd37ef2",
+        "temperature_K": 0.1
+      },
+      "t01": {
+        "semantic_sha256": "6ccc671869a6b7384f35152446a164f9eac750e6944e5eeead45f2e67a6fbf7c",
+        "temperature_K": 0.15
+      },
+      "t02": {
+        "semantic_sha256": "57c67c692923b6dbbca646a72331cc222a2ac9727f529e19499298478e091f31",
+        "temperature_K": 0.2
+      }
+    }
+  },
+  "schema": "qpsim.fischer2023.fig6_promotion.v2"
+}

@@ -227,15 +227,20 @@ def run_steady_state_0d(
                 summary["rel_gap_suppression"] = gs.rel_suppression
 
     if setup.phonons.mode != "thermal_bath":
-        try:
-            summary["T_phonon_eff_K"] = effective_phonon_temperature(
-                payload.arrays["n_ph"],
-                payload.arrays["omega_bins"],
-                solved.gap,
-                T_bath=setup.T_bath,
-            )
-        except (ValueError, RuntimeError) as exc:
-            payload.notes.append(f"Effective-phonon-temperature fit failed: {exc}")
+        with warnings.catch_warnings(record=True) as fit_warnings:
+            warnings.simplefilter("once")
+            try:
+                summary["T_phonon_eff_K"] = effective_phonon_temperature(
+                    payload.arrays["n_ph"],
+                    payload.arrays["omega_bins"],
+                    solved.gap,
+                    T_bath=setup.T_bath,
+                )
+            except (ValueError, RuntimeError) as exc:
+                payload.notes.append(
+                    f"Effective-phonon-temperature fit failed: {exc}"
+                )
+        payload.notes.extend(str(w.message) for w in fit_warnings)
 
     # Honor a cancel requested during the (uninterruptible) blocking solve,
     # matching run_transient_0d / run_spatial_1d — otherwise the run is

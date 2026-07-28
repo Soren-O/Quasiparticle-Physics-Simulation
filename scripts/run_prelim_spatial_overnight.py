@@ -69,7 +69,7 @@ from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.observables.spatial_ac_response import compute_current_weighted_ac_response
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 
 LENGTH_UM = AL_STRIP_LENGTH_UM
@@ -294,12 +294,15 @@ _CSV_TIME_RTOL = 64.0 * float(np.finfo(float).eps)
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E, dtype=float)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
-def _cell_centered_strip_grid(num_cells: int) -> tuple[np.ndarray, float]:
-    """Return equal-volume cell centers spanning exactly ``LENGTH_UM``.
+def _cell_centered_strip_grid(
+    num_cells: int,
+    *,
+    length_um: float = LENGTH_UM,
+) -> tuple[np.ndarray, float]:
+    """Return equal-volume cell centers spanning exactly ``length_um``.
 
     The spatial backend conserves an equal-cell finite-volume sum.  Using
     endpoint samples here would give those endpoint samples a full backend
@@ -308,7 +311,16 @@ def _cell_centered_strip_grid(num_cells: int) -> tuple[np.ndarray, float]:
     """
     if not isinstance(num_cells, (int, np.integer)) or num_cells < 2:
         raise ValueError(f"num_cells must be an integer >= 2; got {num_cells!r}.")
-    dx_um = LENGTH_UM / int(num_cells)
+    if (
+        isinstance(length_um, (bool, np.bool_))
+        or not isinstance(length_um, (int, float, np.integer, np.floating))
+        or not np.isfinite(float(length_um))
+        or float(length_um) <= 0.0
+    ):
+        raise ValueError(
+            f"length_um must be finite and positive; got {length_um!r}."
+        )
+    dx_um = float(length_um) / int(num_cells)
     centers = (np.arange(int(num_cells), dtype=float) + 0.5) * dx_um
     return centers, dx_um
 

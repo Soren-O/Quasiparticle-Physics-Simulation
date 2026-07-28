@@ -79,8 +79,12 @@ def test_fig4_paper_full_model_and_parity_rates_baselines_agree() -> None:
     if not all(p.exists() for p in paths):
         pytest.skip("Fig 4 baselines missing; generate both fig4 modules.")
 
-    paper = fig4_paper.read_baseline()
-    parity = fig4_parity_rates.read_baseline()
+    paper = fig4_paper.read_baseline(
+        accept_producer_certificate_claims=True
+    )
+    parity = fig4_parity_rates.read_baseline(
+        accept_producer_certificate_claims=True
+    )
     for omega_LR_GHz, panel_parity in (
         (0.5, parity.panel_a),
         (5.0, parity.panel_b),

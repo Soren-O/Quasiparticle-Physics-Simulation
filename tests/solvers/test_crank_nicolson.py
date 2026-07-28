@@ -11,6 +11,7 @@ from qpsim.grid.spatial_grid import (
     build_laplacian_with_boundaries,
 )
 from qpsim.solvers.crank_nicolson import build_cn_operators
+from scipy import sparse
 
 
 def _square_laplacian(n: int = 5):
@@ -49,6 +50,17 @@ class TestBuildCnOperators:
         u1 = lu.solve(B @ u0)
         np.testing.assert_allclose(u1, 1.0, atol=1e-12)
 
+    @pytest.mark.parametrize("sparse_format", ["lil", "dok", "coo"])
+    def test_accepts_supported_sparse_storage_formats(
+        self, sparse_format: str
+    ) -> None:
+        L, N = _square_laplacian(3)
+        converted = L.asformat(sparse_format)
+        B, lu = build_cn_operators(
+            converted, dt=0.1, diffusion_coefficient=0.5
+        )
+        np.testing.assert_allclose(lu.solve(B @ np.ones(N)), 1.0, atol=1e-12)
+
     def test_total_conserved_on_reflective_domain(self) -> None:
         # With reflective BCs, ∫ u dΩ is conserved under ∂_t u = D ∇²u.
         # The discrete version: sum(u) is invariant under the CN step.
@@ -70,3 +82,54 @@ class TestBuildCnOperators:
         L, _ = _square_laplacian(3)
         with pytest.raises(ValueError, match="diffusion_coefficient"):
             build_cn_operators(L, dt=0.1, diffusion_coefficient=-0.1)
+
+    @pytest.mark.parametrize(
+        ("parameter", "bad_value"),
+        [
+            ("dt", np.nan),
+            ("dt", np.inf),
+            ("dt", complex(0.1, 0.0)),
+            ("dt", True),
+            ("diffusion_coefficient", np.nan),
+            ("diffusion_coefficient", np.inf),
+            ("diffusion_coefficient", complex(1.0, 0.0)),
+            ("diffusion_coefficient", True),
+        ],
+    )
+    def test_rejects_nonfinite_complex_or_boolean_controls(
+        self, parameter: str, bad_value: complex | float
+    ) -> None:
+        L, _ = _square_laplacian(3)
+        values: dict[str, complex | float] = {
+            "dt": 0.1,
+            "diffusion_coefficient": 1.0,
+        }
+        values[parameter] = bad_value
+        with pytest.raises(ValueError, match=parameter):
+            build_cn_operators(L, **values)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("laplacian", "match"),
+        [
+            (np.eye(2), "sparse"),
+            (sparse.csr_matrix(np.ones((2, 3))), "square"),
+            (sparse.csr_matrix((0, 0)), "nonempty"),
+            (
+                sparse.csr_matrix(np.array([[1.0, np.nan], [0.0, 1.0]])),
+                "finite",
+            ),
+            (
+                sparse.csr_matrix(np.eye(2, dtype=complex)),
+                "real-valued",
+            ),
+        ],
+    )
+    def test_rejects_malformed_laplacian(
+        self, laplacian: object, match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
+            build_cn_operators(  # type: ignore[arg-type]
+                laplacian,
+                dt=0.1,
+                diffusion_coefficient=1.0,
+            )

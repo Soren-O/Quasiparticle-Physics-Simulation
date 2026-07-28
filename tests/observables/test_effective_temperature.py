@@ -36,6 +36,74 @@ class TestPureBoseEinsteinRecovery:
         assert T_star == pytest.approx(T_true, rel=1e-3)
 
 
+    def test_sub_millikelvin_recovery_uses_relative_temperature_tolerance(
+        self,
+    ) -> None:
+        gap = 1.0
+        omega = np.linspace(2.0, 2.5, 41)
+        T_true = 4.0e-5
+        n_ph = thermal_phonon_occupation(omega, T_true)
+
+        T_star = effective_phonon_temperature(
+            n_ph,
+            omega,
+            gap,
+            T_bath=0.5 * T_true,
+            T_max=5.0 * T_true,
+        )
+
+        assert T_star == pytest.approx(T_true, rel=1e-6)
+
+    def test_fit_is_invariant_to_large_finite_common_amplitude(self) -> None:
+        gap = 1.0
+        omega = np.linspace(2.0, 4.0, 81)
+        n_ph = thermal_phonon_occupation(omega, 0.1)
+
+        baseline = effective_phonon_temperature(
+            n_ph,
+            omega,
+            gap,
+            T_bath=0.05,
+        )
+        scaled = effective_phonon_temperature(
+            n_ph * 1e307,
+            omega,
+            gap,
+            T_bath=0.05,
+        )
+
+        assert scaled == pytest.approx(baseline, rel=1e-11)
+
+    def test_rejects_complex_arrays_before_casting(self) -> None:
+        with pytest.raises(ValueError, match="n_ph must be real-valued"):
+            effective_phonon_temperature(
+                np.array([1.0 + 1.0j, 0.5 + 0.0j]),
+                np.array([2.0, 3.0]),
+                1.0,
+                T_bath=0.1,
+            )
+
+    def test_rejects_shape_fit_when_normalized_weight_underflows(self) -> None:
+        with pytest.raises(ValueError, match="numerically underdetermined"):
+            effective_phonon_temperature(
+                np.array([1e300, 1e-100]),
+                np.array([2.0, 3.0]),
+                1.0,
+                T_bath=0.01,
+            )
+
+    def test_extreme_bath_requires_explicit_representable_upper_bound(
+        self,
+    ) -> None:
+        with pytest.raises(ValueError, match="default T_max"):
+            effective_phonon_temperature(
+                np.array([1.0, 0.5]),
+                np.array([2.0, 3.0]),
+                1.0,
+                T_bath=np.finfo(float).max / 10.0,
+            )
+
+
 class TestDrivenNotEqualBath:
     """If n_ph is inflated above thermal, T_* must exceed T_bath."""
 
@@ -128,6 +196,68 @@ class TestEdgeCases:
             effective_phonon_temperature(
                 n_ph, omega, 180.0, T_bath=0.1,
             )
+
+    def test_duplicate_occupied_frequency_is_underdetermined(self) -> None:
+        with pytest.raises(ValueError, match="distinct occupied"):
+            effective_phonon_temperature(
+                np.array([1.0, 0.5]),
+                np.array([2.0, 2.0]),
+                1.0,
+                T_bath=0.1,
+                T_max=1.0,
+            )
+
+    def test_ill_conditioned_frequency_span_is_rejected(self) -> None:
+        omega = np.linspace(2.0, 2.0 + 1e-11, 100)
+        n_ph = thermal_phonon_occupation(omega, 0.1)
+        with pytest.raises(ValueError, match="frequency span"):
+            effective_phonon_temperature(
+                n_ph,
+                omega,
+                1.0,
+                T_bath=0.05,
+                T_max=0.5,
+            )
+
+    def test_narrow_resolved_fit_remains_scale_invariant(self) -> None:
+        omega = np.linspace(2.0, 2.0 + 1e-8, 100)
+        n_ph = thermal_phonon_occupation(omega, 0.1)
+        amplified = (n_ph / np.max(n_ph)) * 9e307
+
+        baseline = effective_phonon_temperature(
+            n_ph, omega, 1.0, T_bath=0.05, T_max=0.5,
+        )
+        scaled = effective_phonon_temperature(
+            amplified, omega, 1.0, T_bath=0.05, T_max=0.5,
+        )
+
+        assert baseline == pytest.approx(0.1, rel=1e-6)
+        assert scaled == pytest.approx(baseline, rel=1e-6)
+
+    def test_only_distinct_frequency_with_underflowed_weight_is_rejected(
+        self,
+    ) -> None:
+        with pytest.raises(ValueError, match="distinct occupied"):
+            effective_phonon_temperature(
+                np.array([1.0, 1.0, np.nextafter(0.0, 1.0)]),
+                np.array([2.0, 2.0, 3.0]),
+                1.0,
+                T_bath=0.1,
+                T_max=1.0,
+            )
+
+    def test_lower_bound_is_exact_in_the_returned_float(self) -> None:
+        gap = 1.0
+        omega = np.linspace(2.0, 3.0, 20)
+        T_bath = 0.03
+        colder = thermal_phonon_occupation(omega, 0.015)
+
+        got = effective_phonon_temperature(
+            colder, omega, gap, T_bath=T_bath, T_max=0.3,
+        )
+
+        assert got >= T_bath
+        assert got == T_bath
 
     @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0])
     def test_invalid_occupations_rejected(self, bad: float) -> None:

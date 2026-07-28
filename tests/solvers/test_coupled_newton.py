@@ -19,7 +19,7 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.steady_state import (
     solve_steady_state,
 )
@@ -240,6 +240,44 @@ class TestCoupledNewtonSolve:
         )
         np.testing.assert_array_equal(f_out, f_FD)
         np.testing.assert_array_equal(n_out, n_BE)
+
+    def test_actual_7mk_thermal_shortcut_uses_unfloored_fermi_state(self) -> None:
+        gap = 180.0
+        T_bath = 0.007
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.0,
+            energy_max_factor=5.0,
+            num_energy_bins=28,
+        )
+        ctx = SpectralContext(
+            E,
+            integration_widths_from_centers(E),
+            gap=gap,
+        )
+        K_s0 = build_scattering_kernel_base(ctx, tau_0=438.0, T_c=1.18)
+        K_r0 = build_recombination_kernel_base(ctx, tau_0=438.0, T_c=1.18)
+        omega, idx_d, idx_s, sign = build_phonon_frequency_map(E)
+        f_thermal = fermi_dirac_occupation(E, T_bath)
+        n_thermal = thermal_phonon_occupation(omega, T_bath)
+
+        f_out, n_out = coupled_newton_solve(
+            ctx,
+            f_thermal,
+            n_thermal,
+            omega_bins=omega,
+            omega_idx_diff=idx_d,
+            omega_idx_sum=idx_s,
+            diff_sign=sign,
+            K_s0=K_s0,
+            K_r0=K_r0,
+            T_bath=T_bath,
+            tau_l=0.25,
+        )
+
+        np.testing.assert_array_equal(f_out, f_thermal)
+        np.testing.assert_array_equal(n_out, n_thermal)
+        assert float(np.max(f_out)) < np.exp(-300.0)
 
     def test_thermal_shortcut_rejects_non_detailed_balance_kernel(self) -> None:
         """Analytic Fermi/Bose arrays do not certify an arbitrary custom kernel."""

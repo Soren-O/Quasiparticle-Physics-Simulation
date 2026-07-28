@@ -13,9 +13,8 @@ Sweeps T ∈ [10, 150] mK and at each point reports:
 Reuses the branch-continuation sweep from
 :mod:`fig3_chemical_potentials`
 (:func:`~validation.marchegiani_2025.fig3_chemical_potentials.solve_panel_branch_sweep`)
-so both figures track the same steady-state root. With the
-Γ̄-normalized density equations the root is unique, so the historical
-panel-(a) multi-stability scatter is gone.
+so both figures consume the same steady-state branch and remain
+cross-consistent.
 
 Usage::
 
@@ -24,14 +23,26 @@ Usage::
 
 from __future__ import annotations
 
-import csv
-import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from qpsim.services.rate_equation import M25SteadyState
+from qpsim.services.rate_equation import M25Coefficients, M25SteadyState
 
+from validation.marchegiani_2025 import fig3_chemical_potentials as _chem
+from validation.marchegiani_2025._artifact import (
+    ArtifactValidationError,
+    ProducerIdentity,
+    capture_producer_identity,
+    manifest_path_for,
+    publish_bundle,
+    read_table,
+    require_staging_path,
+    source_fingerprint,
+    verified_bundle,
+    write_table,
+)
 from validation.marchegiani_2025.fig3_chemical_potentials import (
     DELTA_R_OVER_H_GHZ,
     GAMMA_PH_00_HZ,
@@ -41,6 +52,21 @@ from validation.marchegiani_2025.fig3_chemical_potentials import (
     T_MIN_K,
     solve_panel_branch_sweep,
 )
+
+_BUNDLE = "m25-fig4-parity-rates"
+LIVE_CERTIFICATE_SCOPE = "independently-reassembled-live-state"
+SUMMARY_CERTIFICATE_SCOPE = (
+    "producer-asserted-summary-only; full-state-omitted"
+)
+_CERTIFICATE = {
+    "assertion": (
+        "summary observables derived from source-gated M25 branch states; "
+        "raw states not persisted"
+    ),
+    "kind": "producer_assertion",
+    "scope": SUMMARY_CERTIFICATE_SCOPE,
+}
+_COLUMNS = ("T_kelvin", "Gamma_P_Hz", "ratio_eo_01_over_10")
 
 
 @dataclass(frozen=True)
@@ -55,9 +81,10 @@ class Fig4PanelResult:
 class Fig4Result:
     panel_a: Fig4PanelResult   # ω_LR = 0.5 GHz
     panel_b: Fig4PanelResult   # ω_LR = 5.0 GHz
+    certificate_scope: str = LIVE_CERTIFICATE_SCOPE
 
 
-def _gamma_eo(coefs, sol: M25SteadyState) -> np.ndarray:
+def _gamma_eo(coefs: M25Coefficients, sol: M25SteadyState) -> np.ndarray:
     """Effective parity-flipping rate matrix at the M25 fixed point."""
     return (
         coefs.gamma_ph
@@ -117,44 +144,102 @@ def plot_path() -> Path:
     return _baseline_dir() / "m25_fig4_parity_rates.pdf"
 
 
+def manifest_path() -> Path:
+    return manifest_path_for(plot_path())
+
+
+def _artifact_config() -> dict[str, object]:
+    return {
+        "source_branch_config": _chem._artifact_config(),
+        "summary": ["Gamma_P_Hz", "ratio_eo_01_over_10"],
+    }
+
+
+def artifact_fingerprint() -> dict[str, object]:
+    return source_fingerprint(
+        bundle=_BUNDLE,
+        config=_artifact_config(),
+        producer_module=Path(__file__),
+        extra_validation_modules=(Path(_chem.__file__),),
+    )
+
+
+def _member_paths() -> dict[str, Path]:
+    return {
+        baseline_path_a().name: baseline_path_a(),
+        baseline_path_b().name: baseline_path_b(),
+        plot_path().name: plot_path(),
+    }
+
+
+def _expected_members() -> dict[str, str]:
+    return {
+        baseline_path_a().name: "csv",
+        baseline_path_b().name: "csv",
+        plot_path().name: "pdf",
+    }
+
+
+def _panel_role(omega_LR_GHz: float) -> str:
+    if omega_LR_GHz == 0.5:
+        return "panel_a"
+    if omega_LR_GHz == 5.0:
+        return "panel_b"
+    raise ArtifactValidationError(
+        f"Unexpected M25 Fig. 4 parity panel frequency {omega_LR_GHz!r}."
+    )
+
+
 def _write_panel_csv(panel: Fig4PanelResult, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fp:
-        # See note in fig3_chemical_potentials._write_panel_csv.
-        writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow([
-            "# Marchegiani & Catelani 2025 Fig 4 — Γ_P and "
-            "Γ^eo_01/Γ^eo_10 vs T; pinned by qpsim"
-        ])
-        writer.writerow([
-            f"# omega_LR_GHz={panel.omega_LR_GHz:g}  "
-            f"Delta_R_GHz={DELTA_R_OVER_H_GHZ:g}  "
-            f"omega_10_GHz={OMEGA_10_OVER_H_GHZ:g}  "
-            f"Gamma_ph_00_Hz={GAMMA_PH_00_HZ:g}"
-        ])
-        # The platform stamp selects the pin-test tolerance: strict
-        # rtol=1e-6 on the generating platform, rtol=1e-3 elsewhere
-        # (see validation/marchegiani_2025/_robust.py).
-        writer.writerow([f"# pinned_on: {sys.platform}"])
-        writer.writerow(["T_kelvin", "Gamma_P_Hz", "ratio_eo_01_over_10"])
-        for i in range(panel.T_kelvin.size):
-            writer.writerow([
-                f"{panel.T_kelvin[i]:.17e}",
-                f"{panel.Gamma_P_Hz[i]:.17e}",
-                f"{panel.ratio_eo_01_over_10[i]:.17e}",
-            ])
-    return path
+    return write_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(panel.omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        rows=list(
+            zip(
+                panel.T_kelvin,
+                panel.Gamma_P_Hz,
+                panel.ratio_eo_01_over_10,
+                strict=True,
+            )
+        ),
+        certificate=_CERTIFICATE,
+    )
 
 
 def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig4PanelResult:
-    rows: list[list[float]] = []
-    with path.open() as fp:
-        reader = csv.reader(fp)
-        for line in reader:
-            if not line or line[0].startswith("#") or line[0] == "T_kelvin":
-                continue
-            rows.append([float(x) for x in line])
-    data = np.array(rows, dtype=float)
+    payload = read_table(
+        path,
+        bundle=_BUNDLE,
+        role=_panel_role(omega_LR_GHz),
+        config=_artifact_config(),
+        columns=_COLUMNS,
+        certificate=_CERTIFICATE,
+    )
+    try:
+        data = np.array(payload.rows, dtype=float)
+    except ValueError as exc:
+        raise ArtifactValidationError(
+            f"M25 parity table {path} contains nonnumeric cells."
+        ) from exc
+    if data.shape != (NUM_T_POINTS, len(_COLUMNS)) or not np.all(
+        np.isfinite(data)
+    ):
+        raise ArtifactValidationError(
+            f"M25 parity table {path} has invalid shape/nonfinite data."
+        )
+    if not np.array_equal(
+        data[:, 0], np.linspace(T_MIN_K, T_MAX_K, NUM_T_POINTS)
+    ):
+        raise ArtifactValidationError(
+            f"M25 parity table {path} has the wrong temperature grid."
+        )
+    if np.any(data[:, 1:] < 0.0):
+        raise ArtifactValidationError(
+            f"M25 parity table {path} contains negative rates/ratios."
+        )
     return Fig4PanelResult(
         omega_LR_GHz=omega_LR_GHz,
         T_kelvin=data[:, 0],
@@ -163,18 +248,53 @@ def _read_panel_csv(path: Path, omega_LR_GHz: float) -> Fig4PanelResult:
     )
 
 
-def write_baseline(result: Fig4Result) -> tuple[Path, Path]:
+def write_baseline(
+    result: Fig4Result,
+    paths: tuple[Path, Path] | None = None,
+) -> tuple[Path, Path]:
+    if paths is None:
+        paths = (baseline_path_a(), baseline_path_b())
+    if result.certificate_scope != LIVE_CERTIFICATE_SCOPE:
+        raise ArtifactValidationError(
+            "M25 Fig. 4 parity publication requires live model results; "
+            "a summary readback carries producer assertions only."
+        )
+    for path, canonical in zip(
+        paths,
+        (baseline_path_a(), baseline_path_b()),
+        strict=True,
+    ):
+        require_staging_path(path, canonical, kind="CSV")
     return (
-        _write_panel_csv(result.panel_a, baseline_path_a()),
-        _write_panel_csv(result.panel_b, baseline_path_b()),
+        _write_panel_csv(result.panel_a, paths[0]),
+        _write_panel_csv(result.panel_b, paths[1]),
     )
 
 
-def read_baseline() -> Fig4Result:
-    return Fig4Result(
-        panel_a=_read_panel_csv(baseline_path_a(), 0.5),
-        panel_b=_read_panel_csv(baseline_path_b(), 5.0),
-    )
+def read_baseline(
+    *,
+    accept_producer_certificate_claims: bool = False,
+) -> Fig4Result:
+    """Read summaries only after explicit producer-claim acceptance."""
+    if not accept_producer_certificate_claims:
+        raise ArtifactValidationError(
+            "M25 Fig. 4 parity summaries omit the branch states, so their "
+            "certificate is a producer assertion only. Pass "
+            "accept_producer_certificate_claims=True to read the summaries, "
+            "or regenerate for independently reassembled evidence."
+        )
+    with verified_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        fingerprint=artifact_fingerprint(),
+        expected_members=_expected_members(),
+        member_paths=_member_paths(),
+    ):
+        return Fig4Result(
+            panel_a=_read_panel_csv(baseline_path_a(), 0.5),
+            panel_b=_read_panel_csv(baseline_path_b(), 5.0),
+            certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
+        )
 
 
 def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
@@ -185,6 +305,7 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
 
     if path is None:
         path = plot_path()
+    require_staging_path(path, plot_path(), kind="PDF")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
@@ -219,19 +340,27 @@ def write_plot(result: Fig4Result, path: Path | None = None) -> Path:
     ax.legend(fontsize=10, loc="best")
 
     fig.suptitle(
-        "Marchegiani 2025 Fig 4 — parity-switching observables vs temperature\n"
+        "M25 Fig. 4 topology — qpsim parity-observable regression\n"
+        "(manual broad paper anchors; no digitized paper points)\n"
         rf"$\Delta_R/h = {DELTA_R_OVER_H_GHZ:g}$ GHz, "
         rf"$\omega_{{10}}/(2\pi) = {OMEGA_10_OVER_H_GHZ:g}$ GHz, "
         rf"$\widetilde\Gamma^\mathrm{{ph}}_{{00}} = {GAMMA_PH_00_HZ:g}$ Hz",
         fontsize=11,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.045, 1, 0.90))
     fig.savefig(path)
     plt.close(fig)
     return path
 
 
+def _validate_staged_bundle(stages: Mapping[Path, Path]) -> None:
+    _read_panel_csv(stages[baseline_path_a()], 0.5)
+    _read_panel_csv(stages[baseline_path_b()], 5.0)
+
+
 def generate_baseline() -> tuple[Path, Path, Path]:
+    fingerprint = artifact_fingerprint()
+    producer: ProducerIdentity = capture_producer_identity(fingerprint)
     print("M25 Fig 4 — Γ_P and Γ^eo_01/Γ^eo_10 vs T")
     print(f"  Δ_R/h = {DELTA_R_OVER_H_GHZ} GHz, ω_10/(2π) = {OMEGA_10_OVER_H_GHZ} GHz")
     print(f"  Γ̃^ph_00 = {GAMMA_PH_00_HZ} Hz, T ∈ [{T_MIN_K*1e3:.0f}, {T_MAX_K*1e3:.0f}] mK")
@@ -240,8 +369,24 @@ def generate_baseline() -> tuple[Path, Path, Path]:
     print("  Panel b (ω_LR = 5.0 GHz) ...")
     panel_b = _run_panel(5.0)
     result = Fig4Result(panel_a=panel_a, panel_b=panel_b)
-    csv_a, csv_b = write_baseline(result)
-    pdf = write_plot(result)
+    csv_a, csv_b, pdf, _manifest = publish_bundle(
+        manifest_path=manifest_path(),
+        bundle=_BUNDLE,
+        producer=producer,
+        current_fingerprint=artifact_fingerprint,
+        members={
+            baseline_path_a(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_a, path),
+            ),
+            baseline_path_b(): (
+                "csv",
+                lambda path: _write_panel_csv(result.panel_b, path),
+            ),
+            plot_path(): ("pdf", lambda path: write_plot(result, path)),
+        },
+        validate_staged=_validate_staged_bundle,
+    )
     print(f"  Baselines: {csv_a.name}, {csv_b.name}")
     print(f"  PDF plot:  {pdf.name}")
     return csv_a, csv_b, pdf

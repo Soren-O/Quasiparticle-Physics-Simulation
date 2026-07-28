@@ -1,9 +1,12 @@
 """Regression test: Fischer 2023 Fig. 5 paper-topology run matches the pinned CSV.
 
-Iterative-mode tolerance per NFP §6.4.1 (1e-6). Slow-marked --- each
-panel does dozens of finite-τ_l Picard solves on the 1620-bin paper
-grid; total wall-time is on the order of an hour. Opt in with
-``pytest -m slow``.
+Iterative-mode tolerance per NFP §6.4.1 (1e-6). The complete live
+81-point regeneration is both ``slow`` and ``manual_slow``. The promoted
+campaign measured 9.853 aggregate worker-hours and 2.606 wall hours with six
+concurrent single-thread rows, so it is not a bounded CI check. Opt in
+explicitly with
+``pytest -m "slow and manual_slow"``. Smaller focused slow tests below
+remain suitable for the hosted slow gate.
 
 The expensive sweep ranges (``UPPER_NBAR_VALUES`` and
 ``LOWER_T_BATH_K``) are tunable in :mod:`fig5_paper`; tighten them if
@@ -21,10 +24,13 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+import validation.fischer_2023.fig5_paper as fig5_paper
 import validation.fischer_2023.fig5_solve as fig5_solve
 from validation.fischer_2023 import steady_state_certificate as certificate_module
 from validation.fischer_2023.fig5_paper import (
@@ -39,7 +45,6 @@ from validation.fischer_2023.fig5_paper import (
     baseline_path,
     config_metadata,
     read_baseline,
-    read_baseline_metadata,
     run,
     write_baseline,
 )
@@ -55,19 +60,111 @@ def test_live_gate_rejects_number_only_certificate_failure() -> None:
         fig5_solve._require_certified_point(certificate, context="test point")
 
 
-def _assert_config_matches_baseline(path) -> None:
+def _lightweight_canonical_preflight(
+    path: Path,
+) -> tuple[fig5_paper.BaselineMetadata, SimpleNamespace]:
+    """Authenticate the bundle and parse scalar claims without replaying states.
+
+    The canonical public reader deliberately reassembles and independently
+    certifies all 81 persisted states.  That is the right slow closeout gate,
+    but composing ``read_baseline_metadata()`` and ``read_baseline()`` made the
+    advertised fast configuration preflight perform that work twice (160.88 s
+    measured on the 2026-07-28 audit host).
+
+    The caller holds the publication lock.  This helper binds the exact
+    CSV/two-PDF set to the promotion record, validates the current artifact
+    fingerprint and table hash, then parses only scalar configuration, axes,
+    and stored certificate columns.  Full state-derived recertification remains
+    the separate ``slow`` test below.
+    """
+    assert path.resolve() == baseline_path().resolve()
+    fig5_paper.read_promotion_record(_publication_lock_held=True)
+    rows = fig5_paper._read_csv_rows(path)
+    artifact_metadata = fig5_paper._artifact_metadata(path, rows)
+    config = artifact_metadata["fingerprint"]["config"]
+    metadata = fig5_paper.BaselineMetadata(
+        delta_0=float(config["delta_0"]),
+        tau_0=float(config["tau_0"]),
+        t_c=float(config["t_c"]),
+        omega_0=float(config["omega_0"]),
+        c_phot=float(config["c_phot"]),
+        num_bins=int(config["num_bins"]),
+        e_min_factor=float(config["e_min_factor"]),
+        e_max_factor=float(config["e_max_factor"]),
+        tau_0_pb_ns=float(config["tau_0_pb_ns"]),
+    )
+
+    numeric_columns = fig5_paper._BASELINE_COLUMNS[
+        1 : 6 + len(certificate_module.NUMBER_CERTIFICATE_FIELDS)
+    ]
+    data: list[tuple[str, dict[str, float]]] = []
+    for row in rows[3:]:
+        assert len(row) == len(fig5_paper._BASELINE_COLUMNS)
+        values = {
+            name: float(row[index])
+            for index, name in enumerate(numeric_columns, start=1)
+        }
+        assert np.all(np.isfinite(tuple(values.values())))
+        assert all(
+            values[field] >= 0.0
+            for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+        )
+        for field in fig5_paper._CERTIFIED_BACKWARD_ERROR_FIELDS:
+            assert values[field] <= fig5_solve.TARGET_BACKWARD_ERROR_LIMIT
+        data.append((row[0], values))
+
+    upper = [values for panel, values in data if panel == "upper"]
+    lower = [values for panel, values in data if panel == "lower"]
+    expected_upper = [
+        (float(T_bath), float(n_bar))
+        for T_bath in UPPER_T_BATH_K
+        for n_bar in UPPER_NBAR_VALUES
+    ]
+    expected_lower = [
+        (float(n_bar), float(T_bath))
+        for n_bar in LOWER_NBAR
+        for T_bath in LOWER_T_BATH_K
+    ]
+    assert [
+        (values["T_bath_K"], values["n_bar"]) for values in upper
+    ] == expected_upper
+    assert [
+        (values["n_bar"], values["T_bath_K"]) for values in lower
+    ] == expected_lower
+
+    return metadata, SimpleNamespace(
+        upper_T_bath=np.asarray(
+            list(dict.fromkeys(values["T_bath_K"] for values in upper)),
+            dtype=float,
+        ),
+        upper_nbar=np.asarray(
+            list(dict.fromkeys(values["n_bar"] for values in upper)),
+            dtype=float,
+        ),
+        lower_nbar=np.asarray(
+            list(dict.fromkeys(values["n_bar"] for values in lower)),
+            dtype=float,
+        ),
+        lower_T_bath=np.asarray(
+            list(dict.fromkeys(values["T_bath_K"] for values in lower)),
+            dtype=float,
+        ),
+    )
+
+
+def _assert_config_matches_baseline(path: Path) -> None:
     """Cheap preflight (~1 s, no solve): the live module config must match the
     pinned baseline's stamped header + both panels' sweep axes.
 
-    Gating :func:`run` (the multi-minute two-panel Picard sweep) behind this
-    turns a stale config/baseline pairing — a grid change, a sweep-range edit,
-    a τ_0^PB drift — into a seconds-long failure instead of one discovered only
-    after the full run. (See ``fig6_paper`` for the same pattern, where
-    ``run()`` is ~14 h.)
+    Gating :func:`run` (the 9.853 h aggregate-worker two-panel Picard sweep)
+    behind this turns a stale config/baseline pairing — a grid change, a
+    sweep-range edit, a τ_0^PB drift — into a seconds-long failure instead of
+    one discovered only after the full run. (See ``fig6_paper`` for the same
+    pattern, where the promoted rows total 12.075 aggregate worker-hours.)
     """
     cfg = config_metadata()
-    meta = read_baseline_metadata(path)
-    axes = read_baseline(path)
+    with fig5_paper._publication_lock():
+        meta, axes = _lightweight_canonical_preflight(path)
 
     assert cfg.num_bins == meta.num_bins, (
         f"grid NE config={cfg.num_bins} != baseline {meta.num_bins}"
@@ -101,15 +198,27 @@ def _assert_config_matches_baseline(path) -> None:
     )
 
 
-def test_legacy_canonical_is_explicitly_quarantined() -> None:
-    """Only the exact known pre-schema canonical receives legacy treatment."""
+def test_canonical_artifact_matches_current_contract() -> None:
+    """Fast preflight for the promoted artifact; legacy stays quarantined."""
     path = baseline_path()
     if not path.exists():
         pytest.skip(f"Baseline not found at {path}.")
-    with pytest.raises(LegacyArtifactError):
+    try:
+        _assert_config_matches_baseline(path)
+    except LegacyArtifactError as exc:
+        pytest.xfail(str(exc))
+
+
+@pytest.mark.slow
+def test_canonical_bundle_authenticates_and_recertifies() -> None:
+    """One explicit current-artifact gate replays all 81 persisted states."""
+    path = baseline_path()
+    if not path.exists():
+        pytest.skip(f"Baseline not found at {path}.")
+    try:
         read_baseline(path)
-    with pytest.raises(LegacyArtifactError):
-        read_baseline_metadata(path)
+    except LegacyArtifactError as exc:
+        pytest.xfail(str(exc))
 
 
 def test_reduced_transition_is_seed_independent_when_tightly_certified() -> None:
@@ -165,6 +274,7 @@ def test_high_drive_does_not_false_converge_to_thermal_branch() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.manual_slow
 def test_matches_pinned_baseline() -> None:
     path = baseline_path()
     if not path.exists():
@@ -192,15 +302,14 @@ def test_matches_pinned_baseline() -> None:
         result.upper_T_star, baseline.upper_T_star, rtol=1e-10, atol=0.0,
         err_msg="Upper-panel T_* drift",
     )
-    # KNOWN-VACUOUS for the low-drive/thermal branch (2026-07-19 audit,
-    # adjudicated 2026-07-20): the pinned signal there spans
-    # 2.1e-10..1e-6, so atol=1e-6 cannot fail on it. Deliberately left
-    # in place: this legacy pin is already quarantined pending the full
-    # tight-contract Fig. 5 regeneration campaign, and signal-scaled
-    # tolerances (the fig3 pattern) are a REQUIRED part of that re-pin —
-    # do not promote a replacement baseline with this atol.
+    # Scale-aware: the former atol=1e-6 exceeded the complete low-drive
+    # signal (down to ~2e-10), so an amplitude-collapsed result passed.
+    # Current artifacts also carry and independently recertify raw states.
     np.testing.assert_allclose(
-        result.upper_x_qp_num, baseline.upper_x_qp_num, rtol=0.0, atol=1e-6,
+        result.upper_x_qp_num,
+        baseline.upper_x_qp_num,
+        rtol=5e-3,
+        atol=1e-30,
         err_msg="Upper-panel numerical x_qp drift",
     )
     np.testing.assert_allclose(
@@ -217,7 +326,10 @@ def test_matches_pinned_baseline() -> None:
         result.lower_nbar, baseline.lower_nbar, rtol=1e-12, atol=0.0,
     )
     np.testing.assert_allclose(
-        result.lower_x_qp_num, baseline.lower_x_qp_num, rtol=0.0, atol=1e-6,
+        result.lower_x_qp_num,
+        baseline.lower_x_qp_num,
+        rtol=5e-3,
+        atol=1e-30,
         err_msg="Lower-panel numerical x_qp drift",
     )
     np.testing.assert_allclose(
@@ -226,7 +338,7 @@ def test_matches_pinned_baseline() -> None:
         err_msg="Lower-panel analytic x_qp drift",
     )
     for panel in ("upper", "lower"):
-        for field in certificate_module.CERTIFICATE_FIELDS:
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
             np.testing.assert_allclose(
                 getattr(result, f"{panel}_{field}"),
                 getattr(baseline, f"{panel}_{field}"),
@@ -239,6 +351,7 @@ def test_matches_pinned_baseline() -> None:
 _FAKE_CERTIFICATE_FACTORS = {
     "qp_residual_inf": 1.0,
     "qp_backward_error": 0.5,
+    "qp_number_backward_error": 0.6,
     "phonon_residual_inf": 2.0,
     "phonon_raw_backward_error": 1.5,
     "phonon_backward_error": 0.75,
@@ -355,6 +468,186 @@ def test_current_schema_round_trip_is_state_bound(tmp_path, schema_result) -> No
             np.testing.assert_array_equal(actual, expected)
         else:
             assert actual == expected
+
+
+def test_direct_writers_cannot_clobber_canonical_bundle(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    csv_path = tmp_path / "canonical.csv"
+    pdf_a_path = tmp_path / "canonical-a.pdf"
+    pdf_b_path = tmp_path / "canonical-b.pdf"
+    record_path = csv_path.with_suffix(".promotion.json")
+    sentinels = {
+        csv_path: b"csv-sentinel",
+        pdf_a_path: b"pdf-a-sentinel",
+        pdf_b_path: b"pdf-b-sentinel",
+        record_path: b"record-sentinel",
+    }
+    for path, payload in sentinels.items():
+        path.write_bytes(payload)
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+
+    for writer in (
+        lambda: fp.write_baseline(schema_result),
+        lambda: fp.write_baseline(schema_result, csv_path),
+        lambda: fp.write_baseline(schema_result, pdf_a_path),
+        lambda: fp.write_plot_a(schema_result),
+        lambda: fp.write_plot_a(schema_result, pdf_a_path),
+        lambda: fp.write_plot_a(schema_result, csv_path),
+        lambda: fp.write_plot_b(schema_result),
+        lambda: fp.write_plot_b(schema_result, pdf_b_path),
+        lambda: fp.write_plot_b(schema_result, record_path),
+        lambda: fp.write_plot(schema_result),
+    ):
+        with pytest.raises(
+            ArtifactValidationError,
+            match=r"canonical|explicit",
+        ):
+            writer()
+    for path, payload in sentinels.items():
+        assert path.read_bytes() == payload
+
+
+def test_write_plot_honors_explicit_panel_a_path(tmp_path, schema_result) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    panel_a = tmp_path / "review.pdf"
+    panel_b = tmp_path / "review_b.pdf"
+    assert fp.write_plot(schema_result, panel_a) == panel_a
+    fp._require_plausible_pdf(panel_a)
+    fp._require_plausible_pdf(panel_b)
+
+
+def test_canonical_publication_record_rejects_mixed_pdf(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    csv_path = tmp_path / "fig5.csv"
+    pdf_a_path = tmp_path / "fig5_a.pdf"
+    pdf_b_path = tmp_path / "fig5_b.pdf"
+    record_path = tmp_path / "fig5.promotion.json"
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+
+    fp.publish_artifacts(
+        schema_result,
+        producer=fp.capture_producer_identity(),
+    )
+    fp.read_promotion_record()
+    pdf_b_path.write_bytes(pdf_b_path.read_bytes() + b"\n% mixed producer\n")
+    with pytest.raises(fp.ArtifactValidationError, match="does not match"):
+        fp.read_promotion_record()
+
+
+def test_publication_record_rejects_token_shaped_non_pdf(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    csv_path = tmp_path / "fig5.csv"
+    pdf_a_path = tmp_path / "fig5_a.pdf"
+    pdf_b_path = tmp_path / "fig5_b.pdf"
+    record_path = tmp_path / "fig5.promotion.json"
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+
+    fp.publish_artifacts(
+        schema_result,
+        producer=fp.capture_producer_identity(),
+    )
+    pdf_a_path.write_bytes(
+        b"%PDF-1.4\n"
+        + b"not a PDF object graph\n"
+        + b"x" * 2048
+        + b"\n%%EOF\n"
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["artifacts"]["pdf_a"] = fp._file_identity(pdf_a_path)
+    record_path.write_text(
+        json.dumps(record, allow_nan=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="one-page Matplotlib PDF",
+    ):
+        fp.read_promotion_record()
+
+
+def test_canonical_reader_refuses_mixed_snapshot_during_publication(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    csv_path = tmp_path / "fig5.csv"
+    pdf_a_path = tmp_path / "fig5_a.pdf"
+    pdf_b_path = tmp_path / "fig5_b.pdf"
+    record_path = tmp_path / "fig5.promotion.json"
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+    for reader in (
+        fp.read_baseline,
+        fp.read_baseline_metadata,
+        fp.read_promotion_record,
+    ):
+        with (
+            fp._publication_lock(),
+            pytest.raises(RuntimeError, match="publisher or reader"),
+        ):
+            reader()
+
+
+def test_generate_rejects_source_drift_before_publication(
+    monkeypatch,
+    schema_result,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    fingerprints = iter(({"source": "before"}, {"source": "after"}))
+    monkeypatch.setattr(fp, "artifact_fingerprint", lambda: next(fingerprints))
+    monkeypatch.setattr(
+        fp,
+        "producer_runtime_provenance",
+        lambda: {"runtime": "fixed"},
+    )
+    monkeypatch.setattr(fp, "run_cached", lambda: schema_result)
+
+    published = False
+
+    def forbidden_publish(*_args, **_kwargs):
+        nonlocal published
+        published = True
+        raise AssertionError("stale result reached publication")
+
+    monkeypatch.setattr(fp, "publish_artifacts", forbidden_publish)
+    with pytest.raises(fp.ArtifactValidationError, match="changed during generation"):
+        fp.generate_baseline()
+    assert not published
+
+
+def test_source_manifest_includes_transitive_material_dependencies() -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    sources = fp.source_hashes()
+    assert "qpsim/materials/substrate.py" in sources
 
 
 def test_writer_rejects_forged_certificate_or_missing_state(
@@ -563,7 +856,7 @@ class TestFig5CacheIntegration:
             "num_bins": np.array([ne]),
         }
         for panel in ("upper", "lower"):
-            for field in certificate_module.CERTIFICATE_FIELDS:
+            for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
                 payload[f"{panel}_{field}"] = np.full((1, 1), 1.0e-10)
         return payload
 

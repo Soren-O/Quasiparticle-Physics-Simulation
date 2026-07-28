@@ -27,6 +27,7 @@ import numpy as np
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.physics.bcs_quadrature import cell_edges_from_widths
+from qpsim.physics.spectral import fermi_dirac_occupation
 
 
 class GapBelowGridSupportError(ValueError):
@@ -82,9 +83,7 @@ def _fermi_dirac(E: np.ndarray | float, T: float) -> np.ndarray | float:
     """f_FD(E, T) = 1 / (exp(E/kT) + 1). Zero-T limit is a step at E=0."""
     if T <= 0:
         return np.where(np.asarray(E) > 0, 0.0, 1.0)
-    kT = _KB_UEV_PER_K * T
-    exponent = np.minimum(np.asarray(E) / kT, 500.0)
-    return 1.0 / (np.exp(exponent) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _gap_integral_cosh(delta: float, T: float, omega_D: float, n_quad: int) -> float:

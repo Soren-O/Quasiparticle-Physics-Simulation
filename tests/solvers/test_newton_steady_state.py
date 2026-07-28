@@ -236,6 +236,37 @@ class TestNewtonSolveF:
         )
         np.testing.assert_allclose(f_star, f0, atol=1e-8)
 
+    def test_actual_7mk_pair_fixed_point_is_not_exp_minus_250_floor(self) -> None:
+        # With the historical Bose exponent cap, every seed converged to the
+        # artificial sqrt(exp(-500)) occupation instead of this cold thermal
+        # state. The exact seed must now remain the certified fixed point.
+        gap = 180.0
+        T_bath = 0.007
+        E = np.linspace(gap, 3.0 * gap, 80)
+        ctx = SpectralContext(
+            E,
+            integration_widths_from_centers(E),
+            gap=gap,
+        )
+        K_r0 = build_recombination_kernel_base(
+            ctx,
+            tau_0=438.0,
+            T_c=1.18,
+        )
+        exponent = E / (KB_UEV_PER_K * T_bath)
+        exp_negative = np.exp(-exponent)
+        f_thermal = exp_negative / (1.0 + exp_negative)
+
+        solved = newton_solve_f(
+            ctx,
+            f_thermal,
+            K_r0=K_r0,
+            T_bath=T_bath,
+        )
+
+        np.testing.assert_array_equal(solved, f_thermal)
+        assert float(np.max(solved)) < np.exp(-275.0)
+
     def test_converges_from_perturbed_initial(self) -> None:
         # A smooth perturbation around Fermi-Dirac should still converge
         # back to it since it's the unique steady state of the e-ph
@@ -832,6 +863,84 @@ class TestPairNumberCertificate:
             ctx.active_mask,
         )
         assert thermal_error < 1e-13
+
+    def test_projected_nonabsorbing_vacuum_is_backtracked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A roundoff-overshooting Newton direction may not erase a source.
+
+        On the production 1,620-bin Fig. 3 ratio-zero solve, multithreaded
+        LAPACK returned a valid but slightly different direction that
+        overshot the O(1e-10) occupation by a few ulps.  Projection mapped the
+        full trial to ``f=0``; its tiny dimensional residual looked better,
+        even though finite-temperature pair absorption makes vacuum a
+        non-root.  Force that direction deterministically and assert the line
+        search backtracks before assembling another Jacobian at vacuum.
+        """
+        ctx, K_s0, K_r0, f_FD = self._thermal_setup(0.1)
+        photon_params = {
+            "omega_0": float(ctx.dE[0]),
+            "n_bar": 1e7,
+            "c_phot": 1e-9,
+        }
+        original_solve = newton_mod.np.linalg.solve
+        solve_calls = 0
+
+        def first_direction_overshoots(
+            matrix: np.ndarray,
+            rhs: np.ndarray,
+        ) -> np.ndarray:
+            nonlocal solve_calls
+            solve_calls += 1
+            if solve_calls == 1:
+                return -1.0001 * f_FD
+            return original_solve(matrix, rhs)
+
+        original_jacobian = newton_mod._jacobian_analytical
+
+        def reject_vacuum_jacobian(
+            f: np.ndarray,
+            *args: object,
+            **kwargs: object,
+        ) -> np.ndarray:
+            assert np.any(f[ctx.active_mask] != 0.0), (
+                "the non-absorbing vacuum was accepted as an iterate"
+            )
+            return original_jacobian(f, *args, **kwargs)
+
+        monkeypatch.setattr(newton_mod.np.linalg, "solve", first_direction_overshoots)
+        monkeypatch.setattr(
+            newton_mod,
+            "_jacobian_analytical",
+            reject_vacuum_jacobian,
+        )
+
+        out = newton_solve_f(
+            ctx,
+            f_FD,
+            K_s0=K_s0,
+            K_r0=K_r0,
+            T_bath=0.1,
+            photon_params=photon_params,
+            tol=1e-12,
+            backward_error_tol=1e-10,
+            number_polish_shape_tol=1e-8,
+            max_iter=500,
+        )
+
+        assert solve_calls >= 2
+        assert np.all(out[ctx.active_mask] > 0.0)
+        gain, loss, _ = number_changing_gain_loss(out, ctx, K_r0, 0.1)
+        number_error = _weighted_number_backward_error(
+            gain,
+            loss,
+            out,
+            ctx.cell_weights,
+            ctx.active_mask,
+        )
+        assert number_error is not None
+        assert number_error <= 1e-10
 
     def test_roundoff_quiet_shape_routes_to_polish_before_dense_newton(
         self,

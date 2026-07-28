@@ -29,7 +29,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2023.steady_state_certificate import (
     NUMBER_CERTIFICATE_FIELDS,
@@ -66,7 +66,7 @@ TSTAR_OVER_DELTA: dict[float, float] = {
 # the slow validation suite painfully large.
 T_BATH_VALUES: tuple[float, ...] = (0.06, 0.10, 0.14, 0.18, 0.22, 0.26, 0.30, 0.34)
 
-# Finite-tau_l Picard solver knobs (Table II/III paper-faithful). Kept as a
+# Finite-tau_l Picard solver knobs (Table II/III parameter topology). Kept as a
 # module constant so they are part of this module's source hash (the cache's
 # extra_source) and are recorded verbatim in the provenance fingerprint.
 SOLVER_KWARGS: dict[str, Any] = {
@@ -193,8 +193,7 @@ def _build_grid(num_bins: int = NUM_BINS) -> tuple[SpectralContext, np.ndarray]:
 
 
 def _fermi_dirac(E: np.ndarray, T_bath: float) -> np.ndarray:
-    kT = KB_UEV_PER_K * T_bath
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T_bath)
 
 
 def _build_state(
