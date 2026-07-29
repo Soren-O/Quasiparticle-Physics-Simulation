@@ -1,5 +1,38 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-07-28 hosted slow-gate corrective follow-up:** GitHub Actions run
+> `30409496531` cleared Ruff, mypy, and the default suite on Python 3.13/3.14,
+> then exposed three validation defects in the slow gate. Fischer-2023 Fig. 5
+> had treated cancellation-floor diagnostic reductions as producer-bit
+> identities; Fig. 6 amplified a one-ULP reader-host equilibrium-gap drift
+> through a near-zero denominator; and Fischer-2024 Fig. 5 had stopped its
+> high-drive solve on a `1e-6` number-mode gate with no headroom inside the
+> separate `1e-6` curve comparison. The readers now authenticate exact states
+> and physical observables while independently gating producer and reader-host
+> scientific certificates, Fig. 6 derives suppression ratios from its
+> authenticated persisted producer anchor, and the F24 solve gate is `1e-7`.
+> The F24 regeneration changed only the `1e-2 Hz` curve; its two lower-drive
+> curves are byte-identical.
+>
+> The expensive F23 solves were not rerun or relabeled. Fig. 5 promotion v3
+> preserves the historical producer, runtime, source commit
+> `269c563…41ed`, six-row campaign `01e22c38…cccb`, all 81 numerical rows,
+> payload `d35c6d5c…ceb9`, both PDFs, and the campaign record; the current
+> publication fingerprint is separate. Its new CSV/promotion SHA-256 values
+> are `c114a291…98bf` and `b1f86b0d…7f5f`. Fig. 6 preserves all 66 numerical
+> rows, payload `5b237ad6…39ab`, PDF, historical run identity
+> `cbfb0006…f9a43`, and all worker semantic hashes; its new CSV/promotion
+> SHA-256 values are `5a5e3c6e…bc9c` and `a9a8f09d…a823`. Full canonical
+> replays pass on Windows and native Linux for both F23 artifacts, and the
+> F24 pin passes on both. The hosted rerun remains an external CI verdict,
+> not something this repository document can predeclare.
+> Final local evidence on this exact tree is: the three formerly failing slow
+> nodes pass together on Windows (`3 passed in 196.04 s`) and native Linux
+> (`3 passed in 202.75 s`); the expanded changed-area selection passes
+> `188` tests with two intentional external-input skips and seven slow
+> deselections; and the complete default suite passes `2557` tests with two
+> intentional skips and 20 slow deselections.
+>
 > **2026-07-28 CI-portability/provenance repair:** the Fig. 6 canonical
 > states were fully recertified under current code without rerunning the
 > expensive solver. All 66 CSV data rows, payload SHA-256
@@ -9,9 +42,9 @@
 > `cbfb0006…f9a43`; it no longer depends on the reader host's last-bit libm
 > rounding or falsely requires the historical runner to equal today's
 > source. Current CSV/PDF/promotion SHA-256 values are
-> `384f8234…1c11`, `52f7372c…0837`, and `bfefdb0f…00f7`.
+> `5a5e3c6e…bc9c`, `52f7372c…0837`, and `a9a8f09d…a823`.
 > The six previously failing CI nodes pass on both Windows and native Linux;
-> the full default suite passes `2533` tests with `2` intentional skips and
+> the full default suite passes `2557` tests with `2` intentional skips and
 > `20` slow deselections, and the independent full Fig. 6 replay passes all
 > 66 persisted states.
 >
@@ -24,7 +57,7 @@
 > exact promoted CSV/promotion-record bytes but does not replay all 66 stored
 > states; authoritative state replay remains the separate slow gate under the
 > recorded single-thread environment. After the provenance-only input rebind,
-> its SHA-256 is `caaad6ff…11e8`; curve scores and the
+> its SHA-256 is `d92243ff…46b1`; curve scores and the
 > `diagnostic_mismatch` result are unchanged.
 > Re-extraction from the
 > exact source archive reproduces `points.csv` byte-for-byte. The three dashed
@@ -57,12 +90,12 @@
 > complete. Fischer-2023 Fig. 6's three single-thread temperature-row workers
 > completed all 66 points in `15223.850 s` wall time (`43470.213 s` aggregate
 > worker time), and the canonical bundle is promoted. CSV/PDF/promotion-record
-> SHA-256 are `384f8234…1c11`, `52f7372c…0837`, and `bfefdb0f…00f7`.
+> SHA-256 are `5a5e3c6e…bc9c`, `52f7372c…0837`, and `a9a8f09d…a823`.
 > Fischer-2023 Fig. 5 is now complete too: six independent continuation rows
 > produced all 81 points in `9380.161 s` wall time (`35471.716 s` aggregate
 > worker time) under campaign identity `01e22c38…cccb`. Its CSV/two
-> PDFs/promotion/campaign SHA-256 are `4e187e32…80df`,
-> `d12bb185…895c`/`e6307690…6bd5`, `a48cbc15…391a`, and
+> PDFs/promotion/campaign SHA-256 are `c114a291…98bf`,
+> `d12bb185…895c`/`e6307690…6bd5`, `b1f86b0d…7f5f`, and
 > `f43d2938…b3fa`. The terminal current-tree default gate passed **2509 tests**
 > with 1 intentional opt-in skip, 20 slow/manual deselections, and 12 warnings
 > in `836.01 s`. The bounded non-manual slow gate passed **15 tests** with the
@@ -308,8 +341,8 @@ Figs. 9–13 remain quarantined.
 | Surface | Historical snapshot status plus superseding notes |
 |---|---|
 | Fischer 2023 Fig. 3 | **Corrected strict-v3 replacement promoted and current-equation recertified.** The source-frozen `NE=1620` producer completed all 14 continuation steps in `12022.121 s`. A final publication-layer repair rejects real occupations outside inclusive `[0,1]` and rejects complex values before coercion; republishing used the unchanged authenticated raw payload (`78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45`). Current CSV/PDF/validation-record SHA-256 are `2264f6c09f2917d5863d274a5edbaf0e8484e9ec86e51018720cf868a4378616`, `1f3c762a461a83d999dc9013ecd1f167c2c2f6963b2208ef518e211833e20e43`, and `6776776f643e73667fe4f836c8352ded670f4e0c239addbf5f85516e53b3f89b`; 58 focused checks passed with 3 slow/manual deselections and visual inspection passed. The finite-ratio `n_ph` omission qualification remains explicit. This is a fixed-grid qpsim regression, not paper parity. |
-| Fischer 2023 Fig. 5 | **Current state-bound v3 canonical complete and promoted; grid refinement remains separate.** Six independent single-thread continuation rows completed all 81 points under campaign identity `01e22c384d6473ec12df22bf3f557af544cd66a6d8f2fc12b80b1d610dedcccb` in `9380.161 s` wall (`35471.716 s` aggregate worker time). CSV/two-PDF/promotion/campaign SHA-256 are `4e187e3286e45cb45e0a0b580789559fb8989044e7c80e9b5c10090b80af80df`, `d12bb18591102a7a833edde026cb0581b50bd225f0846004a6d6534b4400895c`/`e630769039c2853c4209dd33bbcac74493bc9a5048b9e95788df341191ce6bd5`, `a48cbc150aec9952b5175e25416c5e7a656318442d27dd64950ab8b044ef391a`, and `f43d2938e31a2011f6e9a816fd1e2489a50e0a9dee704f250693b4abe9efb3fa`. Maximum QP residual/backward/number-backward errors were `1.388e-17`/`1.207e-16`/`9.770e-11`; phonon residual/raw-backward/certified-backward maxima were `1.201e-11`/`4.391e-7`/`9.855e-10`. Exact pre-coercion dtypes and all six raw-row hashes were independently checked; the focused closeout passed 56 tests, the one-pass 81-state slow recertification passed in `84.08 s`, and both PDFs passed visual inspection. This closes tight-contract canonical production at fixed `NE=1620`; it does not establish commensurate-grid refinement or digitized-paper parity. |
-| Fischer 2023 Fig. 6 | **Current canonical complete and promoted, with scope qualification.** The three-row campaign completed all 66 points in `15223.850 s` wall (`43470.213 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `384f82344fd2e194e733f184f608587670afc1c23f2e4585cc313e2136d01c11`, `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`, and `bfefdb0f728d1486dde35a2f9fcdd3ae08df51ee8d14c8f91ad6047d368f00f7`. The provenance-only migration retained all 66 numerical rows, payload hash, PDF bytes, and historical `cbfb0006…f9a43` producer identity while making reader-host float drift non-authoritative. Maximum QP residual/backward/number-backward errors were `9.272e-15`/`6.066e-8`/`9.877e-7`; maximum phonon residual/raw-backward/certified-backward errors were `3.691e-12`/`1.099e-5`/`9.757e-6`; maximum gap-map absolute error was `9.911e-11 µeV`. The canonical PDF intentionally retains the paper window; the separately authenticated noncanonical signed diagnostic exposes all 66 finite numerical and Eq. 53 samples, including 27/26 samples hidden by that window. Neither artifact establishes digitized-paper parity or continuum refinement. |
+| Fischer 2023 Fig. 5 | **Current state-bound v3 canonical complete and promoted; grid refinement remains separate.** Six independent single-thread continuation rows completed all 81 points under campaign identity `01e22c384d6473ec12df22bf3f557af544cd66a6d8f2fc12b80b1d610dedcccb` in `9380.161 s` wall (`35471.716 s` aggregate worker time). CSV/two-PDF/promotion/campaign SHA-256 are `c114a291559f98bacf76416657116fb224d539d5a97ca804d4bad9f9618198bf`, `d12bb18591102a7a833edde026cb0581b50bd225f0846004a6d6534b4400895c`/`e630769039c2853c4209dd33bbcac74493bc9a5048b9e95788df341191ce6bd5`, `b1f86b0d669d3dabe467b04f3d4a175e3ff1f7131a9346237919214a56447f5f`, and `f43d2938e31a2011f6e9a816fd1e2489a50e0a9dee704f250693b4abe9efb3fa`. Maximum QP residual/backward/number-backward errors were `1.388e-17`/`1.207e-16`/`9.770e-11`; phonon residual/raw-backward/certified-backward maxima were `1.201e-11`/`4.391e-7`/`9.855e-10`. Exact pre-coercion dtypes and all six raw-row hashes were independently checked; the focused closeout passed 56 tests, the one-pass 81-state slow recertification passed in `84.08 s`, and both PDFs passed visual inspection. This closes tight-contract canonical production at fixed `NE=1620`; it does not establish commensurate-grid refinement or digitized-paper parity. |
+| Fischer 2023 Fig. 6 | **Current canonical complete and promoted, with scope qualification.** The three-row campaign completed all 66 points in `15223.850 s` wall (`43470.213 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c`, `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`, and `a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823`. The provenance-only migration retained all 66 numerical rows, payload hash, PDF bytes, and historical `cbfb0006…f9a43` producer identity while making reader-host float drift non-authoritative. Maximum QP residual/backward/number-backward errors were `9.272e-15`/`6.066e-8`/`9.877e-7`; maximum phonon residual/raw-backward/certified-backward errors were `3.691e-12`/`1.099e-5`/`9.757e-6`; maximum gap-map absolute error was `9.911e-11 µeV`. The canonical PDF intentionally retains the paper window; the separately authenticated noncanonical signed diagnostic exposes all 66 finite numerical and Eq. 53 samples, including 27/26 samples hidden by that window. Neither artifact establishes digitized-paper parity or continuum refinement. |
 | Fischer 2023 Fig. 7 | **Exact current-source regeneration complete and promoted.** All 48 targets completed under hardened identity `ea166442…` and solve digest `d674ca…` in `4387.907 s` wall (`15458.707 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `2bb97283…5634`, `d0c3029f…7586`, and `32fc656b…f37d`; 67 focused checks passed with 2 slow deselections, and strict readback plus visual inspection passed. Maximum gated QP/QP-number/representability-aware phonon errors remain below their declared limits; the raw direct-form phonon diagnostic is retained as representability evidence rather than used as the gate. This remains a scoped fixed-grid regression, not bitwise portability or paper parity. |
 | Fischer 2023 Figs. 9–13 | **Quarantined.** Low-power `Q_i` is still nonconverged: the aligned `NE=3240 -> 6480` rung changes by 4.44368%. Existing evidence does not justify rewriting the photon operator. |
 | Fischer 2024, four families | Freshly regenerated through their real solve paths and promoted as strict-v3 CSV/PDF pairs; the focused collection passes 69 tests with 4 slow deselections. These are independently certified **qpsim-native** regressions at paper topology. Analytic paper-target overlays remain incomplete. |

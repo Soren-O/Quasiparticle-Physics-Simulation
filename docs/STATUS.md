@@ -1,5 +1,17 @@
 # qpsim status (gate tracker)
 
+> **Corrective-head CI status (2026-07-28):** hosted run `30409496531`
+> passed Ruff, mypy, and the default suite on Python 3.13/3.14, then exposed
+> three slow-gate portability defects in Fischer-2023 Figs. 5/6 and
+> Fischer-2024 Fig. 5. The corrected artifacts and readers pass the exact
+> failed nodes on Windows and native Linux; the combined changed-area suite
+> passes 188 tests with two intentional external-input skips and seven slow
+> deselections. The full local default suite passes 2,557 tests with two
+> intentional skips and 20 slow deselections. A hosted rerun has not yet
+> produced a verdict. The older green
+> counts below are historical evidence and must not be read as a result for
+> this corrected head.
+>
 > **Live CI-portability/provenance status (2026-07-28):** Fig. 6's 66
 > persisted states were fully recertified under current code without a new
 > solve. The numerical rows, payload SHA `5b237ad6…39ab`, worker semantic
@@ -7,10 +19,10 @@
 > the original v1 run identity `cbfb0006…f9a43` and generation-time
 > fingerprint while current artifact matching permits only eight ULP at float
 > leaves and keeps source hashes, types, shapes, and axes exact. Current
-> CSV/PDF/promotion hashes are `384f8234…1c11` / `52f7372c…0837` /
-> `bfefdb0f…00f7`.
+> CSV/PDF/promotion hashes are `5a5e3c6e…bc9c` / `52f7372c…0837` /
+> `a9a8f09d…a823`.
 > Cross-platform reproduction is green for all six former CI failures; the
-> default suite passes `2533` tests with `2` intentional skips and `20` slow
+> default suite passes `2557` tests with `2` intentional skips and `20` slow
 > deselections, and the full Fig. 6 state replay passes.
 >
 > **Live Round-9 validation status (2026-07-28):** Fischer-2023 Fig. 6 now
@@ -26,7 +38,7 @@
 > the promoted numerical producer. It byte-attests the promoted CSV/record;
 > full stored-state recertification remains the separate slow gate under the
 > recorded single-thread environment. The provenance-rebound checked score is
-> `caaad6ff…11e8`; its numerical scores and verdict are unchanged;
+> `d92243ff…46b1`; its numerical scores and verdict are unchanged;
 > its focused suite passes 19 tests plus one external-source opt-in skip, or
 > 20/20 when the exact arXiv-v2 source archive is supplied.
 
@@ -38,12 +50,12 @@
 > before any float coercion.
 > Fischer-2023 Fig. 6's three single-thread temperature rows completed all
 > 66 points in `15223.850 s` wall (`43470.213 s` aggregate worker time), and
-> its CSV/PDF/promotion record are promoted at `384f8234…1c11` /
-> `52f7372c…0837` / `bfefdb0f…00f7`. Fig. 5's six single-thread continuation
+> its CSV/PDF/promotion record are promoted at `5a5e3c6e…bc9c` /
+> `52f7372c…0837` / `a9a8f09d…a823`. Fig. 5's six single-thread continuation
 > rows completed all 81 points in `9380.161 s` wall (`35471.716 s` aggregate
 > worker time); its CSV/two PDFs/promotion record are promoted at
-> `4e187e32…80df`, `d12bb185…895c`/`e6307690…6bd5`, and
-> `a48cbc15…391a`. The separately published campaign companion
+> `c114a291…98bf`, `d12bb185…895c`/`e6307690…6bd5`, and
+> `b1f86b0d…7f5f`. The separately published campaign companion
 > `f43d2938…b3fa` binds the completed row hashes to that promoted bundle.
 > The terminal current-tree default gate passed **2509 tests** with 1
 > intentional opt-in skip, 20 slow/manual deselections, and 12 warnings in
@@ -199,11 +211,11 @@ the current solver algorithm executed or converged to the stored state.
 | Figure | Module | Baseline dir | Status |
 |---|---|---|---|
 | Fischer 2023 Fig 3 paper legend ratios {0, 0.1, 1, 10} | `validation/fischer_2023/fig3_paper.py` | `ph0_constant/` | ✅ **Corrected strict-v3 regression promoted and final-equation recertified.** The source-frozen `NE=1620` producer completed all 14 continuation steps in `12022.121 s`, versus `177440.15 s` (49.29 h) on the superseded end-only/legacy-routing path. A final publication-layer repair rejects real occupations outside inclusive `[0,1]` and rejects complex values before coercion; the canonical bundle was republished from unchanged authenticated raw payload SHA-256 `78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45`. Current CSV/PDF/validation-record SHA-256 are `2264f6c09f2917d5863d274a5edbaf0e8484e9ec86e51018720cf868a4378616`, `1f3c762a461a83d999dc9013ecd1f167c2c2f6963b2208ef518e211833e20e43`, and `6776776f643e73667fe4f836c8352ded670f4e0c239addbf5f85516e53b3f89b`; 58 focused checks passed with 3 slow/manual deselections and visual inspection passed. The raw payload omitted finite-ratio `n_ph`; validation reconstructs the unique affine Ph0 root implied by stored `f`, so it proves current-equation membership for that reconstructed pair, not the producer's original omitted phonon state or current-solver execution. Historical refinement/platform qualifications remain error-characterization evidence, not pointwise/total-variation or paper-parity claims. |
-| Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ✅ **Current state-bound v3 canonical complete and promoted; refinement remains a separate qualification.** Six independent single-thread continuation rows completed all 81 points under identity `01e22c38…cccb` in `9380.161 s` wall (`35471.716 s` aggregate worker time). CSV/two-PDF/promotion/campaign SHA-256 are `4e187e32…80df`, `d12bb185…895c`/`e6307690…6bd5`, `a48cbc15…391a`, and `f43d2938…b3fa`. Maximum QP residual/backward/number-backward errors were `1.388e-17`/`1.207e-16`/`9.770e-11`; phonon residual/raw-backward/certified-backward maxima were `1.201e-11`/`4.391e-7`/`9.855e-10`. All six raw rows passed exact pre-coercion dtype/hash/currentness checks; 56 focused checks, one 81-state slow recertification, and both visual inspections passed. This closes fixed-`NE=1620` production, not commensurate-grid refinement or digitized-paper parity. |
-| Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py`; paper oracle `paper_data/fischer_2023/fig6/` | `ph0_kaplan/` | ⚠️ **Current state-bound v2 canonical complete and promoted; independent paper-data diagnostic mismatches.** Three parallel single-thread temperature rows completed all 66 points in `15223.850 s` wall (`43470.213 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `384f82344fd2e194e733f184f608587670afc1c23f2e4585cc313e2136d01c11`, `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`, and `bfefdb0f728d1486dde35a2f9fcdd3ae08df51ee8d14c8f91ad6047d368f00f7`. A provenance-only migration retained all numerical rows, payload/PDF bytes, worker hashes, and historical `cbfb0006…f9a43` run identity. Maximum QP residual/backward/number-backward errors were `9.272e-15`/`6.066e-8`/`9.877e-7`; phonon residual/raw-backward/certified-backward maxima were `3.691e-12`/`1.099e-5`/`9.757e-6`; maximum gap-map absolute error was `9.911e-11 µeV`. The original-raster oracle's dashed Eq. 53 controls pass, but its three solid numerical traces differ by roughly 33–39% maximum relative error and record `diagnostic_mismatch`. The comparison is not gate-eligible until parameter/discretization uncertainty is bounded. The signed diagnostic still exposes all 66 finite stored samples and paper-window clipping; `_direct` remains separate. |
+| Fischer 2023 Fig 5 paper-topology x_qp two-panel | `fig5_paper.py` | `ph0_constant/` | ✅ **Current state-bound v3 canonical complete and promoted; refinement remains a separate qualification.** Six independent single-thread continuation rows completed all 81 points under identity `01e22c38…cccb` in `9380.161 s` wall (`35471.716 s` aggregate worker time). CSV/two-PDF/promotion/campaign SHA-256 are `c114a291…98bf`, `d12bb185…895c`/`e6307690…6bd5`, `b1f86b0d…7f5f`, and `f43d2938…b3fa`. Maximum QP residual/backward/number-backward errors were `1.388e-17`/`1.207e-16`/`9.770e-11`; phonon residual/raw-backward/certified-backward maxima were `1.201e-11`/`4.391e-7`/`9.855e-10`. All six raw rows passed exact pre-coercion dtype/hash/currentness checks; 56 focused checks, one 81-state slow recertification, and both visual inspections passed. This closes fixed-`NE=1620` production, not commensurate-grid refinement or digitized-paper parity. |
+| Fischer 2023 Fig 6 paper-topology gap suppression | `fig6_paper.py`; paper oracle `paper_data/fischer_2023/fig6/` | `ph0_kaplan/` | ⚠️ **Current state-bound v2 canonical complete and promoted; independent paper-data diagnostic mismatches.** Three parallel single-thread temperature rows completed all 66 points in `15223.850 s` wall (`43470.213 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c`, `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`, and `a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823`. A provenance-only migration retained all numerical rows, payload/PDF bytes, worker hashes, and historical `cbfb0006…f9a43` run identity. Maximum QP residual/backward/number-backward errors were `9.272e-15`/`6.066e-8`/`9.877e-7`; phonon residual/raw-backward/certified-backward maxima were `3.691e-12`/`1.099e-5`/`9.757e-6`; maximum gap-map absolute error was `9.911e-11 µeV`. The original-raster oracle's dashed Eq. 53 controls pass, but its three solid numerical traces differ by roughly 33–39% maximum relative error and record `diagnostic_mismatch`. The comparison is not gate-eligible until parameter/discretization uncertainty is bounded. The signed diagnostic still exposes all 66 finite stored samples and paper-window clipping; `_direct` remains separate. |
 | Fischer 2023 Fig 7 paper-facing Q_i,tot(T_B) | `fig7_paper.py` | `ph0_constant/` | ✅ **Exact current-source regeneration completed and promoted.** All 48 targets completed under content/runtime identity `ea166442…` and solve digest `d674ca…`; the six-worker campaign took `4387.907 s` wall (`15458.707 s` aggregate worker time). CSV/PDF/promotion-record SHA-256 are `2bb97283…5634`, `d0c3029f…7586`, and `32fc656b…f37d`; 67 focused checks passed with 2 slow deselections, and strict readback plus visual inspection passed. Historical hosted portability evidence remains a qualification, not bitwise identity. This is a fixed-grid qpsim regression, not paper parity. |
 | Fischer 2023 Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | `ph0_constant/` | ⚠️ all legacy `Q_i` values moved by up to `14.5144%`. The commensurate ladder remains nonconverged: at aligned `NE=6480`, `-100 dBm`, `Q_i=3.2994464e10`, the `3240 -> 6480` change is `4.44368%` with certificate `9.83e-12`. Exact-cell/FV variants are negligible; thermal response is monotone; cancellation condition is `16.6`; an overlap-aware photon prototype moves standard `Q_i` only `0.027%/0.010%` and leaves the rung at `4.567%`, so no photon-operator rewrite is justified. A proposed conservative policy—not a derived error budget—requires `<=1%` maximum `Q_i` change on two consecutive commensurate rungs and `<=0.25%` observable discrepancy. The pre-schema pin remains quarantined. |
-| Fischer 2024 Fig. 5 paper-topology distributions | `fischer_2024/fig5_paper.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `1.3996e-9`, residual `9.1731e-20`. CSV/PDF SHA-256 `3192a5e33465d9b2592b3789b3033bb2a51013c35bd1f97e85d0035b04f2d2a8` / `f9f360d14f36ac76bff6a9925a6b5202627702ecfe3755a0b4cbf41e1c9803d9`. The commensurate `405/810/1620` characterization and its paper-parity qualifications remain as previously documented. ⚠️ Three analytic overlays remain `TODO(paper-parity)`; this is not paper parity. |
+| Fischer 2024 Fig. 5 paper-topology distributions | `fischer_2024/fig5_paper.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. The hosted-portability follow-up tightened the number-mode solve gate from `1e-6` to `1e-7`; only the `1e-2 Hz` curve changed, while `E`, the thermal seed, and both lower-drive curves remain byte-identical. Certificate maxima are QP backward error `2.7247e-13`, QP-number backward error `1.3999e-10`, and residual `3.4664e-23`. Payload/CSV/PDF SHA-256 are `33f1d29e1511711659bed1780dd0a615ce24de158a1104cfc95f84755760ee4e` / `83d4c9373f0164c0ff1f042544acfa2aa96d093ea3766fe66de618d17c568745` / `81e1c08490321dc5db848078debe7a7bc36c8b5ee17c466b44d6772ceb39503d`. The commensurate `405/810/1620` characterization and its paper-parity qualifications remain as previously documented. ⚠️ Three analytic overlays remain `TODO(paper-parity)`; this is not paper parity. |
 | Fischer 2024 Figs 5-7-topology f(E) characterization | `fischer_2024/figs_5_7_fe_pb.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `2.2260e-14`, residual `2.0817e-17`. CSV/PDF SHA-256 `4e633cf49e3ae7c6d9b54ab4ffa0378f072c6d7a8a700f4301ffeb82c5dd872f` / `0616ec72d83670c7a4aed480315193a91daf1f597e5b7c175d3b4d67259a96bd`. ⚠️ Fixed-grid regression, not a pointwise continuum-shape or paper-parity claim. |
 | Fischer 2024 Fig-8-topology x_qp(T_B) characterization | `fischer_2024/fig8_xqp_pb.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `2.7912e-11`, residual `4.1484e-15`. CSV/PDF SHA-256 `a5f89c5e9300eace746e3530e6a5323efa4b6a2f57f426009f8af3c6e10c9348` / `fbce04e70ac3818e5e101e7b55b992b429abbe806eb06dcab36b0610fcfd5825`. ⚠️ Qpsim-native characterization, not paper parity. |
 | Fischer 2024 Fig. 8 paper-topology density | `fischer_2024/fig8_paper.py` | `ph0_constant/` | ✅ freshly regenerated after the final source digest as a strict-v3 qpsim-native `NE=810` regression. Certificate maxima: QP backward error `3.3034e-7`, residual `5.9210e-13`. CSV/PDF SHA-256 `dc157773b84c6fcbd75c4add3dae9f215870fe746950c0b5533f936bce81b552` / `0b0430d3d12bad02c3338944f59d585f260aa4e8326eaf38443872589f07616a`. ⚠️ Analytic density overlay remains a placeholder; not paper parity. |

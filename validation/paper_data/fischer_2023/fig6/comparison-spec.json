@@ -114,12 +114,12 @@
   "qpsim_artifact": {
     "artifact_schema": "qpsim.fischer2023.fig6_paper.v2",
     "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
-    "csv_sha256": "384f82344fd2e194e733f184f608587670afc1c23f2e4585cc313e2136d01c11",
+    "csv_sha256": "5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c",
     "filter_column": "T_bath_K",
     "native_row_count": 66,
     "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
     "promotion_schema": "qpsim.fischer2023.fig6_promotion.v2",
-    "promotion_sha256": "bfefdb0f728d1486dde35a2f9fcdd3ae08df51ee8d14c8f91ad6047d368f00f7",
+    "promotion_sha256": "a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823",
     "required_fingerprint_mode": {
       "direct_gap_observable": false,
       "fixed_gap_kinetics": false

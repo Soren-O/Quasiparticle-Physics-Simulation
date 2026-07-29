@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -470,6 +471,56 @@ def test_current_schema_round_trip_is_state_bound(tmp_path, schema_result) -> No
             assert actual == expected
 
 
+def test_reader_returns_fresh_certificate_across_runtime_diagnostic_drift(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    """Producer stamps are claims, not cross-runtime floating-point pins."""
+    import validation.fischer_2023.fig5_paper as fp
+
+    path = write_baseline(schema_result, tmp_path / "cross-runtime.csv")
+    producer_certificate = fp.certificate_module.steady_state_certificate
+    fresh_values = {
+        "qp_residual_inf": 1.25e-1,
+        "qp_backward_error": 0.75 * fp.TARGET_BACKWARD_ERROR_LIMIT,
+        "qp_number_backward_error": 0.80 * fp.TARGET_BACKWARD_ERROR_LIMIT,
+        "phonon_residual_inf": 2.50e-1,
+        "phonon_raw_backward_error": 5.00e-1,
+        "phonon_backward_error": (
+            0.75 * fp.PHONON_REASSEMBLY_BACKWARD_ERROR_LIMIT
+        ),
+    }
+
+    def cross_runtime_certificate(*args, **kwargs):
+        certificate = producer_certificate(*args, **kwargs)
+        certificate.update(fresh_values)
+        return certificate
+
+    monkeypatch.setattr(
+        fp.certificate_module,
+        "steady_state_certificate",
+        cross_runtime_certificate,
+    )
+    restored = read_baseline(path)
+
+    # The exact file retains the producer's authenticated measurements.
+    rows = _read_rows(path)
+    for offset, field in enumerate(certificate_module.NUMBER_CERTIFICATE_FIELDS):
+        assert float(rows[3][6 + offset]) == getattr(
+            schema_result,
+            f"upper_{field}",
+        )[0, 0]
+
+    # The public reader exposes what this runtime independently reassembled.
+    for panel in ("upper", "lower"):
+        for field, value in fresh_values.items():
+            np.testing.assert_array_equal(
+                getattr(restored, f"{panel}_{field}"),
+                np.full_like(getattr(restored, f"{panel}_{field}"), value),
+            )
+
+
 def test_direct_writers_cannot_clobber_canonical_bundle(
     tmp_path,
     monkeypatch,
@@ -545,6 +596,26 @@ def test_canonical_publication_record_rejects_mixed_pdf(
         producer=fp.capture_producer_identity(),
     )
     fp.read_promotion_record()
+    current_fingerprint = fp.artifact_fingerprint()
+    future_fingerprint = json.loads(json.dumps(current_fingerprint))
+    future_fingerprint["source_sha256"][
+        "validation/fischer_2023/fig5_paper.py"
+    ] = "f" * 64
+    monkeypatch.setattr(
+        fp,
+        "artifact_fingerprint",
+        lambda: future_fingerprint,
+    )
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="current publication fingerprint is stale",
+    ):
+        fp.read_promotion_record()
+    monkeypatch.setattr(
+        fp,
+        "artifact_fingerprint",
+        lambda: current_fingerprint,
+    )
     pdf_b_path.write_bytes(pdf_b_path.read_bytes() + b"\n% mixed producer\n")
     with pytest.raises(fp.ArtifactValidationError, match="does not match"):
         fp.read_promotion_record()
@@ -587,6 +658,838 @@ def test_publication_record_rejects_token_shaped_non_pdf(
         match="one-page Matplotlib PDF",
     ):
         fp.read_promotion_record()
+
+
+def test_portable_publication_record_uses_lock_and_commit_point_recheck(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    csv_path = source_dir / "fig5.csv"
+    pdf_a_path = source_dir / "fig5_a.pdf"
+    pdf_b_path = source_dir / "fig5_b.pdf"
+    record_path = source_dir / "fig5.promotion.json"
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+    fp.publish_artifacts(
+        schema_result,
+        producer=fp.capture_producer_identity(),
+    )
+
+    copied_dir = tmp_path / "portable"
+    copied_dir.mkdir()
+    copied_csv = copied_dir / csv_path.name
+    copied_pdf_a = copied_dir / pdf_a_path.name
+    copied_pdf_b = copied_dir / pdf_b_path.name
+    copied_record = copied_dir / record_path.name
+    for source, destination in (
+        (csv_path, copied_csv),
+        (pdf_a_path, copied_pdf_a),
+        (pdf_b_path, copied_pdf_b),
+        (record_path, copied_record),
+    ):
+        destination.write_bytes(source.read_bytes())
+
+    with (
+        fp._publication_lock(copied_record),
+        pytest.raises(RuntimeError, match="publisher or reader"),
+    ):
+        fp.read_promotion_record(
+            copied_record,
+            csv_path=copied_csv,
+            pdf_a_path=copied_pdf_a,
+            pdf_b_path=copied_pdf_b,
+        )
+
+    real_pdf_validator = fp._require_plausible_pdf
+    validated_pdfs = 0
+
+    def mutate_csv_at_commit_point(path: Path) -> None:
+        nonlocal validated_pdfs
+        real_pdf_validator(path)
+        validated_pdfs += 1
+        if validated_pdfs == 2:
+            copied_csv.write_bytes(b"changed after initial identity check")
+
+    monkeypatch.setattr(
+        fp,
+        "_require_plausible_pdf",
+        mutate_csv_at_commit_point,
+    )
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="csv changed during publication record validation",
+    ):
+        fp.read_promotion_record(
+            copied_record,
+            csv_path=copied_csv,
+            pdf_a_path=copied_pdf_a,
+            pdf_b_path=copied_pdf_b,
+        )
+
+
+def test_provenance_rebind_preserves_history_rows_and_pdfs(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+) -> None:
+    """A reader-only migration must never impersonate a new solve."""
+    import validation.fischer_2023.fig5_paper as fp
+
+    current_fingerprint = fp.artifact_fingerprint()
+    historical_fingerprint = json.loads(
+        json.dumps(current_fingerprint)
+    )
+    historical_fingerprint["source_sha256"][
+        "validation/fischer_2023/fig5_paper.py"
+    ] = "0" * 64
+    selected = {"fingerprint": historical_fingerprint}
+    monkeypatch.setattr(
+        fp,
+        "artifact_fingerprint",
+        lambda: json.loads(json.dumps(selected["fingerprint"])),
+    )
+
+    csv_path = tmp_path / "fig5.csv"
+    pdf_a_path = tmp_path / "fig5_a.pdf"
+    pdf_b_path = tmp_path / "fig5_b.pdf"
+    record_path = tmp_path / "fig5.promotion.json"
+    campaign_path = tmp_path / "fig5.campaign.json"
+    fp.write_baseline(schema_result, csv_path)
+    fp.write_plot_a(schema_result, pdf_a_path)
+    fp.write_plot_b(schema_result, pdf_b_path)
+
+    historical_producer = {
+        "fingerprint": historical_fingerprint,
+        "runtime": {"test-runtime": "historical"},
+    }
+    legacy_record = {
+        "artifact_schema": fp.ARTIFACT_SCHEMA,
+        "artifacts": {
+            "csv": fp._file_identity(csv_path),
+            "pdf_a": fp._file_identity(pdf_a_path),
+            "pdf_b": fp._file_identity(pdf_b_path),
+        },
+        "producer": historical_producer,
+        "schema": fp._LEGACY_PROMOTION_RECORD_SCHEMA,
+    }
+    record_path.write_text(
+        json.dumps(legacy_record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    runner = {"path": "scripts/test.py", "sha256": "1" * 64}
+    environment = {"OPENBLAS_NUM_THREADS": "1"}
+    campaign_rows = [
+        *[
+            {
+                "axis_value": float(axis_value),
+                "label": f"upper-t{row_index:02d}",
+                "ordinal": row_index,
+                "panel": "upper",
+                "row_index": row_index,
+                "sha256": f"{row_index + 2:064x}",
+                "size_bytes": row_index + 1,
+            }
+            for row_index, axis_value in enumerate(fp.UPPER_T_BATH_K)
+        ],
+        *[
+            {
+                "axis_value": float(axis_value),
+                "label": f"lower-n{row_index:02d}",
+                "ordinal": len(fp.UPPER_T_BATH_K) + row_index,
+                "panel": "lower",
+                "row_index": row_index,
+                "sha256": (
+                    f"{len(fp.UPPER_T_BATH_K) + row_index + 2:064x}"
+                ),
+                "size_bytes": len(fp.UPPER_T_BATH_K) + row_index + 1,
+            }
+            for row_index, axis_value in enumerate(fp.LOWER_NBAR)
+        ],
+    ]
+    campaign_identity = {
+        "mode": fp._HISTORICAL_CAMPAIGN_MODE,
+        "row_schema": fp._HISTORICAL_CAMPAIGN_ROW_SCHEMA,
+        "rows": campaign_rows,
+        "runner": runner,
+        "single_thread_environment": environment,
+        "status_schema": fp._HISTORICAL_CAMPAIGN_STATUS_SCHEMA,
+    }
+    campaign_producer = fp._campaign_producer(
+        historical_producer,
+        campaign_identity,
+    )
+    producer_sha256 = fp._campaign_producer_sha256(campaign_producer)
+    run_identity = fp._campaign_run_identity(
+        campaign_producer,
+        row_schema=campaign_identity["row_schema"],
+        status_schema=campaign_identity["status_schema"],
+    )
+    campaign_identity["run_identity"] = run_identity
+    row_hashes = {
+        row["label"]: row["sha256"]
+        for row in campaign_identity["rows"]
+    }
+    campaign_status = {
+        "attempt": 1,
+        "completed_rows": 6,
+        "completion": {
+            "aggregate_worker_s": 1.0,
+            "artifacts": {
+                "csv": {
+                    "path": str(csv_path),
+                    "sha256": legacy_record["artifacts"]["csv"]["sha256"],
+                },
+                "pdf_a": {
+                    "path": str(pdf_a_path),
+                    "sha256": legacy_record["artifacts"]["pdf_a"]["sha256"],
+                },
+                "pdf_b": {
+                    "path": str(pdf_b_path),
+                    "sha256": legacy_record["artifacts"]["pdf_b"]["sha256"],
+                },
+                "record": {
+                    "path": str(record_path),
+                    "sha256": fp._sha256_file(record_path),
+                },
+            },
+            "campaign": campaign_identity,
+            "certificate_maxima": fp._artifact_metadata(
+                csv_path,
+                fp._read_csv_rows(csv_path),
+            )["certificate_maxima"],
+            "new_rows": 6,
+            "resumed_rows": 0,
+            "row_payload_sha256": row_hashes,
+            "wall_s": 1.0,
+        },
+        "producer_sha256": producer_sha256,
+        "run_identity": run_identity,
+        "schema": campaign_identity["status_schema"],
+        "started_utc": "2026-01-01T00:00:00+00:00",
+        "state": "complete",
+        "total_rows": 6,
+        "updated_utc": "2026-01-01T00:00:01+00:00",
+    }
+    campaign_path.write_text(
+        json.dumps(campaign_status, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+    monkeypatch.setattr(fp, "campaign_record_path", lambda: campaign_path)
+    verified_manifests: list[dict[str, object]] = []
+
+    def record_historical_verification(
+        _commit: str,
+        manifest: Mapping[str, object],
+    ) -> None:
+        verified_manifests.append(dict(manifest))
+
+    monkeypatch.setattr(
+        fp,
+        "_verify_historical_source_commit",
+        record_historical_verification,
+    )
+
+    original_rows = csv_path.read_bytes().splitlines(keepends=True)
+    original_pdf_a = pdf_a_path.read_bytes()
+    original_pdf_b = pdf_b_path.read_bytes()
+    original_campaign = campaign_path.read_bytes()
+    expected = {
+        "campaign": fp._sha256_file(campaign_path),
+        "csv": fp._sha256_file(csv_path),
+        "pdf_a": fp._sha256_file(pdf_a_path),
+        "pdf_b": fp._sha256_file(pdf_b_path),
+        "promotion": fp._sha256_file(record_path),
+    }
+    selected["fingerprint"] = current_fingerprint
+    fp.rebind_authenticated_artifacts(
+        schema_result,
+        historical_source_commit="a" * 40,
+        expected_previous_sha256=expected,
+    )
+    assert verified_manifests[-1] == {
+        runner["path"]: runner["sha256"],
+    }
+
+    rebound_rows = csv_path.read_bytes().splitlines(keepends=True)
+    assert rebound_rows[0] == original_rows[0]
+    assert rebound_rows[2:] == original_rows[2:]
+    assert pdf_a_path.read_bytes() == original_pdf_a
+    assert pdf_b_path.read_bytes() == original_pdf_b
+    assert campaign_path.read_bytes() == original_campaign
+
+    record = fp.read_promotion_record()
+    assert record["producer"] == historical_producer
+    assert record["publication"]["kind"] == fp._PROVENANCE_REBIND
+    assert record["publication"]["fingerprint"] == current_fingerprint
+    origin = record["publication"]["rebound_from"]
+    assert origin["artifacts"] == legacy_record["artifacts"]
+    assert origin["run_identity"] == run_identity
+    assert origin["producer_sha256"] == producer_sha256
+    assert origin["source_commit"] == "a" * 40
+
+    copied = tmp_path / "portable-copy"
+    copied.mkdir()
+    copied_csv = copied / "fischer_fig5_paper.csv"
+    copied_pdf_a = copied / "fischer_fig5_paper_a.pdf"
+    copied_pdf_b = copied / "fischer_fig5_paper_b.pdf"
+    copied_record = copied / "fischer_fig5_paper.promotion.json"
+    copied_campaign = copied / "fischer_fig5_paper.campaign.json"
+    for source, destination in (
+        (csv_path, copied_csv),
+        (pdf_a_path, copied_pdf_a),
+        (pdf_b_path, copied_pdf_b),
+        (record_path, copied_record),
+        (campaign_path, copied_campaign),
+    ):
+        destination.write_bytes(source.read_bytes())
+    copied_attestation = fp.read_promotion_record(
+        copied_record,
+        csv_path=copied_csv,
+        pdf_a_path=copied_pdf_a,
+        pdf_b_path=copied_pdf_b,
+        campaign_path=copied_campaign,
+    )
+    assert copied_attestation == record
+
+    future_fingerprint = json.loads(json.dumps(current_fingerprint))
+    future_fingerprint["source_sha256"][
+        "validation/fischer_2023/fig5_paper.py"
+    ] = "f" * 64
+    selected["fingerprint"] = future_fingerprint
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="current publication fingerprint is stale",
+    ):
+        fp.read_promotion_record()
+    selected["fingerprint"] = current_fingerprint
+
+    current_hashes = {
+        "campaign": fp._sha256_file(campaign_path),
+        "csv": fp._sha256_file(csv_path),
+        "pdf_a": fp._sha256_file(pdf_a_path),
+        "pdf_b": fp._sha256_file(pdf_b_path),
+        "promotion": fp._sha256_file(record_path),
+    }
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="supported v2 source bundle",
+    ):
+        fp.rebind_authenticated_artifacts(
+            schema_result,
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=current_hashes,
+        )
+
+
+def test_historical_source_commit_verification_is_content_bound() -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    root = Path(fp.__file__).resolve().parents[2]
+    commit = fp.subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    relative = "qpsim/constants.py"
+    payload = fp.subprocess.run(
+        ["git", "-C", str(root), "show", f"{commit}:{relative}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    expected = fp.hashlib.sha256(
+        payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    ).hexdigest()
+
+    fp._verify_historical_source_commit(commit, {relative: expected})
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="does not match the producer manifest",
+    ):
+        fp._verify_historical_source_commit(
+            commit,
+            {relative: "0" * 64},
+        )
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="cannot be resolved",
+    ):
+        fp._verify_historical_source_commit("0" * 40, {relative: expected})
+
+
+def test_historical_campaign_runner_is_bound_to_source_commit() -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    root = Path(fp.__file__).resolve().parents[2]
+    commit = fp.subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    runner_path = "scripts/regenerate_fischer_fig5_parallel.py"
+    payload = fp.subprocess.run(
+        ["git", "-C", str(root), "show", f"{commit}:{runner_path}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    runner_sha256 = fp.hashlib.sha256(
+        payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    ).hexdigest()
+    status = {
+        "completion": {
+            "campaign": {
+                "runner": {
+                    "path": runner_path,
+                    "sha256": runner_sha256,
+                }
+            }
+        }
+    }
+
+    fp._verify_historical_campaign_runner(commit, status)
+    status["completion"]["campaign"]["runner"]["sha256"] = "0" * 64
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="does not match the producer manifest",
+    ):
+        fp._verify_historical_campaign_runner(commit, status)
+
+
+def _prepare_minimal_rebind_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> SimpleNamespace:
+    """Build a fast orchestration fixture; numerical replay is tested above."""
+    import validation.fischer_2023.fig5_paper as fp
+
+    current = fp.artifact_fingerprint()
+    historical = json.loads(json.dumps(current))
+    historical["source_sha256"][
+        "validation/fischer_2023/fig5_paper.py"
+    ] = "0" * 64
+    selected = {"fingerprint": historical}
+    monkeypatch.setattr(
+        fp,
+        "artifact_fingerprint",
+        lambda: json.loads(json.dumps(selected["fingerprint"])),
+    )
+
+    csv_path = tmp_path / "fig5.csv"
+    pdf_a_path = tmp_path / "fig5_a.pdf"
+    pdf_b_path = tmp_path / "fig5_b.pdf"
+    record_path = tmp_path / "fig5.promotion.json"
+    campaign_path = tmp_path / "fig5.campaign.json"
+    data_rows = [["upper", "unchanged-numerical-row"]]
+    old_metadata = {
+        "fingerprint": historical,
+        "payload_sha256": fp._payload_sha256(data_rows),
+    }
+    old_rows = [
+        [f"# qpsim_artifact_schema={fp.ARTIFACT_SCHEMA}"],
+        [f"# qpsim_metadata={fp._canonical_json(old_metadata)}"],
+        ["panel", "payload"],
+        *data_rows,
+    ]
+    _write_rows(csv_path, old_rows)
+    pdf_a_path.write_bytes(b"historical panel a")
+    pdf_b_path.write_bytes(b"historical panel b")
+    producer = {
+        "fingerprint": historical,
+        "runtime": {"python": "historical"},
+    }
+    legacy_record = {
+        "artifact_schema": fp.ARTIFACT_SCHEMA,
+        "artifacts": {
+            "csv": fp._file_identity(csv_path),
+            "pdf_a": fp._file_identity(pdf_a_path),
+            "pdf_b": fp._file_identity(pdf_b_path),
+        },
+        "producer": producer,
+        "schema": fp._LEGACY_PROMOTION_RECORD_SCHEMA,
+    }
+    record_path.write_text(
+        json.dumps(legacy_record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    campaign_path.write_text(
+        json.dumps(
+            {
+                "producer_sha256": "1" * 64,
+                "run_identity": "2" * 64,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(fp, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fp, "plot_path_a", lambda: pdf_a_path)
+    monkeypatch.setattr(fp, "plot_path_b", lambda: pdf_b_path)
+    monkeypatch.setattr(fp, "promotion_record_path", lambda: record_path)
+    monkeypatch.setattr(fp, "campaign_record_path", lambda: campaign_path)
+    monkeypatch.setattr(
+        fp,
+        "_verify_historical_source_commit",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        fp,
+        "_verify_historical_campaign_runner",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(fp, "_read_artifact", lambda *_args, **_kwargs: None)
+
+    selected["fingerprint"] = current
+    current_metadata = {
+        "fingerprint": current,
+        "payload_sha256": fp._payload_sha256(data_rows),
+    }
+    current_rows = [
+        old_rows[0],
+        [f"# qpsim_metadata={fp._canonical_json(current_metadata)}"],
+        *old_rows[2:],
+    ]
+    candidate_path = tmp_path / "candidate.csv"
+    _write_rows(candidate_path, current_rows)
+    candidate_bytes = candidate_path.read_bytes()
+
+    def write_candidate(_result, path):
+        path.write_bytes(candidate_bytes)
+        return path
+
+    monkeypatch.setattr(fp, "_write_rebound_baseline", write_candidate)
+    expected = {
+        "campaign": fp._sha256_file(campaign_path),
+        "csv": fp._sha256_file(csv_path),
+        "pdf_a": fp._sha256_file(pdf_a_path),
+        "pdf_b": fp._sha256_file(pdf_b_path),
+        "promotion": fp._sha256_file(record_path),
+    }
+    return SimpleNamespace(
+        campaign_path=campaign_path,
+        candidate_bytes=candidate_bytes,
+        csv_path=csv_path,
+        current=current,
+        expected=expected,
+        legacy_record=legacy_record,
+        old_campaign=campaign_path.read_bytes(),
+        old_csv=csv_path.read_bytes(),
+        old_pdf_a=pdf_a_path.read_bytes(),
+        old_pdf_b=pdf_b_path.read_bytes(),
+        old_record=record_path.read_bytes(),
+        pdf_a_path=pdf_a_path,
+        pdf_b_path=pdf_b_path,
+        record_path=record_path,
+        selected=selected,
+    )
+
+
+def test_rebind_rejects_wrong_history_drift_and_changed_rows(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    bundle = _prepare_minimal_rebind_bundle(tmp_path, monkeypatch)
+    wrong_history = dict(bundle.expected)
+    wrong_history["csv"] = "f" * 64
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="historical csv bytes",
+    ):
+        fp.rebind_authenticated_artifacts(
+            object(),
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=wrong_history,
+        )
+
+    drifted = json.loads(json.dumps(bundle.current))
+    drifted["config"]["delta_0"] += 1.0
+    bundle.selected["fingerprint"] = drifted
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="solve-relevant configuration changed",
+    ):
+        fp.rebind_authenticated_artifacts(
+            object(),
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=bundle.expected,
+        )
+    bundle.selected["fingerprint"] = bundle.current
+
+    changed = bundle.candidate_bytes.replace(
+        b"unchanged-numerical-row",
+        b"tampered-numerical-row",
+    )
+    monkeypatch.setattr(
+        fp,
+        "_write_rebound_baseline",
+        lambda _result, path: path.write_bytes(changed) and path,
+    )
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="changed a schema marker, column header, or numerical row",
+    ):
+        fp.rebind_authenticated_artifacts(
+            object(),
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=bundle.expected,
+        )
+    assert bundle.csv_path.read_bytes() == bundle.old_csv
+    assert bundle.record_path.read_bytes() == bundle.old_record
+
+
+def test_rebind_rolls_back_if_commit_marker_promotion_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    bundle = _prepare_minimal_rebind_bundle(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        fp,
+        "read_promotion_record",
+        lambda *_args, **_kwargs: {},
+    )
+    real_replace = fp.os.replace
+    stage_record = bundle.record_path.with_name(
+        f".{bundle.record_path.stem}.{fp.os.getpid()}.rebind.stage.json"
+    )
+
+    def fail_commit_marker(source, destination):
+        if (
+            Path(source) == stage_record
+            and Path(destination) == bundle.record_path
+        ):
+            raise OSError("injected commit-marker promotion failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(fp.os, "replace", fail_commit_marker)
+    with pytest.raises(
+        OSError,
+        match="injected commit-marker promotion failure",
+    ):
+        fp.rebind_authenticated_artifacts(
+            object(),
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=bundle.expected,
+        )
+    assert bundle.csv_path.read_bytes() == bundle.old_csv
+    assert bundle.record_path.read_bytes() == bundle.old_record
+    assert bundle.pdf_a_path.read_bytes() == bundle.old_pdf_a
+    assert bundle.pdf_b_path.read_bytes() == bundle.old_pdf_b
+    assert bundle.campaign_path.read_bytes() == bundle.old_campaign
+    assert not stage_record.exists()
+    assert not bundle.csv_path.with_name(
+        f".{bundle.csv_path.stem}.{fp.os.getpid()}.rebind.stage.csv"
+    ).exists()
+
+
+def test_rebind_rolls_back_after_promoted_marker_fails_validation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    bundle = _prepare_minimal_rebind_bundle(tmp_path, monkeypatch)
+
+    def validate_record(*_args, **kwargs):
+        if kwargs.get("_publication_lock_held"):
+            raise RuntimeError("injected post-promotion validation failure")
+        return {}
+
+    monkeypatch.setattr(fp, "read_promotion_record", validate_record)
+    with pytest.raises(
+        RuntimeError,
+        match="injected post-promotion validation failure",
+    ):
+        fp.rebind_authenticated_artifacts(
+            object(),
+            historical_source_commit="a" * 40,
+            expected_previous_sha256=bundle.expected,
+        )
+    assert bundle.csv_path.read_bytes() == bundle.old_csv
+    assert bundle.record_path.read_bytes() == bundle.old_record
+    assert bundle.pdf_a_path.read_bytes() == bundle.old_pdf_a
+    assert bundle.pdf_b_path.read_bytes() == bundle.old_pdf_b
+    assert bundle.campaign_path.read_bytes() == bundle.old_campaign
+
+
+def test_rollback_attempts_every_snapshot_after_one_restore_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    attempted: list[Path] = []
+
+    def restore(path, payload):
+        del payload
+        attempted.append(path)
+        if path == first:
+            raise OSError("first restore failed")
+
+    monkeypatch.setattr(fp, "_restore_payload", restore)
+    with pytest.raises(RuntimeError, match="rollback was incomplete"):
+        fp._restore_payloads({first: b"old-first", second: b"old-second"})
+    assert attempted == [first, second]
+
+
+def test_campaign_attestation_rejects_same_run_mixed_artifact_bundle(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    producer = {
+        "fingerprint": fp.artifact_fingerprint(),
+        "runtime": {"python": "historical"},
+    }
+    campaign = {
+        "mode": fp._HISTORICAL_CAMPAIGN_MODE,
+        "row_schema": fp._HISTORICAL_CAMPAIGN_ROW_SCHEMA,
+        "rows": [
+            *[
+                {
+                    "axis_value": float(axis_value),
+                    "label": f"upper-t{row_index:02d}",
+                    "ordinal": row_index,
+                    "panel": "upper",
+                    "row_index": row_index,
+                    "sha256": f"{row_index + 1:064x}",
+                    "size_bytes": row_index + 1,
+                }
+                for row_index, axis_value in enumerate(fp.UPPER_T_BATH_K)
+            ],
+            *[
+                {
+                    "axis_value": float(axis_value),
+                    "label": f"lower-n{row_index:02d}",
+                    "ordinal": len(fp.UPPER_T_BATH_K) + row_index,
+                    "panel": "lower",
+                    "row_index": row_index,
+                    "sha256": (
+                        f"{len(fp.UPPER_T_BATH_K) + row_index + 1:064x}"
+                    ),
+                    "size_bytes": len(fp.UPPER_T_BATH_K) + row_index + 1,
+                }
+                for row_index, axis_value in enumerate(fp.LOWER_NBAR)
+            ],
+        ],
+        "runner": {"path": "scripts/old.py", "sha256": "7" * 64},
+        "single_thread_environment": {"OMP_NUM_THREADS": "1"},
+        "status_schema": fp._HISTORICAL_CAMPAIGN_STATUS_SCHEMA,
+    }
+    campaign_producer = fp._campaign_producer(producer, campaign)
+    producer_sha256 = fp._campaign_producer_sha256(campaign_producer)
+    run_identity = fp._campaign_run_identity(
+        campaign_producer,
+        row_schema=campaign["row_schema"],
+        status_schema=campaign["status_schema"],
+    )
+    campaign["run_identity"] = run_identity
+    rebound_from = {
+        "artifacts": {
+            name: {"sha256": digest, "size_bytes": 1}
+            for name, digest in {
+                "csv": "1" * 64,
+                "pdf_a": "2" * 64,
+                "pdf_b": "3" * 64,
+            }.items()
+        },
+        "campaign": {},
+        "payload_sha256": "4" * 64,
+        "producer_sha256": producer_sha256,
+        "promotion_record": {"sha256": "5" * 64, "size_bytes": 1},
+        "run_identity": run_identity,
+        "source_commit": "a" * 40,
+    }
+    row_hashes = {
+        row["label"]: row["sha256"] for row in campaign["rows"]
+    }
+    artifacts = {
+        "csv": {"path": "old.csv", "sha256": "f" * 64},
+        "pdf_a": {"path": "old_a.pdf", "sha256": "2" * 64},
+        "pdf_b": {"path": "old_b.pdf", "sha256": "3" * 64},
+        "record": {"path": "old.json", "sha256": "5" * 64},
+    }
+    status = {
+        "attempt": 1,
+        "completed_rows": 6,
+        "completion": {
+            "aggregate_worker_s": 1.0,
+            "artifacts": artifacts,
+            "campaign": campaign,
+            "certificate_maxima": {"metric": 0.0},
+            "new_rows": 6,
+            "resumed_rows": 0,
+            "row_payload_sha256": row_hashes,
+            "wall_s": 1.0,
+        },
+        "producer_sha256": producer_sha256,
+        "run_identity": run_identity,
+        "schema": campaign["status_schema"],
+        "started_utc": "2026-01-01T00:00:00+00:00",
+        "state": "complete",
+        "total_rows": 6,
+        "updated_utc": "2026-01-01T00:00:01+00:00",
+    }
+    campaign_path = tmp_path / "fig5.campaign.json"
+    campaign_path.write_text(json.dumps(status), encoding="utf-8")
+    rebound_from["campaign"] = fp._file_identity(campaign_path)
+    monkeypatch.setattr(
+        fp,
+        "_artifact_metadata",
+        lambda *_args, **_kwargs: {
+            "certificate_maxima": {"metric": 0.0}
+        },
+    )
+    original_axis = campaign["rows"][0]["axis_value"]
+    campaign["rows"][0]["axis_value"] = original_axis + 0.01
+    campaign_path.write_text(json.dumps(status), encoding="utf-8")
+    rebound_from["campaign"] = fp._file_identity(campaign_path)
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match=r"exact six-row Fig. 5 campaign topology",
+    ):
+        fp._read_campaign_attestation(
+            producer=producer,
+            rebound_from=rebound_from,
+            csv_path=tmp_path / "unused.csv",
+            campaign_path=campaign_path,
+        )
+
+    campaign["rows"][0]["axis_value"] = original_axis
+    campaign_path.write_text(json.dumps(status), encoding="utf-8")
+    rebound_from["campaign"] = fp._file_identity(campaign_path)
+    with pytest.raises(
+        fp.ArtifactValidationError,
+        match="campaign csv evidence does not match",
+    ):
+        fp._read_campaign_attestation(
+            producer=producer,
+            rebound_from=rebound_from,
+            csv_path=tmp_path / "unused.csv",
+            campaign_path=campaign_path,
+        )
 
 
 def test_canonical_reader_refuses_mixed_snapshot_during_publication(
@@ -650,15 +1553,34 @@ def test_source_manifest_includes_transitive_material_dependencies() -> None:
     assert "qpsim/materials/substrate.py" in sources
 
 
-def test_writer_rejects_forged_certificate_or_missing_state(
+def test_writer_rejects_bad_producer_claim_or_missing_state(
     tmp_path,
     schema_result,
 ) -> None:
+    forged_zero = replace(
+        schema_result,
+        upper_qp_backward_error=np.zeros_like(
+            schema_result.upper_qp_backward_error
+        ),
+    )
+    with pytest.raises(
+        ArtifactValidationError,
+        match="producer certificate",
+    ):
+        write_baseline(forged_zero, tmp_path / "forged-zero.csv")
+
     forged_values = schema_result.upper_qp_backward_error.copy()
-    forged_values[0, 0] += 1.0e-12
+    forged_values[0, 0] = 1.01 * fig5_solve.TARGET_BACKWARD_ERROR_LIMIT
     forged = replace(schema_result, upper_qp_backward_error=forged_values)
-    with pytest.raises(ArtifactValidationError, match="persisted solver state"):
+    with pytest.raises(ArtifactValidationError, match="above"):
         write_baseline(forged, tmp_path / "forged.csv")
+    forged_observable = schema_result.upper_x_qp_num.copy()
+    forged_observable[0, 0] += 1.0e-6
+    with pytest.raises(ArtifactValidationError, match="persisted solver state"):
+        write_baseline(
+            replace(schema_result, upper_x_qp_num=forged_observable),
+            tmp_path / "forged-observable.csv",
+        )
     with pytest.raises(ArtifactValidationError, match="missing returned-state"):
         write_baseline(
             replace(schema_result, upper_f=None),
@@ -675,6 +1597,46 @@ def test_writer_rejects_forged_certificate_or_missing_state(
             ),
             tmp_path / "boolean-certificate.csv",
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("qp_backward_error", 1.01 * fig5_solve.TARGET_BACKWARD_ERROR_LIMIT),
+        (
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD,
+            1.01 * fig5_solve.TARGET_BACKWARD_ERROR_LIMIT,
+        ),
+        (
+            "phonon_backward_error",
+            1.01 * fig5_paper.PHONON_REASSEMBLY_BACKWARD_ERROR_LIMIT,
+        ),
+        ("qp_residual_inf", -1.0),
+    ],
+)
+def test_writer_rejects_bad_reassembled_certificate(
+    tmp_path,
+    monkeypatch,
+    schema_result,
+    field,
+    value,
+) -> None:
+    import validation.fischer_2023.fig5_paper as fp
+
+    valid_certificate = fp.certificate_module.steady_state_certificate
+
+    def bad_certificate(*args, **kwargs):
+        certificate = valid_certificate(*args, **kwargs)
+        certificate[field] = value
+        return certificate
+
+    monkeypatch.setattr(
+        fp.certificate_module,
+        "steady_state_certificate",
+        bad_certificate,
+    )
+    with pytest.raises(fp.ArtifactValidationError, match="reassembled certificate"):
+        fp.write_baseline(schema_result, tmp_path / f"bad-live-{field}.csv")
 
 
 def test_reader_rejects_corrupt_current_schema_artifacts(
@@ -739,11 +1701,13 @@ def test_reader_recomputes_claims_after_hashes_are_reforged(
 
     forged_certificate = [row.copy() for row in original]
     certificate_column = forged_certificate[2].index("qp_backward_error")
-    forged_certificate[3][certificate_column] = f"{2.0e-12:.17e}"
+    forged_certificate[3][certificate_column] = (
+        f"{2.0 * fig5_solve.TARGET_BACKWARD_ERROR_LIMIT:.17e}"
+    )
     _refresh_payload_hash(forged_certificate)
     certificate_path = tmp_path / "forged-certificate.csv"
     _write_rows(certificate_path, forged_certificate)
-    with pytest.raises(ArtifactValidationError, match="persisted solver state"):
+    with pytest.raises(ArtifactValidationError, match="exceeds its gate"):
         read_baseline(certificate_path)
 
     forged_state = [row.copy() for row in original]

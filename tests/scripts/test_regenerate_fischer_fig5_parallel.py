@@ -205,16 +205,6 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
     campaign_bytes = campaign_path.read_bytes()
     status = _load_strict_canonical_json(campaign_path)
     promotion = fig5_paper.read_promotion_record()
-    producer = driver._producer_base(Path(driver.__file__).resolve())
-    # The campaign binds the numerical runtime that actually produced the
-    # promoted bundle, not whichever Python/NumPy/SciPy/BLAS runtime happens
-    # to read it later.  read_promotion_record() has already authenticated
-    # that historical producer against the current source fingerprint and
-    # exact artifact triple.  Keep recomputing the runner record locally:
-    # its source hash is newline-normalized and must remain current.
-    producer["artifact_producer"] = deepcopy(
-        cast(dict[str, object], promotion["producer"])
-    )
 
     assert set(status) == {
         "attempt",
@@ -228,11 +218,9 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
         "total_rows",
         "updated_utc",
     }
-    assert status["schema"] == driver.STATUS_SCHEMA
+    assert isinstance(status["schema"], str) and status["schema"]
     assert status["state"] == "complete"
     assert status["completed_rows"] == status["total_rows"] == 6
-    assert status["producer_sha256"] == driver._producer_sha256(producer)
-    assert status["run_identity"] == driver._run_identity(producer)
 
     completion = cast(dict[str, Any], status["completion"])
     assert set(completion) == {
@@ -256,6 +244,21 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
     assert float(completion["wall_s"]) > 0.0
 
     campaign = cast(dict[str, Any], completion["campaign"])
+    producer = fig5_paper._campaign_producer(
+        cast(dict[str, object], promotion["producer"]),
+        campaign,
+    )
+    producer_sha256 = fig5_paper._campaign_producer_sha256(producer)
+    run_identity = fig5_paper._campaign_run_identity(
+        producer,
+        row_schema=campaign["row_schema"],
+        status_schema=campaign["status_schema"],
+    )
+    # Authenticate the historical campaign from its own frozen runner and
+    # environment evidence. A provenance-only reader rebind must not require
+    # the current runner source hash to equal the historical one.
+    assert status["producer_sha256"] == producer_sha256
+    assert status["run_identity"] == run_identity
     assert set(campaign) == {
         "mode",
         "row_schema",
@@ -266,13 +269,16 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
         "status_schema",
     }
     assert campaign["mode"] == producer["mode"]
-    assert campaign["row_schema"] == driver.ROW_SCHEMA
-    assert campaign["status_schema"] == driver.STATUS_SCHEMA
-    assert campaign["run_identity"] == driver._run_identity(producer)
+    assert isinstance(campaign["row_schema"], str) and campaign["row_schema"]
+    assert (
+        isinstance(campaign["status_schema"], str)
+        and campaign["status_schema"]
+    )
+    assert status["schema"] == campaign["status_schema"]
+    assert campaign["run_identity"] == run_identity
     assert campaign["runner"] == producer["runner"]
     assert (
         campaign["single_thread_environment"]
-        == driver.SINGLE_THREAD_ENVIRONMENT
         == producer["single_thread_environment"]
     )
 
@@ -318,6 +324,29 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
         "pdf_b": fig5_paper.plot_path_b(),
         "record": fig5_paper.promotion_record_path(),
     }
+    publication = cast(dict[str, Any], promotion["publication"])
+    if publication["kind"] == fig5_paper._PROVENANCE_REBIND:
+        rebound_from = cast(
+            dict[str, Any],
+            publication["rebound_from"],
+        )
+        generation_artifacts = dict(
+            cast(dict[str, dict[str, object]], rebound_from["artifacts"])
+        )
+        generation_artifacts["record"] = cast(
+            dict[str, object],
+            rebound_from["promotion_record"],
+        )
+    else:
+        generation_artifacts = {
+            **cast(
+                dict[str, dict[str, object]],
+                promotion["artifacts"],
+            ),
+            "record": fig5_paper._file_identity(
+                fig5_paper.promotion_record_path()
+            ),
+        }
     artifact_entries = cast(dict[str, dict[str, object]], completion["artifacts"])
     assert set(artifact_entries) == set(artifact_paths)
     for name, path in artifact_paths.items():
@@ -329,7 +358,7 @@ def test_canonical_campaign_record_authenticates_promoted_bundle() -> None:
         # historical path uses backslashes even when a Linux CI reader
         # verifies it.
         assert PureWindowsPath(cast(str, evidence["path"])).name == path.name
-        assert evidence["sha256"] == driver._sha256_file(path)
+        assert evidence["sha256"] == generation_artifacts[name]["sha256"]
 
     rows = fig5_paper._read_csv_rows(fig5_paper.baseline_path())
     metadata = fig5_paper._artifact_metadata(fig5_paper.baseline_path(), rows)
@@ -343,20 +372,32 @@ def test_external_completed_campaign_rows_are_reauthenticated() -> None:
     if not root_text:
         pytest.skip("set QPSIM_FIG5_RUN_ROOT to revalidate external Fig. 5 rows")
 
-    producer = driver._producer_base(Path(driver.__file__).resolve())
-    run_dir = driver._run_dir(Path(root_text), producer)
-    status_path = run_dir / "status.json"
+    promotion = fig5_paper.read_promotion_record()
     canonical_path = driver._campaign_record_path()
+    canonical = _load_strict_canonical_json(canonical_path)
+    campaign = cast(dict[str, Any], canonical["completion"]["campaign"])
+    producer = fig5_paper._campaign_producer(
+        cast(dict[str, object], promotion["producer"]),
+        campaign,
+    )
+    run_identity = fig5_paper._campaign_run_identity(
+        producer,
+        row_schema=campaign["row_schema"],
+        status_schema=campaign["status_schema"],
+    )
+    run_dir = (
+        Path(root_text).expanduser().resolve()
+        / f"fig5-{run_identity}"
+    )
+    status_path = run_dir / "status.json"
     assert status_path.read_bytes() == canonical_path.read_bytes()
     status = _load_strict_canonical_json(status_path)
-    canonical = _load_strict_canonical_json(canonical_path)
     assert status == canonical
     assert status["state"] == "complete"
-    assert status["run_identity"] == driver._run_identity(producer)
+    assert status["run_identity"] == run_identity
 
     records = driver._scan_rows(run_dir, producer)
     assert set(records) == {spec.ordinal for spec in driver._row_specs()}
-    campaign = cast(dict[str, Any], status["completion"]["campaign"])
     evidence_by_label = {
         entry["label"]: entry for entry in cast(list[dict[str, Any]], campaign["rows"])
     }

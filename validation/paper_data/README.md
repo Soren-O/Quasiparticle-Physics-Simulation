@@ -39,7 +39,7 @@ python scripts/score_fischer_2023_fig6_paper_parity.py --verify
 ```
 
 The current canonical score is `score.json` SHA-256
-`caaad6ff568327d51b523c07ea1995b549197344757b32d751dc8b3a148f11e8`.
+`d92243ff16c619117914713bbbbb913308f9dca05c035a70d56bcec66d2446b1`.
 This digest changed only because the Fig. 6 CSV/promotion provenance bindings
 were migrated; every curve score and the `diagnostic_mismatch` result stayed
 unchanged.

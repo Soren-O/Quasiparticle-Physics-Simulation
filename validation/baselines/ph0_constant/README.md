@@ -78,7 +78,7 @@ Tolerance choices per `New Framework Plan` §6.4.1:
 | Fischer 2023 Fig 5 (paper)        | numerical curves `rtol=5e-3`, `atol=1e-30`; analytic columns `rtol=1e-10` | Scale-aware low-signal gate plus state recertification |
 | Fischer 2023 Fig 7 (paper)        | same-OS loss/`Q_tot` `4e-3`/`1e-4`; Windows/Linux `8e-3`/`2e-4`; loss `atol=1e-18` | Measured tight-contract portability envelope plus independent `2e-8` balance gate |
 | Fischer 2023 Figs 9–13 (Q_i vs P) | **No active accepted pin**; nominal future `rtol=1e-4` | Historical CSV is quarantined; development output is not promotable until an independent energy-grid refinement study supports it |
-| Fischer 2024 Figs 5–8 pair-breaking photon | 1e-6      | Iterative                            |
+| Fischer 2024 Figs 5–8 pair-breaking photon | 1e-6      | Iterative; the Fig. 5 solve uses a 1e-7 number-mode gate so accepted states have headroom inside this cross-platform curve tolerance |
 
 These baselines are *regression* targets, not independent reference
 truth — see `New Framework Plan` §7.5 for the discussion of why Gate 3

@@ -80,6 +80,11 @@ def test_unit_audit_conversion_pinned() -> None:
     target._assert_unit_audit()
 
 
+def test_solver_number_gate_has_curve_comparison_headroom() -> None:
+    """The solve must not terminate on the 1e-6 curve-comparison boundary."""
+    assert target.NEWTON_BACKWARD_ERROR_TOL == 1.0e-7
+
+
 def test_v5_schema_contains_numerical_curves_only() -> None:
     assert target.ARTIFACT_SCHEMA.endswith(".v5")
     columns = target._columns()

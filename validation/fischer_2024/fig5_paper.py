@@ -164,7 +164,13 @@ EXISTING_F24_NATIVE_RANGE_NS_INV = (1e-6, 1e-2)
 
 ARTIFACT_SCHEMA = "qpsim.fischer2024.fig5_qpsim_native.v5"
 NEWTON_TOL = 1.0e-14
-NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
+# Keep the solve comfortably inside the 1e-6 cross-platform curve gate.
+# With a 1e-6 number-mode solve gate, the Windows producer stopped at
+# qp_number_backward_error=9.565e-7 while hosted Linux continued to the
+# tighter root; their first near-gap bin then differed by 1.033e-6.  A 1e-7
+# solve gate makes the Windows result agree with the hosted result to 3.2e-9
+# relative instead of widening the physical-curve regression tolerance.
+NEWTON_BACKWARD_ERROR_TOL = 1.0e-7
 NEWTON_MAX_ITER = 500
 
 

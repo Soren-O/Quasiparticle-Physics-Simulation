@@ -195,7 +195,15 @@ def load_authenticated_canonical() -> AuthenticatedCanonical:
                 pdf_path=pdf_path,
                 promotion_path=promotion_path,
             )
-            result, _metadata = fig6_paper._read_artifact(csv_path)
+            # Worker semantic hashes bind the exact producer-stamped
+            # certificate arrays.  _read_artifact still performs fresh
+            # reader-host recertification before returning these stamps;
+            # opting in here prevents benign certificate roundoff drift from
+            # changing the historical generation identity.
+            result, _metadata = fig6_paper._read_artifact(
+                csv_path,
+                return_stamped_certificates=True,
+            )
             fig6_paper.validate_generation_evidence(
                 record["generation"],
                 result=result,

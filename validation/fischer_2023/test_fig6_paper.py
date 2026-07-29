@@ -177,6 +177,205 @@ def schema_result(monkeypatch) -> fig6_paper.Fig6PaperResult:
     )
 
 
+def test_recertification_uses_authenticated_producer_gap_for_derived_ratios(
+    monkeypatch: pytest.MonkeyPatch,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    """A reader-host ULP in Delta_eq must not be amplified into a false drift."""
+    producer_delta_eq = float(schema_result.delta_eq[0])
+    reader_delta_eq = math.nextafter(producer_delta_eq, math.inf)
+    monkeypatch.setattr(
+        fig6_paper,
+        "calibrate_gap",
+        lambda **_kwargs: SimpleNamespace(delta_eq=reader_delta_eq),
+    )
+
+    # The current calibration still authenticates near-bitwise, while
+    # observables are rebound to the exact producer anchor persisted beside
+    # the returned state.  Before the repair, this one-ULP reader drift was
+    # amplified beyond the 256-epsilon observable identity gate.
+    fig6_paper.validate_artifact_result(schema_result)
+
+
+def test_recertification_accepts_runtime_drift_and_returns_fresh_certificates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    """Reader certificates are fresh scientific checks, not producer bit pins."""
+    fresh = {
+        # Raw diagnostics deliberately drift by many orders while remaining
+        # finite/non-negative; they are not scientific acceptance gates.
+        "qp_residual_inf": 0.25,
+        "qp_backward_error": 0.25 * TARGET_BACKWARD_ERROR_LIMIT,
+        QP_NUMBER_CERTIFICATE_FIELD: 0.50 * TARGET_BACKWARD_ERROR_LIMIT,
+        "phonon_residual_inf": 0.50,
+        "phonon_raw_backward_error": 0.75,
+        "phonon_backward_error": 0.75 * TARGET_BACKWARD_ERROR_LIMIT,
+    }
+    monkeypatch.setattr(
+        fig6_paper.certificate_module,
+        "steady_state_certificate",
+        lambda *_args, **_kwargs: fresh.copy(),
+    )
+    path = fig6_paper._write_rebound_baseline(
+        schema_result,
+        tmp_path / "portable-certificates.csv",
+    )
+    stamped, _ = fig6_paper._read_artifact(
+        path,
+        return_stamped_certificates=True,
+    )
+    np.testing.assert_array_equal(
+        stamped.qp_backward_error,
+        schema_result.qp_backward_error,
+    )
+    restored = fig6_paper.read_baseline(path)
+    for field, value in fresh.items():
+        np.testing.assert_array_equal(
+            getattr(restored, field),
+            np.array([[value]]),
+        )
+    np.testing.assert_array_equal(
+        restored.gap_fixed_point_abs_error_uev,
+        np.array([[0.0]]),
+    )
+
+
+def test_current_writer_rejects_under_limit_forged_producer_stamp(
+    tmp_path: Path,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    """Current production must bind its stamps to its same-runtime state."""
+    forged = replace(
+        schema_result,
+        qp_backward_error=np.full_like(
+            schema_result.qp_backward_error,
+            0.25 * TARGET_BACKWARD_ERROR_LIMIT,
+        ),
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match=r"producer certificate qp_backward_error",
+    ):
+        fig6_paper.write_baseline(
+            forged,
+            tmp_path / "forged-under-limit.csv",
+        )
+
+
+def test_recertification_rejects_bad_stamped_scientific_certificate(
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    bad = replace(
+        schema_result,
+        qp_backward_error=np.full_like(
+            schema_result.qp_backward_error,
+            1.01 * TARGET_BACKWARD_ERROR_LIMIT,
+        ),
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match=r"stamped certificate field 'qp_backward_error'.*scientific gate",
+    ):
+        fig6_paper.validate_artifact_result(bad)
+
+
+def test_recertification_rejects_bad_fresh_scientific_certificate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    path = fig6_paper.write_baseline(
+        schema_result,
+        tmp_path / "bad-fresh-scientific.csv",
+    )
+    fresh = {
+        "qp_residual_inf": 0.0,
+        "qp_backward_error": 0.0,
+        QP_NUMBER_CERTIFICATE_FIELD: 0.0,
+        "phonon_residual_inf": 0.0,
+        "phonon_raw_backward_error": 0.0,
+        "phonon_backward_error": 1.01 * TARGET_BACKWARD_ERROR_LIMIT,
+    }
+    monkeypatch.setattr(
+        fig6_paper.certificate_module,
+        "steady_state_certificate",
+        lambda *_args, **_kwargs: fresh.copy(),
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match=r"reassembled certificate field 'phonon_backward_error'.*scientific gate",
+    ):
+        fig6_paper.read_baseline(path)
+
+
+def test_recertification_rejects_bad_fresh_gap_certificate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    path = fig6_paper.write_baseline(
+        schema_result,
+        tmp_path / "bad-fresh-gap.csv",
+    )
+    monkeypatch.setattr(
+        fig6_paper,
+        "solve_gap",
+        lambda *_args, reference_gap, **_kwargs: (
+            reference_gap + 1.01 * GAP_FIXED_POINT_ABS_TOL_UEV
+        ),
+    )
+    with pytest.raises(
+        fig6_paper.ArtifactValidationError,
+        match=r"reassembled gap fixed-point certificate.*scientific gate",
+    ):
+        fig6_paper.read_baseline(path)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("stamped", r"stamped certificate field 'qp_residual_inf'.*non-negative"),
+        ("reassembled", r"reassembled certificate field 'qp_residual_inf'.*non-negative"),
+    ),
+)
+def test_recertification_rejects_negative_raw_diagnostic(
+    source: str,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schema_result: fig6_paper.Fig6PaperResult,
+) -> None:
+    if source == "stamped":
+        candidate = replace(
+            schema_result,
+            qp_residual_inf=np.full_like(schema_result.qp_residual_inf, -1.0),
+        )
+        with pytest.raises(fig6_paper.ArtifactValidationError, match=expected):
+            fig6_paper.validate_artifact_result(candidate)
+        return
+
+    path = fig6_paper.write_baseline(
+        schema_result,
+        tmp_path / "negative-fresh-diagnostic.csv",
+    )
+    monkeypatch.setattr(
+        fig6_paper.certificate_module,
+        "steady_state_certificate",
+        lambda *_args, **_kwargs: {
+            "qp_residual_inf": -1.0,
+            "qp_backward_error": 0.0,
+            QP_NUMBER_CERTIFICATE_FIELD: 0.0,
+            "phonon_residual_inf": 0.0,
+            "phonon_raw_backward_error": 0.0,
+            "phonon_backward_error": 0.0,
+        },
+    )
+    with pytest.raises(fig6_paper.ArtifactValidationError, match=expected):
+        fig6_paper.read_baseline(path)
+
+
 def test_canonical_publication_record_rejects_mixed_pdf(
     tmp_path,
     monkeypatch,

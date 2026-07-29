@@ -240,8 +240,13 @@ def test_authenticated_load_binds_reader_record_and_hashes(
         calls.append("record")
         return record
 
-    def read_result(_path: Path) -> tuple[Any, dict[str, object]]:
+    def read_result(
+        _path: Path,
+        *,
+        return_stamped_certificates: bool = False,
+    ) -> tuple[Any, dict[str, object]]:
         calls.append("reader")
+        assert return_stamped_certificates
         return _result(), {}
 
     monkeypatch.setattr(
@@ -274,6 +279,89 @@ def test_authenticated_load_binds_reader_record_and_hashes(
     assert authenticated.csv_identity["sha256"] == _sha256(csv_path)
     assert authenticated.promotion_identity["sha256"] == _sha256(record_path)
     assert authenticated.promotion_record == record
+
+
+def test_authenticated_load_hashes_producer_stamps_after_fresh_recertification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reader-host certificate drift must not rewrite producer identity."""
+    csv_path = tmp_path / "canonical.csv"
+    pdf_path = tmp_path / "canonical.pdf"
+    record_path = tmp_path / "canonical.promotion.json"
+    csv_path.write_bytes(b"certified-state-csv")
+    pdf_path.write_bytes(b"certified-plot-pdf")
+    record_path.write_bytes(b'{"authenticated":true}\n')
+
+    producer_result = _result()
+    producer_result.qp_backward_error = np.asarray([[1.0e-9]])
+    fresh_result = _result()
+    fresh_result.qp_backward_error = np.asarray([[7.5e-9]])
+    record = {
+        "schema": "promotion-test-v1",
+        "artifacts": {
+            "csv": {
+                "sha256": _sha256(csv_path),
+                "size_bytes": csv_path.stat().st_size,
+            }
+        },
+        "generation": {"run_identity": "a" * 64},
+    }
+    validated_results: list[Any] = []
+
+    monkeypatch.setattr(
+        diagnostic,
+        "_read_bound_promotion_record_unlocked",
+        lambda **_kwargs: record,
+    )
+
+    def read_result(
+        _path: Path,
+        *,
+        return_stamped_certificates: bool = False,
+    ) -> tuple[Any, dict[str, object]]:
+        # Model _read_artifact's real split: both branches perform fresh
+        # recertification, while only the opt-in branch exposes the exact
+        # producer stamps needed by result_row_sha256.
+        return (
+            producer_result if return_stamped_certificates else fresh_result,
+            {},
+        )
+
+    def validate_generation(
+        _evidence: object,
+        *,
+        result: Any,
+    ) -> dict[str, object]:
+        validated_results.append(result)
+        if result is not producer_result:
+            raise fig6_paper.ArtifactValidationError(
+                "worker semantic row digest does not match"
+            )
+        return {}
+
+    monkeypatch.setattr(fig6_paper, "_read_artifact", read_result)
+    monkeypatch.setattr(
+        fig6_paper,
+        "validate_generation_evidence",
+        validate_generation,
+    )
+    monkeypatch.setattr(fig6_paper, "_publication_lock", nullcontext)
+    monkeypatch.setattr(fig6_paper, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fig6_paper, "plot_path", lambda: pdf_path)
+    monkeypatch.setattr(
+        fig6_paper,
+        "promotion_record_path",
+        lambda: record_path,
+    )
+
+    authenticated = diagnostic.load_authenticated_canonical()
+
+    assert authenticated.result is producer_result
+    assert validated_results == [producer_result]
+    assert fresh_result.qp_backward_error[0, 0] != (
+        producer_result.qp_backward_error[0, 0]
+    )
 
 
 def test_bound_record_rejects_mixed_canonical_bytes(

@@ -1091,6 +1091,104 @@ and explicitly selected `manual_slow` release producers. This closeout is
 frozen in the publication commit containing this paragraph. Hosted CI and any
 merge decision remain separate actions.
 
+## 2026-07-28 hosted slow-gate portability follow-up
+
+GitHub Actions run `30409496531` passed the static and default gates on Python
+3.13 and 3.14, then failed the same three slow nodes on both jobs. All three
+were confirmed validation defects:
+
+- **Fischer-2023 Fig. 5:** exact-state replay was sound, but the reader compared
+  cancellation-floor raw residuals and reduction-sensitive diagnostics to the
+  Windows producer almost bit-for-bit. Producer stamps remain authenticated
+  and must satisfy the original `1e-9` scientific gates. Reader-host QP and
+  number certificates independently retain `1e-9`; the freshly reassembled
+  phonon backward-error envelope is narrowly measured at `1e-8` (hosted Linux
+  maximum `7.41369469811521e-9`). Raw diagnostics must be finite and
+  nonnegative but are not physical observables.
+- **Fischer-2023 Fig. 6:** the persisted equilibrium gap and a Linux
+  recomputation differed by one binary64 ULP. Dividing through
+  `Delta_0 - Delta_eq ≈ 8.32e-8 µeV` amplified that harmless root drift to
+  about `8.95e-6` relative in the derived suppression ratio. The current
+  calibration still authenticates the stored equilibrium gap near-bitwise;
+  producer-derived ratios are rebuilt from the authenticated persisted
+  producer anchor. Producer and fresh scientific certificates are gated
+  independently, while raw diagnostics are finite/nonnegative. Historical
+  worker semantic hashes continue to use the exact producer-stamped arrays
+  after fresh recertification succeeds.
+- **Fischer-2024 Fig. 5:** the `1e-2 Hz` producer stopped at
+  `qp_number_backward_error = 9.565e-7`, effectively on the `1e-6`
+  cross-platform curve boundary. Tightening the solve gate to `1e-7` reduced
+  the regenerated certificate to about `4.58e-13`; the hosted discrepancy
+  collapsed from `1.033e-6` to about `3.2e-9` relative. Only the high-drive
+  column changed; `E`, the thermal seed, and the two lower-drive columns are
+  byte-identical.
+
+The two expensive F23 artifacts were provenance-rebound without numerical
+reruns:
+
+- Fig. 5 promotion schema v3 separates the immutable historical producer from
+  the current publication fingerprint. It verifies all 84 producer source
+  hashes against commit `269c5633258a2fc66236a5cd7fe7ef9dacad41ed`,
+  binds the original campaign/artifact tuple, rejects changed rows or
+  solve-relevant configuration, and promotes the commit marker last with
+  fail-closed rollback. All 81 numerical rows, payload
+  `d35c6d5c6d4a2e152ad079538bd6aa874332a5a6156a1b6d55c060876147ceb9`,
+  PDFs, and campaign bytes are unchanged. New CSV/promotion SHA-256 values are
+  `c114a291559f98bacf76416657116fb224d539d5a97ca804d4bad9f9618198bf`
+  and `b1f86b0d669d3dabe467b04f3d4a175e3ff1f7131a9346237919214a56447f5f`.
+- Fig. 6 retains all 66 numerical rows, payload
+  `5b237ad6b6f8f5dfb3f97d3669948827e34740d0f7dbe1d8203477b2defb39ab`,
+  PDF `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`,
+  historical run identity, and all three worker semantic hashes. New
+  CSV/promotion SHA-256 values are
+  `5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c`
+  and `a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823`.
+
+The downstream Fig. 6 paper-data comparison was rebound to those exact
+current CSV/promotion identities as well. Its 42 extracted paper points, all
+six curve scores, and the `diagnostic_mismatch` verdict are unchanged; only
+the comparison-spec digest and qpsim artifact identities changed. The
+resulting checked score SHA-256 is
+`d92243ff16c619117914713bbbbb913308f9dca05c035a70d56bcec66d2446b1`.
+
+A pre-push adversarial pass then found four weaknesses in the new Fig. 5
+verifier itself. Current-production writes could retain unrelated under-limit
+producer certificate stamps; the historical campaign runner digest was
+internally self-consistent but not checked against the attested Git commit;
+the six campaign rows were not bound to the exact upper/lower panel topology;
+and copied/noncanonical bundles lacked a per-record lock plus a final
+multi-file identity recheck. All four are fixed. Same-runtime writes now bind
+every stamp near-bitwise to a fresh reconstruction, while only the private
+one-shot migration writer may retain separately gated historical stamps. The
+migration verifies both the 84-file producer manifest and runner blob at
+`269c563…41ed`, requires the exact six-row topology, and locks/rechecks every
+supplied commit-marker tuple. The lock uses `O_CREAT` plus read/write mode on
+both Windows and Linux/WSL rather than append semantics. Focused evidence:
+18 provenance/transaction tests, three synthetic campaign tests, and the
+portable-lock test on Windows and WSL all pass. These hardening edits changed
+the shared source fingerprint, so Fig. 5, Fig. 6, and the dependent paper
+score were rebound once more from their unchanged historical payloads; no
+numerical producer was rerun.
+
+A final independent diff review found the analogous policy boundary in the
+Fig. 6 writer: cross-runtime readers correctly gate historical producer
+stamps and fresh reader-host certificates separately, but current-production
+writes had inherited that permissive policy and could retain arbitrary
+under-limit stamps. Current writes now require near-bitwise agreement with
+their same-runtime reconstruction; the private migration writer alone may
+retain separately authenticated historical stamps. An adversarial regression
+pins both paths. The resulting Fig. 6 source-only rebind again preserved all
+66 numerical rows, payload, PDF, historical run identity, and worker hashes;
+the downstream paper score changed only in its provenance identities.
+
+The three formerly failing nodes pass together on Windows
+(`3 passed in 196.04 s`) and native Linux (`3 passed in 202.75 s`). The
+expanded changed-area selection passes 188 tests with two intentional
+external-input skips and seven slow deselections. The complete default
+selection passes 2,557 tests with two intentional skips, 20 slow
+deselections, and 12 expected warnings in `1130.00 s`. Ruff, mypy, and diff
+checks are clean. Hosted CI remains the authoritative remote verdict.
+
 ## Full audit record
 
 Original 2026-07-19 workflow findings (including its 40 lows and five

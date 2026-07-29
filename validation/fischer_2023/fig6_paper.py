@@ -953,18 +953,67 @@ def _rebuild_state(
     )
 
 
-def _validate_result_for_artifact(
+def _certificate_maxima_with_gates(
+    certificates: Mapping[str, np.ndarray],
+    *,
+    source: str,
+) -> dict[str, float]:
+    """Validate one complete stamped/reassembled certificate family.
+
+    The three normalized backward errors and the gap-map error are scientific
+    acceptance certificates.  Raw residuals and the raw phonon backward error
+    are diagnostics: they must remain finite and non-negative, but platform
+    reduction/rounding differences do not have to reproduce producer bits.
+    """
+    if set(certificates) != set(_ARTIFACT_CERTIFICATE_FIELDS):
+        raise ArtifactValidationError(
+            f"Fig. 6 {source} certificate field set is incomplete."
+        )
+    maxima: dict[str, float] = {}
+    for field in _ARTIFACT_CERTIFICATE_FIELDS:
+        values = np.asarray(certificates[field], dtype=float)
+        if np.any(~np.isfinite(values)) or np.any(values < 0.0):
+            raise ArtifactValidationError(
+                f"Fig. 6 {source} certificate field {field!r} must be "
+                "finite and non-negative."
+            )
+        maxima[field] = float(np.max(values))
+    for field in _CERTIFIED_FIELDS:
+        if maxima[field] > fig6_solve.TARGET_BACKWARD_ERROR_LIMIT:
+            raise ArtifactValidationError(
+                f"Fig. 6 {source} certificate field {field!r} exceeds "
+                "its scientific gate."
+            )
+    if (
+        maxima[fig6_solve.GAP_FIXED_POINT_CERTIFICATE_FIELD]
+        > GAP_FIXED_POINT_ABS_TOL_UEV
+    ):
+        raise ArtifactValidationError(
+            f"Fig. 6 {source} gap fixed-point certificate exceeds its "
+            "scientific gate."
+        )
+    return maxima
+
+
+def _validate_result_and_reassemble_certificates(
     result: Fig6PaperResult,
     *,
     expected_t_bath: np.ndarray | None = None,
     expected_n_bar: np.ndarray | None = None,
-) -> dict[str, float]:
+    require_stamped_match: bool,
+) -> tuple[dict[str, float], dict[str, np.ndarray]]:
     """Independently derive every stored curve and certificate from raw state.
 
     Canonical artifact callers use the default full axes.  The guarded
     parallel regenerator supplies a one-temperature ``expected_t_bath`` while
     validating each atomic row payload; all curve and state recertification is
     otherwise identical to the final canonical validation.
+
+    Same-runtime producers must set ``require_stamped_match`` so the
+    certificate arrays they publish are bound near-bitwise to the independent
+    reconstruction.  Cross-runtime readers clear it: immutable producer
+    stamps and fresh reader-host certificates are then independently gated,
+    and the reader returns the fresh family.
     """
     expected_T = (
         np.asarray(T_BATH_VALUES, dtype=float)
@@ -1077,12 +1126,13 @@ def _validate_result_for_artifact(
             dtype=float,
         ),
     }
-    maxima = {field: float(np.max(values)) for field, values in claimed_certificates.items()}
-    for field in _CERTIFIED_FIELDS:
-        if maxima[field] > fig6_solve.TARGET_BACKWARD_ERROR_LIMIT:
-            raise ArtifactValidationError(f"Fig. 6 certificate field {field!r} exceeds its gate.")
-    if maxima[fig6_solve.GAP_FIXED_POINT_CERTIFICATE_FIELD] > GAP_FIXED_POINT_ABS_TOL_UEV:
-        raise ArtifactValidationError("Fig. 6 gap fixed-point certificate exceeds its gate.")
+    stamped_maxima = _certificate_maxima_with_gates(
+        claimed_certificates,
+        source="stamped",
+    )
+    reassembled_certificates = {
+        field: np.empty(shape, dtype=float) for field in _ARTIFACT_CERTIFICATE_FIELDS
+    }
 
     for i, T_bath in enumerate(expected_T):
         calibration = calibrate_gap(
@@ -1103,6 +1153,21 @@ def _validate_result_for_artifact(
             delta_eq,
             name=f"delta_thermal_T_bath[{i}]",
         )
+        # Rebuild producer-derived ratios with the authenticated producer
+        # anchor, not the independently recomputed reader-host anchor.
+        # ``delta_eq`` itself is still required to match the current gap
+        # calibration above.  Near Delta_0, however, a few cross-libm ULPs in
+        # that otherwise acceptable value are amplified by division through
+        # ``Delta_0 - delta_eq``: the hosted Linux replay moved the first
+        # paper observable by 8.95e-6 relative while every persisted state
+        # value was unchanged.  Using the persisted anchor preserves the
+        # strict state-binding identity without widening any comparison.
+        producer_delta_eq = float(result.delta_eq[i])
+        producer_delta_T = DELTA_0 - producer_delta_eq
+        if producer_delta_T <= 0.0:
+            raise ArtifactValidationError(
+                "Fig. 6 persisted equilibrium gap has undefined suppression."
+            )
         for j, n_bar in enumerate(expected_n):
             gap = float(result.delta_driven[i, j])
             state = _rebuild_state(
@@ -1139,12 +1204,14 @@ def _validate_result_for_artifact(
                 tau_l=tau_l,
                 tau_0_pb=result.tau_0_pb_ns,
             )
-            obs_num = (gap - delta_eq) / delta_T
+            obs_num = (gap - producer_delta_eq) / producer_delta_T
             delta_drive_analytic = DELTA_0 * fig6_solve._paper_eq53_analytic_drive(
                 x_eq47,
                 T_star,
             )
-            obs_eq53 = (delta_T - delta_drive_analytic) / delta_T
+            obs_eq53 = (
+                producer_delta_T - delta_drive_analytic
+            ) / producer_delta_T
             for name, claimed, recomputed in (
                 ("T_star_over_delta", result.T_star_over_delta[i, j], T_star),
                 ("x_qp_num", result.x_qp_num[i, j], x_num),
@@ -1162,12 +1229,42 @@ def _validate_result_for_artifact(
             ):
                 _require_close(claimed, recomputed, name=f"{name}[{i},{j}]")
             for field in _ARTIFACT_CERTIFICATE_FIELDS:
-                _require_close(
-                    claimed_certificates[field][i, j],
-                    certificate[field],
-                    name=f"{field}[{i},{j}]",
-                )
-    return maxima
+                try:
+                    fresh_value = float(certificate[field])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ArtifactValidationError(
+                        f"Fig. 6 reassembled certificate field {field!r} "
+                        "is missing or invalid."
+                    ) from exc
+                reassembled_certificates[field][i, j] = fresh_value
+                if require_stamped_match:
+                    _require_close(
+                        claimed_certificates[field][i, j],
+                        fresh_value,
+                        name=f"producer certificate {field}[{i},{j}]",
+                    )
+    _certificate_maxima_with_gates(
+        reassembled_certificates,
+        source="reassembled",
+    )
+    return stamped_maxima, reassembled_certificates
+
+
+def _validate_result_for_artifact(
+    result: Fig6PaperResult,
+    *,
+    expected_t_bath: np.ndarray | None = None,
+    expected_n_bar: np.ndarray | None = None,
+    require_stamped_match: bool = True,
+) -> dict[str, float]:
+    """Validate an artifact while retaining the public stamped-maxima result."""
+    stamped_maxima, _ = _validate_result_and_reassemble_certificates(
+        result,
+        expected_t_bath=expected_t_bath,
+        expected_n_bar=expected_n_bar,
+        require_stamped_match=require_stamped_match,
+    )
+    return stamped_maxima
 
 
 def validate_artifact_result(result: Fig6PaperResult) -> dict[str, float]:
@@ -1289,15 +1386,22 @@ def _is_canonical_bundle_path(path: Path) -> bool:
     }
 
 
-def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
-    """Write raw states and claims only after independent recertification."""
-    path = baseline_path() if path is None else path
+def _write_baseline(
+    result: Fig6PaperResult,
+    path: Path,
+    *,
+    require_stamped_match: bool,
+) -> Path:
+    """Write raw states under an explicit producer-certificate policy."""
     if _is_canonical_bundle_path(path):
         raise ArtifactValidationError(
             "Direct writes to the canonical Fig. 6 bundle are forbidden; "
             "use publish_artifacts() or generate_baseline()."
         )
-    maxima = _validate_result_for_artifact(result)
+    maxima = _validate_result_for_artifact(
+        result,
+        require_stamped_match=require_stamped_match,
+    )
     states_f = np.asarray(result.state_f, dtype=float)
     states_n_ph = np.asarray(result.state_n_ph, dtype=float)
     certificate_arrays = {
@@ -1369,7 +1473,45 @@ def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
     return path
 
 
-def _read_artifact(path: Path) -> tuple[Fig6PaperResult, dict[str, Any]]:
+def write_baseline(result: Fig6PaperResult, path: Path | None = None) -> Path:
+    """Write current-producer states and same-runtime-bound diagnostics."""
+    resolved = baseline_path() if path is None else path
+    return _write_baseline(
+        result,
+        resolved,
+        require_stamped_match=True,
+    )
+
+
+def _write_rebound_baseline(
+    result: Fig6PaperResult,
+    path: Path,
+) -> Path:
+    """Write a migration candidate while retaining historical diagnostics.
+
+    The caller must authenticate the immutable producer payload separately;
+    this helper only permits its already-gated stamps to differ from fresh
+    reader-host reconstructions.
+    """
+    return _write_baseline(
+        result,
+        path,
+        require_stamped_match=False,
+    )
+
+
+def _read_artifact(
+    path: Path,
+    *,
+    return_stamped_certificates: bool = False,
+) -> tuple[Fig6PaperResult, dict[str, Any]]:
+    """Read one artifact, returning fresh certificates unless identity needs stamps.
+
+    Historical worker semantic hashes cover the exact producer-stamped
+    certificate arrays.  Promotion-record authentication therefore opts into
+    those stamps only after this function has independently reassembled and
+    scientifically gated fresh reader-host certificates.
+    """
     rows = _read_csv_rows(path)
     metadata = _artifact_metadata(path, rows)
     T_values = np.asarray(T_BATH_VALUES, dtype=float)
@@ -1437,7 +1579,7 @@ def _read_artifact(path: Path) -> tuple[Fig6PaperResult, dict[str, Any]]:
         state_f[i, j] = f
         state_n_ph[i, j] = n_ph
     config = metadata["fingerprint"]["config"]
-    result = Fig6PaperResult(
+    stamped_result = Fig6PaperResult(
         tau_0_pb_ns=float(config["tau_0_pb_ns"]),
         tau_l_ns=float(config["tau_l_ns"]),
         T_bath=T_values,
@@ -1460,13 +1602,18 @@ def _read_artifact(path: Path) -> tuple[Fig6PaperResult, dict[str, Any]]:
         state_f=state_f,
         state_n_ph=state_n_ph,
     )
-    recomputed_maxima = _validate_result_for_artifact(result)
+    producer_maxima, reassembled_certificates = (
+        _validate_result_and_reassemble_certificates(
+            stamped_result,
+            require_stamped_match=False,
+        )
+    )
     stamped_maxima = metadata["certificate_maxima"]
     if not isinstance(stamped_maxima, dict) or set(stamped_maxima) != set(
         _ARTIFACT_CERTIFICATE_FIELDS
     ):
         raise ArtifactValidationError("Fig. 6 certificate maxima are invalid.")
-    for field, recomputed in recomputed_maxima.items():
+    for field, recomputed in producer_maxima.items():
         stamped = stamped_maxima[field]
         if (
             isinstance(stamped, bool)
@@ -1477,6 +1624,26 @@ def _read_artifact(path: Path) -> tuple[Fig6PaperResult, dict[str, Any]]:
             raise ArtifactValidationError(
                 f"Fig. 6 stamped certificate maximum {field!r} is forged."
             )
+    result = (
+        stamped_result
+        if return_stamped_certificates
+        else replace(
+            stamped_result,
+            qp_residual_inf=reassembled_certificates["qp_residual_inf"],
+            qp_backward_error=reassembled_certificates["qp_backward_error"],
+            qp_number_backward_error=reassembled_certificates[
+                certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+            ],
+            phonon_residual_inf=reassembled_certificates["phonon_residual_inf"],
+            phonon_raw_backward_error=reassembled_certificates[
+                "phonon_raw_backward_error"
+            ],
+            phonon_backward_error=reassembled_certificates["phonon_backward_error"],
+            gap_fixed_point_abs_error_uev=reassembled_certificates[
+                fig6_solve.GAP_FIXED_POINT_CERTIFICATE_FIELD
+            ],
+        )
+    )
     return result, metadata
 
 
@@ -1936,7 +2103,10 @@ def _read_promotion_record_unlocked(
                 "publication record."
             )
     _require_valid_pdf(pdf_resolved)
-    validated_result, _ = _read_artifact(csv_resolved)
+    validated_result, _ = _read_artifact(
+        csv_resolved,
+        return_stamped_certificates=True,
+    )
     validate_generation_evidence(
         record["generation"],
         result=validated_result,
