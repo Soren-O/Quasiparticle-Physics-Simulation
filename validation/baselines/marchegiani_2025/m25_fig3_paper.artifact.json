@@ -4,18 +4,18 @@
     "m25_fig3_paper.pdf": {
       "kind": "pdf",
       "page_count": 1,
-      "sha256": "3eb8e87f999bc760e2d8202545f84f2d5b2588fb2b45623034054a731c89bd7e",
+      "sha256": "f2b3e30278206b552b38b48a3b0667a37790a0b58773bf104abc5108e1fca86c",
       "size_bytes": 33086
     },
     "m25_fig3a_paper.csv": {
       "kind": "csv",
-      "sha256": "90c16b79d940b08f8d91302e607103f3575bb13a77083d4b61f28fb601de3ee6",
-      "size_bytes": 8706
+      "sha256": "f87911d03c36c1c4355b786f0636e6c5a5f30b8ecd9982242c90d1ecc9ac4d91",
+      "size_bytes": 8810
     },
     "m25_fig3b_paper.csv": {
       "kind": "csv",
-      "sha256": "8bb8967b20771526009555dec4028e2fd2fe9d4013e8ef6970f88d95123d6fc4",
-      "size_bytes": 8706
+      "sha256": "d382b13e61c65451e09ac7fbb24c3ec4ac3b0ed0af89377b0827fafdfee47d31",
+      "size_bytes": 8810
     }
   },
   "fingerprint": {
@@ -73,6 +73,8 @@
         5.0
       ],
       "r_recomb_Hz": 6250000.0,
+      "residual_certificate_policy": "independently-gated",
+      "residual_ratio_limit": 1.0,
       "residual_tol_relative": 0.001
     },
     "schema": "qpsim-m25-artifact-bundle-v1",
@@ -157,8 +159,8 @@
       "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
       "validation/marchegiani_2025/_artifact.py": "69bc5890707f034bbb67ce7ef47f83220f9ab2ba24703ac38f7c9baee0647037",
       "validation/marchegiani_2025/_pdf.py": "271f0cb7bdc4a34824f46d02e9dc45769625def77026246aa96c9069ce62cdf6",
-      "validation/marchegiani_2025/fig3_chemical_potentials.py": "99df1cd63591831b90381b3489ece7e6b4a42de8494f4a86c0c2d79e318454a5",
-      "validation/marchegiani_2025/fig3_paper.py": "d7e97a1a91e79bbee4cc56b3a0682c75ddda10cf59b3a5a77890ea8fe3aaf053",
+      "validation/marchegiani_2025/fig3_chemical_potentials.py": "efbe4d5f6890d4fc1bef446376e7c28000e109adf234999db85e911308e8aecd",
+      "validation/marchegiani_2025/fig3_paper.py": "9e3b3ae55b12f3e573fd7dc1df9574169779cdc9fbea559989ff224a8d28d420",
       "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
     }
   },
@@ -339,9 +341,9 @@
     "thread_environment": {
       "BLIS_NUM_THREADS": "1",
       "MKL_CBWR": null,
-      "MKL_DYNAMIC": null,
+      "MKL_DYNAMIC": "FALSE",
       "MKL_NUM_THREADS": "1",
-      "OMP_DYNAMIC": null,
+      "OMP_DYNAMIC": "FALSE",
       "OMP_NUM_THREADS": "1",
       "OPENBLAS_CORETYPE": null,
       "OPENBLAS_NUM_THREADS": "1"

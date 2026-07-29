@@ -4,18 +4,18 @@
     "m25_fig4_parity_rates.pdf": {
       "kind": "pdf",
       "page_count": 1,
-      "sha256": "b75abf59ec1f5ef1aec026ba552f9983ec49eb167b68dbac51575933418f66b0",
+      "sha256": "4848973e34bf42ffaa122e924b89d30e1f337b10660a8b5343fe44e578bb9638",
       "size_bytes": 31150
     },
     "m25_fig4a_parity_rates.csv": {
       "kind": "csv",
-      "sha256": "0e5061ad3c96371c5c94fa19286f9355dc3880a4944a556dcc7896899a91bc93",
-      "size_bytes": 3754
+      "sha256": "42197e9791c9a8b3c64fbee3f95325139ebb2b0278c604b7d5ce38372f43c96d",
+      "size_bytes": 3798
     },
     "m25_fig4b_parity_rates.csv": {
       "kind": "csv",
-      "sha256": "022fc1c37d52bc215c80557ad730090ec1c58680f8de757f02738a155b2a0e4e",
-      "size_bytes": 3754
+      "sha256": "721ed399c6f4c8a5dd3ff958c9e51a2b903b0b3a67e0a182a06d9fc1b8395899",
+      "size_bytes": 3798
     }
   },
   "fingerprint": {
@@ -70,7 +70,8 @@
           5.0
         ],
         "r_recomb_Hz": 6250000.0,
-        "residual_stamp_reassembly_atol": 1e-08,
+        "residual_certificate_policy": "independently-gated",
+        "residual_ratio_limit": 1.0,
         "residual_tol_relative": 0.001
       },
       "summary": [
@@ -160,7 +161,7 @@
       "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
       "validation/marchegiani_2025/_artifact.py": "69bc5890707f034bbb67ce7ef47f83220f9ab2ba24703ac38f7c9baee0647037",
       "validation/marchegiani_2025/_pdf.py": "271f0cb7bdc4a34824f46d02e9dc45769625def77026246aa96c9069ce62cdf6",
-      "validation/marchegiani_2025/fig3_chemical_potentials.py": "99df1cd63591831b90381b3489ece7e6b4a42de8494f4a86c0c2d79e318454a5",
+      "validation/marchegiani_2025/fig3_chemical_potentials.py": "efbe4d5f6890d4fc1bef446376e7c28000e109adf234999db85e911308e8aecd",
       "validation/marchegiani_2025/fig4_parity_rates.py": "ab97c34ee007131d1d3917e5d2adb3ab34bdddb7e4b1635a63b2c2e0fba23c43",
       "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
     }
@@ -342,9 +343,9 @@
     "thread_environment": {
       "BLIS_NUM_THREADS": "1",
       "MKL_CBWR": null,
-      "MKL_DYNAMIC": null,
+      "MKL_DYNAMIC": "FALSE",
       "MKL_NUM_THREADS": "1",
-      "OMP_DYNAMIC": null,
+      "OMP_DYNAMIC": "FALSE",
       "OMP_NUM_THREADS": "1",
       "OPENBLAS_CORETYPE": null,
       "OPENBLAS_NUM_THREADS": "1"

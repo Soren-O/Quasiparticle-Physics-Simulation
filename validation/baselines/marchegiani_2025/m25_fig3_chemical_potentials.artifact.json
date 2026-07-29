@@ -4,18 +4,18 @@
     "m25_fig3_chemical_potentials.pdf": {
       "kind": "pdf",
       "page_count": 1,
-      "sha256": "7fa96029777cc93bd00b4b9b1842cf2d07cd3ac518381281c0b6b22cc332c7a9",
+      "sha256": "0ae5f522df4ea53633315aadf999b52bb8b379e1e5e23e89127af55d4f79e1f5",
       "size_bytes": 31091
     },
     "m25_fig3a_chemical_potentials.csv": {
       "kind": "csv",
-      "sha256": "e0590d6009497e10b7994c47a115baf926135fc3df88ac111a9bf9598ef38126",
-      "size_bytes": 8679
+      "sha256": "26cc9e4b4e6f7149ecaa920e5374a4361034b95beeb8d4a07fbc1d5e5e5df175",
+      "size_bytes": 8742
     },
     "m25_fig3b_chemical_potentials.csv": {
       "kind": "csv",
-      "sha256": "f9a4533f580700ff7940401c0a0f289c93ff68cd6c1d6430135edde8883783d7",
-      "size_bytes": 8679
+      "sha256": "a24c7b1dce1625d93b6b3dc5ee101a4f77385332737d5b3a4ddaf49e6a116627",
+      "size_bytes": 8742
     }
   },
   "fingerprint": {
@@ -69,7 +69,8 @@
         5.0
       ],
       "r_recomb_Hz": 6250000.0,
-      "residual_stamp_reassembly_atol": 1e-08,
+      "residual_certificate_policy": "independently-gated",
+      "residual_ratio_limit": 1.0,
       "residual_tol_relative": 0.001
     },
     "schema": "qpsim-m25-artifact-bundle-v1",
@@ -154,7 +155,7 @@
       "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
       "validation/marchegiani_2025/_artifact.py": "69bc5890707f034bbb67ce7ef47f83220f9ab2ba24703ac38f7c9baee0647037",
       "validation/marchegiani_2025/_pdf.py": "271f0cb7bdc4a34824f46d02e9dc45769625def77026246aa96c9069ce62cdf6",
-      "validation/marchegiani_2025/fig3_chemical_potentials.py": "99df1cd63591831b90381b3489ece7e6b4a42de8494f4a86c0c2d79e318454a5",
+      "validation/marchegiani_2025/fig3_chemical_potentials.py": "efbe4d5f6890d4fc1bef446376e7c28000e109adf234999db85e911308e8aecd",
       "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
     }
   },
@@ -335,9 +336,9 @@
     "thread_environment": {
       "BLIS_NUM_THREADS": "1",
       "MKL_CBWR": null,
-      "MKL_DYNAMIC": null,
+      "MKL_DYNAMIC": "FALSE",
       "MKL_NUM_THREADS": "1",
-      "OMP_DYNAMIC": null,
+      "OMP_DYNAMIC": "FALSE",
       "OMP_NUM_THREADS": "1",
       "OPENBLAS_CORETYPE": null,
       "OPENBLAS_NUM_THREADS": "1"

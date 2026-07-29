@@ -3,13 +3,13 @@
   "files": {
     "m25_fig4_paper.csv": {
       "kind": "csv",
-      "sha256": "a7407a8ffd8be568ad9dc2b2c5223c5b6ad733d0df30d891f93dbf55cda4c6aa",
-      "size_bytes": 16701
+      "sha256": "0bdc79b87080323814182e1fe8d383f43b4a81a061ff9480b153889c17d5c2e9",
+      "size_bytes": 16745
     },
     "m25_fig4_paper.pdf": {
       "kind": "pdf",
       "page_count": 1,
-      "sha256": "7f23b971befb42958ac8294da0971c838a72cf7e9265794051b2cf48ab9a3a57",
+      "sha256": "6d8542074f9d4ad090139d92f011f43ca0653c870b1e60a6e597d00de35b2c6c",
       "size_bytes": 31006
     }
   },
@@ -91,7 +91,8 @@
           5.0
         ],
         "r_recomb_Hz": 6250000.0,
-        "residual_stamp_reassembly_atol": 1e-08,
+        "residual_certificate_policy": "independently-gated",
+        "residual_ratio_limit": 1.0,
         "residual_tol_relative": 0.001
       }
     },
@@ -177,7 +178,7 @@
       "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
       "validation/marchegiani_2025/_artifact.py": "69bc5890707f034bbb67ce7ef47f83220f9ab2ba24703ac38f7c9baee0647037",
       "validation/marchegiani_2025/_pdf.py": "271f0cb7bdc4a34824f46d02e9dc45769625def77026246aa96c9069ce62cdf6",
-      "validation/marchegiani_2025/fig3_chemical_potentials.py": "99df1cd63591831b90381b3489ece7e6b4a42de8494f4a86c0c2d79e318454a5",
+      "validation/marchegiani_2025/fig3_chemical_potentials.py": "efbe4d5f6890d4fc1bef446376e7c28000e109adf234999db85e911308e8aecd",
       "validation/marchegiani_2025/fig4_paper.py": "9eba1fe2cb2ce0d257d3485c57c3720cfddb1413e2031458c6e211e8f7cb96a3",
       "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
     }
@@ -359,9 +360,9 @@
     "thread_environment": {
       "BLIS_NUM_THREADS": "1",
       "MKL_CBWR": null,
-      "MKL_DYNAMIC": null,
+      "MKL_DYNAMIC": "FALSE",
       "MKL_NUM_THREADS": "1",
-      "OMP_DYNAMIC": null,
+      "OMP_DYNAMIC": "FALSE",
       "OMP_NUM_THREADS": "1",
       "OPENBLAS_CORETYPE": null,
       "OPENBLAS_NUM_THREADS": "1"

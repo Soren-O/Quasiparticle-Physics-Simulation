@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from qpsim.services.rate_equation import crossover_temperature_kelvin
 
 from validation.marchegiani_2025 import (
     fig3_chemical_potentials,
@@ -227,44 +228,121 @@ def test_fig3_reader_reassembles_full_state_certificate(tmp_path: Path) -> None:
         module._read_panel_csv(forged, panel.omega_LR_GHz)
 
 
-def test_fig3_certificate_stamp_comparison_has_cross_runtime_floor() -> None:
-    """Accept measured roundoff drift, not a materially false stamp.
-
-    These values are the worst persisted-state replay observed when a
-    NumPy 2.5.1/SciPy 1.18 producer was read under NumPy 2.4.2/SciPy 1.17.
-    Both metrics are roughly 1e-10 of their acceptance scale.
-    """
+def test_fig3_certificate_families_are_independently_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Producer and reader evidence must pass, not match near-zero bits."""
     module = fig3_chemical_potentials
-    stamped_inf = np.array([6.617444900424222e-24])
-    stamped_ratio = np.array([2.882610893292975e-13])
-    reassembled_inf = np.array([1.6940658945086007e-21])
-    reassembled_ratio = np.array([1.704881846760338e-10])
-    minimum_tolerance = np.array([9.936558933557242e-12])
+    panel = module.read_baseline().panel_a
+    shape = panel.T_kelvin.shape
 
-    assert module._certificate_stamps_match(
-        stamped_inf,
-        stamped_ratio,
-        reassembled_inf,
-        reassembled_ratio,
-        minimum_tolerance,
+    # Exact-zero producer stamps need not reproduce the reader's
+    # host-sensitive cancellation floor; both independently pass.
+    module._validate_reassembled_certificate(
+        panel,
+        np.zeros(shape),
+        np.zeros(shape),
+        context="test panel",
     )
-    assert not module._certificate_stamps_match(
-        stamped_inf,
-        stamped_ratio + 2.0 * module._CERTIFICATE_STAMP_REASSEMBLY_ATOL,
-        reassembled_inf,
-        reassembled_ratio,
-        minimum_tolerance,
+
+    with pytest.raises(
+        ArtifactValidationError,
+        match="producer-stamped residual certificate",
+    ):
+        module._validate_reassembled_certificate(
+            panel,
+            np.zeros(shape),
+            np.full(shape, module._RESIDUAL_RATIO_LIMIT + 1e-6),
+            context="test panel",
+        )
+    with pytest.raises(
+        ArtifactValidationError,
+        match="producer-stamped residual certificate",
+    ):
+        module._validate_reassembled_certificate(
+            panel,
+            np.full(shape, np.nan),
+            np.zeros(shape),
+            context="test panel",
+        )
+    monkeypatch.setattr(
+        module,
+        "_certificate_metrics",
+        lambda _panel: (
+            np.zeros(shape),
+            np.full(shape, module._RESIDUAL_RATIO_LIMIT + 1e-6),
+        ),
     )
-    assert not module._certificate_stamps_match(
-        reassembled_inf
-        + 2.0
-        * module._CERTIFICATE_STAMP_REASSEMBLY_ATOL
-        * minimum_tolerance,
-        reassembled_ratio,
-        reassembled_inf,
-        reassembled_ratio,
-        minimum_tolerance,
+    with pytest.raises(
+        ArtifactValidationError,
+        match="freshly reassembled residual certificate",
+    ):
+        module._validate_reassembled_certificate(
+            panel,
+            np.zeros(shape),
+            np.zeros(shape),
+            context="test panel",
+        )
+
+
+def test_crossover_fingerprint_uses_semantic_log_grid_inputs() -> None:
+    module = fig3_crossover_temperature
+    config = module._artifact_config()
+    assert "g_photon_R_grid_Hz" not in config
+    assert config["g_photon_R_grid"] == {
+        "minimum_Hz": module.G_PHOTON_MIN_HZ,
+        "maximum_Hz": module.G_PHOTON_MAX_HZ,
+        "num_points": module.NUM_POINTS,
+        "spacing": "log10",
+    }
+
+
+def test_crossover_reader_accepts_ulp_grid_drift_but_not_material_drift(
+    tmp_path: Path,
+) -> None:
+    module = fig3_crossover_temperature
+    result = module.run()
+
+    ulp_grid = np.nextafter(result.g_photon_R_Hz, np.inf)
+    ulp_result = replace(
+        result,
+        g_photon_R_Hz=ulp_grid,
+        T_bar_kelvin=np.array(
+            [
+                crossover_temperature_kelvin(
+                    Delta_R_kelvin=module.DELTA_R_KELVIN,
+                    r_Rlt_rate_Hz=module.R_RLT_RATE_HZ,
+                    g_photon_R_rate_Hz=float(g_photon),
+                )
+                for g_photon in ulp_grid
+            ]
+        ),
     )
+    ulp_path = tmp_path / "ulp-grid.csv"
+    module.write_baseline(ulp_result, ulp_path)
+    accepted = module.read_baseline(ulp_path)
+    np.testing.assert_array_equal(accepted.g_photon_R_Hz, ulp_grid)
+
+    wrong_grid = result.g_photon_R_Hz.copy()
+    wrong_grid[wrong_grid.size // 2] *= 1.0 + 1e-10
+    wrong_result = replace(
+        result,
+        g_photon_R_Hz=wrong_grid,
+        T_bar_kelvin=np.array(
+            [
+                crossover_temperature_kelvin(
+                    Delta_R_kelvin=module.DELTA_R_KELVIN,
+                    r_Rlt_rate_Hz=module.R_RLT_RATE_HZ,
+                    g_photon_R_rate_Hz=float(g_photon),
+                )
+                for g_photon in wrong_grid
+            ]
+        ),
+    )
+    wrong_path = tmp_path / "wrong-grid.csv"
+    module.write_baseline(wrong_result, wrong_path)
+    with pytest.raises(ArtifactValidationError, match="generation grid"):
+        module.read_baseline(wrong_path)
 
 
 def test_manifest_records_exact_runtime_shape() -> None:

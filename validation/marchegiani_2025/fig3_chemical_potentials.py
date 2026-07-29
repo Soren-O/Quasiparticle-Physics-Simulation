@@ -103,20 +103,13 @@ T_MAX_K = 0.150
 NUM_T_POINTS = 29   # 5 mK spacing
 _RESIDUAL_TOL_RELATIVE = 1e-3
 _RESIDUAL_RATIO_LIMIT = 1.0
-# Persisted residual stamps are recomputed from the full saved state, but
-# their values sit at the cancellation/roundoff floor.  A 2026-07-27
-# cross-runtime replay (producer: NumPy 2.5.1/SciPy 1.18/OpenBLAS 0.3.33;
-# reader: NumPy 2.4.2/SciPy 1.17/OpenBLAS 0.3.31) measured a worst
-# source-scaled stamp delta of 1.702e-10.  The 1e-8 budget leaves ~59x
-# measured headroom while remaining eight orders below the acceptance
-# limit.  It is applied in source-scaled units, never as a raw-Hz floor.
-_CERTIFICATE_STAMP_REASSEMBLY_ATOL = 1e-8
+_CERTIFICATE_PRODUCER_READER_POLICY = "independently-gated"
 _BUNDLE = "m25-fig3-chemical-potentials"
 _CERTIFICATE = {
     "kind": "reassembled_m25_full_residual",
-    "metric_version": "m25-source-scaled-residual-v2",
+    "metric_version": "m25-source-scaled-residual-v3",
+    "producer_reader_policy": _CERTIFICATE_PRODUCER_READER_POLICY,
     "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
-    "stamp_reassembly_atol": _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
 }
 _COLUMNS = (
     "T_kelvin",
@@ -375,9 +368,8 @@ def _artifact_config() -> dict[str, object]:
         "omega_10_over_h_GHz": OMEGA_10_OVER_H_GHZ,
         "omega_LR_over_h_GHz": [0.5, 5.0],
         "r_recomb_Hz": R_RECOMB_HZ,
-        "residual_stamp_reassembly_atol": (
-            _CERTIFICATE_STAMP_REASSEMBLY_ATOL
-        ),
+        "residual_certificate_policy": _CERTIFICATE_PRODUCER_READER_POLICY,
+        "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
         "residual_tol_relative": _RESIDUAL_TOL_RELATIVE,
     }
 
@@ -416,12 +408,11 @@ def _panel_role(omega_LR_GHz: float) -> str:
     )
 
 
-def _certificate_metrics_with_scale(
+def _certificate_metrics(
     panel: Fig3PanelResult,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     residual_inf: list[float] = []
     residual_ratio: list[float] = []
-    minimum_tolerance: list[float] = []
     for index, T_kelvin in enumerate(panel.T_kelvin):
         y = np.array(
             [
@@ -441,61 +432,31 @@ def _certificate_metrics_with_scale(
         )
         residual_inf.append(float(np.max(np.abs(residual))))
         residual_ratio.append(float(np.max(np.abs(residual) / tolerances)))
-        minimum_tolerance.append(float(np.min(tolerances)))
-    return (
-        np.array(residual_inf),
-        np.array(residual_ratio),
-        np.array(minimum_tolerance),
-    )
+    return np.array(residual_inf), np.array(residual_ratio)
 
 
-def _certificate_metrics(panel: Fig3PanelResult) -> tuple[np.ndarray, np.ndarray]:
-    residual_inf, residual_ratio, _minimum_tolerance = (
-        _certificate_metrics_with_scale(panel)
-    )
-    return residual_inf, residual_ratio
-
-
-def _certificate_stamps_match(
-    stamped_residual_inf: np.ndarray,
-    stamped_residual_ratio: np.ndarray,
-    reassembled_residual_inf: np.ndarray,
-    reassembled_residual_ratio: np.ndarray,
-    minimum_source_tolerance: np.ndarray,
+def _certificate_values_are_admissible(
+    residual_inf: np.ndarray,
+    residual_ratio: np.ndarray,
+    expected_shape: tuple[int, ...],
 ) -> bool:
-    """Compare roundoff-floor stamps in dimensionless source-scaled units."""
-    arrays = (
-        stamped_residual_inf,
-        stamped_residual_ratio,
-        reassembled_residual_inf,
-        reassembled_residual_ratio,
-        minimum_source_tolerance,
+    """Validate one residual-certificate family on its own semantics.
+
+    The producer stamps and a fresh reader reassembly both describe
+    cancellation-floor residuals.  Their exact near-zero values are
+    host-sensitive and are therefore never compared with one another.
+    Each family must instead be finite, nonnegative, correctly shaped,
+    and independently below the scientific acceptance limit.
+    """
+    return bool(
+        residual_inf.shape == expected_shape
+        and residual_ratio.shape == expected_shape
+        and np.all(np.isfinite(residual_inf))
+        and np.all(np.isfinite(residual_ratio))
+        and np.all(residual_inf >= 0.0)
+        and np.all(residual_ratio >= 0.0)
+        and np.all(residual_ratio <= _RESIDUAL_RATIO_LIMIT)
     )
-    if (
-        not all(array.shape == stamped_residual_inf.shape for array in arrays)
-        or not all(np.all(np.isfinite(array)) for array in arrays)
-        or np.any(stamped_residual_inf < 0.0)
-        or np.any(stamped_residual_ratio < 0.0)
-        or np.any(reassembled_residual_inf < 0.0)
-        or np.any(reassembled_residual_ratio < 0.0)
-        or np.any(minimum_source_tolerance <= 0.0)
-    ):
-        return False
-    ratio_matches = np.isclose(
-        stamped_residual_ratio,
-        reassembled_residual_ratio,
-        rtol=2e-12,
-        atol=_CERTIFICATE_STAMP_REASSEMBLY_ATOL,
-    )
-    raw_hz_budget = (
-        _CERTIFICATE_STAMP_REASSEMBLY_ATOL * minimum_source_tolerance
-        + 2e-12 * np.abs(reassembled_residual_inf)
-    )
-    inf_matches = (
-        np.abs(stamped_residual_inf - reassembled_residual_inf)
-        <= raw_hz_budget
-    )
-    return bool(np.all(ratio_matches & inf_matches))
 
 
 def _validate_reassembled_certificate(
@@ -505,26 +466,23 @@ def _validate_reassembled_certificate(
     *,
     context: str,
 ) -> None:
-    residual_inf, residual_ratio, minimum_tolerance = (
-        _certificate_metrics_with_scale(panel)
-    )
-    if not _certificate_stamps_match(
+    expected_shape = panel.T_kelvin.shape
+    if not _certificate_values_are_admissible(
         stamped_residual_inf,
         stamped_residual_ratio,
+        expected_shape,
+    ):
+        raise ArtifactValidationError(
+            f"{context} fails its producer-stamped residual certificate."
+        )
+    residual_inf, residual_ratio = _certificate_metrics(panel)
+    if not _certificate_values_are_admissible(
         residual_inf,
         residual_ratio,
-        minimum_tolerance,
+        expected_shape,
     ):
         raise ArtifactValidationError(
-            f"{context} has residual certificate stamps inconsistent with "
-            "the persisted state beyond the calibrated cross-runtime floor."
-        )
-    if (
-        np.any(stamped_residual_ratio > _RESIDUAL_RATIO_LIMIT)
-        or np.any(residual_ratio > _RESIDUAL_RATIO_LIMIT)
-    ):
-        raise ArtifactValidationError(
-            f"{context} fails its reassembled residual certificate."
+            f"{context} fails its freshly reassembled residual certificate."
         )
 
 

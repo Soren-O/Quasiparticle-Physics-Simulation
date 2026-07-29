@@ -1,5 +1,33 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-07-28 M25 hosted-default portability follow-up:** GitHub Actions run
+> `30423446933` on `f319bf5` passed the static gates but failed the default
+> suite on Python 3.13 and 3.14 with the same 13 Marchegiani-2025 reader
+> failures. They reduce to two host-sensitive validation defects, not 13
+> independent numerical failures. Fig. 3 chemical/paper readers compared
+> producer and reader residuals at the cancellation floor; both are now
+> authenticated and scientifically gated (`residual_ratio <= 1`) on their
+> own host without requiring meaningless near-zero bit agreement. The Eq. 8
+> crossover bundle fingerprinted materialized `np.logspace` samples and then
+> required exact equality to a fresh host-generated axis; it now fingerprints
+> the semantic log-grid recipe, admits only a few ULP of axis drift, and
+> reassembles Eq. 8 from the authenticated persisted axis.
+>
+> Five dependent M25 bundles were transactionally republished. All eight CSV
+> numerical payload SHA-256 values are unchanged; only certificate/config
+> metadata changed in the tables. The four shared-state bundles were produced
+> in one process to preserve branch-sweep memoization, and the crossover
+> bundle was independently rebound. Adversarial tests prove that one-ULP axis
+> drift passes, material grid drift fails, bad producer stamps fail, and a bad
+> fresh-reader certificate fails. The entire M25 validation directory passes
+> 37/37 on Windows and on native Linux with the hosted NumPy 2.5.1/SciPy 1.18
+> stack. The full Windows default suite passes **2559 tests**, with two
+> intentional external-input skips and 20 slow deselections, in `1061.47 s`.
+> The Linux full suite reached 2557 passes and only failed two Git-history
+> tests because WSL could not resolve the linked worktree's Windows `.git`
+> path; both pass when `GIT_DIR/GIT_WORK_TREE` are mapped into WSL. A hosted
+> rerun for this follow-up remains the authoritative remote verdict.
+>
 > **2026-07-28 hosted slow-gate corrective follow-up:** GitHub Actions run
 > `30409496531` cleared Ruff, mypy, and the default suite on Python 3.13/3.14,
 > then exposed three validation defects in the slow gate. Fischer-2023 Fig. 5

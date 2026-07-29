@@ -1,5 +1,18 @@
 # qpsim status (gate tracker)
 
+> **Corrective-head M25 status (2026-07-28):** hosted run `30423446933` on
+> `f319bf5` exposed 13 default-suite failures on both Python 3.13 and 3.14.
+> The cascade had two roots: cancellation-floor producer/reader residuals were
+> compared as values rather than independently certified, and the Eq. 8
+> crossover artifact fingerprinted and exactly replayed host-generated
+> `np.logspace` samples. The readers now use independent semantic residual
+> gates and a semantic log-grid recipe with a few-ULP axis check; Eq. 8 is
+> reassembled from the persisted axis. Five affected bundles were republished
+> transactionally, with all eight CSV numerical payload hashes unchanged.
+> M25 passes 37/37 on Windows and native Linux; the full Windows default suite
+> passes 2559 tests with two intentional skips and 20 slow deselections.
+> Hosted CI on the new corrective head is still pending.
+>
 > **Corrective-head CI status (2026-07-28):** hosted run `30409496531`
 > passed Ruff, mypy, and the default suite on Python 3.13/3.14, then exposed
 > three slow-gate portability defects in Fischer-2023 Figs. 5/6 and

@@ -1189,6 +1189,59 @@ selection passes 2,557 tests with two intentional skips, 20 slow
 deselections, and 12 expected warnings in `1130.00 s`. Ruff, mypy, and diff
 checks are clean. Hosted CI remains the authoritative remote verdict.
 
+## 2026-07-28 M25 hosted-default portability follow-up
+
+The next hosted run, `30423446933` at `f319bf5`, failed during the default
+suite before reaching the slow gate: both Python 3.13 and 3.14 reported the
+same 13 Marchegiani-2025 failures. The count was a reader cascade with two
+roots:
+
+- Fig. 3 chemical/paper residual stamps and a fresh reconstruction were both
+  valid by the source-scaled scientific criterion, but the reader additionally
+  required their cancellation-floor values to agree across hosts. That
+  comparison has no numerical meaning. Bundle-authenticated producer stamps
+  must now be finite, nonnegative, correctly shaped, and have residual ratio
+  at most one. The independently reassembled reader-host metrics must pass the
+  same conditions. The two near-zero families are never compared.
+- The Eq. 8 crossover bundle put all 63 materialized `np.logspace` values in
+  its configuration fingerprint and then required bitwise equality to a
+  freshly generated host axis. The fingerprint now records the semantic
+  minimum, maximum, point count, and log spacing. The reader permits only a
+  `1e-15` relative axis difference with zero absolute floor and recomputes the
+  closed form from the authenticated persisted axis. Tests accept a one-ULP
+  perturbation and reject a `1e-10` relative grid change.
+
+The certificate schema is now
+`m25-source-scaled-residual-v3` with policy `independently-gated`.
+Adversarial checks separately reject malformed or above-limit producer stamps
+and an above-limit fresh reconstruction. The wrong-state test continues to
+reject a doubled density through full-state residual reassembly.
+
+Five bundles were transactionally republished: Fig. 3 chemical potentials,
+Fig. 3 paper topology, Fig. 4 paper topology, Fig. 4 parity rates, and the
+Fig. 3 crossover. The four shared-state bundles were generated in one process
+so their branch-sweep cache was common. All eight CSV numerical payload hashes
+are unchanged:
+
+- Fig. 3 panel a: `8ea4d439a9266006f2a971e2d8d23fbf9fe135b864c12f4cd4d1524407d39cfe`;
+- Fig. 3 panel b: `603c1d167bb7524c7aaf94995c3376488ad7797f331e2f1099a98b5f13a3fa49`;
+- Eq. 8 crossover: `a15362b516023141fb0f3b28dbb700b17399f8a316001bdda6bb1a202afda90a`;
+- Fig. 4 paper: `cd78fa0801621892c3ad8548123f08cbdf431dd2495e2bd9c02b5517f9de3407`;
+- Fig. 4 parity panels a/b:
+  `2f61f7af3e42fdd90329e9eb852aedd03b4fabae05e7e01dd54bcf2ae0380c1e`
+  and
+  `710dfee19e269485c0686742cdff9097cb1378468b3207992c6eb083b60127d6`.
+
+The full M25 directory passes 37 tests on Windows and on native Linux using
+the hosted Python 3.14.6 / NumPy 2.5.1 / SciPy 1.18 stack. The complete
+Windows default suite passes **2559 tests, 2 intentional skips, 20 slow
+deselections, and 12 warnings in 1061.47 s**. A Linux full run reached 2557
+passes; its only two failures were Git-history tests unable to resolve a
+Windows absolute `.git` path from the WSL-linked worktree. Both pass when the
+worktree's `GIT_DIR` and `GIT_WORK_TREE` are mapped into WSL. Ruff and mypy
+remain clean. Hosted CI on the corrective commit remains the final remote
+portability verdict.
+
 ## Full audit record
 
 Original 2026-07-19 workflow findings (including its 40 lows and five

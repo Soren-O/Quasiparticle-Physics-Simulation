@@ -62,6 +62,7 @@ R_RLT_RATE_HZ = 6.25e6                # r^{R<} = 6.25 MHz
 G_PHOTON_MIN_HZ = 1.0e-25
 G_PHOTON_MAX_HZ = 1.0e6
 NUM_POINTS = 63  # ~2 points per decade
+_GRID_REASSEMBLY_RTOL = 1e-15
 _BUNDLE = "m25-fig3-crossover-temperature"
 _CERTIFICATE = {
     "kind": "formula_transcription_self_regression",
@@ -116,11 +117,15 @@ def _artifact_config() -> dict[str, object]:
     return {
         "Delta_R_kelvin": DELTA_R_KELVIN,
         "Delta_R_over_h_Hz": DELTA_R_OVER_H_HZ,
-        "g_photon_R_grid_Hz": np.logspace(
-            np.log10(G_PHOTON_MIN_HZ),
-            np.log10(G_PHOTON_MAX_HZ),
-            NUM_POINTS,
-        ).tolist(),
+        # Fingerprint the exact semantic inputs, not libm-produced samples:
+        # identical logspace requests can differ in their last bits across
+        # hosts even though the numerical campaign is unchanged.
+        "g_photon_R_grid": {
+            "minimum_Hz": G_PHOTON_MIN_HZ,
+            "maximum_Hz": G_PHOTON_MAX_HZ,
+            "num_points": NUM_POINTS,
+            "spacing": "log10",
+        },
         "r_Rlt_rate_Hz": R_RLT_RATE_HZ,
     }
 
@@ -196,10 +201,18 @@ def read_baseline(path: Path | None = None) -> Fig3Result:
             np.log10(G_PHOTON_MAX_HZ),
             NUM_POINTS,
         )
-        if not np.array_equal(data[:, 0], expected_g):
+        if not np.allclose(
+            data[:, 0],
+            expected_g,
+            rtol=_GRID_REASSEMBLY_RTOL,
+            atol=0.0,
+        ):
             raise ArtifactValidationError(
                 f"M25 crossover table {path} has the wrong generation grid."
             )
+        # Reassemble Eq. 8 from the authenticated persisted axis.  Reusing
+        # the host-generated `expected_g` here would reintroduce the same
+        # one-ULP cross-microarchitecture mismatch the axis check permits.
         expected_T = np.array(
             [
                 crossover_temperature_kelvin(
@@ -207,7 +220,7 @@ def read_baseline(path: Path | None = None) -> Fig3Result:
                     r_Rlt_rate_Hz=R_RLT_RATE_HZ,
                     g_photon_R_rate_Hz=float(g_photon),
                 )
-                for g_photon in expected_g
+                for g_photon in data[:, 0]
             ]
         )
         if not np.allclose(data[:, 1], expected_T, rtol=2e-13, atol=0.0):

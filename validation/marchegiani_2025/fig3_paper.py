@@ -77,7 +77,7 @@ from validation.marchegiani_2025._artifact import (
     write_table,
 )
 from validation.marchegiani_2025.fig3_chemical_potentials import (
-    _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
+    _CERTIFICATE_PRODUCER_READER_POLICY,
     DELTA_R_OVER_H_GHZ,
     DRIVE_TEMPLATE,
     E_C_OVER_H_GHZ,
@@ -109,9 +109,9 @@ _BUNDLE = "m25-fig3-paper"
 _RESIDUAL_RATIO_LIMIT = 1.0
 _CERTIFICATE = {
     "kind": "reassembled_m25_full_residual",
-    "metric_version": "m25-source-scaled-residual-v2",
+    "metric_version": "m25-source-scaled-residual-v3",
+    "producer_reader_policy": _CERTIFICATE_PRODUCER_READER_POLICY,
     "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
-    "stamp_reassembly_atol": _CERTIFICATE_STAMP_REASSEMBLY_ATOL,
 }
 _COLUMNS = (
     "T_kelvin",
@@ -235,6 +235,8 @@ def _artifact_config() -> dict[str, object]:
             PANEL_B_OMEGA_LR_GHZ,
         ],
         "r_recomb_Hz": R_RECOMB_HZ,
+        "residual_certificate_policy": _CERTIFICATE_PRODUCER_READER_POLICY,
+        "residual_ratio_limit": _RESIDUAL_RATIO_LIMIT,
         "residual_tol_relative": _chem._RESIDUAL_TOL_RELATIVE,
     }
 
