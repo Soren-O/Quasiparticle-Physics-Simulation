@@ -1,0 +1,20 @@
+{
+  "checked_score": {
+    "file_sha256": "412ed2f9537445cfa03202be5582c89b8c3c059d94b4966472ad771f0e4b0f43",
+    "schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-score.v1"
+  },
+  "parent_c5": {
+    "raw_manifest_sha256": "bf2dce4c4ff9f218251a8d414b0d92338065e5aeaa9e81be0c51915e8c6e2fa7",
+    "raw_schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-bundle.v1",
+    "receipt_file_sha256": "4359f3ee9bff0e67a5bb5558dfbe72968ef512ce852c71c33c4cc443eb237fcd",
+    "receipt_schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-raw-manifest-receipt.v1",
+    "score_file_sha256": "7923387e4651b4119305df62d89f36fbb0c2c03a61f6737b64ff88ac08a3ae76",
+    "score_schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-score.v1"
+  },
+  "qualification": "Repository trust anchor for the externally retained C6 raw manifest, the complete canonical checked-score bytes, and the independently replayed C5/C4/C3/C2 parent chain; it does not contain or replace the raw arrays.",
+  "raw_bundle": {
+    "manifest_sha256": "8d22c8eda0f893c12a8e3ed1f628af85ea8481df9d749663de9775c89c4c35ff",
+    "schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-raw-manifest-receipt.v1"
+}
