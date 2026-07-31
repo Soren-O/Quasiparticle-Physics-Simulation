@@ -1,0 +1,974 @@
+{
+  "acceptance": {
+    "all_passed": true,
+    "checks": {
+      "all_clean_assemblies_within_predeclared_rounding_bound": true,
+      "frozen_phonon_assembly_matches_accepted_residual": true,
+      "frozen_qp_assembly_matches_accepted_residual": true,
+      "frozen_root_reproduces_author_ordinate": true,
+      "iteration_probe_consistent": true,
+      "observable_transcription_matches": true,
+      "root_phonon_balance_within_step_rtol": true,
+      "root_qp_balance_within_step_rtol": true,
+      "seed_projection_bit_exact": true
+    },
+    "limits": {
+      "frozen_assembly_symmetric_relative_l1": {
+        "hex": "0x1.19799812dea11p-40",
+        "value": 1e-12
+      },
+      "observable_symmetric_relative": {
+        "hex": "0x1.19799812dea11p-40",
+        "value": 1e-12
+      },
+      "root_balance_l1_ratio": {
+        "hex": "0x1.ad7f29abcaf48p-24",
+        "value": 1e-07
+      }
+    },
+    "ungated_recorded_differences": {
+      "root_vs_frozen_state": "the re-solved root legitimately moves away from the frozen author root; the state and ordinate changes are recorded results of the accumulated component substitutions, not gated errors"
+    }
+  },
+  "array_descriptors": {
+    "author_seed_state": {
+      "dtype": "<f8",
+      "npy_sha256": "078cfd5e80ac5046205cee536a212ffc6574985c5e64b24e2e3571c4db69df8b",
+      "shape": [
+        3239
+      ]
+    },
+    "frozen_phonon_residual_delta_support_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "1d5a1d3fcedd8816a6f0a14021308ee337190245ca6cb6317267c9dda0696a18",
+      "shape": [
+        1619
+      ]
+    },
+    "frozen_qp_residual_delta_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "60ba36c16e7171bfc13f7d1e419caca9b85a3c3bd4190bfacae3763f375fdc78",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_E_centers_ueV": {
+      "dtype": "<f8",
+      "npy_sha256": "a69a522f78b7ce681c594f75dc27d68029e83b61649bcd7b7fd347ed305efcb0",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_active_mask": {
+      "dtype": "|b1",
+      "npy_sha256": "4197e228fd3eb925efa15bb52da1858752ffbf39a3c8a1102a33913614c691ce",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_cell_density": {
+      "dtype": "<f8",
+      "npy_sha256": "678c0e0b5731430303929aa612dabd46e01fd32801499d136e613529d41fa383",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_cell_weights_ueV": {
+      "dtype": "<f8",
+      "npy_sha256": "678c0e0b5731430303929aa612dabd46e01fd32801499d136e613529d41fa383",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_dE_ueV": {
+      "dtype": "<f8",
+      "npy_sha256": "3ddbbcb640e88ee26af96890b63f1174c72c49d84ced4fd840148bd9e5eb945d",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_f": {
+      "dtype": "<f8",
+      "npy_sha256": "c59d39f4b2c42b2e4525ddc6ce6e1dce9fbb0a7bcdc7759bd82618765501ad81",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_legacy_phonon_support_mask": {
+      "dtype": "|b1",
+      "npy_sha256": "a3673e6362bff56985eb90f6362132a8f2c7674a7d2e4c7eb6ba4003df6956fb",
+      "shape": [
+        3600
+      ]
+    },
+    "parent_phonon_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "47fa70f857ddb78f45154300909e810c5d1028ee513fa07637f32195ad469ff1",
+      "shape": [
+        1619
+      ]
+    },
+    "parent_phonon_to_native_omega_index": {
+      "dtype": "<i8",
+      "npy_sha256": "fdd28fb1eddd307fbc93b1b7c22a064136627629397bc6f584643252f710f9db",
+      "shape": [
+        1619
+      ]
+    },
+    "parent_projected_n_phonon": {
+      "dtype": "<f8",
+      "npy_sha256": "d65cb79bfec8cb12044e7a90b205906d15c0b2e8f7e2f427093b719b90480d94",
+      "shape": [
+        3600
+      ]
+    },
+    "parent_qp_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "9f8e4f18352c0dec82c1ce8db389cab9b87ad7d336541df885f5d64f290365a7",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_thermal_f": {
+      "dtype": "<f8",
+      "npy_sha256": "e530acc9abdf453b2b0a16cd0eb6f1887d8186c995d1fec53a17189024b5bd01",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_frozen_R_f_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "9c5fe17060b1d7d7b5ffc96cf4ab38d8d19ae7ad77001ca759818c4634eb2b2e",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_frozen_R_ph_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "6799ea328245545cc2d23c70cb9eb7363ec33a6cb0c1f8ee278c997eec03d81c",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_R_f_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "aa8fa1ab5fb836d78660b950471941010c04dca1e2a2385026eb790e17640dc3",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_R_ph_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "5c3edc3e24355db73a0a1889bd650c96d87afabb893fe3b0a64562bfe771223f",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_a_ph_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "500240c65576262f799b2c78b8e336b2ccc48a897c25fd75fd0088e3198e5b64",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_b_ph_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "75e2dfe49965487c0a3f332b32c9e208ffb826fdca651bef4e09595871f7681d",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_f": {
+      "dtype": "<f8",
+      "npy_sha256": "a59a586b12b4cc3defde8845fde964e7b4569cd8a8332bcb6b60ba7332f45232",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_minus_frozen_f": {
+      "dtype": "<f8",
+      "npy_sha256": "8c374278b8266a6dc61f3a368d4077a1bf594c15c61e0923da50573d9cbe84c2",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_minus_frozen_n_ph": {
+      "dtype": "<f8",
+      "npy_sha256": "9cb87e69d5b42f31fb3d29dac25b93d67fff0c2b3f5533a38bed13909670e517",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_n_ph": {
+      "dtype": "<f8",
+      "npy_sha256": "b051bb97f17692e812dc935334559b24ba1201489e2f52e0c34ef1e39ca3a8c8",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_pair_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "28da99ff88e35e0216f38c5933b26a01f43ff05f6b90e7e2f5586ee720e095c6",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_pair_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "1a21515dc6dd7bef54560e92873465defd025f88a36c0f8090e51e79f1d6a229",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_pair_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "13dd2a90c795929ed2f454bfa2664176de925c6ef39c2e80aa842378210cabff",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_phonon_escape_net_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "ebc6bcd7e7e8aa66cfa0dd4d0f0eb9d1ecaaf317b2355a0f1a89bb18fc4586c2",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_phonon_pair_a_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "37606cd0384431e9c0d43f0bd030183d3af0ac0213a4789035731795c59f9cd1",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_phonon_pair_b_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "5a66d24e971c6858b9a3c4204edcbc6b571820f5de282b42e5a091098eb7c250",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_phonon_scattering_a_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "cf9177424ccba34ec893950bb57b8a636c0e3c7c5654268963d7e942d47a8669",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_phonon_scattering_b_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "ee81186a4ab1e29eacd16a24434ee3a2ae732142c4aaba38d00bf59b36785f7d",
+      "shape": [
+        3600
+      ]
+    },
+    "qpsim_root_photon_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "86679571943697b73c2b0839f3db702034691dec9476ce4449432e50b6e4e8c0",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_photon_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "ab8c67b9f6590e73f4a8086655286484ed831025f960a7b9fb59e49501df52e6",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_photon_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "83b434d9c5fac783f9929de174a60d56f5881bd9ef4c068211eb647db146006e",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_qp_gain_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "6a03fa043c09242e6cdc8497fe6a87c0b9fda47e0724ae59e0223e06aaf294a1",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_qp_loss_rate_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "3fa20b1698af54f60b6acf3eb053d5940d4763da19edcdea74b4e8c2a0d835f9",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_scattering_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "917bf59e27ef14ba4b68379ece3a2ce6701ae67f356deec5179a72742d238d23",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_scattering_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "7b2891a14eb271e458a8ed8cdc0b775677b2dfec78bfb6d0514a4889034d4a43",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_scattering_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "f41b76cdef85a9ae29f4dda6194c0f688559d38d6c69310bc04eac000bcbdfd9",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_thermal_n_ph": {
+      "dtype": "<f8",
+      "npy_sha256": "d7cd8dad2f270cf49099889e7b0c6ac91058ee85a7af1a10e4477216d147aee6",
+      "shape": [
+        3600
+      ]
+    },
+    "seed_f": {
+      "dtype": "<f8",
+      "npy_sha256": "c33e8220a284b70ae537fdb586ac2f50c03f7dee2cddd571227d68cdd8807194",
+      "shape": [
+        1640
+      ]
+    },
+    "seed_n_ph": {
+      "dtype": "<f8",
+      "npy_sha256": "c811a91465434298d6233736d930e4a61c983391bcb05c68cb0320446dbb7e39",
+      "shape": [
+        3600
+      ]
+    }
+  },
+  "channel_verification": {
+    "frozen_state": {
+      "R_f": {
+        "l1_absolute": {
+          "hex": "0x1.d6303de99149dp-74",
+          "value": 9.723269142719716e-23
+        },
+        "linf_absolute": {
+          "hex": "0x1.0000000000000p-75",
+          "value": 2.6469779601696886e-23
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.05697911af7a0p-12",
+          "value": 0.00024930191385041413
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.3c7150b4ea43dp-45",
+          "value": 3.513219023881854e-14
+        },
+        "within_rounding_bound": true
+      },
+      "R_ph": {
+        "l1_absolute": {
+          "hex": "0x1.2d4ff0cadc6a4p-60",
+          "value": 1.0208856734650849e-18
+        },
+        "linf_absolute": {
+          "hex": "0x1.3000000000000p-63",
+          "value": 1.2874900798265365e-19
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.3345d81926b06p-11",
+          "value": 0.0005860764096213562
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.6b439d67ce86ap-48",
+          "value": 5.041302383424578e-15
+        },
+        "within_rounding_bound": true
+      }
+    },
+    "root_state": {
+      "R_f": {
+        "l1_absolute": {
+          "hex": "0x1.0204da1206772p-73",
+          "value": 1.067141375856517e-22
+        },
+        "linf_absolute": {
+          "hex": "0x1.0000000000000p-75",
+          "value": 2.6469779601696886e-23
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.3ed6229294167p-12",
+          "value": 0.00030406614783819733
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.36451e9f747d9p-13",
+          "value": 0.00014794826436897895
+        },
+        "within_rounding_bound": true
+      },
+      "R_ph": {
+        "l1_absolute": {
+          "hex": "0x1.5bcc628a955fap-60",
+          "value": 1.1783867427763068e-18
+        },
+        "linf_absolute": {
+          "hex": "0x1.3600000000000p-62",
+          "value": 2.625802136488331e-19
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.3fbbdf2e3d3e5p-9",
+          "value": 0.0024393758713991847
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.a485345e5ee5ep-14",
+          "value": 0.00010025985964106632
+        },
+        "within_rounding_bound": true
+      },
+      "a_ph": {
+        "l1_absolute": {
+          "hex": "0x1.7cf1de3cb6ea7p-61",
+          "value": 6.453455888303694e-19
+        },
+        "linf_absolute": {
+          "hex": "0x1.1000000000000p-65",
+          "value": 2.879912020664621e-20
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.e3e9e04fb4863p-12",
+          "value": 0.00046149595162348604
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.6c6dfff60e785p-51",
+          "value": 6.321847332210102e-16
+        },
+        "within_rounding_bound": true
+      },
+      "b_ph": {
+        "l1_absolute": {
+          "hex": "0x1.4cd4f99640000p-36",
+          "value": 1.8919305000171928e-11
+        },
+        "linf_absolute": {
+          "hex": "0x1.9000000000000p-45",
+          "value": 4.440892098500626e-14
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.493e8b14ccccap-9",
+          "value": 0.0025119347359577647
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.c1a44987e4db0p-52",
+          "value": 3.900020471427009e-16
+        },
+        "within_rounding_bound": true
+      },
+      "qp_gain": {
+        "l1_absolute": {
+          "hex": "0x1.089fa36b866cbp-74",
+          "value": 5.472287526830363e-23
+        },
+        "linf_absolute": {
+          "hex": "0x1.0000000000000p-75",
+          "value": 2.6469779601696886e-23
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.1deb3b8f97996p-12",
+          "value": 0.00027267349012118894
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.9f50720746843p-58",
+          "value": 5.628557515029349e-18
+        },
+        "within_rounding_bound": true
+      },
+      "qp_loss_rate": {
+        "l1_absolute": {
+          "hex": "0x1.1f1a300000000p-41",
+          "value": 5.099961251919805e-13
+        },
+        "linf_absolute": {
+          "hex": "0x1.c000000000000p-49",
+          "value": 3.1086244689504383e-15
+        },
+        "maximum_rounding_bound_fraction": {
+          "hex": "0x1.f228037eed859p-14",
+          "value": 0.00011876971801325196
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.7eeca96b488cep-53",
+          "value": 1.6606701262828816e-16
+        },
+        "within_rounding_bound": true
+      }
+    }
+  },
+  "comparison": {
+    "frozen_phonon_assembly_vs_accepted_residual": {
+      "l1_absolute_s_inv": {
+        "hex": "0x1.2ca4fce7ef47ap-35",
+        "value": 3.4179320668866735e-11
+      },
+      "linf_absolute_s_inv": {
+        "hex": "0x1.0000000000000p-38",
+        "value": 3.637978807091713e-12
+      },
+      "symmetric_relative_l1": {
+        "hex": "0x1.852ffb292bf7cp-53",
+        "value": 1.6878314117872117e-16
+      }
+    },
+    "frozen_qp_assembly_vs_accepted_residual": {
+      "l1_absolute_s_inv": {
+        "hex": "0x1.9c2e39a8ef3cdp-42",
+        "value": 3.6608988491360847e-13
+      },
+      "linf_absolute_s_inv": {
+        "hex": "0x1.0fd6000000000p-44",
+        "value": 6.0359703346613e-14
+      },
+      "symmetric_relative_l1": {
+        "hex": "0x1.29dbd9ecbf839p-43",
+        "value": 1.32275876482574e-13
+      }
+    },
+    "root_balance": {
+      "ph_l1_ratio": {
+        "hex": "0x1.951455cf0d1bap-38",
+        "value": 5.7565249894975594e-12
+      },
+      "qp_l1_ratio": {
+        "hex": "0x1.4e1dc1819f830p-45",
+        "value": 3.7094353580172374e-14
+      }
+    },
+    "root_vs_frozen_state": {
+      "f": {
+        "l1_absolute_s_inv": {
+          "hex": "0x1.5447bf26245bap-16",
+          "value": 2.0282284048327963e-05
+        },
+        "linf_absolute_s_inv": {
+          "hex": "0x1.d03fd719adb20p-21",
+          "value": 8.64731848091271e-07
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.deacebae21ccap-7",
+          "value": 0.014608016088699566
+        }
+      },
+      "n_ph": {
+        "l1_absolute_s_inv": {
+          "hex": "0x1.7c3e9db541fb1p-16",
+          "value": 2.2664343949179998e-05
+        },
+        "linf_absolute_s_inv": {
+          "hex": "0x1.619a09a800000p-18",
+          "value": 5.26907607678595e-06
+        },
+        "symmetric_relative_l1": {
+          "hex": "0x1.9aa25fc791d80p-23",
+          "value": 1.9121648463431846e-07
+        }
+      }
+    }
+  },
+  "component_locality": {
+    "qpsim_root_f": {
+      "dtype": "<f8",
+      "npy_sha256": "a59a586b12b4cc3defde8845fde964e7b4569cd8a8332bcb6b60ba7332f45232",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_root_n_ph": {
+      "dtype": "<f8",
+      "npy_sha256": "b051bb97f17692e812dc935334559b24ba1201489e2f52e0c34ef1e39ca3a8c8",
+      "shape": [
+        3600
+      ]
+    },
+    "raw_contract": {
+      "changed_arrays": "the returned root, its residual assemblies, channel decompositions, observables, and the root-minus-frozen deltas",
+      "inherited_arrays": "the frozen C6 state, hybrid residuals, grid, masks, thermal arrays, and the authenticated author seed, copied bit-exact",
+      "kernel_identity": "QP-side kernels reproduce the accepted C5 retained kernels bit-for-bit; phonon-side kernels and the thermal occupation reproduce the accepted C6 arrays bit-for-bit; the frequency map reproduces the accepted C6 frozen map bit-for-bit"
+    }
+  },
+  "conservation": {
+    "pair_weighted_number": {
+      "net_s_inv_ueV": {
+        "hex": "-0x1.1825dd71731dfp-30",
+        "value": -1.0191721601750412e-09
+      },
+      "statement": "pair generation/recombination changes QP number by construction; recorded as a diagnostic",
+      "turnover_s_inv_ueV": {
+        "hex": "0x1.51f3ad00b7da2p+2",
+        "value": 5.280497790051784
+      }
+    },
+    "photon_weighted_number": {
+      "net_s_inv_ueV": {
+        "hex": "-0x1.173f3826a6538p-41",
+        "value": -4.960422304838549e-13
+      },
+      "turnover_s_inv_ueV": {
+        "hex": "0x1.8101c2c16f8d6p+14",
+        "value": 24640.44019102383
+      }
+    },
+    "scattering_weighted_number": {
+      "net_s_inv_ueV": {
+        "hex": "-0x1.a8d4f34c71950p-48",
+        "value": -5.8957260940259516e-15
+      },
+      "turnover_s_inv_ueV": {
+        "hex": "0x1.bc0c4ae7628b3p+8",
+        "value": 444.04801794200756
+      }
+    }
+  },
+  "contracts": {
+    "comparison_contract": {
+      "candidate": "qpsim's public coupled_newton_solve driven from the identical captured author continuation seed under the accepted C4/C5/C6 operator configuration",
+      "frozen_state_binding": "the solver's residual assembly evaluated at the frozen C6 state is retained together with its deltas against the accepted C6 hybrid residuals, binding the one-component claim: only the root-finding changed",
+      "parent": "accepted C6 frozen state, hybrid residuals, kernels, maps, and thermal occupation, reproduced bit-for-bit before the solve",
+      "public_arithmetic": "the Newton linear algebra uses LAPACK and a backtracking line search; the returned root is runtime-authenticated and certified host-independently through residual and balance bounds, not by bit-replaying the iteration path"
+    }
+  },
+  "limitations": {
+    "scope": "one authenticated seed/root pair only",
+    "statement": "No C7 300-point curve, paper-parity, or author-iteration-equivalence claim is made. The public solver's internal Newton path (line search, certificates) is qpsim semantics bound by the hash-closed solver source; only its returned root, iteration-count probe, and host-independent residual certificates are scientific evidence. The ordinate records are one-point diagnostics, not curve reproduction."
+  },
+  "observable": {
+    "producer": {
+      "author_control_ordinate": {
+        "hex": "0x1.ef3e5eaddcb63p-4",
+        "value": 0.12090908988993258
+      },
+      "contract": "the accepted C1 direct-gap observable at the author left-edge sampling convention; the center-carrier interpretation is recorded as the C3-documented sampling diagnostic, not a second claim",
+      "frozen_root_ordinate_authors": {
+        "hex": "0x1.ef3e5eaddcb63p-4",
+        "value": 0.12090908988993258
+      },
+      "root_driven_gap_eV_authors": {
+        "hex": "0x1.797aeb6f66951p-13",
+        "value": 0.0001799965643670223
+      },
+      "root_driven_gap_eV_centers": {
+        "hex": "0x1.797ab6f025885p-13",
+        "value": 0.0001799961824004473
+      },
+      "root_ordinate_authors": {
+        "hex": "0x1.29d3f1263dc67p-3",
+        "value": 0.14542377851441587
+      },
+      "root_ordinate_centers": {
+        "hex": "0x1.3e2aefabad5f4p-4",
+        "value": 0.07767766591390296
+      },
+      "thermal_gap_eV_authors": {
+        "hex": "0x1.797a9b1512f6ep-13",
+        "value": 0.00017999597972317586
+      },
+      "thermal_gap_eV_centers": {
+        "hex": "0x1.797a8abfc6b3ap-13",
+        "value": 0.00017999586088354188
+      }
+    },
+    "verifier": {
+      "frozen_root_ordinate": {
+        "clean_transcription": {
+          "hex": "0x1.ef3e5eaddcb63p-4",
+          "value": 0.12090908988993258
+        },
+        "recorded": {
+          "hex": "0x1.ef3e5eaddcb63p-4",
+          "value": 0.12090908988993258
+        },
+        "relative_to_author_control": {
+          "hex": "0x0.0p+0",
+          "value": 0.0
+        }
+      },
+      "root_driven_gap": {
+        "clean_transcription_eV": {
+          "hex": "0x1.797aeb6f66951p-13",
+          "value": 0.0001799965643670223
+        },
+        "recorded_eV": {
+          "hex": "0x1.797aeb6f66951p-13",
+          "value": 0.0001799965643670223
+        },
+        "symmetric_relative": {
+          "hex": "0x0.0p+0",
+          "value": 0.0
+        }
+      },
+      "thermal_gap": {
+        "clean_transcription_eV": {
+          "hex": "0x1.797a9b1512f6ep-13",
+          "value": 0.00017999597972317586
+        },
+        "recorded_eV": {
+          "hex": "0x1.797a9b1512f6ep-13",
+          "value": 0.00017999597972317586
+        },
+        "symmetric_relative": {
+          "hex": "0x0.0p+0",
+          "value": 0.0
+        }
+      }
+    }
+  },
+  "parent_bindings": {
+    "c0_raw_manifest_sha256": "ebe32e48b93fa37d6ca230ce271732cf7086f58263db50f9a7b58dab32ae56ac",
+    "c0_score_path": "validation/paper_data/fischer_2023/fig6/c0-author-equivalent-score.json",
+    "c0_score_sha256": "b5a7d300746ec88c9ee45eefb59dc2ae908eb756f373991e9ca2b906ad2e9bbb",
+    "c2_raw_manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "c3_operator_stage_id": "c3c_native_cell_density",
+    "c3_raw_manifest_sha256": "b7d44d5da1115853d86f6badbd2c2b87893078e41cae484cfe96c2e0c875ce4e",
+    "c4_raw_manifest_sha256": "78a86c7fca432e78a5d4bd7d9512cc2b84befea9accd20e844cf929f246f7af7",
+    "c5_raw_manifest_sha256": "bf2dce4c4ff9f218251a8d414b0d92338065e5aeaa9e81be0c51915e8c6e2fa7",
+    "c6_raw_manifest_sha256": "8d22c8eda0f893c12a8e3ed1f628af85ea8481df9d749663de9775c89c4c35ff",
+    "c6_raw_schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-bundle.v1",
+    "c6_receipt_path": "validation/paper_data/fischer_2023/fig6/c6-raw-manifest-receipt.json",
+    "c6_receipt_schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-raw-manifest-receipt.v1",
+    "c6_receipt_sha256": "f4889c17bd4d316bccef3f1fae69de3fd4d6c7aa46f40a793e22410169ddcd06",
+    "c6_score_path": "validation/paper_data/fischer_2023/fig6/c6-phonon-balance-score.json",
+    "c6_score_schema": "qpsim.fischer2023.fig6-author-c6-phonon-balance-score.v1",
+    "c6_score_sha256": "412ed2f9537445cfa03202be5582c89b8c3c059d94b4966472ad771f0e4b0f43",
+    "c6_stage_id": "C6"
+  },
+  "raw_bundle": {
+    "manifest_sha256": "f2959310deb53140528dfde47f4e6dcd1a13f935fe4c7485beccb789e0bbf0fc",
+    "schema": "qpsim.fischer2023.fig6-author-c7-nonlinear-solver-bundle.v1"
+  },
+  "rounding_contract": {
+    "comparison": "Retained root and residual arrays are manifest-byte-bound. Independent science uses fixed-order math.fsum and an elementwise gamma bound; the LAPACK Newton path is not re-run.",
+    "correction_gamma": {
+      "hex": "0x1.9c0000000a5c4p-38",
+      "value": 5.854872142697505e-12
+    },
+    "float64_epsilon": {
+      "hex": "0x1.0000000000000p-52",
+      "value": 2.220446049250313e-16
+    },
+    "gamma": {
+      "hex": "0x1.9c000000052e2p-39",
+      "value": 2.9274360713401826e-12
+    }
+  },
+  "runtime": {
+    "producer_public_array_generation": {
+      "byteorder": "little",
+      "implementation": "CPython",
+      "machine": "AMD64",
+      "numpy_blas": {
+        "found": true,
+        "name": "scipy-openblas",
+        "openblas_configuration": "OpenBLAS 0.3.33.112.0  USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+        "version": "0.3.33.112.0"
+      },
+      "numpy_version": "2.5.1",
+      "platform": "Windows-11-10.0.26100-SP0",
+      "python_version": "3.14.3",
+      "thread_environment": {
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1"
+      }
+    },
+    "verifier_contract": {
+      "arithmetic": "fixed-order Python math.fsum reductions plus elementwise IEEE-754 gamma bounds",
+      "host_runtime_binding": "not pinned",
+      "qualification": "The retained root and residual arrays are authenticated to the producer runtime. Verifier acceptance is host-independent: it does not re-run the LAPACK Newton path or demand matching last bits; it certifies the root through residual and balance bounds."
+    }
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c7-nonlinear-solver-score.v1",
+  "seed_binding": {
+    "projection": "author f cell i -> native cell i+20; author phonon level k -> native omega index k; guard and placeholder entries are canonical positive zero",
+    "source": "A1 initial (continuation) state retained by the accepted C0 author-equivalent bundle and bound by the committed C0 score descriptor"
+  },
+  "solver_contract": {
+    "accepted_max_iter": 4,
+    "analytic_cross": true,
+    "balance_certificates": {
+      "limit": {
+        "hex": "0x1.ad7f29abcaf48p-24",
+        "value": 1e-07
+      },
+      "ph_l1_ratio": {
+        "hex": "0x1.951455cf0d1bap-38",
+        "value": 5.7565249894975594e-12
+      },
+      "qp_l1_ratio": {
+        "hex": "0x1.4e1dc1819f831p-45",
+        "value": 3.709435358017238e-14
+      }
+    },
+    "c_phot_ns_inv": {
+      "hex": "0x1.12e0be826d695p-30",
+      "value": 1e-09
+    },
+    "declared_max_iter": 10,
+    "iteration_probe": [
+      {
+        "converged": false,
+        "exception": "RuntimeError",
+        "max_iter": 1
+      },
+      {
+        "converged": false,
+        "exception": "RuntimeError",
+        "max_iter": 2
+      },
+      {
+        "converged": false,
+        "exception": "RuntimeError",
+        "max_iter": 3
+      },
+      {
+        "converged": true,
+        "exception": null,
+        "max_iter": 4
+      }
+    ],
+    "n_bar": {
+      "hex": "0x1.d2168e9cf947bp+19",
+      "value": 954548.4566618347
+    },
+    "omega_0_ueV": {
+      "hex": "0x1.4000000000000p+4",
+      "value": 20.0
+    },
+    "probe_contract": "the public solver returns only the final state; the smallest max_iter cap that converges measures the accepted iteration count, and the declared-cap solve must reproduce that root bit-for-bit",
+    "step_rtol": {
+      "hex": "0x1.ad7f29abcaf48p-24",
+      "value": 1e-07
+    },
+    "tau_l_ns": {
+      "hex": "0x1.051eb851eb852p-2",
+      "value": 0.255
+    }
+  },
+  "source_binding": {
+    "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+    "scope": "complete qpsim Python/material source tree, C7 producer, C2/C3/C4/C5/C6 replay verifiers, C5/C6 producers, and provenance helper"
+  },
+  "sources": {
+    "qpsim/__init__.py": "7e601e29b7c0227be17ba08c7f2a6ac90ba062fb85d5474a577197356bd0256e",
+    "qpsim/backends/__init__.py": "339ef68215e872377e56ae9beabad3d33aeaac6d49a188e9f412e101a07b1406",
+    "qpsim/backends/base.py": "aacd72e2dd308786456eb1956d1e55c73ef4af8e6356dd9afb1948ac9eb1020d",
+    "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
+    "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
+    "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
+    "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+    "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+    "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
+    "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+    "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+    "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+    "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
+    "qpsim/devices/device.py": "2e258be6d7bf4be0ed43dff16039c07f2c0865ce779670b4919ce48ad1abfa00",
+    "qpsim/devices/external_flux.py": "35bc3aea37f38582816803a8986d629cebb0934fb4e16ab263278e7955299161",
+    "qpsim/devices/junction.py": "8823516335eae94702002f64e886fb48da1c439b4912d71bf91a89a516f63539",
+    "qpsim/devices/m25_junction.py": "aa504031afa3959ebfd145f46a7060c8b10fc817c28604bf8328cb5827b9e904",
+    "qpsim/devices/qubit.py": "5872a88c0b79ba3f96b9352348ef952d75afb487abea6218b34afbcc65933358",
+    "qpsim/devices/region.py": "31912191aba40fab3d74eb68690039ceb4fe4c7f5e015facfa420eab1d7cc284",
+    "qpsim/experiments/__init__.py": "869d9436a01ff5d727232b3797a636751cb79ddb8b811aed5a9985dd7e808fd5",
+    "qpsim/experiments/prelim_resonators.py": "23550a2de390d99b14ba49f00ba505c92c3a2220d0ab4823f338a4c5d3ab9ca5",
+    "qpsim/geometries/__init__.py": "d8465674fc0e966aaa08a4987a55ec1d64154cbec6671761a82d6b8d17024936",
+    "qpsim/grid/__init__.py": "dab86d74d3bbd4383a1087addd6126b72712930bbccfef72a22f0267aa2622fb",
+    "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
+    "qpsim/grid/spatial_grid.py": "34977f92e4cd347e4861f8b587ca79547d8d3c39fca88e612719793931968f48",
+    "qpsim/materials/__init__.py": "f6188fecdeb447f2e6c82263f7f20bbffea26099a2db160787fdcafcae0eec03",
+    "qpsim/materials/data/Al.yaml": "096a84d3f39ccb329440f7839dd890bac49becbac2deda85b58552a667974b77",
+    "qpsim/materials/data/Nb.yaml": "fc8e586c54a4a16cc00b387bec91e5d76c5010be95cf8091ed34ee64324934eb",
+    "qpsim/materials/data/TiN.yaml": "93c7f531c2be90519be65d4dcd2ab1d00ac1a4de39058a41cc3894a573783342",
+    "qpsim/materials/database.py": "f550c6df0ded28a6d2277fc18509aa126e6825c1a9a7afb62dcf342fc44c3aa6",
+    "qpsim/materials/substrate.py": "df76325e7196d8102393fbf329cd101859632a5d4ef3c3ac9edebd83f218f199",
+    "qpsim/observables/__init__.py": "ea22ce595ab417480531f09453278b75030911bed15e9a7ee03fe289ff52000e",
+    "qpsim/observables/ac_conductivity.py": "3329e278fbbe3dee7b5a93f4295712698bee7948d24d547038a60614c7f830ec",
+    "qpsim/observables/density.py": "8f254db7e3581df373533df1d78336c3b1cb62592c3435179f55f9a3d8804467",
+    "qpsim/observables/effective_temperature.py": "dbc023a96812324ed69fed8263099443add0fd86eb50f450bd4e9e441f53ae58",
+    "qpsim/observables/frequency_shift.py": "612eae142d841eb2249182f283fd4376e51f210f6c11aba75cec71c0ab5264b6",
+    "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+    "qpsim/observables/quality_factor.py": "35604c52593c30d2a936d0561871174300c80d16d350279f0da631ef65dd49d2",
+    "qpsim/observables/spatial_ac_response.py": "c821015d3277227b494f18e0b12024e968d66a6b9e1a9ff483e46627fe338732",
+    "qpsim/phonon_models/__init__.py": "6141f5d2af06f9c4b43f7b7f73d056c20db2e02c50f62e7bc3ec1101d7938a75",
+    "qpsim/phonon_models/ph0_local.py": "679ad83721b9a613ff24e6976d7e3d4b1c1d4ac9db0d3e67f4fe2b4a0b04119c",
+    "qpsim/phonon_models/state.py": "375f1a227c4a395ab4795b47b4eb2b2b359616cd76d5638cff9bda4b1ccc9cc7",
+    "qpsim/physics/__init__.py": "12a87ceb8f24f6d2dc602cd5ea92657a243695d4880a30bb33f04651912e3438",
+    "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+    "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+    "qpsim/physics/kaplan_pair_breaking.py": "1d46f05d9acb25e18f8891fa37f0bbc1c6eef177edbb769b1a8343c7b6067f5e",
+    "qpsim/physics/kernels.py": "2b1cabfa50c7cb75f357997b5c1e2512f8327e44562ba49e41944c952c0179a4",
+    "qpsim/physics/phonon_escape.py": "13026fe01a7af2aad61274715dc1df403a54f1fe7d32aea0bff75642fa92f0b8",
+    "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+    "qpsim/services/__init__.py": "a8358d8ede8e2fc84def1deb5061fd5c81b60378af27c405c73354a822437425",
+    "qpsim/services/nbar_loop.py": "18ea088b277a542f4ce08fbc5e997a3b0705aef79d8e4c72f084044659a416e5",
+    "qpsim/services/rate_equation.py": "e2da4014c62e90d07bb18645a410fccf3e4e8de9a0efcfeb27341d73d275099d",
+    "qpsim/services/rate_equation_coefficients.py": "bd87f09e0a0e9873ddc8c5a08bfab7c598d71d220cbd9a2e3b157e3aecbef295",
+    "qpsim/services/steady_state.py": "97f009e24fa0bf00b538b85cbfdd741f2a25866f538a9aef403a475a1d290a42",
+    "qpsim/services/transient.py": "5de7e097d9ed58f7d4747eb75d143884480e072098e65ed2003f5208d0050190",
+    "qpsim/solvers/__init__.py": "d4cb4909416e3e2730b8c71fdb3b0b7e4067839f8ca26c3d666ce357fae8b4d9",
+    "qpsim/solvers/anderson.py": "28c2198776942dc848759a4f648788735112bdb8190115b741f42c466ce7a437",
+    "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
+    "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
+    "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
+    "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+    "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
+    "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
+    "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
+    "qpsim/transport/__init__.py": "7012af249893c7a722e05861269ec6d7a9d9b092887dff79ef819a7ba13ad763",
+    "qpsim/transport/diffusion/__init__.py": "9284a34d7b7a87f90dd2f00c1ebe1e74ed8ff400a6af864fa9ef11b0cf42bae1",
+    "qpsim/transport/diffusion/base.py": "56f3f99ecb9921cdfa46aa081e1bde0263cd9f60838a83c5449d56247270a3a3",
+    "qpsim/webui/__init__.py": "c5c8f0b2ff937a4563aa1bd0612892e5eaca35362fc6a1da021b8dff2f5faf8c",
+    "qpsim/webui/__main__.py": "f228c5e9225336522d7188107ed505cad265bb54bbe94e8f6d999b96322eece9",
+    "qpsim/webui/builders.py": "4e07c4f164769fa8606692312ae8c6e98db16b73eefd561e936f8425b5d80060",
+    "qpsim/webui/cli.py": "539bb8821542de28561046df00295840db661f92f66d3d3cb265bd22cc265b85",
+    "qpsim/webui/execute.py": "e6dfa53a79a3b97c2bcb095669d7fe5da7ca050b18029571e8262d3e9e3bb1fa",
+    "qpsim/webui/hosts.py": "b241d1c3a427167665de68e16616ead98330f42c4a03402cbf07e7fcdca66ffa",
+    "qpsim/webui/plots.py": "c586c5dc3c21c1d08975df7b3002024a596d2765fbee91bc26d935c1dbf55af8",
+    "qpsim/webui/runner.py": "0261f6e719cac839e5cffdeed7fddfa270672045d2d85c997c356e253e3acf24",
+    "qpsim/webui/schemas.py": "37c69dde9a2157c93f190ee903c75455726b02cd75ba6119705b0612f358982b",
+    "qpsim/webui/server.py": "7b74dc089f631279be93a99128bc303db8ba3d9d66fe0b87fdb642fe51f30c05",
+    "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
+    "validation/__init__.py": "32593050ad50bb9154ae63306d0357399d2fbf85e1a435c71c6c5fb0b267b5cd",
+    "validation/author_source.py": "d363ed849b0f578c40ddc9560b42eb93ca07b2052b34f2690f0a70f8a71c4330",
+    "validation/fischer_2023/__init__.py": "5006cf2cb45d29cc2ce97d95ec7594a2178fef95a639dc52bd53656f7b6ae829",
+    "validation/fischer_2023/fig6_author_adapter.py": "340ea7c1f583e40077120bcf46c44d144301cabfce9e4149763024019621564f",
+    "validation/fischer_2023/fig6_author_c0_bundle.py": "b0be55aede65a523eeefb376a38c082a5af6e09afea603bc0aa670f169021a06",
+    "validation/fischer_2023/fig6_author_c0_summary.py": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d",
+    "validation/fischer_2023/fig6_author_c1_score.py": "c250d697fb77ce99149aee18b5fef00fed8771fe790cc45905c9c3c2bf029497",
+    "validation/fischer_2023/fig6_author_c2_bundle.py": "53b5f7aaa13ef6bb2481c0ba0d2d78f2fec86e2c68fdd62845ec3cec51b45396",
+    "validation/fischer_2023/fig6_author_c2_parameters.py": "8a13fb15718883f22048f4b2413d940c84887e8bed2b0f2ab0539dac9ea2fc55",
+    "validation/fischer_2023/fig6_author_c2_score.py": "adff99c7f117cf20b12cf810ea500d55d219ef6f9b277682c1bb77cf7eb5be77",
+    "validation/fischer_2023/fig6_author_c3_bundle.py": "49994751fb81fe6b79fe3e5580a46fd6ffbfd8ee1c92359559dc51e6e7fa4fd3",
+    "validation/fischer_2023/fig6_author_c3_score.py": "0cd5cf35f3577210f1bce2cb20cd92bfa3404d02f235a434aa2ab64d57798659",
+    "validation/fischer_2023/fig6_author_c4_bundle.py": "687103e1232972058b3d65421a9238e65365fc292b7a017435d61ed86b55db22",
+    "validation/fischer_2023/fig6_author_c4_score.py": "7b9c14940d367d62f647cca216bdc2de5f140114b2e69fd95cb5eb123480bb4d",
+    "validation/fischer_2023/fig6_author_c5_bundle.py": "d443b8ad67831c639f02ede0b111fa245a17478b1e7e6baa9aabc975325a35f5",
+    "validation/fischer_2023/fig6_author_c5_score.py": "a595807398a3ace8dfee1441f7fc5726d4919eb632a298bb741a06fe0e1078e7",
+    "validation/fischer_2023/fig6_author_c6_bundle.py": "308e326948d140151f5fe08e10c3b1884b2a43e3740091b9c0a824d436e5c2ae",
+    "validation/fischer_2023/fig6_author_c6_score.py": "50a476b658b2f10906ef246e10f7f89ce5aa37db71cc37f0fae9bdfa5d8c62bc",
+    "validation/fischer_2023/fig6_author_c7_bundle.py": "a5e96290cbe7c13425af209b7da8e98665df91e068dd2c08a50c33df0885fc91",
+    "validation/fischer_2023/fig6_author_c7_score.py": "98626944b6f8eed499471d29325866aa0f810506c4e49110a187edf76023f94d",
+    "validation/fischer_2023/fig6_author_frozen_state.py": "ba3f0e797ab6a89160935b2270974d8ef063dae93539554c6edac92ce5ac6120",
+    "validation/fischer_2023/fig6_solve.py": "3656127354eee97b5d7e141484e4685995a676dd35e54396079b37173d0e0750",
+    "validation/reference_models/__init__.py": "f9b47227faeaddb016d9c8a9f19d741c5e3504dda731c44ed387d07b9d167192",
+    "validation/reference_models/fischer_2023/__init__.py": "9947ba09865b4c34e4f9f4ac10a25a711a418cd7b7b05d93bb3f70d8ef0f1b6b",
+    "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
+    "validation/reproduction_ladder.py": "ed4a09fd7edb8f10f4edb5279e5a3b438d57fb8dca61d112e90575c2a7273c4c",
+    "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+  },
+  "stage": {
+    "changed_component": "nonlinear_solver",
+    "comparison_stage_id": "C6",
+    "evidence_class": "hybrid_component_substitution",
+    "parent_stage_id": "C6",
+    "stage_id": "C7",
+    "status": "completed"
+  },
+  "units": {
+    "comparison_arrays": "per second",
+    "gap_records": "electronvolt",
+    "kernel_arrays": "per nanosecond per microelectronvolt",
+    "residual_arrays": "per nanosecond"
+  }
+}
