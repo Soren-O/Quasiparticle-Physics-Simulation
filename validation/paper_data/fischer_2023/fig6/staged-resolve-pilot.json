@@ -1,0 +1,566 @@
+{
+  "author_control_reproduction": {
+    "direct_gap_eV": 0.00017999646581118777,
+    "direct_gap_minus_anchor_eV": 0.0,
+    "figure6_ordinate": 0.12090908988993258,
+    "figure6_ordinate_minus_anchor": 0.0
+  },
+  "final_states": {
+    "author_control": {
+      "array_name": "author_control__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "32dc4c020556f7acd059897366a67228d6f2e5caa1b3521c4b80e51248341f46",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "32dc4c020556f7acd059897366a67228d6f2e5caa1b3521c4b80e51248341f46"
+    },
+    "c3a_finite_volume_coherence": {
+      "array_name": "c3a_finite_volume_coherence__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "72865fed094dc55785a255db07b7126cd18cf3cd103fa9009f80c4957295f161",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "72865fed094dc55785a255db07b7126cd18cf3cd103fa9009f80c4957295f161"
+    },
+    "c3b_center_pair_labels": {
+      "array_name": "c3b_center_pair_labels__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "7690f95d06578368a1b5a6982d9e26e555e16b3891a1f3899f5b794a86dd095e",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "7690f95d06578368a1b5a6982d9e26e555e16b3891a1f3899f5b794a86dd095e"
+    },
+    "c3b_continuation_from_c3a": {
+      "array_name": "c3b_continuation_from_c3a__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "791f724f331766c809834031d9b5caa884981cdca91d2ecdcf502cbc0d5e45a5",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "791f724f331766c809834031d9b5caa884981cdca91d2ecdcf502cbc0d5e45a5"
+    },
+    "c3c_continuation_from_c3b": {
+      "array_name": "c3c_continuation_from_c3b__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "2f94d26389bce5c066041debe041c5286d68c500345c8b072217ccfcc933e16c",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "2f94d26389bce5c066041debe041c5286d68c500345c8b072217ccfcc933e16c"
+    },
+    "c3c_native_cell_density": {
+      "array_name": "c3c_native_cell_density__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "1b42a634a66c1f4a4083eb8bbd7ce8de5e1a724e560ae4c6c99a1f6c2892f0ca",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "1b42a634a66c1f4a4083eb8bbd7ce8de5e1a724e560ae4c6c99a1f6c2892f0ca"
+    },
+    "pair_labels_only": {
+      "array_name": "pair_labels_only__final_state",
+      "descriptor": {
+        "dtype": "<f8",
+        "npy_sha256": "1879daaaf579172d744be6e33110fb85567f384b1fd7a203a6780b5f4a57dc42",
+        "shape": [
+          3239
+        ]
+      },
+      "external_npy_sha256": "1879daaaf579172d744be6e33110fb85567f384b1fd7a203a6780b5f4a57dc42"
+    }
+  },
+  "input_bundle": {
+    "anchor": {
+      "adapter_path": "validation/fischer_2023/fig6_author_adapter.py",
+      "anchor_id": "fischer-2023-fig6-T020-sweep049-author-exact-v1",
+      "anchor_path": "validation/paper_data/fischer_2023/fig6/author-point-T020-sweep049-exact-anchor.json",
+      "anchor_sha256": "3acfa5973a5766a29f23a6bd85704655462e4bc587f232e0576db04c17725010",
+      "author_source_manifest_path": "validation/paper_data/fischer_2023/fig6/author-source.json"
+    },
+    "manifest_sha256": "13afe789ed624504336dd969bfaf42bacb78ab16ffe7d8b953aac8d8b1f42aab"
+  },
+  "limitations": {
+    "scope": "one anchored Figure 6 point; no 300-point sweep",
+    "seed_sensitivity": "all primary stages use one identical captured author initial state; this does not survey independent random seeds",
+    "solver": "author explicit matrix inverse and no damping/clipping are retained, including the authenticated photon endpoint, photon off-diagonal, and phonon-pair DnN residual/Jacobian mismatches"
+  },
+  "numerical_producer_sources": {
+    "qpsim/__init__.py": "7e601e29b7c0227be17ba08c7f2a6ac90ba062fb85d5474a577197356bd0256e",
+    "qpsim/backends/__init__.py": "339ef68215e872377e56ae9beabad3d33aeaac6d49a188e9f412e101a07b1406",
+    "qpsim/backends/base.py": "aacd72e2dd308786456eb1956d1e55c73ef4af8e6356dd9afb1948ac9eb1020d",
+    "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
+    "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
+    "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
+    "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+    "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+    "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
+    "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+    "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+    "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+    "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
+    "qpsim/devices/device.py": "2e258be6d7bf4be0ed43dff16039c07f2c0865ce779670b4919ce48ad1abfa00",
+    "qpsim/devices/external_flux.py": "35bc3aea37f38582816803a8986d629cebb0934fb4e16ab263278e7955299161",
+    "qpsim/devices/junction.py": "8823516335eae94702002f64e886fb48da1c439b4912d71bf91a89a516f63539",
+    "qpsim/devices/m25_junction.py": "aa504031afa3959ebfd145f46a7060c8b10fc817c28604bf8328cb5827b9e904",
+    "qpsim/devices/qubit.py": "5872a88c0b79ba3f96b9352348ef952d75afb487abea6218b34afbcc65933358",
+    "qpsim/devices/region.py": "31912191aba40fab3d74eb68690039ceb4fe4c7f5e015facfa420eab1d7cc284",
+    "qpsim/experiments/__init__.py": "869d9436a01ff5d727232b3797a636751cb79ddb8b811aed5a9985dd7e808fd5",
+    "qpsim/experiments/prelim_resonators.py": "23550a2de390d99b14ba49f00ba505c92c3a2220d0ab4823f338a4c5d3ab9ca5",
+    "qpsim/geometries/__init__.py": "d8465674fc0e966aaa08a4987a55ec1d64154cbec6671761a82d6b8d17024936",
+    "qpsim/grid/__init__.py": "dab86d74d3bbd4383a1087addd6126b72712930bbccfef72a22f0267aa2622fb",
+    "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
+    "qpsim/grid/spatial_grid.py": "34977f92e4cd347e4861f8b587ca79547d8d3c39fca88e612719793931968f48",
+    "qpsim/materials/__init__.py": "f6188fecdeb447f2e6c82263f7f20bbffea26099a2db160787fdcafcae0eec03",
+    "qpsim/materials/data/Al.yaml": "096a84d3f39ccb329440f7839dd890bac49becbac2deda85b58552a667974b77",
+    "qpsim/materials/data/Nb.yaml": "fc8e586c54a4a16cc00b387bec91e5d76c5010be95cf8091ed34ee64324934eb",
+    "qpsim/materials/data/TiN.yaml": "93c7f531c2be90519be65d4dcd2ab1d00ac1a4de39058a41cc3894a573783342",
+    "qpsim/materials/database.py": "f550c6df0ded28a6d2277fc18509aa126e6825c1a9a7afb62dcf342fc44c3aa6",
+    "qpsim/materials/substrate.py": "df76325e7196d8102393fbf329cd101859632a5d4ef3c3ac9edebd83f218f199",
+    "qpsim/observables/__init__.py": "ea22ce595ab417480531f09453278b75030911bed15e9a7ee03fe289ff52000e",
+    "qpsim/observables/ac_conductivity.py": "3329e278fbbe3dee7b5a93f4295712698bee7948d24d547038a60614c7f830ec",
+    "qpsim/observables/density.py": "8f254db7e3581df373533df1d78336c3b1cb62592c3435179f55f9a3d8804467",
+    "qpsim/observables/effective_temperature.py": "dbc023a96812324ed69fed8263099443add0fd86eb50f450bd4e9e441f53ae58",
+    "qpsim/observables/frequency_shift.py": "612eae142d841eb2249182f283fd4376e51f210f6c11aba75cec71c0ab5264b6",
+    "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+    "qpsim/observables/quality_factor.py": "35604c52593c30d2a936d0561871174300c80d16d350279f0da631ef65dd49d2",
+    "qpsim/observables/spatial_ac_response.py": "c821015d3277227b494f18e0b12024e968d66a6b9e1a9ff483e46627fe338732",
+    "qpsim/phonon_models/__init__.py": "6141f5d2af06f9c4b43f7b7f73d056c20db2e02c50f62e7bc3ec1101d7938a75",
+    "qpsim/phonon_models/ph0_local.py": "679ad83721b9a613ff24e6976d7e3d4b1c1d4ac9db0d3e67f4fe2b4a0b04119c",
+    "qpsim/phonon_models/state.py": "375f1a227c4a395ab4795b47b4eb2b2b359616cd76d5638cff9bda4b1ccc9cc7",
+    "qpsim/physics/__init__.py": "12a87ceb8f24f6d2dc602cd5ea92657a243695d4880a30bb33f04651912e3438",
+    "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+    "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+    "qpsim/physics/kaplan_pair_breaking.py": "1d46f05d9acb25e18f8891fa37f0bbc1c6eef177edbb769b1a8343c7b6067f5e",
+    "qpsim/physics/kernels.py": "2b1cabfa50c7cb75f357997b5c1e2512f8327e44562ba49e41944c952c0179a4",
+    "qpsim/physics/phonon_escape.py": "13026fe01a7af2aad61274715dc1df403a54f1fe7d32aea0bff75642fa92f0b8",
+    "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+    "qpsim/services/__init__.py": "a8358d8ede8e2fc84def1deb5061fd5c81b60378af27c405c73354a822437425",
+    "qpsim/services/nbar_loop.py": "18ea088b277a542f4ce08fbc5e997a3b0705aef79d8e4c72f084044659a416e5",
+    "qpsim/services/rate_equation.py": "e2da4014c62e90d07bb18645a410fccf3e4e8de9a0efcfeb27341d73d275099d",
+    "qpsim/services/rate_equation_coefficients.py": "bd87f09e0a0e9873ddc8c5a08bfab7c598d71d220cbd9a2e3b157e3aecbef295",
+    "qpsim/services/steady_state.py": "97f009e24fa0bf00b538b85cbfdd741f2a25866f538a9aef403a475a1d290a42",
+    "qpsim/services/transient.py": "5de7e097d9ed58f7d4747eb75d143884480e072098e65ed2003f5208d0050190",
+    "qpsim/solvers/__init__.py": "d4cb4909416e3e2730b8c71fdb3b0b7e4067839f8ca26c3d666ce357fae8b4d9",
+    "qpsim/solvers/anderson.py": "28c2198776942dc848759a4f648788735112bdb8190115b741f42c466ce7a437",
+    "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
+    "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
+    "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
+    "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+    "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
+    "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
+    "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
+    "qpsim/transport/__init__.py": "7012af249893c7a722e05861269ec6d7a9d9b092887dff79ef819a7ba13ad763",
+    "qpsim/transport/diffusion/__init__.py": "9284a34d7b7a87f90dd2f00c1ebe1e74ed8ff400a6af864fa9ef11b0cf42bae1",
+    "qpsim/transport/diffusion/base.py": "56f3f99ecb9921cdfa46aa081e1bde0263cd9f60838a83c5449d56247270a3a3",
+    "qpsim/webui/__init__.py": "c5c8f0b2ff937a4563aa1bd0612892e5eaca35362fc6a1da021b8dff2f5faf8c",
+    "qpsim/webui/__main__.py": "f228c5e9225336522d7188107ed505cad265bb54bbe94e8f6d999b96322eece9",
+    "qpsim/webui/builders.py": "4e07c4f164769fa8606692312ae8c6e98db16b73eefd561e936f8425b5d80060",
+    "qpsim/webui/cli.py": "539bb8821542de28561046df00295840db661f92f66d3d3cb265bd22cc265b85",
+    "qpsim/webui/execute.py": "e6dfa53a79a3b97c2bcb095669d7fe5da7ca050b18029571e8262d3e9e3bb1fa",
+    "qpsim/webui/hosts.py": "b241d1c3a427167665de68e16616ead98330f42c4a03402cbf07e7fcdca66ffa",
+    "qpsim/webui/plots.py": "c586c5dc3c21c1d08975df7b3002024a596d2765fbee91bc26d935c1dbf55af8",
+    "qpsim/webui/runner.py": "0261f6e719cac839e5cffdeed7fddfa270672045d2d85c997c356e253e3acf24",
+    "qpsim/webui/schemas.py": "37c69dde9a2157c93f190ee903c75455726b02cd75ba6119705b0612f358982b",
+    "qpsim/webui/server.py": "7b74dc089f631279be93a99128bc303db8ba3d9d66fe0b87fdb642fe51f30c05",
+    "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
+    "validation/author_source.py": "d363ed849b0f578c40ddc9560b42eb93ca07b2052b34f2690f0a70f8a71c4330",
+    "validation/fischer_2023/fig6_author_adapter.py": "340ea7c1f583e40077120bcf46c44d144301cabfce9e4149763024019621564f",
+    "validation/fischer_2023/fig6_author_frozen_state.py": "ba3f0e797ab6a89160935b2270974d8ef063dae93539554c6edac92ce5ac6120",
+    "validation/fischer_2023/fig6_author_staged_resolve.py": "8722d8d9017236ba49333a6cc4eb8f286b31987a6db748e02a4fb78bede3e266",
+    "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
+    "validation/reproduction_ladder.py": "ed4a09fd7edb8f10f4edb5279e5a3b438d57fb8dca61d112e90575c2a7273c4c",
+    "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+  },
+  "parameters": {
+    "T_c_K": 1.184,
+    "c_photon_s_inv": 1.0000352684367704,
+    "gap_eV": 0.00017999999999999998,
+    "h_eV": 1e-06,
+    "max_newton_steps": 10,
+    "n_bar": 954548.4566618347,
+    "num_energy_cells": 1620,
+    "photon_bin": 20,
+    "relative_step_threshold": 1e-07,
+    "tau_0_pb_s": 2.553360200613721e-10,
+    "tau_0_s": 4.3800000000000003e-07,
+    "tau_l_s": 2.55e-10,
+    "temperature_K": 0.2
+  },
+  "path_dependence": {
+    "c3b_continuation_from_c3a": {
+      "figure6_ordinate_signed_difference": 0.0,
+      "final_state_relative_l2": 4.2403021126884554e-20
+    },
+    "c3c_continuation_from_c3b": {
+      "figure6_ordinate_signed_difference": 0.0,
+      "final_state_relative_l2": 8.727329564456382e-19
+    }
+  },
+  "pilot_id": "fischer-catelani-2023-fig6-c3-single-point-pilot-v4",
+  "qualification": "Supplemental bounded single-point evidence only. The author control, pair-label-only branch, C3a, C3b, and the isolated C3c native-DOS substitution were fully re-solved at the separately anchored Figure 6 point. This record does not mark C3 or any formal reproduction-ladder stage completed.",
+  "raw_array_policy": {
+    "availability": "external_non_redistributed_development_artifact",
+    "rerun_requirement": "Recreating the input author bundle requires the authenticated author archive via QPSIM_FISCHER2023_FIG6_AUTHOR_ARCHIVE; the checked repository does not redistribute that archive or these staged raw arrays."
+  },
+  "schema": "qpsim.fischer2023.fig6-author-staged-resolve-pilot.v4",
+  "source_binding": {
+    "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+    "qualification": "The staged producer, explicit validation dependencies, and complete qpsim source/material closure are retained as byte snapshots at module import. Live files must match before and after evaluation and writing. This guards source drift but is not an independent interpreter-bytecode attestation.",
+    "scope": "staged producer + explicit validation dependencies + all qpsim Python and material YAML sources"
+  },
+  "staged_bundle": {
+    "manifest_sha256": "37b73986caecd9edb69a840b4d3921f89ff271da6ec591dd81fb49eda919279a",
+    "schema": "qpsim.fischer2023.fig6-author-staged-resolve.v3"
+  },
+  "stages": {
+    "author_control": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 818836.2387559577,
+          "residual_l1_over_channel_turnover": 1.5962391139144632e-11,
+          "residual_l1_s_inv": 1.3070584321928617e-05,
+          "residual_l2_s_inv": 5.718189345503121e-06,
+          "residual_linf_s_inv": 4.654112217394868e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 324.3884946839438,
+          "residual_l1_over_channel_turnover": 2.0203629983177322e-15,
+          "residual_l1_s_inv": 6.553825117394284e-13,
+          "residual_l2_s_inv": 1.8182608840462783e-13,
+          "residual_linf_s_inv": 1.6477791353608495e-13
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.100126745513525e-05,
+        "f_min": 1.682646271222629e-41,
+        "n_phonon_max": 16.739496331329587,
+        "n_phonon_min": 2.510976671613242e-37
+      },
+      "last_relative_qp_step": 1.1852570595909787e-09,
+      "newton_iterations": 4,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999646581118777,
+        "direct_integral": 1.9634575047002182e-05,
+        "figure6_ordinate": 0.12090908988993258,
+        "gap_minus_author_control_eV": 0.0,
+        "ordinate_minus_author_control": 0.0,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "independent_from_captured_author_initial_state",
+      "specification": {
+        "changed_convention": "none; exact author numerical control",
+        "coherence_convention": "author_left_edges",
+        "density_convention": "author_cell_average_eV",
+        "pair_frequency_offset_bins": 0,
+        "parent_stage_id": "A1",
+        "stage_id": "author_control"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "c3a_finite_volume_coherence": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 815005.9127755625,
+          "residual_l1_over_channel_turnover": 1.0378054084354519e-11,
+          "residual_l1_s_inv": 8.458175441853508e-06,
+          "residual_l2_s_inv": 3.3796499053605488e-06,
+          "residual_linf_s_inv": 2.997488081746269e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 325.19848367799295,
+          "residual_l1_over_channel_turnover": 1.3036221793213854e-15,
+          "residual_l1_s_inv": 4.239359560043152e-13,
+          "residual_l2_s_inv": 6.723857872233998e-14,
+          "residual_linf_s_inv": 3.365710488090201e-14
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.1005454264511165e-05,
+        "f_min": 1.629926921588092e-41,
+        "n_phonon_max": 16.739495764574578,
+        "n_phonon_min": 2.441272014714173e-37
+      },
+      "last_relative_qp_step": 1.1786924658293647e-09,
+      "newton_iterations": 4,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999646500109907,
+        "direct_integral": 1.9639075628127722e-05,
+        "figure6_ordinate": 0.12070758916263027,
+        "gap_minus_author_control_eV": -8.100887040167482e-13,
+        "ordinate_minus_author_control": -0.00020150072730230895,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "independent_from_captured_author_initial_state",
+      "specification": {
+        "changed_convention": "left-edge coherence -> qpsim finite-volume coherence",
+        "coherence_convention": "qpsim_finite_volume",
+        "density_convention": "author_cell_average_eV",
+        "pair_frequency_offset_bins": 0,
+        "parent_stage_id": "author_control",
+        "stage_id": "c3a_finite_volume_coherence"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "c3b_center_pair_labels": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 791800.006356797,
+          "residual_l1_over_channel_turnover": 6.199275214511814e-12,
+          "residual_l1_s_inv": 4.908586154257988e-06,
+          "residual_l2_s_inv": 1.4213387140446025e-06,
+          "residual_linf_s_inv": 1.018143848341424e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 315.92992989762297,
+          "residual_l1_over_channel_turnover": 2.088464842584915e-15,
+          "residual_l1_s_inv": 6.598085513115023e-13,
+          "residual_l2_s_inv": 2.5958548123271445e-13,
+          "residual_linf_s_inv": 2.521281794454211e-13
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.0128171930136666e-05,
+        "f_min": 1.5467406722126175e-41,
+        "n_phonon_max": 16.7394957602698,
+        "n_phonon_min": 2.3534924554594183e-37
+      },
+      "last_relative_qp_step": 1.8876493798729675e-10,
+      "newton_iterations": 4,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999656550013433,
+        "direct_integral": 1.9080736845295402e-05,
+        "figure6_ordinate": 0.14570562776829468,
+        "gap_minus_author_control_eV": 9.968894655078275e-11,
+        "ordinate_minus_author_control": 0.0247965378783621,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "independent_from_captured_author_initial_state",
+      "specification": {
+        "changed_convention": "pair frequency 2*Delta+(i+j)*h -> 2*Delta+(i+j+1)*h",
+        "coherence_convention": "qpsim_finite_volume",
+        "density_convention": "author_cell_average_eV",
+        "pair_frequency_offset_bins": 1,
+        "parent_stage_id": "c3a_finite_volume_coherence",
+        "stage_id": "c3b_center_pair_labels"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "c3b_continuation_from_c3a": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 791800.0063568016,
+          "residual_l1_over_channel_turnover": 6.200051209145622e-12,
+          "residual_l1_s_inv": 4.909200586813999e-06,
+          "residual_l2_s_inv": 1.4213011428556328e-06,
+          "residual_linf_s_inv": 1.0181124707742129e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 315.9299298976266,
+          "residual_l1_over_channel_turnover": 1.380060236571415e-15,
+          "residual_l1_s_inv": 4.3600233379450914e-13,
+          "residual_l2_s_inv": 7.816196849848136e-14,
+          "residual_linf_s_inv": 6.195564894451167e-14
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.0128171930136957e-05,
+        "f_min": 1.5467406724791968e-41,
+        "n_phonon_max": 16.7394957602698,
+        "n_phonon_min": 2.3534924554602e-37
+      },
+      "last_relative_qp_step": 8.623161968137507e-08,
+      "newton_iterations": 3,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999656550013433,
+        "direct_integral": 1.90807368452956e-05,
+        "figure6_ordinate": 0.14570562776829468,
+        "gap_minus_author_control_eV": 9.968894655078275e-11,
+        "ordinate_minus_author_control": 0.0247965378783621,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "continuation_from_c3a_final_state",
+      "specification": {
+        "changed_convention": "pair frequency 2*Delta+(i+j)*h -> 2*Delta+(i+j+1)*h",
+        "coherence_convention": "qpsim_finite_volume",
+        "density_convention": "author_cell_average_eV",
+        "pair_frequency_offset_bins": 1,
+        "parent_stage_id": "c3a_finite_volume_coherence",
+        "stage_id": "c3b_center_pair_labels"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "c3c_continuation_from_c3b": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 791800.0450999894,
+          "residual_l1_over_channel_turnover": 1.0597393790914016e-11,
+          "residual_l1_s_inv": 8.391016881588065e-06,
+          "residual_l2_s_inv": 3.014721869002561e-06,
+          "residual_linf_s_inv": 2.5280583031417336e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 315.929937294753,
+          "residual_l1_over_channel_turnover": 2.0743636388676933e-15,
+          "residual_l1_s_inv": 6.553535743539861e-13,
+          "residual_l2_s_inv": 2.612613843191748e-13,
+          "residual_linf_s_inv": 2.542757671086804e-13
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.012816970984044e-05,
+        "f_min": 1.5467411041054196e-41,
+        "n_phonon_max": 16.739495760270298,
+        "n_phonon_min": 2.353493052975934e-37
+      },
+      "last_relative_qp_step": 6.052392266712225e-08,
+      "newton_iterations": 1,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999656550009117,
+        "direct_integral": 1.9080737085062494e-05,
+        "figure6_ordinate": 0.14570561703489288,
+        "gap_minus_author_control_eV": 9.968890339953629e-11,
+        "ordinate_minus_author_control": 0.024796527144960293,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "continuation_from_c3b_final_state",
+      "specification": {
+        "changed_convention": "author eV cell-average DOS arithmetic -> the same qpsim SpectralContext's native-micro-eV cell_density",
+        "coherence_convention": "qpsim_finite_volume",
+        "density_convention": "qpsim_cell_density_ueV",
+        "pair_frequency_offset_bins": 1,
+        "parent_stage_id": "c3b_center_pair_labels",
+        "stage_id": "c3c_native_cell_density"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "c3c_native_cell_density": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 791800.0450998794,
+          "residual_l1_over_channel_turnover": 1.0615146253693023e-11,
+          "residual_l1_s_inv": 8.405073282415951e-06,
+          "residual_l2_s_inv": 3.0154139131391484e-06,
+          "residual_linf_s_inv": 2.5283220566052478e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 315.9299372947103,
+          "residual_l1_over_channel_turnover": 1.6695118727930556e-15,
+          "residual_l1_s_inv": 5.274487812842844e-13,
+          "residual_l2_s_inv": 8.662955339682832e-14,
+          "residual_linf_s_inv": 4.4614485716909513e-14
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.0128169709836204e-05,
+        "f_min": 1.546741103577658e-41,
+        "n_phonon_max": 16.739495760270298,
+        "n_phonon_min": 2.3534930529747617e-37
+      },
+      "last_relative_qp_step": 1.8875512933266775e-10,
+      "newton_iterations": 4,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.00017999656550009117,
+        "direct_integral": 1.9080737085059905e-05,
+        "figure6_ordinate": 0.14570561703489288,
+        "gap_minus_author_control_eV": 9.968890339953629e-11,
+        "ordinate_minus_author_control": 0.024796527144960293,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "independent_from_captured_author_initial_state",
+      "specification": {
+        "changed_convention": "author eV cell-average DOS arithmetic -> the same qpsim SpectralContext's native-micro-eV cell_density",
+        "coherence_convention": "qpsim_finite_volume",
+        "density_convention": "qpsim_cell_density_ueV",
+        "pair_frequency_offset_bins": 1,
+        "parent_stage_id": "c3b_center_pair_labels",
+        "stage_id": "c3c_native_cell_density"
+      },
+      "termination": "relative_qp_step_threshold"
+    },
+    "pair_labels_only": {
+      "cancellation_certificate": {
+        "phonon": {
+          "channel_turnover_l1_s_inv": 795525.0057612957,
+          "residual_l1_over_channel_turnover": 1.5186382941418795e-11,
+          "residual_l1_s_inv": 1.208114737696543e-05,
+          "residual_l2_s_inv": 6.0715985519087265e-06,
+          "residual_linf_s_inv": 5.679765763488831e-06
+        },
+        "qp": {
+          "channel_turnover_l1_s_inv": 315.142974335049,
+          "residual_l1_over_channel_turnover": 2.09367836673785e-15,
+          "residual_l1_s_inv": 6.598080277947136e-13,
+          "residual_l2_s_inv": 2.0236124616981643e-13,
+          "residual_linf_s_inv": 1.8902934773024072e-13
+        }
+      },
+      "converged": true,
+      "final_bounds": {
+        "f_max": 3.0124154953546506e-05,
+        "f_min": 1.596840076672949e-41,
+        "n_phonon_max": 16.73949631110043,
+        "n_phonon_min": 2.420268092369362e-37
+      },
+      "last_relative_qp_step": 1.901018680302697e-10,
+      "newton_iterations": 4,
+      "observable": {
+        "author_control_gap_reference_eV": 0.00017999646581118777,
+        "author_control_ordinate_reference": 0.12090908988993258,
+        "direct_gap_eV": 0.0001799965662858303,
+        "direct_integral": 1.907637178443787e-05,
+        "figure6_ordinate": 0.14590106106941977,
+        "gap_minus_author_control_eV": 1.0047464252195722e-10,
+        "ordinate_minus_author_control": 0.02499197117948719,
+        "thermal_gap_eV_held_fixed": 0.00017999597972317586
+      },
+      "solve_path": "independent_from_captured_author_initial_state",
+      "specification": {
+        "changed_convention": "pair frequency 2*Delta+(i+j)*h -> 2*Delta+(i+j+1)*h",
+        "coherence_convention": "author_left_edges",
+        "density_convention": "author_cell_average_eV",
+        "pair_frequency_offset_bins": 1,
+        "parent_stage_id": "author_control",
+        "stage_id": "pair_labels_only"
+      },
+      "termination": "relative_qp_step_threshold"
+    }
+  },
+  "status": "supplemental_pilot_evidence_not_formal_ladder_completion",
+  "summary_generator": {
+    "path": "validation/fischer_2023/fig6_author_staged_summary.py",
+    "sha256": "ed37ec0cd00e480248463e4dabf0dd6c1a9a8843a46bc7ee789cf11570902780"
+  }
+}

@@ -1,0 +1,211 @@
+{
+  "asset": {
+    "dpi": [
+      99.9998,
+      99.9998
+    ],
+    "member": "R_bar.png",
+    "panel_crop_pixels": [
+      102,
+      27,
+      614,
+      394
+    ],
+    "pixel_dimensions": [
+      640,
+      478
+    ],
+    "sha256": "4325a6c8e4e44d72c252848256285cd25306f8b230160e6d9e1a4f9cf47b6cda",
+    "software": "matplotlib version 2.2.3, http://matplotlib.org/"
+  },
+  "curves": [
+    {
+      "curve_id": "T_bath_0K",
+      "curve_kind": "paper_numerical",
+      "point_count": 10,
+      "source_style": "solid",
+      "temperature_K": 0.0
+    },
+    {
+      "curve_id": "T_bath_0K",
+      "curve_kind": "paper_analytic",
+      "point_count": 10,
+      "source_style": "dashed",
+      "temperature_K": 0.0
+    }
+  ],
+  "data": {
+    "columns": [
+      "curve_id",
+      "curve_kind",
+      "x_pixel",
+      "y_pixel",
+      "trace_min_y_pixel",
+      "trace_max_y_pixel",
+      "x_value",
+      "y_value",
+      "x_uncertainty",
+      "y_uncertainty"
+    ],
+    "path": "points.csv",
+    "sha256": "b679c8bfac64fdc68ca7ed95ee11f379d53ccd3b26d60efa03f51f2dbeb23a80"
+  },
+  "dataset_id": "fischer-catelani-2023-fig8-arxiv-v2-v1",
+  "extraction": {
+    "accepted_y_value_window": [
+      0.99,
+      1.72
+    ],
+    "color_curve_order": [
+      "T_bath_0K"
+    ],
+    "color_masks": {
+      "T_bath_0K": {
+        "paper_analytic": {
+          "channel_spread_maximum": 10.0,
+          "maximum": 100.0,
+          "mode": "grayscale"
+        },
+        "paper_numerical": {
+          "channel": "blue",
+          "dominance_ratio": 1.4,
+          "minimum": 120.0,
+          "mode": "channel_dominance"
+        }
+      }
+    },
+    "curve_order_top_to_bottom": [
+      "paper_numerical",
+      "paper_analytic"
+    ],
+    "horizontal_half_window_px": 2,
+    "method": "Deterministic kind-specific RGB trace isolation on the original author raster; caption-bound style and colour identity with an explicit non-crossing check",
+    "minimum_trace_separation_px": 1.0,
+    "plot_rows_inclusive": [
+      27,
+      393
+    ],
+    "sample_x_values": [
+      0.05,
+      0.15,
+      0.25,
+      0.35,
+      0.45,
+      0.55,
+      0.65,
+      0.75,
+      0.85,
+      0.9
+    ],
+    "script": "validation/fischer_2023/extract_fig8_paper_data.py",
+    "script_sha256": "9ccf8d134f81c9c81ffc830ad84aa311884edd1713d92f077e39f508f477663e",
+    "trace_identity_policy": "caption-bound numerical-above-analytic; no crossings",
+    "uncertainty": {
+      "minimum_y_uncertainty": 0.003,
+      "model": "Conservative deterministic raster bound: horizontal window plus sampling and calibration residuals; vertical trace half-width plus sampling and calibration residuals",
+      "sampling_half_width_px": 1.5,
+      "serialization_absolute_tolerance": 5e-12
+    },
+    "version": "qpsim.fischer2023.fig8-digitizer.v1"
+  },
+  "panel": {
+    "x_axis": {
+      "calibration": {
+        "fit_control_points": [
+          {
+            "pixel": 125,
+            "value": 0.0
+          },
+          {
+            "pixel": 538,
+            "value": 0.8
+          }
+        ],
+        "held_out_control_points": [
+          {
+            "pixel": 228,
+            "value": 0.2
+          },
+          {
+            "pixel": 331,
+            "value": 0.4
+          },
+          {
+            "pixel": 434,
+            "value": 0.6
+          }
+        ],
+        "held_out_max_residual_px": 0.7499999999999963,
+        "held_out_residual_limit_px": 1.0,
+        "intercept_data": -0.24213075060532688,
+        "slope_data_per_pixel": 0.001937046004842615
+      },
+      "quantity": "T_star_over_Delta",
+      "scale": "linear",
+      "unit": "dimensionless"
+    },
+    "y_axis": {
+      "calibration": {
+        "fit_control_points": [
+          {
+            "pixel": 376,
+            "value": 1.0
+          },
+          {
+            "pixel": 47,
+            "value": 1.7
+          }
+        ],
+        "held_out_control_points": [
+          {
+            "pixel": 329,
+            "value": 1.1
+          },
+          {
+            "pixel": 282,
+            "value": 1.2
+          },
+          {
+            "pixel": 235,
+            "value": 1.3
+          },
+          {
+            "pixel": 188,
+            "value": 1.4
+          },
+          {
+            "pixel": 141,
+            "value": 1.5
+          },
+          {
+            "pixel": 94,
+            "value": 1.6
+          }
+        ],
+        "held_out_max_residual_px": 1.0436096431476471e-13,
+        "held_out_residual_limit_px": 0.25,
+        "intercept_data": 1.8,
+        "slope_data_per_pixel": -0.002127659574468085
+      },
+      "quantity": "R_bar_over_R",
+      "scale": "linear",
+      "unit": "dimensionless"
+    }
+  },
+  "paper": {
+    "arxiv_id": "2212.08155",
+    "citation": "P. B. Fischer and G. Catelani, Phys. Rev. Applied 19, 054087 (2023)",
+    "doi": "10.1103/PhysRevApplied.19.054087",
+    "figure": "Figure 8",
+    "panel": "full",
+    "pdf_page_1_based": 20,
+    "version": "arXiv:2212.08155v2"
+  },
+  "schema": "qpsim.paper-data.v1",
+  "source": {
+    "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
+    "redistribution_note": "The author raster is not redistributed here. The checked numeric points can be reproduced only from the exact source archive identified by URL and SHA-256.",
+    "retrieved_utc": "2026-07-28T19:49:18Z",
+    "url": "https://export.arxiv.org/e-print/2212.08155v2"
+  }
+}

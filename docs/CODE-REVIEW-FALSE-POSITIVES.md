@@ -184,6 +184,48 @@ their implementation or assumptions have changed since the recorded date.
   densities. Scope is only the inversion helper's NaN/zero behavior; do not
   generalize it to solver states or other observables. Finite-negative input
   handling was reopened for correction on 2026-07-27.
+- **R9-FIG6-FROZEN-PHONON-UNITS / refuted / the giant qpsim phonon residual
+  on the exact Fischer Fig. 6 author state proves a unit, prefactor, or
+  formula defect** → *Foreign-root cancellation false inference.* With the
+  author grid, constants, coherence, and pair-frequency labels held fixed, a
+  qpsim-free transcription reproduces the captured author QP channels to
+  about `3e-14` of turnover, and at the captured A1 frozen state the
+  author-equivalent phonon accumulator's residual is about `7.0e-11` of
+  turnover. The author state is a stiff
+  cancellation root with approximately `8.19e5 s^-1` of turnover.
+  Re-evaluating it after changing several discretization conventions at
+  once—and replacing the attachment's legacy
+  `k_B/e = 86.1733034152 µeV/K` with qpsim's
+  `86.17333262145 µeV/K`—does not isolate a prefactor or formula error. The
+  prefactor/unit conversion agrees when evaluated under common conventions.
+  This adjudication does **not** dismiss the real left-edge versus
+  finite-volume coherence difference or the pair-frequency
+  `2 Delta + (i+j)h` versus `2 Delta + (i+j+1)h` difference. Re-open the
+  unit/prefactor claim only if a common-convention, channel-level comparison
+  fails; do not infer it from a native qpsim residual at the foreign author
+  root. A subsequent same-seed staged-resolve pilot also reproduced the
+  captured author state to `3.951e-16` full-state relative L2 and converged
+  all primary variants with QP residual/turnover approximately
+  `1.3e-15`–`2.1e-15` and phonon residual/turnover approximately
+  `6.2e-12`–`1.60e-11`; the independently re-solved author control is the
+  `1.596e-11` endpoint, distinct from the frozen captured-A1 diagnostic. This
+  further rules out a unit/prefactor inference from a poorly converged or
+  different control root at this point.
+  (2026-07-29 author-first audit and staged pilot)
+- **R9-FIG6-AUTHOR-JACOBIAN / refuted / a finite-difference mismatch proves
+  the staged author-control Jacobian is wrong and should be corrected** →
+  *Authenticated historical-numerics trap.* The supplied source has three
+  real residual/Jacobian inconsistencies: the photon residual omits
+  terminal-bin transitions whose derivatives remain in the matrix, photon
+  off-diagonals use the partner occupation rather than the row occupation,
+  and the phonon-pair `D_n N` diagonal uses two shifted occupation indices.
+  A mathematically consistent derivative silently changes the authors'
+  Newton path and is not an exact author-control replay. The staged producer
+  now pins these matrix entries to an executable oracle bound to the
+  authenticated source hashes. Re-open only if the staged matrix differs
+  from those source-bound entries; do not “repair” the author-control branch.
+  A corrected Jacobian can be studied only as a separately labelled solver
+  substitution. (2026-07-29 staged-pilot adversarial review)
 
 ## 2. Documented approximations & accepted limitations
 (These are **real physics/engineering gaps**, not false positives. Do not
@@ -219,6 +261,47 @@ the impact actionable.)
   `pair_channel_open` predicate; physical sub-gap K+ scattering remains
   active. The pair-block omission was a real bug and is fixed. (2026-07-20
   rounds 3–4; collar wording corrected 2026-07-27)
+- **Fischer-2023 Fig. 6 author-to-qpsim discretization attribution remains
+  staged work:** one exact full-resolution author point matches the digitized
+  paper trace. With the attachment's exact binary64 `Delta_0`, the direct-gap
+  observable reproduces the driven gap, independently reconstructed thermal
+  gap, and ordinate bit-for-bit. The earlier one-ULP statement was a
+  validation-script parameter leak (`180.0e-6` instead of the author's
+  `180*10**-6`), not observable disagreement. The first substantive operator
+  differences are localized to author left-edge versus qpsim finite-volume
+  coherence and to the `+h` pair-frequency center shift; a third grid-level
+  substep separately isolates the much smaller native-micro-eV binary64 DOS
+  arithmetic difference. The formal qpsim-free C0 port verifies every
+  Newton transition and reproduces the A1 full state to `3.951e-16` relative
+  L2; formal C1 reproduces both gaps and the ordinate bit-for-bit. Formal C2
+  independently recomputes all 124 frozen parameter/operator arrays and
+  measures the fixed-`n_bar` Eq. 35 coordinate shift from
+  `0.33990789737294363` to `0.3399503360830364`, but deliberately does not
+  solve a changed root or ordinate. A same-seed single-point pilot has
+  re-solved the grid changes in four Newton iterations:
+  author control
+  `0.12090908988993258`; coherence only `0.12070758916263027`
+  (`-0.00020150072730`); pair label only `0.14590106106941977`
+  (`+0.02499197117949`); and both `0.14570562776829468`
+  (`+0.02479653787836`); and C3c native-DOS arithmetic
+  `0.14570561703489288` (`-1.07334e-8` from C3b). Coherence and native-DOS
+  arithmetic are negligible at this point. The pair-label
+  change is material but moves upward, away from promoted qpsim
+  `0.08967258`, so none of the three localized changes explains qpsim's lower
+  ordinate.
+  Do not promote the pilot into a formal C3 ordinate: it used author
+  parameters and a 1620-cell coefficient carrier, not the accepted C2
+  endpoint and live 1640-cell grid. Formal C3 was subsequently completed as a
+  separate frozen differential: parent cell `i` maps to child `i+20` with no
+  interpolation, all active C2b5 channels reproduce bit-for-bit at the
+  projection control, and independent verification reassembles the
+  C3a/C3b/C3c channels on the true grid. The evidence distinguishes
+  roundoff-sized mapped-left-face differences from the real `+0.5 micro-eV`
+  author-left-edge-to-qpsim-center carrier shift, whose observable effect is
+  reported separately. Like C2, formal C3 claims no changed root or
+  ordinate. Formal frozen C4 and C5 were subsequently completed; C6–C7 and
+  the full 300-point author replay remain incomplete. (2026-07-30
+  author-first audit, staged pilot, and formal frozen C3/C4/C5)
 - **Marchegiani strict pins are win32-stamped; ubuntu CI runs the 1e-3
   fallback** → accepted trade-off, documented in
   `validation/baselines/README.md`;
@@ -816,3 +899,37 @@ findings that must be refuted.
     the digitization and transcription path, then score numerical traces
     separately; common axes and good control agreement do not establish
     numerical parity.*
+34. **qpsim's public sub-gap photon operator materially disagrees with the
+    frozen C3c author-form photon loss** — **refuted by formal C4.** The
+    apparent large mismatch comes from comparing different return semantics:
+    qpsim returns a loss-rate coefficient, while C3c stores physical loss.
+    The valid comparison is
+    `loss_s_inv = loss_rate_ns_inv * frozen_f / 1e-9`. After that conversion,
+    the full photon net differs by only about `2.02e-15` symmetric relative
+    L1. A real but numerically tiny endpoint-policy difference remains:
+    qpsim includes the representable child-cell pair `1619 <-> 1639`, while
+    the authenticated author residual omits transitions touching its final
+    QP cell. The two net contributions are about `-2.88825e-35` and
+    `+2.88858e-35 s^-1`, far too small at this frozen state to explain the
+    Figure 6 discrepancy. *Lesson: compare physical gain/loss terms, not a
+    rate coefficient to an already occupation-weighted loss; isolate genuine
+    endpoint semantics from floating-point operation ordering.*
+35. **Formal C5 shows that qpsim's QP-phonon scattering gain/loss disagree
+    materially with the author-form operator, and the nonzero pair number
+    moment violates conservation** — **refuted by like-for-like bookkeeping
+    and process-specific conservation.** The author source-order scattering
+    gain and loss buckets both include the same Pauli cross-term
+    `n f_i f_j`; public qpsim removes it from both. The raw public-minus-parent
+    gain/loss L1 differences (about `1.006e-4 s^-1` each) are therefore
+    bookkeeping differences that cancel from the physical net, not changed
+    scattering physics. After subtracting the shared term from the author
+    buckets, the like-for-like gain/loss L1 differences are only
+    `9.50321362825228e-14` and `1.9342844642219452e-13 s^-1`; the physical
+    scattering net agrees to `5.682685376326191e-16` symmetric relative L1.
+    The pair number moment is intentionally nonzero because pair breaking and
+    recombination create and destroy two quasiparticles. It is retained as a
+    diagnostic (`-0.1738186684181618 s^-1 micro-eV`, relative about
+    `0.0321`), not subjected to the zero-drift gate used for
+    number-conserving scattering. *Lesson: compare like-for-like physical
+    buckets, and apply conservation gates only to channels that conserve the
+    measured quantity.*

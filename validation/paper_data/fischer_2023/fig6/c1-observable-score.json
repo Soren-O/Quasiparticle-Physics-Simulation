@@ -1,0 +1,106 @@
+{
+  "acceptance": {
+    "accepted": true,
+    "checks": {
+      "driven_gap_bit_exact": true,
+      "driven_integral_within_limit": true,
+      "figure6_ordinate_bit_exact": true,
+      "input_arrays_unchanged": true,
+      "thermal_gap_bit_exact": true,
+      "thermal_integral_within_limit": true
+    },
+    "limits": {
+      "integral_absolute_error_max": 1e-15
+    }
+  },
+  "c0_binding": {
+    "raw_manifest_sha256": "ebe32e48b93fa37d6ca230ce271732cf7086f58263db50f9a7b58dab32ae56ac",
+    "summary_path": "validation/paper_data/fischer_2023/fig6/c0-author-equivalent-score.json",
+    "summary_sha256": "b5a7d300746ec88c9ee45eefb59dc2ae908eb756f373991e9ca2b906ad2e9bbb"
+  },
+  "calculation": {
+    "author_c0": {
+      "driven_gap_eV": 0.00017999646581118777,
+      "driven_integral": 1.963457504700088e-05,
+      "figure6_ordinate": 0.12090908988993258,
+      "thermal_gap_eV": 0.00017999597972317586,
+      "thermal_integral": 2.2335120672141037e-05
+    },
+    "differences": {
+      "driven_gap_signed_eV": 0.0,
+      "driven_gap_signed_ulps": 0.0,
+      "driven_integral_signed": -1.0469327228063152e-18,
+      "figure6_ordinate_signed": 0.0,
+      "thermal_gap_signed_eV": 0.0,
+      "thermal_gap_signed_ulps": 0.0,
+      "thermal_integral_signed": -5.082197683525802e-20
+    },
+    "qpsim_c1": {
+      "driven_gap_eV": 0.00017999646581118777,
+      "driven_integral": 1.9634575046999834e-05,
+      "figure6_ordinate": 0.12090908988993258,
+      "thermal_gap_eV": 0.00017999597972317586,
+      "thermal_integral": 2.2335120672140986e-05
+    }
+  },
+  "input_identity": {
+    "coordinate_carrier": {
+      "dtype": "<f8",
+      "npy_sha256": "e3c6b305381164c1f0d5cc5c0c8bca951764f6c744300797317a151fdf4acc37",
+      "shape": [
+        1620
+      ]
+    },
+    "inherited_arrays": {
+      "E_left_eV": {
+        "dtype": "<f8",
+        "npy_sha256": "c26bd380003fd55599c45c24c299dc53696f4c9e5a60bd98c45ccb67e56d727d",
+        "shape": [
+          1620
+        ]
+      },
+      "f_final": {
+        "dtype": "<f8",
+        "npy_sha256": "3f0be646a40a163ee5860bc289756e5c4e15b84b5668592c655ab5ece6266029",
+        "shape": [
+          1620
+        ]
+      },
+      "thermal_f": {
+        "dtype": "<f8",
+        "npy_sha256": "a3b11a0276d6d01b54b9cc1abcf1afcf5ec909b120331226d975a78a76ef2f11",
+        "shape": [
+          1620
+        ]
+      }
+    },
+    "parameter_hex": {
+      "delta0_eV": "0x1.797cc39ffd60ep-13",
+      "gap_eV": "0x1.797cc39ffd60ep-13",
+      "h_eV": "0x1.0c6f7a0b5ed8dp-20"
+    },
+    "parameters": {
+      "delta0_eV": 0.00017999999999999998,
+      "gap_eV": 0.00017999999999999998,
+      "h_eV": 1e-06,
+      "samples": "authors"
+    },
+    "transform": "coordinate_carrier = E_left_eV + h_eV/2; no f projection"
+  },
+  "limitations": {
+    "scope": "one accepted C0 point only",
+    "statement": "C1 validates only the direct observable substitution on fixed C0 driven and thermal states; it does not validate qpsim kinetics."
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c1-observable-score.v1",
+  "sources": {
+    "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+    "validation/fischer_2023/fig6_author_c1_score.py": "c250d697fb77ce99149aee18b5fef00fed8771fe790cc45905c9c3c2bf029497"
+  },
+  "stage": {
+    "changed_component": "observable",
+    "comparison_stage_id": "C0",
+    "parent_stage_id": "C0",
+    "stage_id": "C1",
+    "status": "completed"
+  }
+}

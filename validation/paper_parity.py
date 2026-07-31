@@ -34,6 +34,17 @@ POINT_COLUMNS = (
     "y_uncertainty",
 )
 
+_TRACE_IDENTITY_ORDERS = {
+    "caption-bound analytic-above-numerical; no crossings": (
+        "paper_analytic",
+        "paper_numerical",
+    ),
+    "caption-bound numerical-above-analytic; no crossings": (
+        "paper_numerical",
+        "paper_analytic",
+    ),
+}
+
 
 class PaperParityError(ValueError):
     """A paper-data or comparison contract is malformed or stale."""
@@ -458,10 +469,10 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
     _require_string(extraction, "method", "manifest.extraction")
     script_raw = _require_string(extraction, "script", "manifest.extraction")
     expected_script_sha = _require_sha256(extraction, "script_sha256", "manifest.extraction")
-    if (
-        _require_string(extraction, "trace_identity_policy", "manifest.extraction")
-        != "caption-bound analytic-above-numerical; no crossings"
-    ):
+    trace_identity_policy = _require_string(
+        extraction, "trace_identity_policy", "manifest.extraction"
+    )
+    if trace_identity_policy not in _TRACE_IDENTITY_ORDERS:
         raise PaperParityError("manifest.extraction.trace_identity_policy is unsupported.")
     _require_string(extraction, "version", "manifest.extraction")
     _require_finite_number(
@@ -523,7 +534,7 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
     ):
         raise PaperParityError("manifest.extraction.accepted_y_value_window is invalid.")
     curve_order = extraction.get("curve_order_top_to_bottom")
-    if curve_order != ["paper_analytic", "paper_numerical"]:
+    if curve_order != list(_TRACE_IDENTITY_ORDERS[trace_identity_policy]):
         raise PaperParityError("manifest.extraction.curve_order_top_to_bottom is invalid.")
     uncertainty = _require_mapping(extraction.get("uncertainty"), "manifest.extraction.uncertainty")
     _require_exact_keys(
@@ -553,35 +564,81 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
     )
     if not colour_masks:
         raise PaperParityError("manifest.extraction.color_masks must not be empty.")
+    kind_specific_masks: bool | None = None
     for curve_id, raw_mask in colour_masks.items():
         if not isinstance(curve_id, str) or not curve_id:
             raise PaperParityError("Colour-mask curve IDs must be nonempty strings.")
         mask = _require_mapping(raw_mask, f"manifest.extraction.color_masks.{curve_id}")
-        _require_exact_keys(
-            mask,
-            {"channel", "dominance_ratio", "minimum"},
-            f"manifest.extraction.color_masks.{curve_id}",
+        is_kind_specific = set(mask) == {"paper_analytic", "paper_numerical"}
+        if kind_specific_masks is None:
+            kind_specific_masks = is_kind_specific
+        elif kind_specific_masks != is_kind_specific:
+            raise PaperParityError(
+                "manifest.extraction.color_masks must use one mask schema consistently."
+            )
+        masks_by_kind = (
+            {
+                kind: _require_mapping(
+                    mask[kind],
+                    f"manifest.extraction.color_masks.{curve_id}.{kind}",
+                )
+                for kind in ("paper_analytic", "paper_numerical")
+            }
+            if is_kind_specific
+            else {"shared": mask}
         )
-        if _require_string(mask, "channel", f"manifest.extraction.color_masks.{curve_id}") not in {
-            "blue",
-            "green",
-            "red",
-        }:
-            raise PaperParityError(f"Unsupported colour channel for {curve_id!r}.")
-        _require_finite_number(
-            mask,
-            "minimum",
-            f"manifest.extraction.color_masks.{curve_id}",
-            positive=True,
-        )
-        dominance = _require_finite_number(
-            mask,
-            "dominance_ratio",
-            f"manifest.extraction.color_masks.{curve_id}",
-            positive=True,
-        )
-        if dominance <= 1.0:
-            raise PaperParityError(f"Colour dominance ratio must exceed one for {curve_id!r}.")
+        for kind, curve_mask in masks_by_kind.items():
+            mask_label = f"manifest.extraction.color_masks.{curve_id}.{kind}"
+            mode = _require_string(curve_mask, "mode", mask_label) if is_kind_specific else ""
+            if not is_kind_specific or mode == "channel_dominance":
+                expected = (
+                    {"channel", "dominance_ratio", "minimum", "mode"}
+                    if is_kind_specific
+                    else {"channel", "dominance_ratio", "minimum"}
+                )
+                _require_exact_keys(curve_mask, expected, mask_label)
+                if _require_string(curve_mask, "channel", mask_label) not in {
+                    "blue",
+                    "green",
+                    "red",
+                }:
+                    raise PaperParityError(f"Unsupported colour channel for {curve_id!r}.")
+                _require_finite_number(
+                    curve_mask,
+                    "minimum",
+                    mask_label,
+                    positive=True,
+                )
+                dominance = _require_finite_number(
+                    curve_mask,
+                    "dominance_ratio",
+                    mask_label,
+                    positive=True,
+                )
+                if dominance <= 1.0:
+                    raise PaperParityError(
+                        f"Colour dominance ratio must exceed one for {curve_id!r}."
+                    )
+            elif mode == "grayscale":
+                _require_exact_keys(
+                    curve_mask,
+                    {"channel_spread_maximum", "maximum", "mode"},
+                    mask_label,
+                )
+                maximum = _require_finite_number(curve_mask, "maximum", mask_label)
+                spread = _require_finite_number(
+                    curve_mask,
+                    "channel_spread_maximum",
+                    mask_label,
+                )
+                if not 0.0 <= maximum < 255.0 or not 0.0 <= spread < 255.0:
+                    raise PaperParityError(
+                        f"Grayscale mask bounds are invalid for {curve_id!r}."
+                    )
+            else:
+                raise PaperParityError(
+                    f"Unsupported kind-specific colour-mask mode {mode!r}."
+                )
     colour_curve_order = extraction.get("color_curve_order")
     if (
         not isinstance(colour_curve_order, list)
@@ -618,8 +675,11 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
             curve,
             "temperature_K",
             f"manifest.curves[{index}]",
-            positive=True,
         )
+        if temperature < 0.0:
+            raise PaperParityError(
+                f"manifest.curves[{index}].temperature_K must be nonnegative."
+            )
         point_count = curve.get("point_count")
         if (
             not isinstance(point_count, int)
@@ -961,6 +1021,22 @@ def load_digitized_points(manifest_path: Path) -> tuple[dict[str, Any], list[Dig
                 f"Curve {key!r} raster columns do not match the declared sample_x_values geometry."
             )
 
+    extraction = _require_mapping(manifest["extraction"], "manifest.extraction")
+    trace_identity_policy = _require_string(
+        extraction,
+        "trace_identity_policy",
+        "manifest.extraction",
+    )
+    top_kind, bottom_kind = _TRACE_IDENTITY_ORDERS[trace_identity_policy]
+    colour_masks = _require_mapping(
+        extraction["color_masks"],
+        "manifest.extraction.color_masks",
+    )
+    masks_are_kind_specific = all(
+        set(_require_mapping(mask, "manifest.extraction.color_masks entry"))
+        == {"paper_analytic", "paper_numerical"}
+        for mask in colour_masks.values()
+    )
     paired: dict[tuple[str, int], dict[str, DigitizedPoint]] = {}
     for point in points:
         paired.setdefault((point.curve_id, point.x_pixel), {})[point.curve_kind] = point
@@ -969,15 +1045,19 @@ def load_digitized_points(manifest_path: Path) -> tuple[dict[str, Any], list[Dig
             raise PaperParityError(
                 f"Paper trace pair {pair_key!r} must contain analytic and numerical curves."
             )
-        analytic = kinds["paper_analytic"]
-        numerical = kinds["paper_numerical"]
-        separation = numerical.y_pixel - analytic.y_pixel
+        top = kinds[top_kind]
+        bottom = kinds[bottom_kind]
+        separation = bottom.y_pixel - top.y_pixel
         if separation < minimum_trace_separation:
             raise PaperParityError(
                 f"Paper trace pair {pair_key!r} violates the declared "
-                "analytic-above-numerical separation."
+                f"{trace_identity_policy.split(';', maxsplit=1)[0].removeprefix('caption-bound ')} "
+                "separation."
             )
-        if analytic.trace_max_y_pixel >= numerical.trace_min_y_pixel:
+        if (
+            not masks_are_kind_specific
+            and top.trace_max_y_pixel >= bottom.trace_min_y_pixel
+        ):
             raise PaperParityError(
                 f"Paper trace pair {pair_key!r} has overlapping analytic/numerical bands."
             )

@@ -573,7 +573,7 @@
     },
     "scorer_sources": {
       "validation/fischer_2023/fig6_paper_parity.py": "7c4cc3365d1272ed4ef8655d9e045a8adf768024a44dadbb6e3cab950fd71ade",
-      "validation/paper_parity.py": "71765549839715724825e9c69ce4b671afcf3bbab823296790cc1cf44a43f68e"
+      "validation/paper_parity.py": "17ef56037b2a77fa5a4e2649cf1b851b7c494609937f86ec940f9732dd19da45"
     }
   },
   "observable_identity": {

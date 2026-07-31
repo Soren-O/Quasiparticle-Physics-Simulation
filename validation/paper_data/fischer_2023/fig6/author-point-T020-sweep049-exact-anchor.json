@@ -1,0 +1,117 @@
+{
+  "adapter": {
+    "dependency_sha256s": {
+      "validation/author_source.py": "d363ed849b0f578c40ddc9560b42eb93ca07b2052b34f2690f0a70f8a71c4330",
+      "validation/reproduction_ladder.py": "ed4a09fd7edb8f10f4edb5279e5a3b438d57fb8dca61d112e90575c2a7273c4c",
+      "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+    },
+    "execution_binding": "The adapter and dependency digests identify immutable source snapshots read at module import. The live files are required to match those bytes before and after evidence collection. This guards source drift but does not claim an independent interpreter-bytecode attestation.",
+    "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+    "path": "validation/fischer_2023/fig6_author_adapter.py",
+    "sha256": "340ea7c1f583e40077120bcf46c44d144301cabfce9e4149763024019621564f",
+    "subprocess_wrapper_sha256": "fbf411033133e813644eaedaa69c42b60e50338afab7d22306b4c1b34944b576"
+  },
+  "anchor_id": "fischer-2023-fig6-T020-sweep049-author-exact-v1",
+  "author_source_manifest": {
+    "path": "validation/paper_data/fischer_2023/fig6/author-source.json",
+    "sha256": "b6b85366a07710281e8a5734698231a3530ec33fcaa84232ee9fba694acd4c18"
+  },
+  "bundle_manifest_sha256": "13afe789ed624504336dd969bfaf42bacb78ab16ffe7d8b953aac8d8b1f42aab",
+  "expected_input": {
+    "max_newton_steps": 10,
+    "mode": "author_equivalent",
+    "num_energy_cells": 1620,
+    "relative_step_threshold": 1e-07,
+    "rng_seed": null,
+    "sweep_index": 49,
+    "target_t_star_over_delta": null,
+    "temperature_K": 0.2
+  },
+  "expected_parameters": {
+    "actual_t_star_over_delta": 0.33990789737294363,
+    "author_numerical_constants": {
+      "boltzmann_constant_J_per_K": 1.38064852e-23,
+      "electron_charge_C": 1.60217662e-19,
+      "reduced_planck_constant_J_s": 1.054571793772915e-34
+    },
+    "computed_n_bar": 954548.4566618347,
+    "h_eV": 1e-06,
+    "rounded_gap_eV": 0.00017999999999999998,
+    "solved_photon_energy_eV": 1.9999999999999998e-05
+  },
+  "expected_result": {
+    "arrays": {
+      "E_qp": {
+        "dtype": "<f8",
+        "npy_sha256": "c26bd380003fd55599c45c24c299dc53696f4c9e5a60bd98c45ccb67e56d727d",
+        "shape": [
+          1620
+        ]
+      },
+      "f_final": {
+        "dtype": "<f8",
+        "npy_sha256": "8312edc4597469830b8fd4353fa2c3f6c1dd5d5bfc6403854610cb4a1cd878bc",
+        "shape": [
+          1620
+        ]
+      },
+      "initial_state": {
+        "dtype": "<f8",
+        "npy_sha256": "078cfd5e80ac5046205cee536a212ffc6574985c5e64b24e2e3571c4db69df8b",
+        "shape": [
+          3239
+        ]
+      },
+      "n_phonon_final": {
+        "dtype": "<f8",
+        "npy_sha256": "e785825f4c72a4dddc42c44bccfa203dca0e98d00d8bae70bef4483de7196220",
+        "shape": [
+          1619
+        ]
+      },
+      "omega_phonon": {
+        "dtype": "<f8",
+        "npy_sha256": "875822040800b090d5011d4fc8aa579df9b489aecedf9478c2e0ef59c1efe989",
+        "shape": [
+          1619
+        ]
+      },
+      "phonon_residual_author_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "a2b26de7360b5b081e76d701fd8343a2e43ff9391e81b94604b1cca44172e3c8",
+        "shape": [
+          1619
+        ]
+      },
+      "qp_phonon_residual_author_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "ed7ccff703d7a7546a9cc8d859cf3e8a2252db034739f5e300adab45906f827a",
+        "shape": [
+          1620
+        ]
+      },
+      "qp_photon_residual_author_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "88fdfbd00335e15b9fd65af086e3c3ec173062539035be085617adad6756c39d",
+        "shape": [
+          1620
+        ]
+      },
+      "residual": {
+        "dtype": "<f8",
+        "npy_sha256": "14b14abbf17d857092c8a754e560c21a9c45d9af18d1bfdbecef6f9fc15c7c26",
+        "shape": [
+          3239
+        ]
+      }
+    },
+    "gap_driven_eV": 0.00017999646581118777,
+    "gap_thermal_eV": 0.00017999597972317586,
+    "last_relative_qp_step": 1.1852240314965864e-09,
+    "max_power_mismatch": 3.990314863900028e-14,
+    "newton_iterations": 4,
+    "normalized_numerical_observable": 0.12090908988993258
+  },
+  "expected_scientific_status": "finite_state",
+  "schema": "qpsim.fischer2023.fig6-author-point-anchor.v1"
+}

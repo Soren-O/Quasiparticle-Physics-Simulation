@@ -1,0 +1,3497 @@
+{
+  "acceptance": {
+    "accepted": true,
+    "checks": {
+      "all_gain_loss_arrays_nonnegative": true,
+      "c0_c1_parent_chain_recomputed": true,
+      "c2a_control_bit_exact": true,
+      "explicit_energy_native_step_effective_noop": true,
+      "finite_cutoff_tc_changes_qp_phonon_channels": true,
+      "finite_cutoff_tc_leaves_other_channels_exact": true,
+      "fixed_nbar_preserved": true,
+      "frozen_inputs_bit_exact": true,
+      "literal_c_changes_photon": true,
+      "literal_c_leaves_nonphoton_channels_exact": true,
+      "modern_kb_changes_phonon_escape_gain_and_net": true,
+      "modern_kb_changes_qp_phonon_channels": true,
+      "modern_kb_changes_thermal_occupation": true,
+      "modern_kb_leaves_kb_independent_channels_exact": true,
+      "modern_kb_preserves_phonon_escape_loss_exact": true,
+      "parameter_axis_shift_is_nonzero": true,
+      "raw_arrays_independently_recomputed": true,
+      "raw_metadata_independently_recomputed": true,
+      "structural_grid_and_dimensionless_kernels_bit_exact": true,
+      "tau_pb_changes_phonon_kernel_channels": true,
+      "tau_pb_leaves_other_channels_exact": true
+    },
+    "limits": {
+      "c2a_net_subtraction_roundoff_factor": 64.0,
+      "raw_array_max_absolute_error": 0.0,
+      "raw_scalar_max_absolute_error": 0.0
+    }
+  },
+  "comparison": {
+    "c2a_control_checks": {
+      "phonon_escape_gain_s_inv_bit_exact_to_c0": true,
+      "phonon_escape_loss_s_inv_bit_exact_to_c0": true,
+      "phonon_escape_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "phonon_escape_net_s_inv_bit_exact_to_c0": true,
+      "phonon_pair_gain_s_inv_bit_exact_to_c0": true,
+      "phonon_pair_loss_s_inv_bit_exact_to_c0": true,
+      "phonon_pair_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "phonon_pair_net_s_inv_bit_exact_to_c0": true,
+      "phonon_scattering_gain_s_inv_bit_exact_to_c0": true,
+      "phonon_scattering_loss_s_inv_bit_exact_to_c0": true,
+      "phonon_scattering_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "phonon_scattering_net_s_inv_bit_exact_to_c0": true,
+      "qp_pair_gain_s_inv_bit_exact_to_c0": true,
+      "qp_pair_loss_s_inv_bit_exact_to_c0": true,
+      "qp_pair_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "qp_pair_net_s_inv_bit_exact_to_c0": true,
+      "qp_photon_gain_s_inv_bit_exact_to_c0": true,
+      "qp_photon_loss_s_inv_bit_exact_to_c0": true,
+      "qp_photon_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "qp_photon_net_s_inv_bit_exact_to_c0": true,
+      "qp_scattering_gain_s_inv_bit_exact_to_c0": true,
+      "qp_scattering_loss_s_inv_bit_exact_to_c0": true,
+      "qp_scattering_net_arithmetic_consistent_with_c0_gain_loss": true,
+      "qp_scattering_net_s_inv_bit_exact_to_c0": true,
+      "residual_bit_exact_to_c0": true
+    },
+    "locality_checks": {
+      "explicit_energy_native_step_effective_noop": true,
+      "finite_cutoff_tc_changes_qp_phonon_channels": true,
+      "finite_cutoff_tc_leaves_other_channels_exact": true,
+      "literal_c_changes_photon": true,
+      "literal_c_leaves_nonphoton_channels_exact": true,
+      "modern_kb_changes_phonon_escape_gain_and_net": true,
+      "modern_kb_changes_qp_phonon_channels": true,
+      "modern_kb_changes_thermal_occupation": true,
+      "modern_kb_leaves_kb_independent_channels_exact": true,
+      "modern_kb_preserves_phonon_escape_loss_exact": true,
+      "tau_pb_changes_phonon_kernel_channels": true,
+      "tau_pb_leaves_other_channels_exact": true
+    },
+    "raw_array_count": 124,
+    "step_count": 6
+  },
+  "frozen_inputs": {
+    "descriptors": {
+      "E_left_eV": {
+        "dtype": "<f8",
+        "npy_sha256": "c26bd380003fd55599c45c24c299dc53696f4c9e5a60bd98c45ccb67e56d727d",
+        "shape": [
+          1620
+        ]
+      },
+      "f_final": {
+        "dtype": "<f8",
+        "npy_sha256": "3f0be646a40a163ee5860bc289756e5c4e15b84b5668592c655ab5ece6266029",
+        "shape": [
+          1620
+        ]
+      },
+      "n_phonon_final": {
+        "dtype": "<f8",
+        "npy_sha256": "b461366a4b8105ecb436d62d9fca1ee74de1d7b486371aad41b71bec2a200a35",
+        "shape": [
+          1619
+        ]
+      },
+      "thermal_f": {
+        "dtype": "<f8",
+        "npy_sha256": "a3b11a0276d6d01b54b9cc1abcf1afcf5ec909b120331226d975a78a76ef2f11",
+        "shape": [
+          1620
+        ]
+      }
+    },
+    "state_policy": "C0 E_left, driven f, phonon n, and thermal f are immutable; no projection and no nonlinear solve"
+  },
+  "limitations": {
+    "scope": "one accepted C0 point only",
+    "statement": "C2 completes only the frozen-state parameter/operator differential. Its nonzero candidate residual is expected and is not a solved endpoint. No C2 root or plotted ordinate is claimed; the same-seed nonlinear comparison belongs after the frozen operator ladder."
+  },
+  "observable_control": {
+    "c1_frozen_result": {
+      "driven_gap_eV": 0.00017999646581118777,
+      "driven_integral": 1.9634575046999834e-05,
+      "figure6_ordinate": 0.12090908988993258,
+      "thermal_gap_eV": 0.00017999597972317586,
+      "thermal_integral": 2.2335120672140986e-05
+    },
+    "policy": "The C1 qpsim observable and inherited driven/thermal arrays are recomputed unchanged; parameter-consistent thermal-state replacement is outside C2."
+  },
+  "parameter_axis": {
+    "author_authenticated_t_star_over_delta": 0.33990789737294363,
+    "author_native_reconstruction_t_star_over_delta": 0.3399078973729434,
+    "author_nbar": 954548.4566618347,
+    "fixed_author_coordinate_qpsim_nbar": 953833.6964138312,
+    "qpsim_fixed_nbar_t_star_over_delta": 0.3399503360830364,
+    "qpsim_minus_author_at_fixed_nbar": 4.243871009274036e-05,
+    "qpsim_relative_shift_at_fixed_nbar": 0.00012485355715696755,
+    "selected_comparison": "fixed authenticated author n_bar"
+  },
+  "parent_bindings": {
+    "c0_raw_manifest_sha256": "ebe32e48b93fa37d6ca230ce271732cf7086f58263db50f9a7b58dab32ae56ac",
+    "c0_summary_path": "validation/paper_data/fischer_2023/fig6/c0-author-equivalent-score.json",
+    "c0_summary_sha256": "b5a7d300746ec88c9ee45eefb59dc2ae908eb756f373991e9ca2b906ad2e9bbb",
+    "c1_score_path": "validation/paper_data/fischer_2023/fig6/c1-observable-score.json",
+    "c1_score_sha256": "e8da05fc34395f8bb7298dfa6bdfe7fc4881d51563b094c68253a15fd6e043bb"
+  },
+  "raw_bundle": {
+    "manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "schema": "qpsim.fischer2023.fig6-author-c2-frozen-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c2-parameter-score.v1",
+  "sources": {
+    "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+    "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+    "validation/fischer_2023/fig6_author_c0_summary.py": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d",
+    "validation/fischer_2023/fig6_author_c1_score.py": "c250d697fb77ce99149aee18b5fef00fed8771fe790cc45905c9c3c2bf029497",
+    "validation/fischer_2023/fig6_author_c2_bundle.py": "53b5f7aaa13ef6bb2481c0ba0d2d78f2fec86e2c68fdd62845ec3cec51b45396",
+    "validation/fischer_2023/fig6_author_c2_parameters.py": "8a13fb15718883f22048f4b2413d940c84887e8bed2b0f2ab0539dac9ea2fc55",
+    "validation/fischer_2023/fig6_author_c2_score.py": "adff99c7f117cf20b12cf810ea500d55d219ef6f9b277682c1bb77cf7eb5be77",
+    "validation/fischer_2023/fig6_solve.py": "3656127354eee97b5d7e141484e4685995a676dd35e54396079b37173d0e0750",
+    "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
+    "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+  },
+  "stage": {
+    "changed_component": "parameters",
+    "comparison_stage_id": "C1",
+    "evidence_class": "hybrid_component_substitution",
+    "parent_stage_id": "C1",
+    "stage_id": "C2",
+    "status": "completed"
+  },
+  "steps": [
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "e615457fc5dadc4bf9b61834007c471b8483293335e1b2db5e7188b18905435b",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8b570806d77bb300969732fb3a4ff25aa2c1313ccc6336916c3b71e47a7c1ab2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6523516672a93885c57fcd8707696588b8f046a6cc051bdf871a4aec39de7135",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "7ef337429788977802430204daa4b7ca3ab928c04327691e35d0dca955a50b90",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5e8c29a1d4d5f2dd9901d2c1411f8b9e5789e86ac2830c50f36264725e059faf",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "16f5253c63d92bdaa7885308e047104659f38acb743fa27da2546f2a1697d5e9",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b378056f73c894e4685617db23e23a0f1454ab79af994aecab00133427b42fc4",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3a56e704f94b17a50ddb99b55b3a55097e111da9500b2afd9cfd9ad8f7a72ada",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "e615457fc5dadc4bf9b61834007c471b8483293335e1b2db5e7188b18905435b",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8b570806d77bb300969732fb3a4ff25aa2c1313ccc6336916c3b71e47a7c1ab2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6523516672a93885c57fcd8707696588b8f046a6cc051bdf871a4aec39de7135",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "7ef337429788977802430204daa4b7ca3ab928c04327691e35d0dca955a50b90",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5e8c29a1d4d5f2dd9901d2c1411f8b9e5789e86ac2830c50f36264725e059faf",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "16f5253c63d92bdaa7885308e047104659f38acb743fa27da2546f2a1697d5e9",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b378056f73c894e4685617db23e23a0f1454ab79af994aecab00133427b42fc4",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3a56e704f94b17a50ddb99b55b3a55097e111da9500b2afd9cfd9ad8f7a72ada",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.3399078973729434,
+      "n_thermal_difference_from_author": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "ce3493ca3a09cd316c6568c5c11197346925dc4528ad281f69025f0915802db4",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6925729695918.219,
+        "qp_prefactor_s_inv": 2.1495747751129577
+      },
+      "qualification": "Native units are emitted, while the effective author-space parameters remain exact parent bits.",
+      "residual_difference_from_author": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "0dfe8ed5f0f3c560ee13530ed7831167a1c2f5862d7337d819dbe1638ca242a6",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "0dfe8ed5f0f3c560ee13530ed7831167a1c2f5862d7337d819dbe1638ca242a6",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "step_id": "C2a-author-value-plumbing"
+    },
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [
+        "delta0_ueV",
+        "gap_ueV"
+      ],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "e615457fc5dadc4bf9b61834007c471b8483293335e1b2db5e7188b18905435b",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8b570806d77bb300969732fb3a4ff25aa2c1313ccc6336916c3b71e47a7c1ab2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6523516672a93885c57fcd8707696588b8f046a6cc051bdf871a4aec39de7135",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "7ef337429788977802430204daa4b7ca3ab928c04327691e35d0dca955a50b90",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5e8c29a1d4d5f2dd9901d2c1411f8b9e5789e86ac2830c50f36264725e059faf",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "16f5253c63d92bdaa7885308e047104659f38acb743fa27da2546f2a1697d5e9",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b378056f73c894e4685617db23e23a0f1454ab79af994aecab00133427b42fc4",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3a56e704f94b17a50ddb99b55b3a55097e111da9500b2afd9cfd9ad8f7a72ada",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "e615457fc5dadc4bf9b61834007c471b8483293335e1b2db5e7188b18905435b",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8b570806d77bb300969732fb3a4ff25aa2c1313ccc6336916c3b71e47a7c1ab2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6523516672a93885c57fcd8707696588b8f046a6cc051bdf871a4aec39de7135",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "7ef337429788977802430204daa4b7ca3ab928c04327691e35d0dca955a50b90",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5e8c29a1d4d5f2dd9901d2c1411f8b9e5789e86ac2830c50f36264725e059faf",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "16f5253c63d92bdaa7885308e047104659f38acb743fa27da2546f2a1697d5e9",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b378056f73c894e4685617db23e23a0f1454ab79af994aecab00133427b42fc4",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3a56e704f94b17a50ddb99b55b3a55097e111da9500b2afd9cfd9ad8f7a72ada",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.33990789737294336,
+      "n_thermal_difference_from_author": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "ce3493ca3a09cd316c6568c5c11197346925dc4528ad281f69025f0915802db4",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6925729695918.219,
+        "qp_prefactor_s_inv": 2.1495747751129577
+      },
+      "qualification": "Adopt qpsim's explicit 180.0 micro-eV gap literals instead of the one-ulp-lower native view of the author eV value.",
+      "residual_difference_from_author": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "0dfe8ed5f0f3c560ee13530ed7831167a1c2f5862d7337d819dbe1638ca242a6",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": true,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "0dfe8ed5f0f3c560ee13530ed7831167a1c2f5862d7337d819dbe1638ca242a6",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.0,
+        "linf_absolute": 0.0,
+        "symmetric_relative_l1": 0.0
+      },
+      "step_id": "C2b1-explicit-energy-literals"
+    },
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [
+        "kB_ueV_per_K"
+      ],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.6645596877,
+            "linf_absolute": 22900.43706512451,
+            "symmetric_relative_l1": 2.180317372448902e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.66455389412,
+            "linf_absolute": 22900.43706038352,
+            "symmetric_relative_l1": 0.12895574633814103
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.730392606642604e-07,
+            "linf_absolute": 3.268796110872385e-08,
+            "symmetric_relative_l1": 5.083867680576992e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 1.0073216902616673e-06,
+            "linf_absolute": 4.10502906111887e-08,
+            "symmetric_relative_l1": 5.08386768078894e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 4.960491930629868e-07,
+            "linf_absolute": 2.8721563617023493e-08,
+            "symmetric_relative_l1": 5.083867680873248e-07
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.428026774344306e-05,
+            "linf_absolute": 1.8010128446377394e-06,
+            "symmetric_relative_l1": 5.083867680243841e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016100166665217322,
+            "linf_absolute": 5.913379805377872e-06,
+            "symmetric_relative_l1": 5.083867680281702e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016448091689731062,
+            "linf_absolute": 5.6228452729456535e-06,
+            "symmetric_relative_l1": 5.08386768101741e-07
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.6645596877,
+            "linf_absolute": 22900.43706512451,
+            "symmetric_relative_l1": 2.180317372448902e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.66455389412,
+            "linf_absolute": 22900.43706038352,
+            "symmetric_relative_l1": 0.12895574633814103
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.730392606642604e-07,
+            "linf_absolute": 3.268796110872385e-08,
+            "symmetric_relative_l1": 5.083867680576992e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 1.0073216902616673e-06,
+            "linf_absolute": 4.10502906111887e-08,
+            "symmetric_relative_l1": 5.08386768078894e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 4.960491930629868e-07,
+            "linf_absolute": 2.8721563617023493e-08,
+            "symmetric_relative_l1": 5.083867680873248e-07
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a2a664b1864e2c945e8940e0aa1fbcedc7c0806de05ec7e219e2303ae665520b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.428026774344306e-05,
+            "linf_absolute": 1.8010128446377394e-06,
+            "symmetric_relative_l1": 5.083867680243841e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016100166665217322,
+            "linf_absolute": 5.913379805377872e-06,
+            "symmetric_relative_l1": 5.083867680281702e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016448091689731062,
+            "linf_absolute": 5.6228452729456535e-06,
+            "symmetric_relative_l1": 5.08386768101741e-07
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.3399079549745073,
+      "n_thermal_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "f24cbe4844f8c4a6330b25e0c14dd0ebd32eb550f57b8295f69659eaf63fa4cf",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 2.5842634461242998e-05,
+        "linf_absolute": 5.839611450397797e-06,
+        "symmetric_relative_l1": 2.1803173723242582e-07
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6925729695918.219,
+        "qp_prefactor_s_inv": 2.1495725894833235
+      },
+      "qualification": "Use qpsim's current Boltzmann constant; retain every material and drive value from the preceding native-energy step.",
+      "residual_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "4b1dc9a8da63bc8187533269afe1bbde083ab386f0eb219f7be3a3efca5f5816",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 101343.66471874663,
+        "linf_absolute": 22900.43706038352,
+        "symmetric_relative_l1": 0.9999999999452528
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "4b1dc9a8da63bc8187533269afe1bbde083ab386f0eb219f7be3a3efca5f5816",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 101343.66471874663,
+        "linf_absolute": 22900.43706038352,
+        "symmetric_relative_l1": 0.9999999999452528
+      },
+      "step_id": "C2b2-modern-kB"
+    },
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [
+        "c_photon_ns_inv"
+      ],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.6645596877,
+            "linf_absolute": 22900.43706512451,
+            "symmetric_relative_l1": 2.180317372448902e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.66455389412,
+            "linf_absolute": 22900.43706038352,
+            "symmetric_relative_l1": 0.12895574633814103
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.730392606642604e-07,
+            "linf_absolute": 3.268796110872385e-08,
+            "symmetric_relative_l1": 5.083867680576992e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 1.0073216902616673e-06,
+            "linf_absolute": 4.10502906111887e-08,
+            "symmetric_relative_l1": 5.08386768078894e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 4.960491930629868e-07,
+            "linf_absolute": 2.8721563617023493e-08,
+            "symmetric_relative_l1": 5.083867680873248e-07
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17379991071844636,
+            "linf_absolute": 0.040310947739271796,
+            "symmetric_relative_l1": 1.763390742500847e-05
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17113413960531007,
+            "linf_absolute": 0.04033143821334306,
+            "symmetric_relative_l1": 1.7633907425020184e-05
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00571797729100395,
+            "linf_absolute": 0.00019556592486846824,
+            "symmetric_relative_l1": 1.763390742501337e-05
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.428026774344306e-05,
+            "linf_absolute": 1.8010128446377394e-06,
+            "symmetric_relative_l1": 5.083867680243841e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016100166665217322,
+            "linf_absolute": 5.913379805377872e-06,
+            "symmetric_relative_l1": 5.083867680281702e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016448091689731062,
+            "linf_absolute": 5.6228452729456535e-06,
+            "symmetric_relative_l1": 5.08386768101741e-07
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "84d2259c5c79aa01dc0149995def09dcd64b1178c2dc9c0fe34f60e14953e526",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a8f08a6dfaaa767056f656856b07b1286b8fc089b353db210b01834b9e0a3273",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17379991071844636,
+            "linf_absolute": 0.040310947739271796,
+            "symmetric_relative_l1": 1.763390742500847e-05
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17113413960531007,
+            "linf_absolute": 0.04033143821334306,
+            "symmetric_relative_l1": 1.7633907425020184e-05
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00571797729100395,
+            "linf_absolute": 0.00019556592486846824,
+            "symmetric_relative_l1": 1.763390742501337e-05
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.33990595701190873,
+      "n_thermal_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "f24cbe4844f8c4a6330b25e0c14dd0ebd32eb550f57b8295f69659eaf63fa4cf",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 2.5842634461242998e-05,
+        "linf_absolute": 5.839611450397797e-06,
+        "symmetric_relative_l1": 2.1803173723242582e-07
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6925729695918.219,
+        "qp_prefactor_s_inv": 2.1495725894833235
+      },
+      "qualification": "Replace the author volume-derived 1.000035... Hz coupling with qpsim's explicit 1 Hz declaration.",
+      "residual_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "cd8025cc3d73e249a4bb7396810e422307b0c678aec72c14d3745fa24cfacade",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 101343.67010701892,
+        "linf_absolute": 22900.43706038352,
+        "symmetric_relative_l1": 0.9999999999452528
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "cd8025cc3d73e249a4bb7396810e422307b0c678aec72c14d3745fa24cfacade",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.00571797729100395,
+        "linf_absolute": 0.00019556592486846824,
+        "symmetric_relative_l1": 2.8210826770916245e-08
+      },
+      "step_id": "C2b3-literal-photon-coupling"
+    },
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [
+        "tau_0_pb_ns"
+      ],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.6645596877,
+            "linf_absolute": 22900.43706512451,
+            "symmetric_relative_l1": 2.180317372448902e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.66455389412,
+            "linf_absolute": 22900.43706038352,
+            "symmetric_relative_l1": 0.12895574633814103
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "229de451682aa3993883c6609352300d447c1fc4bbbdc9cc342cc07eeb946ef8",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07263194554398561,
+            "linf_absolute": 0.006332667147307625,
+            "symmetric_relative_l1": 0.0006584290509842954
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ae69da8b040e68370e4ae5831acc96d5d9b058ab6bfdd401c58b788170863fb",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07760743381738405,
+            "linf_absolute": 0.006005104109446435,
+            "symmetric_relative_l1": 0.0006584290509843015
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "15711ca26efc378454cbf0d0ff27cc7d0e492fe2f612d7def63e74d19cccf807",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.029004094483575407,
+            "linf_absolute": 0.0010503841181107587,
+            "symmetric_relative_l1": 0.0006584290509842997
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8a0a88bb8023c4e028573b99b934f0313447e85d2e90686a3d6f30deab801bbf",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 1349.6930652913313,
+            "linf_absolute": 212.27240371832158,
+            "symmetric_relative_l1": 0.0006584290509842881
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8723d55b94ca8c6602f39a80cbc40a81823539fe1292933246b66b3d31ba5286",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 810.2212761081046,
+            "linf_absolute": 208.6445189001097,
+            "symmetric_relative_l1": 0.0006584290509843316
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "64f24b3c1b66614bd67aa2d906285ed2138a34c8cde3e6140036be73410530e2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 539.4717891838424,
+            "linf_absolute": 10.668231931970695,
+            "symmetric_relative_l1": 0.0006584290509843088
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.730392606642604e-07,
+            "linf_absolute": 3.268796110872385e-08,
+            "symmetric_relative_l1": 5.083867680576992e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 1.0073216902616673e-06,
+            "linf_absolute": 4.10502906111887e-08,
+            "symmetric_relative_l1": 5.08386768078894e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 4.960491930629868e-07,
+            "linf_absolute": 2.8721563617023493e-08,
+            "symmetric_relative_l1": 5.083867680873248e-07
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17379991071844636,
+            "linf_absolute": 0.040310947739271796,
+            "symmetric_relative_l1": 1.763390742500847e-05
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17113413960531007,
+            "linf_absolute": 0.04033143821334306,
+            "symmetric_relative_l1": 1.7633907425020184e-05
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00571797729100395,
+            "linf_absolute": 0.00019556592486846824,
+            "symmetric_relative_l1": 1.763390742501337e-05
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 8.428026774344306e-05,
+            "linf_absolute": 1.8010128446377394e-06,
+            "symmetric_relative_l1": 5.083867680243841e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016100166665217322,
+            "linf_absolute": 5.913379805377872e-06,
+            "symmetric_relative_l1": 5.083867680281702e-07
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00016448091689731062,
+            "linf_absolute": 5.6228452729456535e-06,
+            "symmetric_relative_l1": 5.08386768101741e-07
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "229de451682aa3993883c6609352300d447c1fc4bbbdc9cc342cc07eeb946ef8",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07263194554398561,
+            "linf_absolute": 0.006332667147307625,
+            "symmetric_relative_l1": 0.0006584290509842954
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ae69da8b040e68370e4ae5831acc96d5d9b058ab6bfdd401c58b788170863fb",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07760743381738405,
+            "linf_absolute": 0.006005104109446435,
+            "symmetric_relative_l1": 0.0006584290509843015
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "15711ca26efc378454cbf0d0ff27cc7d0e492fe2f612d7def63e74d19cccf807",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.029004094483575407,
+            "linf_absolute": 0.0010503841181107587,
+            "symmetric_relative_l1": 0.0006584290509842997
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8a0a88bb8023c4e028573b99b934f0313447e85d2e90686a3d6f30deab801bbf",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 1349.6930652913313,
+            "linf_absolute": 212.27240371832158,
+            "symmetric_relative_l1": 0.0006584290509842881
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8723d55b94ca8c6602f39a80cbc40a81823539fe1292933246b66b3d31ba5286",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 810.2212761081046,
+            "linf_absolute": 208.6445189001097,
+            "symmetric_relative_l1": 0.0006584290509843316
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "64f24b3c1b66614bd67aa2d906285ed2138a34c8cde3e6140036be73410530e2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 539.4717891838424,
+            "linf_absolute": 10.668231931970695,
+            "symmetric_relative_l1": 0.0006584290509843088
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b4f12c229e3f6c1df48d3722b56a28536f0e41ba2cf9b166d2008a0d5b2cd1eb",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "a7ca8c5df847635219a345d2b740a778acb4c8093ae1900130c60009c446f491",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f99ded1a0a96715afa09e789879d38f898b4cf2c0c838c72cf642a5c487d3cd2",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "6eea36cf7ffc16fb10df3108c216dabd6b62b68be36cab36ecce1c32606ef306",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "dddf04443137dc383addcf3d6b2d4da999e54f485b9b9dd3d58efa3a04a086a6",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "989de54b7c9724a6a40c798c8e602a8c12aa212f2da361f8130511e9baf3a239",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.33990595701190873,
+      "n_thermal_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "f24cbe4844f8c4a6330b25e0c14dd0ebd32eb550f57b8295f69659eaf63fa4cf",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 2.5842634461242998e-05,
+        "linf_absolute": 5.839611450397797e-06,
+        "symmetric_relative_l1": 2.1803173723242582e-07
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6934855908143.588,
+        "qp_prefactor_s_inv": 2.1495725894833235
+      },
+      "qualification": "Replace the author's derived 0.255336... ns phonon time with the explicitly declared Fischer value 0.255 ns.",
+      "residual_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "47bde61414bfbc68e14965d06ddc7bacb8cc4c4bd0e880899a90ce766a10efa1",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 101883.17017838788,
+        "linf_absolute": 22904.06494520178,
+        "symmetric_relative_l1": 0.9999999999455422
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "47bde61414bfbc68e14965d06ddc7bacb8cc4c4bd0e880899a90ce766a10efa1",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 539.5007878901607,
+        "linf_absolute": 10.668231931970695,
+        "symmetric_relative_l1": 0.002654672912162771
+      },
+      "step_id": "C2b4-declared-pair-breaking-time"
+    },
+    {
+      "all_gain_loss_nonnegative": true,
+      "changed_fields": [
+        "T_c_K"
+      ],
+      "channel_difference_from_author": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.6645596877,
+            "linf_absolute": 22900.43706512451,
+            "symmetric_relative_l1": 2.180317372448902e-07
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 101343.66455389412,
+            "linf_absolute": 22900.43706038352,
+            "symmetric_relative_l1": 0.12895574633814103
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "229de451682aa3993883c6609352300d447c1fc4bbbdc9cc342cc07eeb946ef8",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07263194554398561,
+            "linf_absolute": 0.006332667147307625,
+            "symmetric_relative_l1": 0.0006584290509842954
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ae69da8b040e68370e4ae5831acc96d5d9b058ab6bfdd401c58b788170863fb",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.07760743381738405,
+            "linf_absolute": 0.006005104109446435,
+            "symmetric_relative_l1": 0.0006584290509843015
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "15711ca26efc378454cbf0d0ff27cc7d0e492fe2f612d7def63e74d19cccf807",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.029004094483575407,
+            "linf_absolute": 0.0010503841181107587,
+            "symmetric_relative_l1": 0.0006584290509842997
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8a0a88bb8023c4e028573b99b934f0313447e85d2e90686a3d6f30deab801bbf",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 1349.6930652913313,
+            "linf_absolute": 212.27240371832158,
+            "symmetric_relative_l1": 0.0006584290509842881
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8723d55b94ca8c6602f39a80cbc40a81823539fe1292933246b66b3d31ba5286",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 810.2212761081046,
+            "linf_absolute": 208.6445189001097,
+            "symmetric_relative_l1": 0.0006584290509843316
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "64f24b3c1b66614bd67aa2d906285ed2138a34c8cde3e6140036be73410530e2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 539.4717891838424,
+            "linf_absolute": 10.668231931970695,
+            "symmetric_relative_l1": 0.0006584290509843088
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "9c98c20cf3898796bd954876f4c70c2a14e17fbf1c8a6ce41d7bdc8d567db1f5",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0006732016087808436,
+            "linf_absolute": 2.520572556141687e-05,
+            "symmetric_relative_l1": 0.00039217117812530565
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "9bec64774465d01ee50b4f718d2645c2314e32840fa52712f8090e5dee8f295c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0007767469493866541,
+            "linf_absolute": 3.165392774556741e-05,
+            "symmetric_relative_l1": 0.00039217117812531877
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3334a7ce75d37ab9acfd8d5ddedf04eaf3564fdbff590dcd637cf0cc3b11658b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0003825041207550159,
+            "linf_absolute": 2.2147231748974316e-05,
+            "symmetric_relative_l1": 0.0003921711781253175
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17379991071844636,
+            "linf_absolute": 0.040310947739271796,
+            "symmetric_relative_l1": 1.763390742500847e-05
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.17113413960531007,
+            "linf_absolute": 0.04033143821334306,
+            "symmetric_relative_l1": 1.7633907425020184e-05
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00571797729100395,
+            "linf_absolute": 0.00019556592486846824,
+            "symmetric_relative_l1": 1.763390742501337e-05
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ba4348e971ccbba5f0412a94cce6dd91ebae508cc2061ae87358d330a2a987e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.06498861436532184,
+            "linf_absolute": 0.0013887631410951506,
+            "symmetric_relative_l1": 0.00039217117812538263
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "404e58640a186e35b8b3f359a56ff770f2dbcf582bc0b788fde32260a8179eb7",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.12414857601073484,
+            "linf_absolute": 0.004559814173725307,
+            "symmetric_relative_l1": 0.0003921711781252952
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b54ffb3aa8f6edebf620f3b28f86c281f2e985a67f36323dd844441594150c26",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.12683142998079214,
+            "linf_absolute": 0.004335782651340381,
+            "symmetric_relative_l1": 0.0003921711781252931
+          }
+        }
+      },
+      "channel_difference_from_previous": {
+        "phonon_escape": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_pair": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "229de451682aa3993883c6609352300d447c1fc4bbbdc9cc342cc07eeb946ef8",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ae69da8b040e68370e4ae5831acc96d5d9b058ab6bfdd401c58b788170863fb",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "15711ca26efc378454cbf0d0ff27cc7d0e492fe2f612d7def63e74d19cccf807",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "phonon_scattering": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8a0a88bb8023c4e028573b99b934f0313447e85d2e90686a3d6f30deab801bbf",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "8723d55b94ca8c6602f39a80cbc40a81823539fe1292933246b66b3d31ba5286",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "64f24b3c1b66614bd67aa2d906285ed2138a34c8cde3e6140036be73410530e2",
+              "shape": [
+                1619
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_pair": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "9c98c20cf3898796bd954876f4c70c2a14e17fbf1c8a6ce41d7bdc8d567db1f5",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0006723285695201792,
+            "linf_absolute": 2.5173037600308146e-05,
+            "symmetric_relative_l1": 0.0003916627914353355
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "9bec64774465d01ee50b4f718d2645c2314e32840fa52712f8090e5dee8f295c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0007757396276963924,
+            "linf_absolute": 3.161287745495622e-05,
+            "symmetric_relative_l1": 0.00039166279143532746
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "3334a7ce75d37ab9acfd8d5ddedf04eaf3564fdbff590dcd637cf0cc3b11658b",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.00038200807156195296,
+            "linf_absolute": 2.2118510185357293e-05,
+            "symmetric_relative_l1": 0.00039166279143531787
+          }
+        },
+        "qp_photon": {
+          "gain_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "d01dcb4f4bf239d9b8008d96c7db2525077a13d7e61b88cdd52ed7acd3c17a8f",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "loss_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "22364421b6d5ae98291642273a863fb6427fb5629e064f70d6943d644dda3f6c",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          },
+          "net_s_inv": {
+            "bit_exact": true,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "5fa3e65ac83568e5556ef48ab142bccb702035742d1841a3b2713009dce08683",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0,
+            "linf_absolute": 0.0,
+            "symmetric_relative_l1": 0.0
+          }
+        },
+        "qp_scattering": {
+          "gain_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "2ba4348e971ccbba5f0412a94cce6dd91ebae508cc2061ae87358d330a2a987e",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.0649043340975784,
+            "linf_absolute": 0.001386962128250513,
+            "symmetric_relative_l1": 0.0003916627914354459
+          },
+          "loss_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "404e58640a186e35b8b3f359a56ff770f2dbcf582bc0b788fde32260a8179eb7",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.12398757434408267,
+            "linf_absolute": 0.004553900793919929,
+            "symmetric_relative_l1": 0.00039166279143535457
+          },
+          "net_s_inv": {
+            "bit_exact": false,
+            "candidate_descriptor": {
+              "dtype": "<f8",
+              "npy_sha256": "b54ffb3aa8f6edebf620f3b28f86c281f2e985a67f36323dd844441594150c26",
+              "shape": [
+                1620
+              ]
+            },
+            "l1_absolute": 0.12666694906389486,
+            "linf_absolute": 0.004330159806067435,
+            "symmetric_relative_l1": 0.000391662791435279
+          }
+        }
+      },
+      "eq35_t_star_over_delta": 0.3399503360830364,
+      "n_thermal_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "f24cbe4844f8c4a6330b25e0c14dd0ebd32eb550f57b8295f69659eaf63fa4cf",
+          "shape": [
+            1619
+          ]
+        },
+        "l1_absolute": 2.5842634461242998e-05,
+        "linf_absolute": 5.839611450397797e-06,
+        "symmetric_relative_l1": 2.1803173723242582e-07
+      },
+      "operator_scalars": {
+        "a_delta": 180,
+        "pair_frequency_offset_bins": 0,
+        "phonon_prefactor_per_eV_s": 6934855908143.588,
+        "qp_prefactor_s_inv": 2.14788943351131
+      },
+      "qualification": "Derive qpsim's Figure 6 critical temperature from the explicit 180 micro-eV gap and finite-cutoff BCS calibration.",
+      "residual_difference_from_author": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "9742d232781c78d0e4f9f23f8218bb56457ec67ed49548d5dd007baa99971a68",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 101883.28602524631,
+        "linf_absolute": 22904.06494520178,
+        "symmetric_relative_l1": 0.9999999999455423
+      },
+      "residual_difference_from_previous": {
+        "bit_exact": false,
+        "candidate_descriptor": {
+          "dtype": "<f8",
+          "npy_sha256": "9742d232781c78d0e4f9f23f8218bb56457ec67ed49548d5dd007baa99971a68",
+          "shape": [
+            3239
+          ]
+        },
+        "l1_absolute": 0.1269531080176168,
+        "linf_absolute": 0.004342042775070512,
+        "symmetric_relative_l1": 6.230324185454711e-07
+      },
+      "step_id": "C2b5-finite-cutoff-critical-temperature"
+    }
+  ],
+  "structural_identity": {
+    "descriptors": {
+      "K_minus": {
+        "dtype": "<f8",
+        "npy_sha256": "49f2f2436f9cc70fafcafaee6c6a4c69bfd2a0472add315defcf0036280b9af6",
+        "shape": [
+          1620,
+          1620
+        ]
+      },
+      "K_plus": {
+        "dtype": "<f8",
+        "npy_sha256": "8aaae229982179a37c1cff661f1818e725ef20ba371f769a04c32bbaaec623a1",
+        "shape": [
+          1620,
+          1620
+        ]
+      },
+      "rho": {
+        "dtype": "<f8",
+        "npy_sha256": "25079971b0a7a043db1c2042d611c6a7770b29545d87783e391e632937078a75",
+        "shape": [
+          1620
+        ]
+      }
+    },
+    "grid_projection": "none",
+    "pair_frequency_offset_bins": 0
+  }
+}

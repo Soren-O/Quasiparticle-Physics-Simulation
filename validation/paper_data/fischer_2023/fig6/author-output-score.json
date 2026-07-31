@@ -1,0 +1,1275 @@
+{
+  "accepted": true,
+  "author_source": {
+    "archive_sha256": "31d76c92ef12c8056b583ef0d770f9f5c1ef48c561db971cc0dab1b733481bc1",
+    "bundled_output_sha256": "6c1a02dabe75034e963911cc20de08e2fedc0a870093bf1180c6da7149e35ac3",
+    "manifest_path": "validation/paper_data/fischer_2023/fig6/author-source.json",
+    "manifest_sha256": "b6b85366a07710281e8a5734698231a3530ec33fcaa84232ee9fba694acd4c18",
+    "source_id": "fischer-catelani-2023-fig6-author-email-attachment-v1"
+  },
+  "claim": "The bundled output in the authenticated author attachment agrees with the published arXiv-v2 Figure 6 raster within the combined high-resolution and publication-raster digitization bounds.",
+  "curve_scores": [
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.00129507625361,
+      "max_relative_error": 0.00794107957707,
+      "max_uncertainty_normalized_error": 0.276066887281,
+      "mean_absolute_error": 0.00070728396205,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.0010168455556,
+          "author_output_y": 0.129065626044,
+          "author_raster_uncertainty": 0.00145640475068,
+          "effective_uncertainty": 0.00556606350653,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "2fcb8f43ea0e9c66adb720125d1ded0b5275df5d08c166a92618dedb5108c1b6",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 205,
+              "trace_min_y_pixel": 203,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 204.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.128048780488
+            }
+          },
+          "paper_y": 0.128048780488,
+          "relative_error": 0.00794107957707,
+          "uncertainty_normalized_error": 0.182686660763,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000316059303579,
+          "author_output_y": 0.143654130398,
+          "author_raster_uncertainty": 0.00139036834388,
+          "effective_uncertainty": 0.00614212215869,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "cc3acc873bbb24335c426859d426f6405a8762f8e9352a498fb44e45fb10e04c",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 181,
+              "trace_min_y_pixel": 180,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 180.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.143970189702
+            }
+          },
+          "paper_y": 0.143970189702,
+          "relative_error": 0.00219531073921,
+          "uncertainty_normalized_error": 0.0514576713737,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 6.9921107945e-06,
+          "author_output_y": 0.157527317314,
+          "author_raster_uncertainty": 0.000838063851784,
+          "effective_uncertainty": 0.00549728452445,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "2fed6fc76ea732d60ca0f806026d7033f4b851fc853c8f1133c072109cd72983",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 162,
+              "trace_min_y_pixel": 159,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 160.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.157520325203
+            }
+          },
+          "paper_y": 0.157520325203,
+          "relative_error": 4.43886259471e-05,
+          "uncertainty_normalized_error": 0.00127192084808,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000938022261485,
+          "author_output_y": 0.171669729578,
+          "author_raster_uncertainty": 0.0011128307188,
+          "effective_uncertainty": 0.00647839205008,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "12cc5d5d3de6cfdb885ab9de53c43a528d5d90bbd73f48ba3759c4db2dfa485c",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 143,
+              "trace_min_y_pixel": 139,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 141.0,
+              "y_uncertainty": 0.00318428184282,
+              "y_value": 0.170731707317
+            }
+          },
+          "paper_y": 0.170731707317,
+          "relative_error": 0.0054941303887,
+          "uncertainty_normalized_error": 0.144792450694,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000582496965464,
+          "author_output_y": 0.184525586396,
+          "author_raster_uncertainty": 0.00144670709652,
+          "effective_uncertainty": 0.00562820285514,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "be8358ecdf47d466b9515989844aaae769d0ac1d21215cc5cc4fe82d2d1017b0",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 123,
+              "trace_min_y_pixel": 120,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 121.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.183943089431
+            }
+          },
+          "paper_y": 0.183943089431,
+          "relative_error": 0.00316672383434,
+          "uncertainty_normalized_error": 0.103496085777,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000795495283815,
+          "author_output_y": 0.197272460054,
+          "author_raster_uncertainty": 0.00143608585623,
+          "effective_uncertainty": 0.00500359956808,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "b1020cc48a021a84b72d5fba7ba8e75d5af380d702c217061e6841652526a014",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 104,
+              "trace_min_y_pixel": 102,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 103.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.19647696477
+            }
+          },
+          "paper_y": 0.19647696477,
+          "relative_error": 0.00404879668589,
+          "uncertainty_normalized_error": 0.158984601584,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.00129507625361,
+          "author_output_y": 0.201498328287,
+          "author_raster_uncertainty": 0.00137097303569,
+          "effective_uncertainty": 0.00469116838447,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "3ca22ce11d315149a8c4873d27e3025ee4d5b2513f03422f0740ab7f0d0612ce",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 98,
+              "trace_min_y_pixel": 97,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 97.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.200203252033
+            }
+          },
+          "paper_y": 0.200203252033,
+          "relative_error": 0.00646880727691,
+          "uncertainty_normalized_error": 0.276066887281,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.000816188089667,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_numerical",
+      "max_absolute_error": 0.000252614699716,
+      "max_relative_error": 0.00165774419615,
+      "max_uncertainty_normalized_error": 0.061890645653,
+      "mean_absolute_error": 0.000132065771162,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 5.70694835023e-05,
+          "author_output_y": 0.105972740814,
+          "author_raster_uncertainty": 0.00126753139168,
+          "effective_uncertainty": 0.0245898874276,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "177aade694804a2c64da32844acca8f84d0c15b5932e225c2e86183e4035459d",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 238,
+              "trace_min_y_pixel": 235,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 236.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.106029810298
+            }
+          },
+          "paper_y": 0.106029810298,
+          "relative_error": 0.000538239984981,
+          "uncertainty_normalized_error": 0.0023208517595,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 6.9539916693e-05,
+          "author_output_y": 0.116261951841,
+          "author_raster_uncertainty": 0.00130124228459,
+          "effective_uncertainty": 0.0318640516073,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "c745e3a2c2d2bc72df3a66a0664f876b59f1e85c0aaa5c4fd75c2c567c646b1a",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 223,
+              "trace_min_y_pixel": 220,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 221.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.116192411924
+            }
+          },
+          "paper_y": 0.116192411924,
+          "relative_error": 0.00059848931218,
+          "uncertainty_normalized_error": 0.00218239405177,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.00021002585683,
+          "author_output_y": 0.126483741081,
+          "author_raster_uncertainty": 0.00132571731642,
+          "effective_uncertainty": 0.00497150495076,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "180e9c158884594f950533d2abe55645f69894737bdb9b571b15b79e09b92fec",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 207,
+              "trace_min_y_pixel": 205,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 206.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.126693766938
+            }
+          },
+          "paper_y": 0.126693766938,
+          "relative_error": 0.00165774419615,
+          "uncertainty_normalized_error": 0.0422459313447,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000137243529507,
+          "author_output_y": 0.137057878421,
+          "author_raster_uncertainty": 0.0013349531775,
+          "effective_uncertainty": 0.00538460701991,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "fba3f7bfedb18bef7ed0a43a5fc4b3b603ca69311dd99363f1faca1094e09938",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 192,
+              "trace_min_y_pixel": 189,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 190.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.137195121951
+            }
+          },
+          "paper_y": 0.137195121951,
+          "relative_error": 0.0010003528373,
+          "uncertainty_normalized_error": 0.0254881236458,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000133527446875,
+          "author_output_y": 0.147901702905,
+          "author_raster_uncertainty": 0.0013349531775,
+          "effective_uncertainty": 0.00542917004959,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "12aef733e31d3285ec46c02e6c4721faaa6f3b2475bb343ca65340be782530c5",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 176,
+              "trace_min_y_pixel": 173,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 174.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.148035230352
+            }
+          },
+          "paper_y": 0.148035230352,
+          "relative_error": 0.000901997764702,
+          "uncertainty_normalized_error": 0.0245944491801,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 6.44394650111e-05,
+          "author_output_y": 0.158472145901,
+          "author_raster_uncertainty": 0.00124536532509,
+          "effective_uncertainty": 0.00480664483064,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "f263d242476b6a2d3503dfc038caeb9315704ce805593ade4ed2ccbd7a6f080d",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 160,
+              "trace_min_y_pixel": 158,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 159.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.158536585366
+            }
+          },
+          "paper_y": 0.158536585366,
+          "relative_error": 0.000406464317762,
+          "uncertainty_normalized_error": 0.0134063296294,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.000252614699716,
+          "author_output_y": 0.160993997766,
+          "author_raster_uncertainty": 0.000968751286049,
+          "effective_uncertainty": 0.00408162973662,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "d29c8a970ad1069406f8367b29259c252db4ea6dfb009ba213768ac49337a966",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 156,
+              "trace_min_y_pixel": 154,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 155.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.161246612466
+            }
+          },
+          "paper_y": 0.161246612466,
+          "relative_error": 0.00156663570076,
+          "uncertainty_normalized_error": 0.061890645653,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.000149683276632,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.00137565370767,
+      "max_relative_error": 0.00696557417674,
+      "max_uncertainty_normalized_error": 0.283072461209,
+      "mean_absolute_error": 0.000848703814804,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.000770935319823,
+          "author_output_y": 0.126109688708,
+          "author_raster_uncertainty": 0.00149011564359,
+          "effective_uncertainty": 0.00569144032061,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "789880d468ac0d36a739664cb557acc36597a5b9dad4a2da6288cd10f501a7d0",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 209,
+              "trace_min_y_pixel": 207,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 208.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.125338753388
+            }
+          },
+          "paper_y": 0.125338753388,
+          "relative_error": 0.00615081368678,
+          "uncertainty_normalized_error": 0.135455223352,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000217674634738,
+          "author_output_y": 0.140703734579,
+          "author_raster_uncertainty": 0.00137420558699,
+          "effective_uncertainty": 0.00638112824664,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "52305cf53ca03262f99b29066bd0a360edd424fc8b35acfa58d695b1307d031e",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 186,
+              "trace_min_y_pixel": 184,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 185.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.140921409214
+            }
+          },
+          "paper_y": 0.140921409214,
+          "relative_error": 0.00154465269651,
+          "uncertainty_normalized_error": 0.034112248857,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.000427967409754,
+          "author_output_y": 0.154560758738,
+          "author_raster_uncertainty": 0.000777107168785,
+          "effective_uncertainty": 0.00553930769242,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "9e8890f51166d0be8e0fa4c7b998d3f87c3033bd6904aaf956a6a521a0daa318",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 167,
+              "trace_min_y_pixel": 164,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 165.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.154132791328
+            }
+          },
+          "paper_y": 0.154132791328,
+          "relative_error": 0.00277661493098,
+          "uncertainty_normalized_error": 0.0772600898015,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.00115508774508,
+          "author_output_y": 0.168838014574,
+          "author_raster_uncertainty": 0.00118025250462,
+          "effective_uncertainty": 0.00624077134127,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "5eaf1ffbc02f9186898eef18c603ed5d9f7c19bfe38be9e3fe5b624ecd2f6d6d",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 147,
+              "trace_min_y_pixel": 144,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 145.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.167682926829
+            }
+          },
+          "paper_y": 0.167682926829,
+          "relative_error": 0.00688852327978,
+          "uncertainty_normalized_error": 0.185087336472,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000857748373835,
+          "author_output_y": 0.181752057317,
+          "author_raster_uncertainty": 0.00145594295757,
+          "effective_uncertainty": 0.00547116503417,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "efe36a99296446f50c89ec16c9f7210faa993aec03168835b3f752be03ec3c84",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 127,
+              "trace_min_y_pixel": 125,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 126.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.180894308943
+            }
+          },
+          "paper_y": 0.180894308943,
+          "relative_error": 0.00474171011154,
+          "uncertainty_normalized_error": 0.156776183587,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.00113585951273,
+          "author_output_y": 0.194564043795,
+          "author_raster_uncertainty": 0.00144763068255,
+          "effective_uncertainty": 0.00473226796637,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "fae16cad063bff09045e10d1555d3516550350b605fd7162161981409d1a673b",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 108,
+              "trace_min_y_pixel": 107,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 107.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.193428184282
+            }
+          },
+          "paper_y": 0.193428184282,
+          "relative_error": 0.00587225443356,
+          "uncertainty_normalized_error": 0.240024343676,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.00137565370767,
+          "author_output_y": 0.19886887864,
+          "author_raster_uncertainty": 0.0014383948215,
+          "effective_uncertainty": 0.00485972284902,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "d9957c23b78ed74b02c8890d3dca70483e2cacd1e603fac934ac9a79b87b6e10",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 102,
+              "trace_min_y_pixel": 101,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 101.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.197493224932
+            }
+          },
+          "paper_y": 0.197493224932,
+          "relative_error": 0.00696557417674,
+          "uncertainty_normalized_error": 0.283072461209,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.00093177553593,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_numerical",
+      "max_absolute_error": 0.000322379067874,
+      "max_relative_error": 0.00241814777822,
+      "max_uncertainty_normalized_error": 0.05840781841,
+      "mean_absolute_error": 0.000157472297024,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 1.84737426605e-05,
+          "author_output_y": 0.0972406959649,
+          "author_raster_uncertainty": 0.00141391978964,
+          "effective_uncertainty": 0.0304006294204,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "bcb3f376d70e4fbd649d74700b99606e3cf67d857e3b084b11f54df4386cd01a",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 251,
+              "trace_min_y_pixel": 248,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 249.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.0972222222222
+            }
+          },
+          "paper_y": 0.0972222222222,
+          "relative_error": 0.000190015638794,
+          "uncertainty_normalized_error": 0.000607676321601,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000101221650821,
+          "author_output_y": 0.109316122522,
+          "author_raster_uncertainty": 0.00140237496332,
+          "effective_uncertainty": 0.0359107441355,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "02857f41cb8fd8482721bb128042bf8d60d91894321006d132a73a3a7d986d67",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 233,
+              "trace_min_y_pixel": 230,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 231.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.109417344173
+            }
+          },
+          "paper_y": 0.109417344173,
+          "relative_error": 0.000925096944967,
+          "uncertainty_normalized_error": 0.00281870101156,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.000292438603262,
+          "author_output_y": 0.120642520747,
+          "author_raster_uncertainty": 0.00136866407041,
+          "effective_uncertainty": 0.00548135266466,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "e48d7e67965d23dec4619717802b529df994167f49b58ba56e05da17abefe9f7",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 216,
+              "trace_min_y_pixel": 213,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 214.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.12093495935
+            }
+          },
+          "paper_y": 0.12093495935,
+          "relative_error": 0.00241814777822,
+          "uncertainty_normalized_error": 0.0533515395109,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000125044055332,
+          "author_output_y": 0.131900111806,
+          "author_raster_uncertainty": 0.00136866407041,
+          "effective_uncertainty": 0.0389133225697,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "ae646e5e9b30ea8b3381260411e53aabc2a818acd273137dc2c8c49c78eb25d8",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 200,
+              "trace_min_y_pixel": 197,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 198.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.131775067751
+            }
+          },
+          "paper_y": 0.131775067751,
+          "relative_error": 0.000948920440459,
+          "uncertainty_normalized_error": 0.00321339960389,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 7.21762057788e-05,
+          "author_output_y": 0.143220506721,
+          "author_raster_uncertainty": 0.00137328200093,
+          "effective_uncertainty": 0.00547211680355,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "ab51eb276b83cf2d2cc7c93c90c7afb4a479c170b521aacdba0184b14120005e",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 183,
+              "trace_min_y_pixel": 180,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 181.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.143292682927
+            }
+          },
+          "paper_y": 0.143292682927,
+          "relative_error": 0.000503697776498,
+          "uncertainty_normalized_error": 0.0131898145398,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000170572753439,
+          "author_output_y": 0.15463972535,
+          "author_raster_uncertainty": 0.00139083013699,
+          "effective_uncertainty": 0.00550721307567,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "5d8752779ef5706ed1a1b9f6e25fd7ec39bb17ae0e0d386d3b476f41ec105e35",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 166,
+              "trace_min_y_pixel": 163,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 164.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.154810298103
+            }
+          },
+          "paper_y": 0.154810298103,
+          "relative_error": 0.00110181787342,
+          "uncertainty_normalized_error": 0.030972608304,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.000322379067874,
+          "author_output_y": 0.158552959685,
+          "author_raster_uncertainty": 0.00136866407041,
+          "effective_uncertainty": 0.00551945059155,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "636296db48c706fa82578d00ecc9592be2dbc73a828fa86f34eedf92e83171cd",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 160,
+              "trace_min_y_pixel": 157,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 158.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.158875338753
+            }
+          },
+          "paper_y": 0.158875338753,
+          "relative_error": 0.002029132214,
+          "uncertainty_normalized_error": 0.05840781841,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.000188973235639,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.00129065016783,
+      "max_relative_error": 0.00694382792401,
+      "max_uncertainty_normalized_error": 0.219261175329,
+      "mean_absolute_error": 0.000688928365176,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.000851512773878,
+          "author_output_y": 0.123480239061,
+          "author_raster_uncertainty": 0.00149011564359,
+          "effective_uncertainty": 0.00575886210643,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "86f682b32b02cae893b32799048f52014e93e672ae1695dbc1f2132fd6b209a2",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 213,
+              "trace_min_y_pixel": 211,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 212.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.122628726287
+            }
+          },
+          "paper_y": 0.122628726287,
+          "relative_error": 0.00694382792401,
+          "uncertainty_normalized_error": 0.147861288939,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000119549045654,
+          "author_output_y": 0.138091833068,
+          "author_raster_uncertainty": 0.00135665745097,
+          "effective_uncertainty": 0.00631232108167,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "0a1c238f62e98840982adc820b49ff8384e403c238cffdcbfccfd8762932b330",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 190,
+              "trace_min_y_pixel": 188,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 189.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.138211382114
+            }
+          },
+          "paper_y": 0.138211382114,
+          "relative_error": 0.000864972506792,
+          "uncertainty_normalized_error": 0.0189389994754,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.00012084141215,
+          "author_output_y": 0.151882359027,
+          "author_raster_uncertainty": 0.000716150485785,
+          "effective_uncertainty": 0.00595125527901,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "66dc2fb57a1ba4574e7d636f1cdd6067629b93833a92bbf43d92b0ba2426dbad",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 171,
+              "trace_min_y_pixel": 167,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 169.0,
+              "y_uncertainty": 0.00318428184282,
+              "y_value": 0.151761517615
+            }
+          },
+          "paper_y": 0.151761517615,
+          "relative_error": 0.000796258590776,
+          "uncertainty_normalized_error": 0.0203051972206,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000625580208957,
+          "author_output_y": 0.166275986713,
+          "author_raster_uncertainty": 0.00124767429044,
+          "effective_uncertainty": 0.00633566981378,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "7281a6c50e94f7c34b91883fa3960e554e83d5ddc91e831fd8f7f98dd8950a4c",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 150,
+              "trace_min_y_pixel": 147,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 148.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.165650406504
+            }
+          },
+          "paper_y": 0.165650406504,
+          "relative_error": 0.0037765087461,
+          "uncertainty_normalized_error": 0.0987393957299,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000734416011528,
+          "author_output_y": 0.179257451242,
+          "author_raster_uncertainty": 0.00146517881861,
+          "effective_uncertainty": 0.00550144066243,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "36487359528a107a5c59c73790b46526974d9edc946a94021a13a488deb9235d",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 131,
+              "trace_min_y_pixel": 128,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 129.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.17852303523
+            }
+          },
+          "paper_y": 0.17852303523,
+          "relative_error": 0.00411384452758,
+          "uncertainty_normalized_error": 0.133495216361,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.00107994893624,
+          "author_output_y": 0.192136859505,
+          "author_raster_uncertainty": 0.00144763068255,
+          "effective_uncertainty": 0.00513844313972,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "9d916d3df8e99947e304bd8de7388a8504982e26b75f6bf97077016531097408",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 112,
+              "trace_min_y_pixel": 110,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 111.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.191056910569
+            }
+          },
+          "paper_y": 0.191056910569,
+          "relative_error": 0.00565249868755,
+          "uncertainty_normalized_error": 0.210170455695,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.00129065016783,
+          "author_output_y": 0.196412601388,
+          "author_raster_uncertainty": 0.00140468392859,
+          "effective_uncertainty": 0.0058863597985,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "012f831be05ec039b0c1b9709473cb7277c3792376582ae3d6c20be0ca00ad60",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 105,
+              "trace_min_y_pixel": 105,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 105.0,
+              "y_uncertainty": 0.002,
+              "y_value": 0.19512195122
+            }
+          },
+          "paper_y": 0.19512195122,
+          "relative_error": 0.0066145821101,
+          "uncertainty_normalized_error": 0.219261175329,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.000803274873939,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_numerical",
+      "max_absolute_error": 0.000203494529256,
+      "max_relative_error": 0.00230253069026,
+      "max_uncertainty_normalized_error": 0.036573334127,
+      "mean_absolute_error": 0.000120521054327,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.000188757597237,
+          "author_output_y": 0.081789562186,
+          "author_raster_uncertainty": 0.00153721853495,
+          "effective_uncertainty": 0.00628420807103,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "008faa35da076657de5f770dcef1587b5e22fc411030c59e58593e56f09870ab",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 274,
+              "trace_min_y_pixel": 270,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 272.0,
+              "y_uncertainty": 0.00318428184282,
+              "y_value": 0.0819783197832
+            }
+          },
+          "paper_y": 0.0819783197832,
+          "relative_error": 0.00230253069026,
+          "uncertainty_normalized_error": 0.030036815316,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 5.29914497683e-05,
+          "author_output_y": 0.0958142172223,
+          "author_raster_uncertainty": 0.00148734488516,
+          "effective_uncertainty": 0.0468344588174,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "2f9f03e78eb0b3705590f59a9a742c9fe1dcd7831672fbbe3fec9c9306d28a8e",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 253,
+              "trace_min_y_pixel": 250,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 251.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.0958672086721
+            }
+          },
+          "paper_y": 0.0958672086721,
+          "relative_error": 0.000552758868254,
+          "uncertainty_normalized_error": 0.00113146283968,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.000104397836731,
+          "author_output_y": 0.108635439561,
+          "author_raster_uncertainty": 0.00146056088806,
+          "effective_uncertainty": 0.00569816450328,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "9fedf458a660504241fcf54d3c3bd6da93b5ad87c2fcd87f47b20765e4424441",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 234,
+              "trace_min_y_pixel": 231,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 232.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.108739837398
+            }
+          },
+          "paper_y": 0.108739837398,
+          "relative_error": 0.000960069825638,
+          "uncertainty_normalized_error": 0.0183213097254,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000110244939457,
+          "author_output_y": 0.121045204289,
+          "author_raster_uncertainty": 0.00143608585623,
+          "effective_uncertainty": 0.0472062022255,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "f7904050a64bdbfc4efaa89874f6fc3b9fd01edfe6f140e2d11ed393bba02cab",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 216,
+              "trace_min_y_pixel": 213,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 214.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.12093495935
+            }
+          },
+          "paper_y": 0.12093495935,
+          "relative_error": 0.000911605213661,
+          "uncertainty_normalized_error": 0.00233539099228,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 6.25050974318e-06,
+          "author_output_y": 0.133136331811,
+          "author_raster_uncertainty": 0.00140237496332,
+          "effective_uncertainty": 0.0204492199962,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "b71dc87873aa099982ccadbeced22573184be0d9a420c4786ffea26cd5851454",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 198,
+              "trace_min_y_pixel": 195,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 196.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.133130081301
+            }
+          },
+          "paper_y": 0.133130081301,
+          "relative_error": 4.6950393796e-05,
+          "uncertainty_normalized_error": 0.000305660056683,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000203494529256,
+          "author_output_y": 0.145121708723,
+          "author_raster_uncertainty": 0.00140237496332,
+          "effective_uncertainty": 0.00556401362123,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "6a357d7bceacf5c21ae1d7c637338e33e6d2d1c1b7c34e07cfa14f2ed30ecc3c",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 180,
+              "trace_min_y_pixel": 177,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 178.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.145325203252
+            }
+          },
+          "paper_y": 0.145325203252,
+          "relative_error": 0.00140027004747,
+          "uncertainty_normalized_error": 0.036573334127,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.000177510518097,
+          "author_output_y": 0.149212733384,
+          "author_raster_uncertainty": 0.00140468392859,
+          "effective_uncertainty": 0.0517405482186,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "d9fc7a32026962773ae9f6cedfc2cb7ca66fda6e3c3bf31a142d75930891b07b",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_numerical",
+              "trace_max_y_pixel": 174,
+              "trace_min_y_pixel": 171,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 172.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.149390243902
+            }
+          },
+          "paper_y": 0.149390243902,
+          "relative_error": 0.00118823367216,
+          "uncertainty_normalized_error": 0.00343078154772,
+          "x_value": 0.409931506849
+        }
+      ],
+      "rms_error": 0.000138589556192,
+      "uncertainty_normalized_limit": 1.0
+    }
+  ],
+  "does_not_claim": [
+    "that the current runtime regenerated the bundled PNG",
+    "that the attachment is the historical publication checkout",
+    "that the author equations are physically correct"
+  ],
+  "evidence_class": "authenticated_author_output_identity",
+  "extraction": {
+    "horizontal_half_window_pixels": 12,
+    "image_dimensions": [
+      6400,
+      4800
+    ],
+    "image_dpi": 1000.0,
+    "sample_count_per_curve": 171,
+    "script_path": "validation/fischer_2023/fig6_author_output_parity.py",
+    "script_sha256": "dae9f9e4078c535a8a05f46e54249413edc7cf8020c45f5233ef92c61ccbe2b3",
+    "trace_identity": "caption-bound dashed-above-solid on rising branch",
+    "x_control_pixels": [
+      2716,
+      3700,
+      4684,
+      5668
+    ],
+    "x_control_values": [
+      0.3,
+      0.4,
+      0.5,
+      0.6
+    ],
+    "y_control_pixels": [
+      981,
+      1723,
+      2464,
+      3206
+    ],
+    "y_control_values": [
+      0.2,
+      0.15,
+      0.1,
+      0.05
+    ]
+  },
+  "paper_oracle": {
+    "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
+    "manifest_path": "validation/paper_data/fischer_2023/fig6/oracle.json",
+    "manifest_sha256": "169eaf05fdeed8d80fee6998b6e9e934e71bb61fac1f44484544cf1cc4e44727",
+    "points_path": "validation/paper_data/fischer_2023/fig6/points.csv",
+    "points_sha256": "26c61da67da06da1c7fcbd3de5def71a1a625cfb1cfff61ba38f60992d2d6882"
+  },
+  "producer": {
+    "runtime": {
+      "packages": {
+        "Pillow": "12.1.0",
+        "numpy": "2.4.2"
+      },
+      "python": {
+        "cache_tag": "cpython-314",
+        "implementation": "CPython",
+        "version": "3.14.3"
+      }
+    },
+    "sources": {
+      "validation/author_source.py": {
+        "execution_binding": "import-time on-disk source snapshot, required unchanged before and after scoring; not an independent interpreter-bytecode attestation",
+        "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+        "sha256": "d363ed849b0f578c40ddc9560b42eb93ca07b2052b34f2690f0a70f8a71c4330"
+      },
+      "validation/fischer_2023/fig6_author_output_parity.py": {
+        "execution_binding": "import-time on-disk source snapshot, required unchanged before and after scoring; not an independent interpreter-bytecode attestation",
+        "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+        "sha256": "dae9f9e4078c535a8a05f46e54249413edc7cf8020c45f5233ef92c61ccbe2b3"
+      },
+      "validation/paper_parity.py": {
+        "execution_binding": "import-time on-disk source snapshot, required unchanged before and after scoring; not an independent interpreter-bytecode attestation",
+        "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+        "sha256": "17ef56037b2a77fa5a4e2649cf1b851b7c494609937f86ec940f9732dd19da45"
+      },
+      "validation/source_provenance.py": {
+        "execution_binding": "import-time on-disk source snapshot, required unchanged before and after scoring; not an independent interpreter-bytecode attestation",
+        "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+        "sha256": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+      }
+    }
+  },
+  "schema": "qpsim.fischer2023.fig6-author-output-score.v1",
+  "status": "accepted_author_output_identity"
+}

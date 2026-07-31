@@ -1,0 +1,12 @@
+{
+  "checked_score": {
+    "file_sha256": "aa993f1354f86ab2b8f8fac3ceed5f390b7164fc25ce843476a8d3112645eb35",
+    "schema": "qpsim.fischer2023.fig6-author-c3-grid-score.v1"
+  },
+  "qualification": "Repository trust anchor for the externally retained C3 raw manifest and the complete canonical checked-score bytes; it does not contain or replace the raw arrays.",
+  "raw_bundle": {
+    "manifest_sha256": "b7d44d5da1115853d86f6badbd2c2b87893078e41cae484cfe96c2e0c875ce4e",
+    "schema": "qpsim.fischer2023.fig6-author-c3-grid-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c3-raw-manifest-receipt.v1"
+}

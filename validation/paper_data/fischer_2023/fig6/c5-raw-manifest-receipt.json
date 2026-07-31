@@ -1,0 +1,20 @@
+{
+  "checked_score": {
+    "file_sha256": "7923387e4651b4119305df62d89f36fbb0c2c03a61f6737b64ff88ac08a3ae76",
+    "schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-score.v1"
+  },
+  "parent_c4": {
+    "raw_manifest_sha256": "78a86c7fca432e78a5d4bd7d9512cc2b84befea9accd20e844cf929f246f7af7",
+    "raw_schema": "qpsim.fischer2023.fig6-author-c4-photon-bundle.v1",
+    "receipt_file_sha256": "231da0aef631dd795533022619e7e9f964af1cbe136503e90145acf32ad0b84a",
+    "receipt_schema": "qpsim.fischer2023.fig6-author-c4-raw-manifest-receipt.v1",
+    "score_file_sha256": "5de9cd5167b7b2ab621a8238fd2d2e06ea40d24ddc27c85c9ea2c686c076fd8b",
+    "score_schema": "qpsim.fischer2023.fig6-author-c4-photon-score.v1"
+  },
+  "qualification": "Repository trust anchor for the externally retained C5 raw manifest, the complete canonical checked-score bytes, and the independently replayed C4/C3/C2 parent chain; it does not contain or replace the raw arrays.",
+  "raw_bundle": {
+    "manifest_sha256": "bf2dce4c4ff9f218251a8d414b0d92338065e5aeaa9e81be0c51915e8c6e2fa7",
+    "schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c5-qp-phonon-raw-manifest-receipt.v1"
+}
