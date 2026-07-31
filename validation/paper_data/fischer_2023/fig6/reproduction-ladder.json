@@ -1,0 +1,556 @@
+{
+  "claim": "Reproduce Fischer-Catelani 2023 Figure 6 from authenticated author output, then change exactly one scientific component per numerical stage before treating full qpsim as an author-equivalent comparison.",
+  "ladder_id": "fischer-catelani-2023-fig6-component-ladder-v1",
+  "oracle": {
+    "hash_kind": "file_bytes",
+    "manifest_path": "validation/paper_data/fischer_2023/fig6/oracle.json",
+    "manifest_sha256": "169eaf05fdeed8d80fee6998b6e9e934e71bb61fac1f44484544cf1cc4e44727"
+  },
+  "schema": "qpsim.reproduction-ladder.v1",
+  "stages": [
+    {
+      "branch": "author-exact",
+      "changed_component": null,
+      "comparison_target": "authenticated paper raster and bundled author-output PNG",
+      "components": {
+        "grid_sampling": "author-attachment:edge grid, N=1620, E_max=10Delta",
+        "io_capture": "author-attachment:Figure_6.py native pickle and PNG output",
+        "nonlinear_solver": "author-attachment:coupled dense Newton, 10 steps, threshold=1e-7",
+        "observable": "author-attachment:delta_not_consistent linear edge-grid integral",
+        "parameters": "author-attachment:Figure_6.py literal parameter dictionary",
+        "phonon_balance": "author-attachment:SimulationPhononsQuasiparticles.N",
+        "photon_operator": "author-attachment:SimulationQuasiparticles.st_phot",
+        "physical_model": "author-attachment:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "author-attachment:SimulationQuasiparticles.st_phon"
+      },
+      "evidence": [
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/author-source.json",
+          "role": "authenticated external-source manifest",
+          "sha256": "b6b85366a07710281e8a5734698231a3530ec33fcaa84232ee9fba694acd4c18"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/author-output-score.json",
+          "role": "bundled-author-output versus paper-raster score",
+          "sha256": "deaf4b4891f92fc3a651451d51219ad10053d55500d935467ef4c7b484d5f08e"
+        }
+      ],
+      "evidence_class": "author_supplied_reproduction_source",
+      "parent_stage_id": null,
+      "qualification": "Archive 31d76c92...81bc1 and six primary members are authenticated; it is author-supplied reproduction source, not a proven historical publication checkout. One exact full-resolution point is replayed and bound at A1; the full 300-point solve has not been replayed.",
+      "stage_id": "A0",
+      "status": "source_authenticated_not_replayed"
+    },
+    {
+      "branch": "author-exact",
+      "changed_component": "io_capture",
+      "comparison_target": "A0 native arrays and bundled PNG",
+      "components": {
+        "grid_sampling": "author-attachment:edge grid, N=1620, E_max=10Delta",
+        "io_capture": "qpsim-validation:A1 isolated single-point array capture",
+        "nonlinear_solver": "author-attachment:coupled dense Newton, 10 steps, threshold=1e-7",
+        "observable": "author-attachment:delta_not_consistent linear edge-grid integral",
+        "parameters": "author-attachment:Figure_6.py literal parameter dictionary",
+        "phonon_balance": "author-attachment:SimulationPhononsQuasiparticles.N",
+        "photon_operator": "author-attachment:SimulationQuasiparticles.st_phot",
+        "physical_model": "author-attachment:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "author-attachment:SimulationQuasiparticles.st_phon"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_adapter.py",
+          "role": "single-point author adapter implementation",
+          "sha256": "340ea7c1f583e40077120bcf46c44d144301cabfce9e4149763024019621564f"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/author-point-T020-sweep049-exact-anchor.json",
+          "role": "reviewed exact-point result anchor",
+          "sha256": "3acfa5973a5766a29f23a6bd85704655462e4bc587f232e0576db04c17725010"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "A0",
+      "qualification": "Completed at T_B=0.20 K, original sweep index 49, N=1620: the exact source converged in four Newton iterations and returned 0.12090908988993258, consistent with the paper oracle. The adapter changes point selection and output capture only; author equations and iteration policy remain byte-identical. Exact replay preserves the attachment's uninitialized below-threshold divide behavior; the separately labelled runtime-compatibility transformation returned the identical observable but is not author-exact. The full 300-point solve has not been replayed.",
+      "stage_id": "A1",
+      "status": "completed"
+    },
+    {
+      "branch": "analytic-dashed",
+      "changed_component": null,
+      "comparison_target": "digitized paper_analytic curves in oracle.json",
+      "components": {
+        "grid_sampling": "clean-room:continuum thermal integral after E=Delta*cosh(u)",
+        "io_capture": "clean-room:deterministic curve arrays and provenance-bound score JSON",
+        "nonlinear_solver": "clean-room:closed scalar quadratic Eq.47 balance",
+        "observable": "clean-room:Eq.53 driven suppression over continuum thermal denominator",
+        "parameters": "clean-room:literal Table-I and Figure-6 constants",
+        "phonon_balance": "clean-room:integrated Eq.47 coefficients",
+        "photon_operator": "clean-room:integrated Eq.51 drive term",
+        "physical_model": "paper:analytic Eq.47/Eq.53 approximation",
+        "qp_phonon_operator": "clean-room:integrated Eq.48-Eq.51 balance"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/reference_models/fischer_2023/fig6_analytic.py",
+          "role": "clean-room equation implementation",
+          "sha256": "d09036a2919da83261a158d531d5b043b9c5a229834f99d5209c0937ab86c35c"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_cleanroom_parity.py",
+          "role": "clean-room paper-parity adapter",
+          "sha256": "2c604272d447d5c0fa1da403102c2a0a7ee6082f6e8c6fecc1f130c03398c394"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/cleanroom-analytic-score.json",
+          "role": "provenance-bound dashed-curve score",
+          "sha256": "2ed0d05b7f9b058ecc56ff5f596484e8bfbb43bc8a6f68dd719c17720261db86"
+        }
+      ],
+      "evidence_class": "clean_room_paper_equations",
+      "parent_stage_id": null,
+      "qualification": "Completed and accepted for all three dashed traces; this branch does not reproduce the solid numerical curves or validate qpsim.",
+      "stage_id": "D0",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": null,
+      "comparison_target": "A1 native state and observable at identical points",
+      "components": {
+        "grid_sampling": "clean-room-author-equivalent:edge grid and native index maps",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "clean-room-author-equivalent:linear edge-grid direct gap",
+        "parameters": "clean-room-author-equivalent:literal author parameters",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "clean-room-author-equivalent:author photon collision equation",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "clean-room-author-equivalent:author QP-phonon equations"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/reference_models/fischer_2023/fig6_author_c0.py",
+          "role": "qpsim-free author-equivalent solver implementation",
+          "sha256": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c0_bundle.py",
+          "role": "C0 raw-bundle producer implementation",
+          "sha256": "b0be55aede65a523eeefb376a38c082a5af6e09afea603bc0aa670f169021a06"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c0_summary.py",
+          "role": "C0 strict-summary implementation",
+          "sha256": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c0-author-equivalent-score.json",
+          "role": "C0 provenance-bound comparison result",
+          "sha256": "b5a7d300746ec88c9ee45eefb59dc2ae908eb756f373991e9ca2b906ad2e9bbb"
+        }
+      ],
+      "evidence_class": "clean_room_author_equivalent_numerics",
+      "parent_stage_id": null,
+      "qualification": "Completed at the single authenticated T_B=0.20 K, author sweep-index 49 point. The qpsim-free core starts from the exact A1 initial state, verifies all four explicit-inverse Newton transitions, retains every final gain/loss channel, reproduces the A1 final state to 3.951e-16 relative L2 (QP 6.581e-14), and reproduces the author ordinate 0.12090908988993258 exactly. This does not validate the author initializer, continuation behavior, random-seed distribution, or the full 300-point numerical curve.",
+      "stage_id": "C0",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "observable",
+      "comparison_target": "C0 frozen states and final observable",
+      "components": {
+        "grid_sampling": "clean-room-author-equivalent:edge grid and native index maps",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "clean-room-author-equivalent:literal author parameters",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "clean-room-author-equivalent:author photon collision equation",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "clean-room-author-equivalent:author QP-phonon equations"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "qpsim/observables/gap_suppression.py",
+          "role": "qpsim direct-gap observable implementation",
+          "sha256": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c1_score.py",
+          "role": "C1 isolated-observable scorer implementation",
+          "sha256": "c250d697fb77ce99149aee18b5fef00fed8771fe790cc45905c9c3c2bf029497"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c1-observable-score.json",
+          "role": "C1 provenance-bound comparison result",
+          "sha256": "e8da05fc34395f8bb7298dfa6bdfe7fc4881d51563b094c68253a15fd6e043bb"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C0",
+      "qualification": "Completed at the accepted one-point C0 state. With the exact inherited author delta0 bit pattern and unchanged driven plus thermal distributions, qpsim's direct-gap observable reproduces both gaps and the normalized Figure 6 ordinate bit-for-bit; integral differences are below 1.1e-18. This validates only the frozen-state observable substitution, not qpsim kinetics.",
+      "stage_id": "C1",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "parameters",
+      "comparison_target": "C1 frozen-state operators and observables",
+      "components": {
+        "grid_sampling": "clean-room-author-equivalent:edge grid and native index maps",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "clean-room-author-equivalent:author photon collision equation",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "clean-room-author-equivalent:author QP-phonon equations"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c2_parameters.py",
+          "role": "C2 explicit parameter mapping implementation",
+          "sha256": "8a13fb15718883f22048f4b2413d940c84887e8bed2b0f2ab0539dac9ea2fc55"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c2_bundle.py",
+          "role": "C2 frozen-channel bundle producer implementation",
+          "sha256": "53b5f7aaa13ef6bb2481c0ba0d2d78f2fec86e2c68fdd62845ec3cec51b45396"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c2_score.py",
+          "role": "C2 independent frozen-channel verifier implementation",
+          "sha256": "adff99c7f117cf20b12cf810ea500d55d219ef6f9b277682c1bb77cf7eb5be77"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c2-raw-manifest-receipt.json",
+          "role": "C2 external raw-manifest receipt",
+          "sha256": "38de791083f5889ae7a2bab8bbb26e37f68a3bc58dc5dc6733541e13b1d75876"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c2-parameter-score.json",
+          "role": "C2 provenance-bound frozen-channel comparison score",
+          "sha256": "239bdfcfba727ab29e9b725f58b7dbdfc518967f93112063472d1a8ec878ffb1"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C1",
+      "qualification": "Completed at the single authenticated C0 point as a frozen-state operator differential. C2a proves bit-preserving author-value plumbing; five cumulative C2b substeps then adopt qpsim's explicit 180 micro-eV energy literals, modern k_B, literal 1 Hz photon coupling, declared 0.255 ns pair-breaking time, and finite-cutoff-derived T_c=1.184309192877208 K. The generic Al YAML is not loaded. The same author n_bar is authoritative, shifting the Eq. 35 coordinate from 0.33990789737294363 to 0.3399503360830364 (+0.012485%). All 124 raw frozen arrays are independently recomputed bit-for-bit, with exact per-channel locality checks. This stage does not solve the changed root or claim a C2 ordinate; that same-seed nonlinear comparison belongs after the frozen operator ladder.",
+      "stage_id": "C2",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "grid_sampling",
+      "comparison_target": "C2 frozen-state operators after an explicit projection record",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "clean-room-author-equivalent:author photon collision equation",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "clean-room-author-equivalent:author QP-phonon equations"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c3_bundle.py",
+          "role": "C3 frozen-grid bundle producer implementation",
+          "sha256": "49994751fb81fe6b79fe3e5580a46fd6ffbfd8ee1c92359559dc51e6e7fa4fd3"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c3_score.py",
+          "role": "C3 independent frozen-grid verifier implementation",
+          "sha256": "0cd5cf35f3577210f1bce2cb20cd92bfa3404d02f235a434aa2ab64d57798659"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c3-raw-manifest-receipt.json",
+          "role": "C3 external raw-manifest receipt",
+          "sha256": "48b347f5899fd24bd9d8f632556f6f84e6179eda132dd4003e32108ab4ed9196"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c3-grid-score.json",
+          "role": "C3 provenance-bound frozen-grid comparison score",
+          "sha256": "aa993f1354f86ab2b8f8fac3ceed5f390b7164fc25ce843476a8d3112645eb35"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/staged-resolve-pilot.json",
+          "role": "supplemental same-seed C3a/C3b/C3c pilot evidence",
+          "sha256": "b64c79cde16d023c7d7635f3f1354b75ca01dace8d5ba16c9dec60dacc705e78"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C2",
+      "qualification": "Completed at the single accepted C2b5 frozen point as a grid/operator differential. The 1620 parent cells map ordinally to the live 1640-cell qpsim domain at child indices 20:1640; there is no interpolation, and the 20 zero-capacity guard cells are canonical positive zero. C3p reproduces every active C2b5 channel and residual array bit-for-bit. C3a replaces only author left-edge coherence with live finite-volume coherence, C3b additionally changes pair labels from 2Delta+(i+j)h to 2Delta+(i+j+1)h, and C3c additionally adopts the same SpectralContext's native-micro-eV cell density. All 105 raw arrays are independently recomputed bit-for-bit. The evidence distinguishes 449 roundoff-sized mapped-left-face differences from the real approximately +0.5 micro-eV center-carrier shift across all 1620 samples; the latter changes the frozen driven and thermal direct integrals by +11.1321% and +2.9560%, and the diagnostic suppression ratio from 0.1209090899 to 0.0510985119. Only inherited author phonon support 1..1619 micro-eV is evaluated; the rest of the native lattice is explicitly placeholder-only. The supplemental same-seed pilot remains author-parameter nonlinear sensitivity evidence, not the formal C3 result. C3 claims no nonlinear root, Newton history, stopping result, ordinate, curve, or paper parity.",
+      "stage_id": "C3",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "photon_operator",
+      "comparison_target": "C3 per-channel frozen-state RHS",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "clean-room-author-equivalent:author QP-phonon equations"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c4_bundle.py",
+          "role": "C4 frozen-photon bundle producer implementation",
+          "sha256": "687103e1232972058b3d65421a9238e65365fc292b7a017435d61ed86b55db22"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c4_score.py",
+          "role": "C4 independent frozen-photon verifier implementation",
+          "sha256": "7b9c14940d367d62f647cca216bdc2de5f140114b2e69fd95cb5eb123480bb4d"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c4-raw-manifest-receipt.json",
+          "role": "C4 external raw-manifest receipt",
+          "sha256": "231da0aef631dd795533022619e7e9f964af1cbe136503e90145acf32ad0b84a"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c4-photon-score.json",
+          "role": "C4 provenance-bound frozen photon comparison score",
+          "sha256": "5de9cd5167b7b2ab621a8238fd2d2e06ea40d24ddc27c85c9ea2c686c076fd8b"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C3",
+      "qualification": "Completed at the accepted one-point C3c frozen state as a photon-operator differential. The 30-array raw closure binds and independently replays the accepted C3 and C2 raw evidence, holds the 1640-cell grid, active mask, native K_plus, partner cell density, state, and every non-photon channel fixed, and replaces only the clean-room author photon residual with qpsim's public sub_gap_photon_collision_rates. The verifier explicitly converts the public loss-rate coefficient to physical loss by multiplying by f and converts ns^-1 to s^-1 before comparison. The public and C3c net photon residuals differ by 6.529623265709012e-13 s^-1 in L1, 2.942091015256665e-13 s^-1 in Linf, and 2.017243083178416e-15 symmetric relative L1. The only structural difference is the public operator's two terminal partner transitions, at child cells 1619 and 1639; their net deltas are approximately -2.88825e-35 and +2.88858e-35 s^-1. The public weighted-number drift is 4.271376481740244e-17 of photon turnover. C4 makes no nonlinear-root, Newton-history, stopping, observable, ordinate, curve, or paper-parity claim.",
+      "stage_id": "C4",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "qp_phonon_operator",
+      "comparison_target": "C4 per-channel frozen-state RHS",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "clean-room-author-equivalent:author phonon equation",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "qpsim:phonon scattering and recombination kernels"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c5_bundle.py",
+          "role": "C5 frozen QP-phonon bundle producer implementation",
+          "sha256": "d443b8ad67831c639f02ede0b111fa245a17478b1e7e6baa9aabc975325a35f5"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c5_score.py",
+          "role": "C5 independent verifier implementation",
+          "sha256": "a595807398a3ace8dfee1441f7fc5726d4919eb632a298bb741a06fe0e1078e7"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c5-raw-manifest-receipt.json",
+          "role": "C5 external raw-manifest receipt",
+          "sha256": "4359f3ee9bff0e67a5bb5558dfbe72968ef512ce852c71c33c4cc443eb237fcd"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c5-qp-phonon-score.json",
+          "role": "C5 provenance-bound frozen QP-phonon comparison score",
+          "sha256": "7923387e4651b4119305df62d89f36fbb0c2c03a61f6737b64ff88ac08a3ae76"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C4",
+      "qualification": "Completed at the accepted one-point C4 frozen state as a QP-phonon-operator differential. C5 holds the accepted 1640-cell grid, active mask, frozen f and projected n_ph, C4 public photon channel, and every C3c phonon-equation channel fixed. It replaces only the QP-side scattering and pair/recombination kernels and their gain, physical-loss, and net contractions. The public combined physical net differs from the parent by 1.8534719101728832e-13 s^-1 in L1 and 5.677749589118144e-16 symmetric relative L1. Raw public scattering gain and loss differ because the author source-order buckets contain the same Pauli cross-term; after like-for-like rebucketing, gain and loss differ by 9.50321362825228e-14 and 1.9342844642219452e-13 s^-1 in L1, and the physical scattering net differs by 5.682685376326191e-16 symmetric relative L1. Pair gain, loss, and net each agree within 4.48e-16 symmetric relative L1. The independent fixed-order verifier measures scattering weighted-QP-number conservation at 9.33258086197451e-17 relative drift. Pair generation/recombination intentionally changes QP number, so its nonzero number moment is a diagnostic, not a zero-drift gate. The inherited phonon residual is bit-exact. C5 makes no nonlinear-root, Newton-history, stopping, observable, ordinate, 300-point-curve, coupled QP-phonon-conservation, or paper-parity claim; the phonon balance remains the inherited author equation and is not evaluated by qpsim until C6.",
+      "stage_id": "C5",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "phonon_balance",
+      "comparison_target": "C5 frozen-state QP and phonon residuals",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "clean-room-author-equivalent:author iteration and stopping policy",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "qpsim:phonon-side kernels, frequency map, and source/sink balance",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "qpsim:phonon scattering and recombination kernels"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c6_bundle.py",
+          "role": "C6 frozen phonon-balance bundle producer implementation",
+          "sha256": "308e326948d140151f5fe08e10c3b1884b2a43e3740091b9c0a824d436e5c2ae"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c6_score.py",
+          "role": "C6 independent verifier implementation",
+          "sha256": "50a476b658b2f10906ef246e10f7f89ce5aa37db71cc37f0fae9bdfa5d8c62bc"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c6-raw-manifest-receipt.json",
+          "role": "C6 external raw-manifest receipt",
+          "sha256": "f4889c17bd4d316bccef3f1fae69de3fd4d6c7aa46f40a793e22410169ddcd06"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c6-phonon-balance-score.json",
+          "role": "C6 provenance-bound frozen phonon-balance comparison score",
+          "sha256": "412ed2f9537445cfa03202be5582c89b8c3c059d94b4966472ad771f0e4b0f43"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C5",
+      "qualification": "Completed at the accepted one-point C5 frozen state as a phonon-balance differential. C6 holds the accepted 1640-cell grid, active mask, frozen f and projected n_ph, every C5 public QP channel, and all parameters fixed. It replaces only the phonon-side balance: qpsim's public phonon-side scattering and pair kernels 2K-/(pi Delta tau_0^PB) and K+/(pi Delta tau_0^PB), the public frequency map, the compute_phonon_source_sink contraction, and the ph0_local bath-escape form (n_th - n_ph)/tau_l with the public thermal occupation, evaluated on the full 3600-bin native omega lattice. The scattering net matches the inherited author channel to 1.279582321835755e-15 symmetric relative L1, the same-kernel correction-off pair control to 2.351064591980878e-16, and escape gain/loss to below 1e-12 with the near-thermal escape net difference bounded elementwise by 16-eps rounding of the two thermal-occupation unit paths. The only material endpoint difference is qpsim's Kaplan S_+ pair-breaking quadrature correction: it rescales 929 support bins by factors down to 0.7857612777062984, moving the public pair net by 9.203114358766813e-3 symmetric relative L1 and the formal C6spe phonon residual by 2.0546278031187717e-6, versus 2.1765109703719185e-10 for the correction-off control. Detailed balance at the native center-grid thermal control holds per channel to below 6.3e-16 of turnover. Scattering is structurally confined to the author support [1, 1620) micro-eV; the recorded out-of-support extension totals are at most 8.763820847555044e-26 s^-1, and the omega=0 bookkeeping bin is exactly zero. The C5 hybrid QP residual is inherited bit-exact. C6 makes no nonlinear-root, Newton-history, stopping, observable, ordinate, 300-point-curve, coupled QP-phonon-conservation, or paper-parity claim; the nonlinear solver remains the inherited author policy until C7.",
+      "stage_id": "C6",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "nonlinear_solver",
+      "comparison_target": "C6 identical-seed state, residual, and observable",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "clean-room-author-equivalent:typed stage snapshot",
+        "nonlinear_solver": "qpsim:fixed-gap coupled solve with author iteration semantics",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "qpsim:phonon-side kernels, frequency map, and source/sink balance",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "qpsim:phonon scattering and recombination kernels"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c7_bundle.py",
+          "role": "C7 re-solve bundle producer implementation",
+          "sha256": "a5e96290cbe7c13425af209b7da8e98665df91e068dd2c08a50c33df0885fc91"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_c7_score.py",
+          "role": "C7 independent verifier implementation",
+          "sha256": "98626944b6f8eed499471d29325866aa0f810506c4e49110a187edf76023f94d"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c7-raw-manifest-receipt.json",
+          "role": "C7 external raw-manifest receipt",
+          "sha256": "746e340cfd8466fe15083c51d761adb6a156d769131e854c2dffb616bf8f7bcc"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/c7-nonlinear-solver-score.json",
+          "role": "C7 provenance-bound re-solve comparison score",
+          "sha256": "1b291f4539eb63675802bc089bea6db91f1812cb7adf60b2532bf57feca5cbb5"
+        }
+      ],
+      "evidence_class": "hybrid_component_substitution",
+      "parent_stage_id": "C6",
+      "qualification": "Completed at the one authenticated seed/root pair as the first re-solve stage. C7 holds every accepted operator fixed -- the C4 public photon channel, C5 QP-side kernels, and C6 phonon-side balance with the Kaplan S_+ correction -- and replaces only the author's explicit-inverse Newton driver with qpsim's public coupled_newton_solve (fixed gap, analytic cross-Jacobian, author-intent max_iter=10 and step_rtol=1e-7). The solve starts from the identical captured author per-point thermal initial state bound by the accepted C0 evidence (the author program constructs each sweep point independently from a thermal initializer; an earlier description of this seed as a continuation state was incorrect and is corrected here) and converges at the minimal public iteration cap of 4, the same count as the author control. The solver's residual assembly evaluated at the frozen C6 state matches the accepted C6 hybrid residuals to 1.3227587648e-13 (QP) and 1.6878314118e-16 (phonon) symmetric relative L1, binding the one-component claim. At the returned root the L1 balance ratios are 3.7094353580e-14 (QP) and 5.7565249895e-12 (phonon) against the 1e-7 certificate. Under the accepted author-sampling observable the re-solved ordinate is 0.14542377851441587 versus the author control 0.12090908988993258 (the frozen author root reproduces the control exactly); under the C3-documented center-carrier interpretation the same root reads 0.07767766591390296, adjacent to the historical promoted qpsim value 0.08967258. This one-point attribution identifies the observable sampling semantics as the dominant driver of the historical qpsim-versus-author discrepancy, with the center pair-frequency label raising and the Kaplan correction slightly lowering the author-sampled ordinate. C7 claims no 300-point curve, no paper parity, and no author-equivalence of the changed iteration policy.",
+      "stage_id": "C7",
+      "status": "completed"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "io_capture",
+      "comparison_target": "C7 and the paper numerical oracle",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "qpsim:typed stage snapshot and provenance manifest",
+        "nonlinear_solver": "qpsim:fixed-gap coupled solve with author iteration semantics",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "qpsim:phonon-side kernels, frequency map, and source/sink balance",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "clean-room-author-equivalent:fixed kinetic gap plus direct postprocessed gap",
+        "qp_phonon_operator": "qpsim:phonon scattering and recombination kernels"
+      },
+      "evidence": [
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_q0_sweep.py",
+          "role": "Q0 diagnostic sweep driver implementation",
+          "sha256": "b96d913d5ff21dd482033c900563328a702c03c9476722f3d3e5fb0b836c27b2"
+        }
+      ],
+      "evidence_class": "qpsim_author_semantics",
+      "parent_stage_id": "C7",
+      "qualification": "Runnable diagnostic endpoint: the full author-semantics qpsim sweep (100-point geomspace n_bar ladder per bath temperature, thermal-seeded continuation, both sampling conventions recorded per point with measured balance ratios) executes end-to-end and produced provenance-recorded curve and grid-refinement artifacts on 2026-07-30. The 0.20 K curve completed fully certified; 0.15 K completed through the published window under a documented one-decade-relaxed certificate with measured quality at or below 5.4e-10; 0.10 K is not certifiable in double precision and its instrumented legacy-mode curve was rejected by its own measured ratios. These artifacts are diagnostics, not paper-parity evidence: Q0 completion requires the ladder's independent-verifier treatment of the sweep.",
+      "stage_id": "Q0",
+      "status": "runnable"
+    },
+    {
+      "branch": "numerical-substitution",
+      "changed_component": "physical_model",
+      "comparison_target": "Q0 as a model-change diagnostic, not author equivalence",
+      "components": {
+        "grid_sampling": "qpsim:SpectralContext center grid with declared edge-to-center projection",
+        "io_capture": "qpsim:typed stage snapshot and provenance manifest",
+        "nonlinear_solver": "qpsim:fixed-gap coupled solve with author iteration semantics",
+        "observable": "qpsim:gap_suppression samples=authors",
+        "parameters": "qpsim:declared Fischer material and Eq.35 mapping under author literals",
+        "phonon_balance": "qpsim:phonon-side kernels, frequency map, and source/sink balance",
+        "photon_operator": "qpsim:sub_gap_photon_collision_rates",
+        "physical_model": "qpsim:self-consistent moving-gap model extension",
+        "qp_phonon_operator": "qpsim:phonon scattering and recombination kernels"
+      },
+      "evidence": [],
+      "evidence_class": "qpsim_model_extension",
+      "parent_stage_id": "Q0",
+      "qualification": "The current self-consistent path is deliberately outside author-equivalent validation; a mismatch here may be a model difference rather than a defect.",
+      "stage_id": "Q1",
+      "status": "planned"
+    }
+  ]
+}

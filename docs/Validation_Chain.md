@@ -34,15 +34,17 @@ default test gate authenticates their promoted artifacts rather than
 rerunning every solve.
 
 No canonical CSV in these directories is digitized paper data. A separate
-paper-data layer now exists under `validation/paper_data/`: its first dataset
-authenticates and digitizes the original author raster for Fischer-2023
-Fig. 6, then scores the promoted qpsim scalar arrays downstream without
-modifying or replaying the expensive producer. Optional raster side-by-side
-helpers remain manual visual aids only and are not part of that score.
-The scorer binds and validates the exact promoted CSV/promotion-record bytes;
-it does not decode and recertify all 66 stored states. That authoritative
-state replay remains the separate slow gate under the recorded single-thread
-environment.
+paper-data layer now exists under `validation/paper_data/`: its Fischer-2023
+Fig. 6 and Fig. 8 datasets authenticate and digitize original source assets.
+The Fig. 6 layer scores promoted qpsim scalar arrays downstream without
+modifying or replaying the expensive producer; the Fig. 8 layer currently
+scores only a qpsim-independent Eq. E2 transcription against the dashed
+trace. Optional raster side-by-side helpers remain manual visual aids only
+and are not part of either score.
+The Fig. 6 scorer binds and validates the exact promoted CSV/promotion-record
+bytes; it does not decode and recertify all 66 stored states. That
+authoritative state replay remains the separate slow gate under the recorded
+single-thread environment.
 
 The evidence layers must therefore be read separately:
 
@@ -52,7 +54,10 @@ The evidence layers must therefore be read separately:
 | Solver certificates | The discrete equations/residual contracts are satisfied on the represented grid | Continuum accuracy or agreement with experiment |
 | Provenance/currentness | CSV/PDF/records came from the declared source, configuration, runtime, and raw payload | Physical correctness of that source |
 | Pinned qpsim regression | A current solve stays within the declared tolerance of a prior authenticated qpsim solve | An independent reference truth |
-| Digitized paper-data parity | Fig. 6 source/archive/raster/calibration/points, comparison mapping, and scorer are independently versioned and hashed | A full scientific pass while parameter or discretization uncertainty remains unbounded |
+| Digitized paper-data parity | A declared figure's source/archive/raster/calibration/points, comparison mapping, and scorer are independently versioned and hashed | A full scientific pass while parameter or discretization uncertainty remains unbounded, or validation of an unscored trace in the same raster |
+| Recorded author-supplied source | The ZIP the repository owner records as received and its declared members match checked content hashes | Independent sender-chain authentication, historical-publication identity, modern-runtime compatibility, or correctness |
+| Clean-room equation reference | A qpsim-independent transcription reproduces a declared analytic trace | Author numerical-source identity or validation of qpsim numerics |
+| Component-replacement ladder | Declared parent/child topology changes one named component, and completed-stage evidence files match checked hashes | That the implementations truly differ only in that component, or that a measured output change has already been localized |
 
 The Fig. 6 result is intentionally split: all three dashed analytic controls
 agree with the digitized source within the predeclared raster-uncertainty
@@ -67,6 +72,193 @@ Accordingly, the durable status is `diagnostic_mismatch` and
 and curve identity are sensible, not permission to waive the numerical
 discrepancy.
 
+The recovered author-supplied Fig. 6 archive adds a new distinction. Its
+authenticated entry point uses fixed-gap kinetics and a direct edge-grid gap
+observable, whereas the promoted qpsim comparison uses the self-consistent
+model. The old solid-curve mismatch remains a valid output comparison, but
+is not attributable until the fixed-gap/direct-observable author-equivalent
+ladder reaches its qpsim endpoint. See `docs/PAPER-REPRODUCTION-LADDER.md`.
+
+One exact author point in that ladder is complete, not the full 300-point
+replay. At `T_B = 0.20 K`, original sweep index 49, and `N = 1620`, the
+author source returned `T*/Delta = 0.33990789737294363` and ordinate
+`0.12090908988993258`; the digitized paper trace is approximately
+`0.12093496` at the nearby paper-oracle coordinate `0.34006849`, while the
+promoted qpsim comparison is approximately `0.08967258`. The formal qpsim-free
+C0 port verifies all four author-policy Newton transitions, reproduces the A1
+full state to `3.951e-16` relative L2 (`6.581e-14` for the QP subvector), and
+returns the identical ordinate. C1 applies qpsim's direct-gap observable to
+both the exact C0 occupation and the independently reconstructed author
+thermal occupation; with exact inherited binary64 parameters, both gaps and
+the final ordinate match bit-for-bit. Formal C2 then changes only explicit
+Figure 6 parameters on the immutable C0 state: author-value plumbing,
+`180.0 µeV` energy literals, modern `k_B`, literal `1 Hz` photon coupling,
+`tau_0^PB = 0.255 ns`, and finite-cutoff-derived
+`T_c = 1.184309192877208 K`. The generic Al YAML is excluded. Its checked
+score independently recomputes all 124 retained channel and residual arrays
+bit-for-bit. With authenticated `n_bar` held fixed, the Eq. 35 coordinate
+moves from `0.33990789737294363` to `0.3399503360830364`; because C2 does
+not re-solve, it claims no changed root or ordinate.
+
+Formal C3 then adopts the live 1640-cell qpsim grid as a frozen differential
+from C2b5. The 1620 parent cells map ordinally to child indices `20:1640`;
+there is no interpolation, the active occupations copy bit-for-bit, and the
+20 zero-capacity guard cells carry canonical positive zero. The full
+`0..3599 micro-eV` qpsim phonon lattice is recorded, while the author
+`1..1619 micro-eV` support remains the only evaluated support so C3 does not
+silently replace the C6 phonon balance.
+
+The checked [`c3-grid-score.json`](../validation/paper_data/fischer_2023/fig6/c3-grid-score.json)
+independently derives the full BCS finite-volume weights/coherence and
+reassembles every gain/loss/net channel for C3p (projection control), C3a
+(finite-volume coherence), C3b (center pair labels), and C3c (native
+cell-density arithmetic). C3p reproduces every active C2b5 channel array
+bit-for-bit. The 449 non-bit-identical mapped **left faces** are explicitly
+reported, with roundoff bounded by `2.2737367544323206e-13 micro-eV`;
+separately, all 1620 author left-edge samples move to qpsim center carriers
+approximately `+0.5 micro-eV` away. The score verifies both the nearly
+invariant author-semantics re-embedding control and the actual center-carrier
+diagnostic (`+11.1321%` driven integral, `+2.9560%` thermal integral, frozen
+ratio `0.1209090899 -> 0.0510985119`), so the latter is not hidden in the
+former. This completes only the one-point
+frozen C3 contract: no root, Newton history, stopping result, ordinate, curve,
+or paper parity is claimed.
+
+Formal C4 then holds that accepted C3c state and spectral grid fixed and
+substitutes only qpsim's public sub-gap photon operator. Its checked
+[`c4-photon-score.json`](../validation/paper_data/fischer_2023/fig6/c4-photon-score.json)
+independently replays the selected C3 and C2 raw parents and transcribes the
+public loop without importing the producer or public operator. The comparison
+correctly converts the returned loss-rate coefficient into physical loss
+(`loss_rate * f`) before comparing it with C3c.
+
+The public and author-form photon balances agree to approximately `2.02e-15`
+symmetric relative L1. The only semantic difference is the public operator's
+representable terminal transition `1619 <-> 1639`, omitted by the author
+residual; its two frozen net contributions are only about
+`-2.88825e-35` and `+2.88858e-35 s^-1`. The public weighted number drift is
+about `4.27e-17` of photon turnover. C4 reconstructs the changed QP residual
+while binding all non-photon channels and the phonon residual unchanged.
+This is still one frozen point: no root, Newton history, stopping result,
+observable, ordinate, curve, or paper parity is claimed.
+
+Formal C5 then holds that accepted C4 state, grid, projected phonon
+occupation, public photon channel, and every C3c phonon-equation channel
+fixed. Its checked
+[`c5-qp-phonon-score.json`](../validation/paper_data/fischer_2023/fig6/c5-qp-phonon-score.json)
+replaces only the QP-side scattering and pair/recombination operators.
+C5s, C5p, and C5sp isolate the scattering, pair, and combined QP residual
+updates. The inherited phonon residual remains bit-exact.
+
+The combined physical net agrees with C4 to `5.677749589118144e-16`
+symmetric relative L1. The author's source-order scattering buckets include
+the same Pauli cross-term in both gain and loss, while public qpsim removes
+it from both. Raw gain/loss differences are therefore not like-for-like; the
+rebucketed gain/loss L1 differences are only
+`9.50321362825228e-14`/`1.9342844642219452e-13 s^-1`, and the physical
+scattering net agrees to `5.682685376326191e-16` symmetric relative L1.
+Pair gain, loss, and net each agree within `4.48e-16` symmetric relative L1.
+Scattering passes its weighted-number conservation gate; pair
+generation/recombination intentionally changes QP number, so its nonzero
+number moment is retained as a diagnostic rather than tested against zero.
+
+C5 is still one frozen point. It makes no root, Newton-history, stopping,
+observable, ordinate, 300-point-curve, coupled QP-phonon-conservation, or
+paper-parity claim. The inherited author phonon equation is not evaluated by
+qpsim until C6.
+
+Formal C6 then holds that accepted C5 state, grid, projected phonon
+occupation, and every public QP channel fixed. Its checked
+[`c6-phonon-balance-score.json`](../validation/paper_data/fischer_2023/fig6/c6-phonon-balance-score.json)
+replaces only the phonon-side balance with qpsim's public phonon-side
+kernels, frequency map, `compute_phonon_source_sink` contraction, and
+`ph0_local` bath-escape form on the full 3600-bin native lattice. The
+scattering net matches the author channel to `1.279582321835755e-15`
+symmetric relative L1, the same-kernel correction-off pair control to
+`2.351064591980878e-16`, and escape gain/loss below `1e-12` with an
+elementwise-bounded near-thermal net. The one material endpoint difference
+is qpsim's Kaplan `S_+` pair-breaking quadrature correction: it moves the
+public pair net by `9.203114358766813e-3` symmetric relative L1 and the
+formal C6spe phonon residual by `2.0546278031187717e-6`, versus
+`2.1765109703719185e-10` for the correction-off control. Detailed balance at
+a native thermal control holds per channel below `6.3e-16` of turnover; the
+C5 hybrid QP residual is inherited bit-exact. C6 is still one frozen point
+and makes no root, Newton-history, stopping, observable, ordinate,
+300-point-curve, coupled-conservation, or paper-parity claim; the nonlinear
+solver remains the author policy until C7.
+
+Formal C7 then performs the first re-solve. Its checked
+[`c7-nonlinear-solver-score.json`](../validation/paper_data/fischer_2023/fig6/c7-nonlinear-solver-score.json)
+replaces only the author Newton driver with qpsim's public
+`coupled_newton_solve` under the accepted C4/C5/C6 operator configuration,
+seeded from the identical C0-bound author continuation state. The solver's
+residual assembly at the frozen C6 state matches the accepted hybrid
+residuals to `1.32e-13`/`1.69e-16` symmetric relative L1; the solve
+converges at the minimal public cap of 4 iterations (the author control's
+count), with root balance ratios `3.7e-14`/`5.8e-12` against `1e-7`. The
+re-solved ordinate is `0.14542377851441587` under author sampling versus
+the exactly reproduced author control `0.12090908988993258`, and
+`0.07767766591390296` under the center-carrier interpretation — adjacent to
+the historical promoted qpsim `0.08967258`. The one-point attribution
+therefore identifies observable sampling semantics as the dominant driver
+of the historical qpsim-versus-author discrepancy. C7 claims no 300-point
+curve, paper parity, or author-iteration-equivalence.
+
+At the captured A1 frozen state, the author-equivalent phonon residual is
+about `7e-11` of turnover. Frozen
+substitutions identify the first substantive
+implementation differences as left-edge versus finite-volume coherence and
+the pair-frequency shift from `2 Delta + (i+j)h` to
+`2 Delta + (i+j+1)h`. A third grid-level substep isolates the much smaller
+binary64 difference from evaluating the analytically identical cell-density
+formula in qpsim's native micro-eV units.
+
+A same-seed single-point pilot has now re-solved those changes plus the
+isolated native-DOS arithmetic substitution, with every independent variant
+converging in four Newton iterations. The
+ordinates are `0.12090908988993258` for the author control,
+`0.12070758916263027` for coherence only (`-0.00020150072730`),
+`0.14590106106941977` for the `+h` pair label only
+(`+0.02499197117949`), and `0.14570562776829468` for both changes
+(`+0.02479653787836`). C3c changes only the DOS arithmetic and returns
+`0.14570561703489288`, a `-1.07334e-8` shift from C3b. The control reproduces the captured author state to
+`3.951e-16` full-state relative L2 and the exact ordinate; independent and
+continuation combined solves agree to `4.240e-20` relative L2 and the exact
+ordinate. Independent and continued C3c states agree to `8.73e-19` relative
+L2. QP residual/turnover ratios are approximately
+`1.3e-15`–`2.1e-15`, and phonon ratios are approximately
+`6.2e-12`–`1.60e-11`; the re-solved author control is `1.596e-11`, distinct
+from the frozen captured-A1 diagnostic above. The checked
+`staged-resolve-pilot.json` independently recomputes stage identities,
+same-seed/path constraints, every Newton transition and linear backward error,
+stopping tests, final bounds, channels, certificates, and observables from
+retained external-array bytes. The solve preserves all three authenticated
+author residual/Jacobian inconsistencies rather than silently
+differentiating a corrected equation.
+
+Before the public qpsim photon operator is substituted, C3c now separately
+adopts qpsim's native `cell_density` arithmetic. Its first-cell binary64
+difference from the retained author DOS is below the checked `2e-7` relative
+bound, but its
+one-point ordinate effect is only `-1.07334e-8`. This prevents C4 from
+changing grid arithmetic and photon endpoint semantics at the same time.
+
+The coherence effect is negligible at this point. The pair-label effect is
+material but moves upward, away from the promoted qpsim ordinate
+`0.08967258`, so it does not explain qpsim's lower value. This remains a
+single-point pilot under author parameters, not the formal C2-parent result.
+Formal C0–C7 evidence is complete at the declared one-point scopes,
+while the Q0/Q1 model endpoints and the full 300-point replay remain
+incomplete.
+
+The Fig. 8 paper-data oracle independently binds both the blue solid numerical
+trace and black dashed analytic trace. Its checked clean-room Eq. E2 score
+accepts the dashed trace within raster uncertainty (maximum normalized error
+`0.2971`). The blue numerical trace is retained as a provenance-bound,
+digitized reference but remains unscored until an author implementation or
+qpsim replacement is attached to a later reproduction ladder. The dashed
+acceptance therefore makes no claim about the blue curve or qpsim.
+
 The Fischer-2023 source manifests are deliberately conservative: their solve
 identities hash the broad qpsim numerical tree, and artifact identities hash
 the complete figure modules. Fig. 6 also has a real Eq. 47 dependency on a
@@ -74,15 +266,19 @@ Fig. 5 analytical helper, but currently hashes both full Fig. 5 modules; a
 plotting, comment, or unrelated solver edit can therefore invalidate a
 multi-hour Fig. 6 result even when Eq. 47 is unchanged. A future refactor
 should isolate Eqs. 35/47/53 in a small shared analytical module and derive
-overlays at publication time. Conversely, validation package `__init__.py`
-files are not currently enumerated. They contain docstrings only; executable
-initializer behavior must not be added without first extending the manifest
-closure.
+overlays at publication time. The older figure-solve manifests do not
+enumerate validation package `__init__.py` files; those initializers must
+remain non-executable unless that older closure is extended. Formal C5 uses a
+separate fail-closed source manifest that deliberately over-invalidates: it
+binds the complete qpsim Python/material tree plus its producer, the executed
+C2/C3/C4 replay verifiers, package initializers, and provenance helpers, and
+rechecks the manifest after array production.
 
 ### Digitized paper-data contract
 
-The implemented Fig. 6 layer remains separate from qpsim-generated baselines
-and fails closed unless it records all of the following:
+The implemented Fig. 6 and Fig. 8 layers remain separate from
+qpsim-generated baselines and fail closed unless they record all applicable
+items below:
 
 1. paper/version/page/panel provenance, retrieval date, source/crop hash, DPI,
    and licensing note;
@@ -106,8 +302,9 @@ these quantitative requirements.
 |---|---|---|
 | Fig 3, paper legend ratios 0 / 0.1 / 1 / 10 | `fig3_paper.py` | manual-slow producer; 1620-bin paper grid + phonon-side Eq. 12 kernels; authenticated qpsim regression, not digitized-data parity |
 | Fig 5, paper-topology x_qp two-panel | `fig5_paper.py` | state-bound v3 qpsim regression; reader reassembles persisted `f/n_ph`; promotion + campaign companions bind the exact six raw continuation rows; Eq. 47 + Appendix-E analytic overlay is pinned separately |
-| Fig 6, paper-topology gap suppression | `fig6_paper.py` + downstream `fig6_paper_parity.py` | state-bound v2 qpsim regression plus an independent arXiv-v2 raster oracle; dashed Eq. 53 controls pass, solid numerical curves show a diagnostic mismatch; parity is not gate-eligible pending parameter/discretization bounds |
+| Fig 6, paper-topology gap suppression | `fig6_paper.py` + downstream `fig6_paper_parity.py` | state-bound v2 qpsim regression plus an independent arXiv-v2 raster oracle; dashed Eq. 53 controls pass, solid numerical curves show a diagnostic mismatch; one exact author point agrees with the paper; formal one-point C0/C1 plus frozen-state C2/C3/C4/C5/C6 evidence are complete, with every retained raw array independently recomputed; formal C4 shows public photon balance agrees with C3c to roundoff apart from a numerically tiny terminal-pair policy difference, formal C5 shows the QP-side scattering/pair physical net agrees with C4 at about `5.68e-16` symmetric relative L1 after like-for-like Pauli rebucketing, and formal C6 shows the phonon-side balance agrees to roundoff except for qpsim's Kaplan `S_+` pair-breaking quadrature correction (public pair net `9.2e-3` symmetric relative L1, formal residual `2.05e-6` versus `2.18e-10` for the correction-off control); the supplemental author-parameter C3 pilot shows a material upward pair-label effect that cannot explain qpsim's lower ordinate; C7, full author replay, and full author-equivalent qpsim parity remain incomplete |
 | Fig 7, paper-topology Q_i,tot(T_B) | `fig7_paper.py` | summary-v2 qpsim regression; solved state is omitted, so certificate scalars are authenticated producer assertions requiring explicit opt-in; Tables II/III parameters + Eq. 65 helper |
+| Fig 8, recombination-coefficient ratio | `extract_fig8_paper_data.py` + `fig8_cleanroom_parity.py` | provenance-bound blue solid and black dashed traces; the qpsim-independent Eq. E2 transcription passes the dashed-trace raster score, while the solid numerical trace remains an unscored oracle for a later replacement ladder |
 | Sec. V Q_i(P_read) characterization | `figs_9_13_qi_vs_pread.py` | **Development-only; no active accepted pin.** The historical canonical CSV is deliberately quarantined pending an independent energy-grid refinement study. A future promoted artifact would use the nominal 1e-4 `nbar_loop`/quadrature gate; this is not a literal paper figure. |
 
 The resumable Fig. 5/6 campaign archives are intermediate evidence, not

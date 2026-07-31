@@ -1,5 +1,244 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-07-31 author-replay + reconciliation addendum:** the recovered
+> author archive was located byte-exactly (SHA-256 `31d76c92…81bc1`) in
+> the local Google Drive cache and staged at
+> `C:\tmp\PhysApplPaper_Figure_6.zip`; the previously pending full
+> 300-point author-program replay is running through the unmodified
+> accepted adapter (`validation/fischer_2023/fig6_author_replay_sweep.py`,
+> bundles under `tmp/author-runs/author-replay/`), with the anchor point
+> reproducing `0.12090908988993258` bit-for-bit through the driver. The
+> historical promoted comparison value is now fully reconciled: it is the
+> Q1 self-consistent moving-gap model (`fig6_paper.py`; nearest anchor
+> row `paper_observable_num = 0.0908` at `T*/Δ = 0.3426`), and the
+> author-vs-promoted gap decomposes as sampling convention (−0.095) +
+> pair-label/Kaplan (+0.02) + moving-gap feedback (+0.04). Refinement
+> densified with dE = 1/3 (authors `0.1262`, centers `0.0477`; authors
+> differences decay sub-linearly, apparent order ~0.3; dE = 0.125
+> computing). **Erratum:** the C7 evidence prose and earlier handoff
+> text described the authenticated A1 seed as a "continuation" state;
+> the author program actually constructs each sweep point independently
+> from a thermal initializer. The ladder C7 qualification and manuscript
+> are corrected; the frozen C7 bundle metadata string
+> (`seed_binding.source`) retains the mischaracterizing word
+> "(continuation)" — its factual bindings (A1 initial state, C0
+> descriptor authentication) are correct, and the wording should be
+> corrected at the next C7 regeneration rather than by invalidating the
+> accepted evidence now.
+
+> **2026-07-30 Q0 diagnostic sweep + manuscript draft:** the
+> author-semantics qpsim endpoint has now been run over the full Figure 6
+> sweep (`validation/fischer_2023/fig6_q0_sweep.py`; ladder Q0 promoted to
+> `runnable`). The 0.20 K curve completed fully certified (100/100); the
+> 0.15 K curve completed through the entire published window
+> (`T*/Delta` in [0.25, 0.41]) under a documented one-decade-relaxed
+> certificate with measured balance quality at or below `5.4e-10`; 0.10 K
+> is **not certifiable in double precision** — certificate mode fails
+> loud at any threshold (line search at the float64 noise floor; phonon
+> balance floor `~2e-7` of turnover), and the instrumented legacy-mode
+> curve was rejected by its own measured per-point ratios (stale seeds at
+> weak drive, up to `7e-2` imbalance at strong drive). Grid refinement at
+> the anchor (dE = 1, 0.5, 0.25 µeV): center-carrier reading
+> `0.0505 / 0.0480 / 0.0479` (grid-converged), author left-edge reading
+> `0.1454 / 0.1326 / 0.1220` (still moving ~9% per halving) — the
+> published observable at its published resolution carries a
+> discretization offset comparable to the historical inter-code
+> discrepancy. Artifacts: `tmp/author-runs/fig6-Q0-sweep-de{1,2,4}-v1.json`
+> (+`-t015-v1`; the `-t010-*` artifacts are recorded but condemned by
+> their measured ratios). A DRAFT manuscript with all C0–C7 + Q0 findings
+> and both figures lives at `papers/qpsim/fig6-numerics/main.tex`
+> (compiles to 5 pp. via MiKTeX); it requires human physicist review, an
+> author list, the F&C citation/acknowledgment, and a decision on
+> contacting Fischer & Catelani before any submission. The Q0 curves are
+> diagnostics, not paper-parity evidence — formal Q0 completion needs the
+> ladder's independent-verifier treatment.
+
+> **2026-07-30 formal Fischer-2023 Figure 6 C7 re-solve — the attribution
+> result:** the author-first reproduction ladder is complete through C7.
+> C7 is the first re-solve stage: every operator stays at its accepted
+> C4/C5/C6 public configuration and only the author's explicit-inverse
+> Newton driver is replaced by qpsim's public `coupled_newton_solve`
+> (fixed gap, analytic cross-Jacobian, author-intent `max_iter=10`,
+> `step_rtol=1e-7`), seeded from the identical C0-bound author
+> continuation state. The solver's residual assembly at the frozen C6
+> state matches the accepted hybrid residuals to `1.3227587648e-13` (QP)
+> and `1.6878314118e-16` (phonon) symmetric relative L1; the minimal
+> converging public iteration cap is 4 — the same count as the author
+> control — and the root balance ratios are `3.7094353580e-14` /
+> `5.7565249895e-12` against the `1e-7` certificate.
+>
+> The one-point attribution: the frozen author root reproduces the author
+> control ordinate `0.12090908988993258` **exactly** under the accepted
+> observable path; the re-solved full-qpsim root reads
+> `0.14542377851441587` under author sampling and
+> `0.07767766591390296` under the C3-documented center-carrier
+> interpretation — adjacent to the historical promoted qpsim value
+> `0.08967258`. The long-standing 33–39% rising-branch discrepancy is
+> therefore attributable primarily to the observable sampling semantics
+> (the half-bin carrier shift), with the center pair-frequency label
+> raising and the Kaplan `S_+` correction slightly lowering the
+> author-sampled value; the collision kernels match the author equations
+> to roundoff throughout C4–C6.
+>
+> The four checked evidence paths are
+> `validation/fischer_2023/fig6_author_c7_bundle.py`,
+> `validation/fischer_2023/fig6_author_c7_score.py`,
+> `validation/paper_data/fischer_2023/fig6/c7-raw-manifest-receipt.json`,
+> and
+> `validation/paper_data/fischer_2023/fig6/c7-nonlinear-solver-score.json`;
+> their canonical-source or file-byte SHA-256 values are
+> `a5e96290…fc91`, `98626944…f94d`, `746e340c…7bcc`, and
+> `1b291f45…cbb5`; the external raw-manifest SHA-256 is
+> `f2959310…f0fc` (44-array bundle
+> `tmp/author-runs/fig6-T020-sweep049-C7-solver-v1`).
+>
+> C7 records one authenticated seed/root pair. It claims no 300-point
+> curve, no paper parity, and no author-equivalence of the changed
+> iteration policy. The remaining ladder endpoints are Q0 (the fair
+> author-semantics qpsim endpoint over the full curve, now unblocked by
+> the completed component ladder) and Q1 (the moving-gap extension), plus
+> the full 300-point author replay.
+
+> **2026-07-30 formal Fischer-2023 Figure 6 C6 freeze:** the
+> author-first reproduction ladder now has a completed, provenance-bound
+> frozen phonon-balance stage. C6 holds the accepted C5 state, 1640-cell
+> grid, projected phonon occupation, every public QP channel, and all
+> parameters fixed. It replaces only the phonon-side balance with qpsim's
+> public phonon-side kernels `2K-/(pi Delta tau_0^PB)` and
+> `K+/(pi Delta tau_0^PB)`, the public frequency map, the
+> `compute_phonon_source_sink` contraction, and the `ph0_local` bath-escape
+> form `(n_th - n_ph)/tau_l`, evaluated on the full 3600-bin native omega
+> lattice. C6s/C6p/C6p0/C6e/C6spe/C6spe0 isolate every locality
+> combination; the C5 hybrid QP residual is bit-exact.
+>
+> Three channels match the inherited author equation to roundoff: the
+> scattering net to `1.279582321835755e-15` symmetric relative L1, the
+> same-kernel correction-off pair control to `2.351064591980878e-16`, and
+> escape gain/loss below `1e-12` with the near-thermal escape net bounded
+> elementwise by 16-eps rounding. The one material endpoint difference is
+> qpsim's Kaplan `S_+` pair-breaking quadrature correction: 929 support
+> bins rescale by factors down to `0.7857612777062984`, moving the public
+> pair net by `9.203114358766813e-3` symmetric relative L1 and the formal
+> C6spe phonon residual by `2.0546278031187717e-6`, versus
+> `2.1765109703719185e-10` for the correction-off control. This is the
+> first material frozen-state physics difference in the qpsim endpoint
+> semantics found by the ladder; it is recorded, not gated, exactly like
+> C4's terminal-pair policy. Detailed balance at a native center-grid
+> thermal control holds per channel below `6.3e-16` of turnover;
+> scattering is structurally confined to the author support and
+> out-of-support totals are at most `8.77e-26 s^-1`.
+>
+> The four checked evidence paths are
+> `validation/fischer_2023/fig6_author_c6_bundle.py`,
+> `validation/fischer_2023/fig6_author_c6_score.py`,
+> `validation/paper_data/fischer_2023/fig6/c6-raw-manifest-receipt.json`,
+> and
+> `validation/paper_data/fischer_2023/fig6/c6-phonon-balance-score.json`.
+> Their canonical-source or file-byte SHA-256 values are
+> `308e3269…c2ae`, `50a476b6…62bc`, `f4889c17…cd06`, and
+> `412ed2f9…0f43`; the external raw-manifest SHA-256 is
+> `8d22c8ed…35ff`. The accepted C3/C4/C5 parent bundles were regenerated
+> byte-identically on this machine (`fig6-T020-sweep049-C3-grid-regen-v1`,
+> `…C4-photon-regen-v1`, `…C5-qp-phonon-regen-v1` under
+> `tmp/author-runs/`) after the original directories became unreadable;
+> each regenerated manifest reproduces its receipt-pinned digest exactly.
+> The C3/C4/C5 stage tests now resolve their external bundles through a
+> listable-directory fallback (original name first, regeneration second),
+> so the previously skipped or unguarded evidence tests execute again;
+> every verifier still authenticates whichever directory is selected
+> against the receipt-pinned manifest digests.
+>
+> This remains one authenticated C5 frozen point. It claims no nonlinear
+> root, Newton history, stopping result, observable change, plotted
+> ordinate, 300-point curve, coupled QP-phonon conservation, or paper
+> parity. C7, the nonlinear-solver substitution, is next.
+
+> **2026-07-30 formal Fischer-2023 Figure 6 C5 freeze:** the
+> author-first reproduction ladder now has a completed, provenance-bound
+> frozen QP-phonon-operator stage. C5 holds the accepted C4 state,
+> 1640-cell grid, projected phonon occupation, public photon channel, and
+> every C3c phonon-equation channel fixed. It replaces only the QP-side
+> scattering and pair/recombination kernels and their gain, physical-loss,
+> and net contractions. C5s, C5p, and C5sp isolate scattering-only,
+> pair-only, and combined QP residual updates; the inherited phonon residual
+> is bit-exact.
+>
+> The combined QP physical net differs from C4 by
+> `1.8534719101728832e-13 s^-1` in L1 and
+> `5.677749589118144e-16` symmetric relative L1. Raw public scattering gain
+> and loss differ from the author source-order buckets because the latter
+> contain the same Pauli cross-term in both; that term cancels from the
+> physical net. After like-for-like rebucketing, gain/loss L1 differences are
+> only `9.50321362825228e-14`/`1.9342844642219452e-13 s^-1`, and the
+> scattering physical net agrees to `5.682685376326191e-16` symmetric
+> relative L1. Pair gain/loss/net each agree within `4.48e-16` symmetric
+> relative L1. Scattering weighted-number conservation passes; the nonzero
+> pair number moment is intentional pair generation/recombination and is not
+> a zero-drift gate.
+>
+> The four checked evidence paths are
+> `validation/fischer_2023/fig6_author_c5_bundle.py`,
+> `validation/fischer_2023/fig6_author_c5_score.py`,
+> `validation/paper_data/fischer_2023/fig6/c5-raw-manifest-receipt.json`,
+> and
+> `validation/paper_data/fischer_2023/fig6/c5-qp-phonon-score.json`.
+> Their canonical/source or file-byte SHA-256 values are
+> `d443b8ad…35f5`, `a5958073…8e7`,
+> `4359f3ee…fcd`, and `7923387e…ae76`; the external raw-manifest SHA-256
+> is `bf2dce4c…2fa7`.
+>
+> This remains one authenticated C4 frozen point. It claims no nonlinear
+> root, Newton history, stopping result, observable change, plotted ordinate,
+> 300-point curve, coupled QP-phonon conservation, or paper parity. The
+> phonon balance remains the inherited author equation. C6, the qpsim
+> phonon-balance substitution, is next.
+>
+> **2026-07-29 formal Fischer-2023 Figure 6 C4 freeze:** the
+> author-first reproduction ladder now also has a provenance-bound frozen
+> photon-operator stage. C4 holds the accepted C3c state, grid, native
+> `K_plus`, and partner `cell_density` fixed and substitutes only qpsim's
+> public `sub_gap_photon_collision_rates`. The comparison correctly converts
+> the public loss-rate coefficient into physical loss (`loss_rate * f`)
+> before comparing it with C3c. An independent verifier replays the selected
+> C3 and C2 raw parents and transcribes the public loop without importing the
+> producer or public operator.
+>
+> Public qpsim and C3c photon net arrays agree to approximately `2.02e-15`
+> symmetric relative L1. The only semantic difference is qpsim's inclusion
+> of the representable terminal transition `1619 <-> 1639`, which the author
+> residual omitted; its two frozen net contributions are only about
+> `-2.88825e-35` and `+2.88858e-35 s^-1`. The public weighted-number drift is
+> about `4.27e-17` of photon turnover. C4 reconstructs the changed QP
+> residual and binds every non-photon channel plus the phonon residual
+> unchanged. It remains one frozen point and claims no nonlinear root,
+> Newton history, stopping result, observable, ordinate, curve, or paper
+> parity. C5 is now complete in the newer handoff block above; C6 is next.
+>
+> **2026-07-29 formal Fischer-2023 Figure 6 C3 freeze:** the
+> author-first reproduction ladder now has a completed, provenance-bound C3
+> grid stage. It projects the accepted C2b5 frozen point from 1620 author
+> cells into the live 1640-cell qpsim domain (`parent i -> child i+20`) with
+> 20 canonical positive-zero guard cells and no interpolation. C3p reproduces
+> every active C2b5 gain/loss/net and residual array bit-for-bit; C3a then
+> changes only finite-volume coherence, C3b adds the one-bin center pair
+> label, and C3c adds native-micro-eV cell-density arithmetic. An independent
+> verifier rederived all 105 raw arrays and passed 20 acceptance checks. The
+> raw-manifest/score/receipt SHA-256 values are
+> `b7d44d5d…ce4e` / `aa993f13…eb35` / `48b347f5…9196`.
+>
+> The projection record deliberately separates 449 roundoff-sized mapped
+> left-face differences from the real approximately `+0.5 micro-eV`
+> left-edge-to-center carrier shift across all 1620 samples. Under native
+> center semantics the frozen driven/thermal direct integrals change by
+> `+11.1321%` / `+2.9560%`, moving the diagnostic suppression ratio from
+> `0.1209090899` to `0.0510985119`; the nearly invariant author-semantics
+> re-embedding is retained only as the projection-identity control. C3 is
+> still one frozen point with author phonon support `1..1619 micro-eV` only.
+> It claims no nonlinear root, Newton history, stopping result, ordinate,
+> curve, or paper parity. C4 (public qpsim photon operator on this frozen
+> parent) was the next stage and is now completed in the newer handoff block
+> above.
+>
 > **2026-07-28 M25 hosted-default portability follow-up:** GitHub Actions run
 > `30423446933` on `f319bf5` passed the static gates but failed the default
 > suite on Python 3.13 and 3.14 with the same 13 Marchegiani-2025 reader
