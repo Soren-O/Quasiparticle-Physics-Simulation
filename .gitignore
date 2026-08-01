@@ -23,9 +23,11 @@ env/
 .mypy_cache/
 .ruff_cache/
 .coverage
+/tmp/
 
 # Validation sweep disk cache (recompute-avoidance; never a reference artifact)
 validation/.sweep_cache/
+validation/baselines/**/*.lock
 .coverage.*
 coverage.xml
 htmlcov/

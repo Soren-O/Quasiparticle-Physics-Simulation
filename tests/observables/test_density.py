@@ -33,6 +33,12 @@ class TestQpNumberDensity:
         with pytest.raises(ValueError, match=r"occupations in \[0, 1\]"):
             qp_number_density(f, ctx, rho_F=1.0e28)
 
+    def test_rejects_complex_occupation_before_float_cast(self) -> None:
+        ctx = _ctx()
+        f = np.zeros(ctx.E.size, dtype=complex)
+        with pytest.raises(ValueError, match="real-valued"):
+            qp_number_density(f, ctx, rho_F=1.0e28)
+
     def test_zero_f_gives_zero(self) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
@@ -45,8 +51,18 @@ class TestQpNumberDensity:
         n2 = qp_number_density(f, ctx, rho_F=7.0e28)
         assert n2 == pytest.approx(7.0 * n1)
 
-    @pytest.mark.parametrize("rho_F", [0.0, -1.0, float("nan"), float("inf")])
-    def test_rejects_invalid_rho_F(self, rho_F: float) -> None:
+    @pytest.mark.parametrize(
+        "rho_F",
+        [
+            0.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            complex(1e28, 0.0),
+            True,
+        ],
+    )
+    def test_rejects_invalid_rho_F(self, rho_F: complex | float) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
         with pytest.raises(ValueError, match="rho_F"):
@@ -156,8 +172,13 @@ class TestQpFraction:
             expected, rel=1e-14,
         )
 
-    @pytest.mark.parametrize("delta_0", [0.0, -1.0, np.nan, np.inf])
-    def test_rejects_non_positive_delta_0(self, delta_0: float) -> None:
+    @pytest.mark.parametrize(
+        "delta_0",
+        [0.0, -1.0, np.nan, np.inf, complex(180.0, 0.0), True],
+    )
+    def test_rejects_non_positive_delta_0(
+        self, delta_0: complex | float
+    ) -> None:
         ctx = _ctx()
         f = np.zeros(ctx.E.size)
         with pytest.raises(ValueError, match="delta_0"):

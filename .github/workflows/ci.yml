@@ -12,9 +12,14 @@ jobs:
     # BLAS.  Leaving runner-dependent defaults here changes reduction order
     # enough to select a different roundoff-limited Newton/Picard stop.
     env:
-      OPENBLAS_NUM_THREADS: "1"
-      OMP_NUM_THREADS: "1"
+      BLIS_NUM_THREADS: "1"
+      MKL_DYNAMIC: "FALSE"
       MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      OMP_DYNAMIC: "FALSE"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
     strategy:
       fail-fast: false
       matrix:

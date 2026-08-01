@@ -42,7 +42,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.solvers.anderson import AndersonAccelerationError
 
 from validation.fischer_2023.steady_state_certificate import (
@@ -827,8 +827,7 @@ def solve(
             flush=True,
         )
 
-    kT = KB_UEV_PER_K * T_BATH
-    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(E, T_BATH)
 
     backend = T3DiffusionBackend()
     photon_params = {"omega_0": OMEGA_0, "n_bar": N_BAR, "c_phot": C_PHOT}

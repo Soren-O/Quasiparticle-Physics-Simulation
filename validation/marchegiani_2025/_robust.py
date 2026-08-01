@@ -1,7 +1,8 @@
 """Platform-aware pinned-baseline comparison for the M25 pin tests.
 
 Policy: every baseline CSV records the ``sys.platform`` it was
-generated on (``# pinned_on:`` header). On that platform the pin
+generated on (authenticated ``producer_platform`` table metadata;
+legacy ``# pinned_on:`` headers remain readable). On that platform the pin
 comparison is strict (``rtol = 1e-6``): the branch-continuation driver
 is deterministic and the tracked root is unique with residuals
 ~1e-12 Hz, so any drift beyond 1e-6 is a real regression (or a
@@ -29,6 +30,8 @@ both mechanisms are gone.
 
 from __future__ import annotations
 
+import csv
+import json
 import sys
 from pathlib import Path
 
@@ -46,9 +49,21 @@ CROSS_PLATFORM_ATOL_FLOOR = 1e-30
 
 
 def baseline_pin_platform(path: Path) -> str | None:
-    """Return the ``sys.platform`` recorded in the baseline CSV header."""
-    with path.open() as fp:
+    """Return the producer ``sys.platform`` recorded by the baseline."""
+    with path.open(encoding="utf-8", newline="") as fp:
         for line in fp:
+            if line.startswith("# qpsim_metadata="):
+                try:
+                    row = next(csv.reader([line]))
+                    metadata = json.loads(row[0].split("=", 1)[1])
+                    producer_platform = metadata.get("producer_platform")
+                except (csv.Error, json.JSONDecodeError, IndexError, ValueError):
+                    return None
+                return (
+                    producer_platform
+                    if isinstance(producer_platform, str)
+                    else None
+                )
             if not line.startswith("#"):
                 return None
             if line.startswith(PIN_PLATFORM_PREFIX):

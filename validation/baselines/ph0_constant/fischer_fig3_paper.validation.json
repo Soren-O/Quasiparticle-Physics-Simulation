@@ -1,596 +1,757 @@
 {
-  "assumptions_and_gaps": [
-    "The script validates against whatever source is present in the edit worktree at validation time; source hashes and the solver fingerprint bind that state in this manifest.",
-    "The solve payload was produced by the separately recorded frozen source snapshot and predates the current extended artifact certificate schema. The script does not portray it as an exact-current-source slow solve.",
-    "The NPZ has no actual finite-ratio n_ph arrays. Stored finite-ratio phonon residual values can be range/limit checked but not independently authenticated from the NPZ.",
-    "For positive ratios, the script reconstructs the unique Ph0 affine n_ph fixed point implied by saved f(E), then reassembles QP, phonon, and pair-number certificates.",
-    "The old baseline comparison is diagnostic, not an acceptance gate, because that baseline is superseded.",
-    "The candidate PDF is checked for PDF magic and plausible size, then hashed. Visual rendering/review is a separate post-validation step."
-  ],
-  "candidate_artifacts": {
+  "artifacts": {
     "csv": {
-      "path": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94\\fischer_fig3_paper.csv",
-      "sha256": "1f92507f04cd06de826342a97da8a3694b7d2819bc07cd0172a1763ef66a60c8",
-      "size_bytes": 234213
-    },
-    "directory": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94",
-    "durable_copy_suggestion": {
-      "csv": "validation/baselines/ph0_constant/fischer_fig3_paper.csv",
-      "manifest": "validation/baselines/ph0_constant/fischer_fig3_paper.validation.json",
-      "pdf": "validation/baselines/ph0_constant/fischer_fig3_paper.pdf"
+      "sha256": "2264f6c09f2917d5863d274a5edbaf0e8484e9ec86e51018720cf868a4378616",
+      "size_bytes": 234302
     },
     "pdf": {
-      "path": "C:\\tmp\\qpsim-fig3-round7-candidate-24hizf94\\fischer_fig3_paper.pdf",
-      "sha256": "7e38be09b9b7eaafb02b83015da7cc21c8e5db172954757ac0cdd94256635812",
-      "size_bytes": 24882
+      "sha256": "1f3c762a461a83d999dc9013ecd1f167c2c2f6963b2208ef518e211833e20e43",
+      "size_bytes": 24852
     },
-    "promotion": "not performed; candidates are scratch-only",
     "readback": {
+      "arrays": {
+        "E": "016f73f196cfbb827a9d6e8491e6bd62fa7dd5bba09108fe4aeea848602ef967",
+        "f_FD": "5655e1ea5d5787d445643569ee73d6834464108e0045bd99e8f305002ace8a6c",
+        "f_by_ratio": {
+          "0": "c39de883fac925643dbadbee660dfa4ff72438aa0702a320b4e9c46f9877dac9",
+          "0.10000000000000001": "551d05288ace536f664c78c2bf861c765e2905df159453a62b0506be062c3b5d",
+          "1": "ab06e6494cd5f4dbe3b4a98acd7ad907f371f6ef46a7da2b2da970c63310effc",
+          "10": "df2714426f3e1b5d19c192d9196dad4d067f7d43ac140ce727fb4ce1460fae43"
+        }
+      },
       "metadata": {
+        "c_phot": 1e-09,
         "certificate_maxima": {
-          "phonon_backward_error": 0.0,
-          "phonon_raw_backward_error": 2.976765740120606e-07,
-          "phonon_residual_inf": 5.5026875441865234e-15,
-          "qp_backward_error": 8.362885826812107e-11,
-          "qp_number_backward_error": 2.2602648833176457e-09,
-          "qp_residual_inf": 2.009323037516342e-19
+          "phonon_backward_error": 1.3159499139268189e-06,
+          "phonon_raw_backward_error": 2.5361906187752008e-06,
+          "phonon_residual_inf": 1.4060923183566114e-13,
+          "qp_backward_error": 8.362882550726618e-11,
+          "qp_number_backward_error": 1.309842216242007e-10,
+          "qp_residual_inf": 1.0028489592409142e-19
         },
         "certificate_metric_version": "qp-l1-v1_qp-number-v1_ph0-nearest-binary64-v1",
+        "delta_0": 180.0,
+        "e_max_factor": 10.0,
+        "e_min_factor": 1.0,
+        "n_bar": 10000000.0,
         "num_bins": 1620,
+        "omega_0": 20.0,
         "pinned_on": "win32",
-        "producer_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
+        "producer_solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
         "ratios": [
           0.0,
           0.1,
           1.0,
           10.0
         ],
+        "raw_payload_sha256": "78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45",
+        "t_bath": 0.1,
         "target_backward_error_limit": 1e-05,
+        "tau_0": 438.0,
         "tau_0_pb_ns": 0.2546462020857182,
-        "validated_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618"
+        "validated_solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89"
       },
       "strict_read_passed": true
     }
   },
-  "claim": "A complete full-grid payload produced by the frozen round-7 source/cache identity was revalidated against the explicitly bound current Fig. 3 artifact and certificate contract. This is not represented as an exact-current-source slow solve.",
-  "contract": {
-    "current_tau_0_pb_ns": 0.2546462020857182,
-    "expected_shapes": {
-      "E": [
-        1620
-      ],
-      "f_FD": [
-        1620
-      ],
-      "f_ratios": [
-        4,
-        1620
-      ],
-      "phonon_backward_error": [
-        4
-      ],
-      "phonon_raw_backward_error": [
-        4
-      ],
-      "phonon_residual_inf": [
-        4
-      ],
-      "polish_relative_f": [
-        4
-      ],
-      "predictor_phonon_backward_error": [
-        4
-      ],
-      "predictor_qp_backward_error": [
-        4
-      ],
-      "qp_backward_error": [
-        4
-      ],
-      "qp_residual_inf": [
-        4
-      ],
-      "ratios": [
-        4
-      ],
-      "tau_0_pb_ns": [
-        1
-      ]
+  "assumptions_and_gaps": [
+    "The CSV does not persist the producer's original finite-ratio n_ph arrays. This proves current-equation membership of the reconstructed pair, not byte identity with the omitted producer n_ph.",
+    "This is an authenticated qpsim code-regression artifact at the paper parameter topology, not digitized-paper-data parity."
+  ],
+  "claim": "The source/configuration-bound current Fig. 3 solve was strictly read back and freshly recertified at the Ph0 fixed point implied by every persisted occupation curve. The fresh pass uses the shared certificate implementation; it is not an independent implementation.",
+  "fresh_certificate_reassembly": {
+    "maxima": {
+      "phonon_backward_error": 0.0,
+      "phonon_raw_backward_error": 3.5342546586450557e-07,
+      "phonon_residual_inf": 1.5650856290488965e-14,
+      "qp_backward_error": 8.362882739194506e-11,
+      "qp_number_backward_error": 2.2602647906704165e-09,
+      "qp_residual_inf": 1.0028489592409142e-19
     },
-    "peaks": [
-      4.755143160331232e-10,
-      1.889841008477693e-09,
-      1.8437594017345636e-08,
-      1.912975275107408e-07
-    ],
-    "ratios": [
-      0.0,
-      0.1,
-      1.0,
-      10.0
-    ],
-    "stored_certificate_maxima": {
-      "phonon_backward_error": 1.3110823261146413e-06,
-      "phonon_raw_backward_error": 2.5730126026856985e-06,
-      "phonon_residual_inf": 1.4060923187929492e-13,
-      "qp_backward_error": 8.3628857756748e-11,
-      "qp_residual_inf": 2.009323037516342e-19
-    },
-    "target_backward_error_limit": 1e-05,
-    "tau_0_pb_ns": 0.2546462020857182,
-    "weighted_populations": [
-      3.825702053540228e-08,
-      1.5204523325913314e-07,
-      1.4833788585422555e-06,
-      1.5390886605933317e-05
-    ]
-  },
-  "environment": {
-    "matplotlib": "3.11.1",
-    "matplotlib_backend": "Agg",
-    "numpy": "2.5.1",
-    "platform": "win32",
-    "platform_detail": "Windows-11-10.0.26100-SP0",
-    "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]"
-  },
-  "independent_certificate_reassembly": {
-    "gap": "The original finite-ratio n_ph and therefore the authenticity of the stored finite-ratio raw phonon residual cannot be recovered from this NPZ alone.",
+    "qualification": "The CSV does not persist the producer's original finite-ratio n_ph arrays. This proves current-equation membership of the reconstructed pair, not byte identity with the omitted producer n_ph.",
     "rows": [
       {
+        "certificate": {
+          "phonon_backward_error": null,
+          "phonon_raw_backward_error": null,
+          "phonon_residual_inf": null,
+          "qp_backward_error": 4.912311776876213e-17,
+          "qp_number_backward_error": 2.174776013951578e-15,
+          "qp_residual_inf": 1.2924697071141057e-26
+        },
+        "persisted_f_sha256": "c39de883fac925643dbadbee660dfa4ff72438aa0702a320b4e9c46f9877dac9",
         "ratio": 0.0,
-        "reconstructed_implied_phonon_fixed_point": {
-          "phonon_backward_error": null,
-          "phonon_raw_backward_error": null,
-          "phonon_residual_inf": null,
-          "qp_backward_error": 6.812705835987872e-17,
-          "qp_number_backward_error": 7.082699367015064e-17,
-          "qp_residual_inf": 2.5849394142282115e-26
-        },
-        "reconstructed_n_ph_max": 8.127001524163378,
-        "reconstructed_n_ph_min": 0.0,
-        "reconstructed_n_ph_sha256": "1f824e46ed61642d5f80793a61d115730b711b1501d97a9cc922c714f816c6ec",
-        "reconstructed_pair_number_backward_error": 7.082699367015064e-17,
-        "stored": {
-          "phonon_backward_error": null,
-          "phonon_raw_backward_error": null,
-          "phonon_residual_inf": null,
-          "qp_backward_error": 6.812705835987872e-17,
-          "qp_residual_inf": 2.5849394142282115e-26
+        "reconstructed_n_ph": {
+          "max": 8.127001524163378,
+          "min": 0.0,
+          "sha256": "bac78bd82a96747a57eca05e687773ba7cf39387795c265d030831ea2ae8dc29"
         }
       },
       {
+        "certificate": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 3.5342546586450557e-07,
+          "phonon_residual_inf": 1.5650856290488965e-14,
+          "qp_backward_error": 8.362882739194506e-11,
+          "qp_number_backward_error": 2.2602647906704165e-09,
+          "qp_residual_inf": 1.9684908175413103e-20
+        },
+        "persisted_f_sha256": "551d05288ace536f664c78c2bf861c765e2905df159453a62b0506be062c3b5d",
         "ratio": 0.1,
-        "reconstructed_implied_phonon_fixed_point": {
-          "phonon_backward_error": 0.0,
-          "phonon_raw_backward_error": 2.976765740120606e-07,
-          "phonon_residual_inf": 5.5026875441865234e-15,
-          "qp_backward_error": 8.362885826812107e-11,
-          "qp_number_backward_error": 2.2602648833176457e-09,
-          "qp_residual_inf": 1.9684921100110174e-20
-        },
-        "reconstructed_n_ph_max": 8.127001524178029,
-        "reconstructed_n_ph_min": 0.0,
-        "reconstructed_n_ph_sha256": "a5f4ee9fa6b04bab3f1030b940bae224905b1e2c1b504f3a95e27f7ead87ea43",
-        "reconstructed_pair_number_backward_error": 2.2602648833176457e-09,
-        "stored": {
-          "phonon_backward_error": 1.3110823261146413e-06,
-          "phonon_raw_backward_error": 2.5730126026856985e-06,
-          "phonon_residual_inf": 1.4060923187929492e-13,
-          "qp_backward_error": 8.3628857756748e-11,
-          "qp_residual_inf": 1.9684921100110174e-20
+        "reconstructed_n_ph": {
+          "max": 8.127001524178029,
+          "min": 0.0,
+          "sha256": "0e32bbb46d946f56f6ab34e030de6e1b17f2415e3a076f0e78414aaea754a670"
         }
       },
       {
+        "certificate": {
+          "phonon_backward_error": 0.0,
+          "phonon_raw_backward_error": 4.3022875770959595e-09,
+          "phonon_residual_inf": 2.177912271032101e-15,
+          "qp_backward_error": 3.2067137166661565e-11,
+          "qp_number_backward_error": 2.982176591853709e-10,
+          "qp_residual_inf": 1.0028489592409142e-19
+        },
+        "persisted_f_sha256": "ab06e6494cd5f4dbe3b4a98acd7ad907f371f6ef46a7da2b2da970c63310effc",
         "ratio": 1.0,
-        "reconstructed_implied_phonon_fixed_point": {
-          "phonon_backward_error": 0.0,
-          "phonon_raw_backward_error": 4.409848346478459e-09,
-          "phonon_residual_inf": 1.451980395756787e-15,
-          "qp_backward_error": 5.880707953240042e-11,
-          "qp_number_backward_error": 3.9594448944718824e-10,
-          "qp_residual_inf": 2.009323037516342e-19
-        },
-        "reconstructed_n_ph_max": 8.127001525592796,
-        "reconstructed_n_ph_min": 0.0,
-        "reconstructed_n_ph_sha256": "b0607da2e25638a4da82194ca5519ed2baf3cf92919223790d0d728c6788531a",
-        "reconstructed_pair_number_backward_error": 3.9594448944718824e-10,
-        "stored": {
-          "phonon_backward_error": 2.0803537757625494e-09,
-          "phonon_raw_backward_error": 7.715980882588364e-09,
-          "phonon_residual_inf": 2.5584594512419955e-15,
-          "qp_backward_error": 5.880707819755482e-11,
-          "qp_residual_inf": 2.009323037516342e-19
+        "reconstructed_n_ph": {
+          "max": 8.127001525592792,
+          "min": 0.0,
+          "sha256": "6bcdae226cdffb123aa782572560241a1568e79a4c52462c417c727d38a39fb3"
         }
       },
       {
-        "ratio": 10.0,
-        "reconstructed_implied_phonon_fixed_point": {
+        "certificate": {
           "phonon_backward_error": 0.0,
-          "phonon_raw_backward_error": 1.9948282740427218e-11,
-          "phonon_residual_inf": 6.188308630855692e-17,
-          "qp_backward_error": 1.0661487099194174e-16,
-          "qp_number_backward_error": 2.300114980150206e-11,
-          "qp_residual_inf": 2.6469779601696886e-23
+          "phonon_raw_backward_error": 5.493281128935891e-11,
+          "phonon_residual_inf": 2.1159424087268998e-16,
+          "qp_backward_error": 1.0038382339891459e-16,
+          "qp_number_backward_error": 1.3098421252087473e-10,
+          "qp_residual_inf": 1.3234889800848443e-23
         },
-        "reconstructed_n_ph_max": 8.12700167247569,
-        "reconstructed_n_ph_min": 0.0,
-        "reconstructed_n_ph_sha256": "f1ff05e3027c8d81b43c9c60d311167b6d5fab9f6eb78e8da3ce3b9f948f4367",
-        "reconstructed_pair_number_backward_error": 2.300114980150206e-11,
-        "stored": {
-          "phonon_backward_error": 1.2493570938836614e-17,
-          "phonon_raw_backward_error": 1.655528786395579e-11,
-          "phonon_residual_inf": 6.188308630855692e-17,
-          "qp_backward_error": 1.0661487099225458e-16,
-          "qp_residual_inf": 2.6469779601696886e-23
+        "persisted_f_sha256": "df2714426f3e1b5d19c192d9196dad4d067f7d43ac140ce727fb4ce1460fae43",
+        "ratio": 10.0,
+        "reconstructed_n_ph": {
+          "max": 8.12700167247569,
+          "min": 0.0,
+          "sha256": "8ee9f60802dbbbeb7b87876f73ef87cfa60268572f78c555f3b4acf0460d748a"
         }
       }
     ],
-    "scope": "The raw payload omits the solver's actual n_ph. Ratio zero is reassembled exactly from thermal phonons. At positive ratios, n_ph is independently reconstructed as the exact Ph0 affine fixed point implied by the saved f(E), then the complete current certificate and pair-number certificate are reassembled."
-  },
-  "observables": {
-    "certificate_maxima": {
-      "phonon_backward_error": 0.0,
-      "phonon_raw_backward_error": 2.976765740120606e-07,
-      "phonon_residual_inf": 5.5026875441865234e-15,
-      "qp_backward_error": 8.362885826812107e-11,
-      "qp_number_backward_error": 2.2602648833176457e-09,
-      "qp_residual_inf": 2.009323037516342e-19
-    },
-    "certificate_source": "Independent reassembly using the bound current verifier source, at the unique Ph0 fixed point implied by each saved f(E); the frozen NPZ predates the persisted qp_number_backward_error field.",
-    "producer_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
-    "ratios": [
-      0.0,
-      0.1,
-      1.0,
-      10.0
-    ],
-    "tau_0_pb_ns": 0.2546462020857182,
-    "validated_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618"
+    "scope": "Each persisted f(E) is paired with the unique Ph0 affine phonon fixed point it implies under the bound current equations. The complete QP, phonon, and pair-number certificate is then independently reassembled from that pair."
   },
   "producer": {
-    "cache_identity": "8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f",
-    "cache_kwargs": {
-      "continuation_ratios": [
-        0.1,
-        0.3,
-        0.5,
-        1.0,
-        2.0,
-        3.0,
-        4.0,
-        5.0,
-        6.0,
-        7.0,
-        8.0,
-        9.0,
-        10.0
-      ],
-      "num_bins": 1620,
-      "paper_ratios": [
-        0.0,
-        0.1,
-        1.0,
-        10.0
-      ]
-    },
-    "fig3_extra_source_sha256": "1fee56e5e2a262039e14a76c61df3dd9a8cde865a476877c0b2fc1e9d5397b9b",
-    "library_versions": {
-      "numpy": "2.5.1",
-      "python": "3.14.3",
-      "scipy": "1.18.0"
-    },
-    "provenance_unchanged_during_validation": true,
-    "qpsim_solve_source_digest": "dde9c86287b5ab44effdda04fa1f832917c47b74ec1ac8191a67484dab2af8b2",
-    "repository": {
-      "git": {
-        "branch": "",
-        "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
-        "worktree_porcelain_sha256": "986cb5ce8a9692057c38042af914be1d8dedb3ca166e4c9c0bcb6695c6a9cfdc"
+    "current_solve_contract_payload": true,
+    "payload_origin": {
+      "cache": {
+        "array_payload_sha256": "78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45",
+        "cache_enabled": true,
+        "cache_key": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
+        "cache_provenance": {
+          "array_payload_sha256": "78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45",
+          "created_utc": "2026-07-28T06:20:39.158854+00:00",
+          "extra_source": "b85f7cc31c65c3d603ef6d58b966a89d517f527246f8471c14e25f0bfe79863a",
+          "figure": "fischer_2023/fig3",
+          "fingerprint": {
+            "c_phot": 1e-09,
+            "delta_0": 180.0,
+            "e_max_factor": 10.0,
+            "e_min_factor": 1.0,
+            "high_ratio_fallback_mixing": 0.05,
+            "high_ratio_picard_mixing": 0.15,
+            "inner_qp_backward_error_limit": 1e-10,
+            "inner_qp_number_polish_shape_limit": 1e-08,
+            "n_bar": 10000000.0,
+            "num_bins": 1620,
+            "omega_0": 20.0,
+            "paper_tau_0_pb_ps": 255.0,
+            "picard_anderson_depth": 3,
+            "t_bath": 0.1,
+            "tau_0": 438.0
+          },
+          "key": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
+          "kwargs": {
+            "continuation_ratios": [
+              0.1,
+              0.3,
+              0.5,
+              1.0,
+              2.0,
+              3.0,
+              4.0,
+              5.0,
+              6.0,
+              7.0,
+              8.0,
+              9.0,
+              10.0
+            ],
+            "num_bins": 1620,
+            "paper_ratios": [
+              0.0,
+              0.1,
+              1.0,
+              10.0
+            ]
+          },
+          "numeric_runtime": {
+            "blas": {
+              "name": "scipy-openblas",
+              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+              "version": "0.3.33.112.0"
+            },
+            "lapack": {
+              "name": "scipy-openblas",
+              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+              "version": "0.3.33.112.0"
+            },
+            "logical_cpu_count": 32,
+            "machine": "amd64",
+            "os_family": "win32",
+            "python_implementation": "cpython",
+            "runtime_cpu_features": [
+              "AVX",
+              "AVX2",
+              "BMI",
+              "BMI2",
+              "CX16",
+              "F16C",
+              "FMA3",
+              "LAHF",
+              "LZCNT",
+              "MMX",
+              "MOVBE",
+              "POPCNT",
+              "SSE",
+              "SSE2",
+              "SSE3",
+              "SSE41",
+              "SSE42",
+              "SSSE3",
+              "X86_V2",
+              "X86_V3"
+            ],
+            "simd": {
+              "baseline": [
+                "X86_V2"
+              ],
+              "found": [
+                "X86_V3"
+              ]
+            },
+            "thread_controls": {
+              "BLIS_NUM_THREADS": "1",
+              "MKL_CBWR": null,
+              "MKL_DYNAMIC": null,
+              "MKL_NUM_THREADS": "1",
+              "NUMEXPR_NUM_THREADS": "1",
+              "OMP_DYNAMIC": null,
+              "OMP_NUM_THREADS": "1",
+              "OPENBLAS_CORETYPE": null,
+              "OPENBLAS_NUM_THREADS": "1",
+              "VECLIB_MAXIMUM_THREADS": null
+            }
+          },
+          "solve_source": "e4d0c7f699278332c413141371b1034786d6a4748e3617c20e5c598a7e7c8a4f",
+          "versions": {
+            "numpy": "2.5.1",
+            "python": "3.14.3",
+            "scipy": "1.18.0"
+          }
+        },
+        "execution_mode": "authenticated_cache_hit",
+        "producer_identity": {
+          "extra_source": "b85f7cc31c65c3d603ef6d58b966a89d517f527246f8471c14e25f0bfe79863a",
+          "figure": "fischer_2023/fig3",
+          "fingerprint": {
+            "c_phot": 1e-09,
+            "delta_0": 180.0,
+            "e_max_factor": 10.0,
+            "e_min_factor": 1.0,
+            "high_ratio_fallback_mixing": 0.05,
+            "high_ratio_picard_mixing": 0.15,
+            "inner_qp_backward_error_limit": 1e-10,
+            "inner_qp_number_polish_shape_limit": 1e-08,
+            "n_bar": 10000000.0,
+            "num_bins": 1620,
+            "omega_0": 20.0,
+            "paper_tau_0_pb_ps": 255.0,
+            "picard_anderson_depth": 3,
+            "t_bath": 0.1,
+            "tau_0": 438.0
+          },
+          "format_version": 4,
+          "kwargs": {
+            "continuation_ratios": [
+              0.1,
+              0.3,
+              0.5,
+              1.0,
+              2.0,
+              3.0,
+              4.0,
+              5.0,
+              6.0,
+              7.0,
+              8.0,
+              9.0,
+              10.0
+            ],
+            "num_bins": 1620,
+            "paper_ratios": [
+              0.0,
+              0.1,
+              1.0,
+              10.0
+            ]
+          },
+          "numeric_runtime": {
+            "blas": {
+              "name": "scipy-openblas",
+              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+              "version": "0.3.33.112.0"
+            },
+            "lapack": {
+              "name": "scipy-openblas",
+              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+              "version": "0.3.33.112.0"
+            },
+            "logical_cpu_count": 32,
+            "machine": "amd64",
+            "os_family": "win32",
+            "python_implementation": "cpython",
+            "runtime_cpu_features": [
+              "AVX",
+              "AVX2",
+              "BMI",
+              "BMI2",
+              "CX16",
+              "F16C",
+              "FMA3",
+              "LAHF",
+              "LZCNT",
+              "MMX",
+              "MOVBE",
+              "POPCNT",
+              "SSE",
+              "SSE2",
+              "SSE3",
+              "SSE41",
+              "SSE42",
+              "SSSE3",
+              "X86_V2",
+              "X86_V3"
+            ],
+            "simd": {
+              "baseline": [
+                "X86_V2"
+              ],
+              "found": [
+                "X86_V3"
+              ]
+            },
+            "thread_controls": {
+              "BLIS_NUM_THREADS": "1",
+              "MKL_CBWR": null,
+              "MKL_DYNAMIC": null,
+              "MKL_NUM_THREADS": "1",
+              "NUMEXPR_NUM_THREADS": "1",
+              "OMP_DYNAMIC": null,
+              "OMP_NUM_THREADS": "1",
+              "OPENBLAS_CORETYPE": null,
+              "OPENBLAS_NUM_THREADS": "1",
+              "VECLIB_MAXIMUM_THREADS": null
+            }
+          },
+          "solve_source": "e4d0c7f699278332c413141371b1034786d6a4748e3617c20e5c598a7e7c8a4f",
+          "versions": {
+            "numpy": "2.5.1",
+            "python": "3.14.3",
+            "scipy": "1.18.0"
+          }
+        }
       },
-      "path": "C:\\tmp\\qpsim-fig3-round7-frozen-20260725",
+      "restart": {
+        "canonical_request": {
+          "continuation_ratios": [
+            0.1,
+            0.3,
+            0.5,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0
+          ],
+          "num_bins": 1620,
+          "paper_ratios": [
+            0.0,
+            0.1,
+            1.0,
+            10.0
+          ]
+        },
+        "checkpoint_existed_before": true,
+        "checkpoint_identity": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
+        "checkpoint_path": "C:\\tmp\\qpsim-round7-fixes\\validation\\.sweep_cache\\fischer_2023__fig3_restart\\c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c.npz",
+        "qualification": "A solver invocation may replay a content-bound restart; an authenticated final-result cache hit invokes no solver."
+      }
+    },
+    "runtime": {
+      "library_versions": {
+        "numpy": "2.5.1",
+        "python": "3.14.3",
+        "scipy": "1.18.0"
+      },
+      "matplotlib": {
+        "backend": "Agg",
+        "version": "3.11.1"
+      },
+      "numeric_runtime_identity": {
+        "blas": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "lapack": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "logical_cpu_count": 32,
+        "machine": "amd64",
+        "os_family": "win32",
+        "python_implementation": "cpython",
+        "runtime_cpu_features": [
+          "AVX",
+          "AVX2",
+          "BMI",
+          "BMI2",
+          "CX16",
+          "F16C",
+          "FMA3",
+          "LAHF",
+          "LZCNT",
+          "MMX",
+          "MOVBE",
+          "POPCNT",
+          "SSE",
+          "SSE2",
+          "SSE3",
+          "SSE41",
+          "SSE42",
+          "SSSE3",
+          "X86_V2",
+          "X86_V3"
+        ],
+        "simd": {
+          "baseline": [
+            "X86_V2"
+          ],
+          "found": [
+            "X86_V3"
+          ]
+        },
+        "thread_controls": {
+          "BLIS_NUM_THREADS": "1",
+          "MKL_CBWR": null,
+          "MKL_DYNAMIC": null,
+          "MKL_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1",
+          "OMP_DYNAMIC": null,
+          "OMP_NUM_THREADS": "1",
+          "OPENBLAS_CORETYPE": null,
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": null
+        }
+      },
+      "platform": {
+        "detail": "Windows-11-10.0.26100-SP0",
+        "machine": "AMD64",
+        "system": "Windows"
+      },
+      "python": {
+        "implementation": "CPython",
+        "version": "3.14.3"
+      }
+    },
+    "source_identity": {
+      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solver_fingerprint": {
+        "c_phot": 1e-09,
+        "delta_0": 180.0,
+        "e_max_factor": 10.0,
+        "e_min_factor": 1.0,
+        "high_ratio_fallback_mixing": 0.05,
+        "high_ratio_picard_mixing": 0.15,
+        "inner_qp_backward_error_limit": 1e-10,
+        "inner_qp_number_polish_shape_limit": 1e-08,
+        "n_bar": 10000000.0,
+        "num_bins": 1620,
+        "omega_0": 20.0,
+        "paper_tau_0_pb_ps": 255.0,
+        "picard_anderson_depth": 3,
+        "t_bath": 0.1,
+        "tau_0": 438.0
+      },
       "source_sha256": {
-        "qpsim/solvers/newton_steady_state.py": "1778f5b4c1c6f340b07c84f2307c794f4b22e34e72d5fd9034dfed0c5b811d0b",
-        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
-        "validation/fischer_2023/fig3_paper.py": "d5e943848102cd8bded0e82e1cc9a11215b89f6109103f12eba9155d1f43f3b1",
-        "validation/fischer_2023/fig3_solve.py": "9efdc52f36663853d6dd599f9b9a53f96cd836a4d3817f7dc0ed978d22b4e147",
-        "validation/fischer_2023/steady_state_certificate.py": "20fb4a74a2e510d0303ee6badcf5b1c90cb31548f36df76ed3ee6a6ec4e6284c",
-        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
-        "validation/sweep_cache.py": "d3e76e61990b428b977de2fb1a4a56a5d0cead38fbce307c8b0efe328644d617"
+        "qpsim/__init__.py": "7e601e29b7c0227be17ba08c7f2a6ac90ba062fb85d5474a577197356bd0256e",
+        "qpsim/backends/__init__.py": "339ef68215e872377e56ae9beabad3d33aeaac6d49a188e9f412e101a07b1406",
+        "qpsim/backends/base.py": "aacd72e2dd308786456eb1956d1e55c73ef4af8e6356dd9afb1948ac9eb1020d",
+        "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
+        "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
+        "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
+        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+        "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
+        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+        "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+        "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
+        "qpsim/devices/device.py": "2e258be6d7bf4be0ed43dff16039c07f2c0865ce779670b4919ce48ad1abfa00",
+        "qpsim/devices/external_flux.py": "35bc3aea37f38582816803a8986d629cebb0934fb4e16ab263278e7955299161",
+        "qpsim/devices/junction.py": "8823516335eae94702002f64e886fb48da1c439b4912d71bf91a89a516f63539",
+        "qpsim/devices/m25_junction.py": "aa504031afa3959ebfd145f46a7060c8b10fc817c28604bf8328cb5827b9e904",
+        "qpsim/devices/qubit.py": "5872a88c0b79ba3f96b9352348ef952d75afb487abea6218b34afbcc65933358",
+        "qpsim/devices/region.py": "31912191aba40fab3d74eb68690039ceb4fe4c7f5e015facfa420eab1d7cc284",
+        "qpsim/experiments/__init__.py": "869d9436a01ff5d727232b3797a636751cb79ddb8b811aed5a9985dd7e808fd5",
+        "qpsim/experiments/prelim_resonators.py": "23550a2de390d99b14ba49f00ba505c92c3a2220d0ab4823f338a4c5d3ab9ca5",
+        "qpsim/geometries/__init__.py": "d8465674fc0e966aaa08a4987a55ec1d64154cbec6671761a82d6b8d17024936",
+        "qpsim/grid/__init__.py": "dab86d74d3bbd4383a1087addd6126b72712930bbccfef72a22f0267aa2622fb",
+        "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
+        "qpsim/grid/spatial_grid.py": "34977f92e4cd347e4861f8b587ca79547d8d3c39fca88e612719793931968f48",
+        "qpsim/materials/__init__.py": "f6188fecdeb447f2e6c82263f7f20bbffea26099a2db160787fdcafcae0eec03",
+        "qpsim/materials/data/Al.yaml": "096a84d3f39ccb329440f7839dd890bac49becbac2deda85b58552a667974b77",
+        "qpsim/materials/data/Nb.yaml": "fc8e586c54a4a16cc00b387bec91e5d76c5010be95cf8091ed34ee64324934eb",
+        "qpsim/materials/data/TiN.yaml": "93c7f531c2be90519be65d4dcd2ab1d00ac1a4de39058a41cc3894a573783342",
+        "qpsim/materials/database.py": "f550c6df0ded28a6d2277fc18509aa126e6825c1a9a7afb62dcf342fc44c3aa6",
+        "qpsim/materials/substrate.py": "df76325e7196d8102393fbf329cd101859632a5d4ef3c3ac9edebd83f218f199",
+        "qpsim/observables/__init__.py": "ea22ce595ab417480531f09453278b75030911bed15e9a7ee03fe289ff52000e",
+        "qpsim/observables/ac_conductivity.py": "3329e278fbbe3dee7b5a93f4295712698bee7948d24d547038a60614c7f830ec",
+        "qpsim/observables/density.py": "8f254db7e3581df373533df1d78336c3b1cb62592c3435179f55f9a3d8804467",
+        "qpsim/observables/effective_temperature.py": "dbc023a96812324ed69fed8263099443add0fd86eb50f450bd4e9e441f53ae58",
+        "qpsim/observables/frequency_shift.py": "612eae142d841eb2249182f283fd4376e51f210f6c11aba75cec71c0ab5264b6",
+        "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+        "qpsim/observables/quality_factor.py": "35604c52593c30d2a936d0561871174300c80d16d350279f0da631ef65dd49d2",
+        "qpsim/observables/spatial_ac_response.py": "c821015d3277227b494f18e0b12024e968d66a6b9e1a9ff483e46627fe338732",
+        "qpsim/phonon_models/__init__.py": "6141f5d2af06f9c4b43f7b7f73d056c20db2e02c50f62e7bc3ec1101d7938a75",
+        "qpsim/phonon_models/ph0_local.py": "679ad83721b9a613ff24e6976d7e3d4b1c1d4ac9db0d3e67f4fe2b4a0b04119c",
+        "qpsim/phonon_models/state.py": "375f1a227c4a395ab4795b47b4eb2b2b359616cd76d5638cff9bda4b1ccc9cc7",
+        "qpsim/physics/__init__.py": "12a87ceb8f24f6d2dc602cd5ea92657a243695d4880a30bb33f04651912e3438",
+        "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+        "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+        "qpsim/physics/kaplan_pair_breaking.py": "1d46f05d9acb25e18f8891fa37f0bbc1c6eef177edbb769b1a8343c7b6067f5e",
+        "qpsim/physics/kernels.py": "2b1cabfa50c7cb75f357997b5c1e2512f8327e44562ba49e41944c952c0179a4",
+        "qpsim/physics/phonon_escape.py": "13026fe01a7af2aad61274715dc1df403a54f1fe7d32aea0bff75642fa92f0b8",
+        "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+        "qpsim/services/__init__.py": "a8358d8ede8e2fc84def1deb5061fd5c81b60378af27c405c73354a822437425",
+        "qpsim/services/nbar_loop.py": "18ea088b277a542f4ce08fbc5e997a3b0705aef79d8e4c72f084044659a416e5",
+        "qpsim/services/rate_equation.py": "e2da4014c62e90d07bb18645a410fccf3e4e8de9a0efcfeb27341d73d275099d",
+        "qpsim/services/rate_equation_coefficients.py": "bd87f09e0a0e9873ddc8c5a08bfab7c598d71d220cbd9a2e3b157e3aecbef295",
+        "qpsim/services/steady_state.py": "97f009e24fa0bf00b538b85cbfdd741f2a25866f538a9aef403a475a1d290a42",
+        "qpsim/services/transient.py": "5de7e097d9ed58f7d4747eb75d143884480e072098e65ed2003f5208d0050190",
+        "qpsim/solvers/__init__.py": "d4cb4909416e3e2730b8c71fdb3b0b7e4067839f8ca26c3d666ce357fae8b4d9",
+        "qpsim/solvers/anderson.py": "28c2198776942dc848759a4f648788735112bdb8190115b741f42c466ce7a437",
+        "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
+        "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
+        "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
+        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
+        "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
+        "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
+        "qpsim/transport/__init__.py": "7012af249893c7a722e05861269ec6d7a9d9b092887dff79ef819a7ba13ad763",
+        "qpsim/transport/diffusion/__init__.py": "9284a34d7b7a87f90dd2f00c1ebe1e74ed8ff400a6af864fa9ef11b0cf42bae1",
+        "qpsim/transport/diffusion/base.py": "56f3f99ecb9921cdfa46aa081e1bde0263cd9f60838a83c5449d56247270a3a3",
+        "qpsim/webui/__init__.py": "c5c8f0b2ff937a4563aa1bd0612892e5eaca35362fc6a1da021b8dff2f5faf8c",
+        "qpsim/webui/__main__.py": "f228c5e9225336522d7188107ed505cad265bb54bbe94e8f6d999b96322eece9",
+        "qpsim/webui/builders.py": "4e07c4f164769fa8606692312ae8c6e98db16b73eefd561e936f8425b5d80060",
+        "qpsim/webui/cli.py": "539bb8821542de28561046df00295840db661f92f66d3d3cb265bd22cc265b85",
+        "qpsim/webui/execute.py": "e6dfa53a79a3b97c2bcb095669d7fe5da7ca050b18029571e8262d3e9e3bb1fa",
+        "qpsim/webui/hosts.py": "b241d1c3a427167665de68e16616ead98330f42c4a03402cbf07e7fcdca66ffa",
+        "qpsim/webui/plots.py": "c586c5dc3c21c1d08975df7b3002024a596d2765fbee91bc26d935c1dbf55af8",
+        "qpsim/webui/runner.py": "0261f6e719cac839e5cffdeed7fddfa270672045d2d85c997c356e253e3acf24",
+        "qpsim/webui/schemas.py": "37c69dde9a2157c93f190ee903c75455726b02cd75ba6119705b0612f358982b",
+        "qpsim/webui/server.py": "7b74dc089f631279be93a99128bc303db8ba3d9d66fe0b87fdb642fe51f30c05",
+        "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
+        "validation/fischer_2023/_paper_envelope.py": "10c63368d2500d7ddf98726daddf6c5227b35a2495304e16a8a306a2fa024eac",
+        "validation/fischer_2023/fig3_paper.py": "a06bce899851aaece7dfa92bd13cf73601317b958830dad4868f712d9c2a5ca8",
+        "validation/fischer_2023/fig3_solve.py": "912a6117b339e8abb7b80748e7c9eccee4a5c11215314e44078c73653c8165db",
+        "validation/fischer_2023/steady_state_certificate.py": "d0b4d1653390d46b0b1f15c6cc058e0526b268841de888cca5ba257d921f02bc",
+        "validation/fischer_2024/_pdf.py": "8ce3438d3490e6a9ca6cf21289395622694df5a8851f8ec4d828500147745ed1",
+        "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0",
+        "validation/sweep_cache.py": "f86e78cf7fe74222a53393c10781bc82bf1eeaad37562aeaf824a23735c061b4"
       }
-    },
-    "runner": {
-      "path": "C:\\tmp\\qpsim-run-fig3-round7-full.py",
-      "sha256": "8144b58ba46262169c922c9285c2c93dd2094fbf42f09d7f155b039f882c1e9d",
-      "unchanged_during_validation": true
-    },
-    "runtime_neutral_solve_contract_derivation": "Post-hoc recomputation: the current runtime-neutral contract recipe applied to the immutable frozen producer sources. The old raw schema did not itself persist this digest.",
-    "runtime_neutral_solve_contract_digest": "522539fc7cf1ce148fdf3797e269c7d64dcb15642d0ca6802fbf1e9b9c670685",
-    "solver_fingerprint": {
-      "c_phot": 1e-09,
-      "delta_0": 180.0,
-      "e_max_factor": 10.0,
-      "e_min_factor": 1.0,
-      "high_ratio_fallback_mixing": 0.05,
-      "high_ratio_picard_mixing": 0.15,
-      "inner_qp_backward_error_limit": 1e-10,
-      "inner_qp_number_polish_shape_limit": 1e-08,
-      "n_bar": 10000000.0,
-      "num_bins": 1620,
-      "omega_0": 20.0,
-      "paper_tau_0_pb_ps": 255.0,
-      "picard_anderson_depth": 3,
-      "t_bath": 0.1,
-      "tau_0": 438.0
-    },
-    "status": {
-      "path": "C:\\tmp\\qpsim_fig3_round7_optimized_full_status.json",
-      "record": {
-        "checkpoint": "C:\\tmp\\qpsim_fig3_round7_restart_8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f.npz",
-        "elapsed_seconds": 10671.777185678482,
-        "finished_unix": 1785020664.606433,
-        "identity": "8594979aff9c3bc946b2bc341184bbff3e05a2b0b7a6d3e7abae85aab36d366f",
-        "output": "C:\\tmp\\qpsim_fig3_round7_optimized_full.npz",
-        "output_sha256": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
-        "pid": 28704,
-        "repo": "C:\\tmp\\qpsim-fig3-round7-frozen-20260725",
-        "started_unix": 1785009992.829248,
-        "status": "complete"
-      },
-      "sha256": "9723393372ac425f14f6f5bb6b70c3e556d759c653d44f95a6e04e2d507ac89e",
-      "unchanged_during_validation": true
     }
   },
-  "raw": {
-    "arrays": {
-      "E": {
-        "dtype": "<f8",
-        "sha256": "016f73f196cfbb827a9d6e8491e6bd62fa7dd5bba09108fe4aeea848602ef967",
-        "shape": [
-          1620
-        ]
-      },
-      "f_FD": {
-        "dtype": "<f8",
-        "sha256": "35a0786c5b01d70a366c60a44417b3e65e54b9c137f77d051888dd9efe0013ef",
-        "shape": [
-          1620
-        ]
-      },
-      "f_ratios": {
-        "dtype": "<f8",
-        "sha256": "99783c367e7f0438302ed1e4765834a1e78a4b6c5076f89e91064cede16e830f",
-        "shape": [
-          4,
-          1620
-        ]
-      },
-      "phonon_backward_error": {
-        "dtype": "<f8",
-        "sha256": "758875d0efb5cc7b894a68f812af32e0ed984e4ca163a37ac081ac205ccd535d",
-        "shape": [
-          4
-        ]
-      },
-      "phonon_raw_backward_error": {
-        "dtype": "<f8",
-        "sha256": "762e3c8225218b9c9ed6287beb7aa6e142753aa4af09eab1d586fc0d5987cc77",
-        "shape": [
-          4
-        ]
-      },
-      "phonon_residual_inf": {
-        "dtype": "<f8",
-        "sha256": "e982938e1076334237660be2a0f5c05566e32b99221600b8d93fc0ea939f445d",
-        "shape": [
-          4
-        ]
-      },
-      "polish_relative_f": {
-        "dtype": "<f8",
-        "sha256": "031132bc3ee8372fe7a3ade1fe04f6082b3f2262174000a66c175c999312df10",
-        "shape": [
-          4
-        ]
-      },
-      "predictor_phonon_backward_error": {
-        "dtype": "<f8",
-        "sha256": "723fc56ef8038fac6b9b50802bbfc9e5230a9703fcefd2740f2355ecba0fabde",
-        "shape": [
-          4
-        ]
-      },
-      "predictor_qp_backward_error": {
-        "dtype": "<f8",
-        "sha256": "293f4f8d2b6d8a980ba290c5613cf3f22fafd2fd70277e2e43474a4ce33f3b1b",
-        "shape": [
-          4
-        ]
-      },
-      "qp_backward_error": {
-        "dtype": "<f8",
-        "sha256": "e51ab41ac637f31c89ef73f686db8756afadda3e546645be6921f00d3a7a2274",
-        "shape": [
-          4
-        ]
-      },
-      "qp_residual_inf": {
-        "dtype": "<f8",
-        "sha256": "aaa100af227eb65f1117066b89ed5df0bb2edcfd20e54c58eddfdd6c9c55709f",
-        "shape": [
-          4
-        ]
-      },
-      "ratios": {
-        "dtype": "<f8",
-        "sha256": "706cbfbce5bf4285929b67ae5045eedcd2c47fe41df4c99e5ed178a8e57d02df",
-        "shape": [
-          4
-        ]
-      },
-      "tau_0_pb_ns": {
-        "dtype": "<f8",
-        "sha256": "512d32b8c52cd101852dc0feac817bb29dfcf04e2a9450268c1e3f9888403a4a",
-        "shape": [
-          1
-        ]
-      }
-    },
-    "keys": [
-      "E",
-      "f_FD",
-      "f_ratios",
-      "phonon_backward_error",
-      "phonon_raw_backward_error",
-      "phonon_residual_inf",
-      "polish_relative_f",
-      "predictor_phonon_backward_error",
-      "predictor_qp_backward_error",
-      "qp_backward_error",
-      "qp_residual_inf",
-      "ratios",
-      "tau_0_pb_ns"
-    ],
-    "path": "C:\\tmp\\qpsim_fig3_round7_optimized_full.npz",
-    "sha256": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
-    "sha256_after": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
-    "sha256_before": "aafe9103d453b48ba0e09cd917c98c89288d1aef2d8d9eb5c9a1a0b53bb1bedc",
-    "size_bytes": 69239,
-    "unchanged_during_validation": true
-  },
-  "repository": {
-    "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
-    "git": {
-      "branch": "codex/audit-round7-fixes",
-      "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
-      "worktree_porcelain_sha256": "50f61940c0b804ce20a2c22dd0f56e578447565f765b7f4fa4b63620551c57b3"
-    },
-    "path": "C:\\tmp\\qpsim-round7-fixes",
-    "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
-    "solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
-    "solver_fingerprint": {
-      "c_phot": 1e-09,
-      "delta_0": 180.0,
-      "e_max_factor": 10.0,
-      "e_min_factor": 1.0,
-      "high_ratio_fallback_mixing": 0.05,
-      "high_ratio_picard_mixing": 0.15,
-      "inner_qp_backward_error_limit": 1e-10,
-      "inner_qp_number_polish_shape_limit": 1e-08,
-      "n_bar": 10000000.0,
-      "num_bins": 1620,
-      "omega_0": 20.0,
-      "paper_tau_0_pb_ps": 255.0,
-      "picard_anderson_depth": 3,
-      "t_bath": 0.1,
-      "tau_0": 438.0
-    },
-    "source_sha256": {
-      "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
-      "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
-      "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
-      "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
-      "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
-      "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
-      "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
-    }
-  },
-  "schema": "qpsim-fig3-round7-validation-v3",
+  "schema": "qpsim-fischer-2023-fig3-validation-v4",
   "status": "pass",
-  "superseded_baseline_comparison": {
-    "interpretation": "Descriptive only. The old baseline is known to have accepted a wrong number-mode amplitude and is not an oracle.",
-    "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig3_paper.csv",
-    "per_ratio": {
-      "0": {
-        "aligned_shape_residual_over_new_peak": 0.0,
-        "current_regression_atol_for_old_pin": 4.755143160331231e-16,
-        "current_regression_rtol_for_old_pin": 0.0001,
-        "l2_amplitude_factor_new_over_old": 1.0,
-        "new_peak": 4.755143160331232e-10,
-        "old_peak": 4.755143160331232e-10,
-        "peak_factor_new_over_old": 1.0,
-        "peak_normalized_linf_shape_distance": 0.0,
-        "relative_strong_l1": 0.0,
-        "within_superseded_regression_envelope": true
+  "verifier": {
+    "runtime_after": {
+      "library_versions": {
+        "numpy": "2.5.1",
+        "python": "3.14.3",
+        "scipy": "1.18.0"
       },
-      "0.1": {
-        "aligned_shape_residual_over_new_peak": 0.0,
-        "current_regression_atol_for_old_pin": 1.889841008477693e-15,
-        "current_regression_rtol_for_old_pin": 0.0001,
-        "l2_amplitude_factor_new_over_old": 1.0,
-        "new_peak": 1.889841008477693e-09,
-        "old_peak": 1.889841008477693e-09,
-        "peak_factor_new_over_old": 1.0,
-        "peak_normalized_linf_shape_distance": 0.0,
-        "relative_strong_l1": 0.0,
-        "within_superseded_regression_envelope": true
+      "matplotlib": {
+        "backend": "Agg",
+        "version": "3.11.1"
       },
-      "1": {
-        "aligned_shape_residual_over_new_peak": 0.0,
-        "current_regression_atol_for_old_pin": 1.8437594017345634e-14,
-        "current_regression_rtol_for_old_pin": 0.0001,
-        "l2_amplitude_factor_new_over_old": 1.0,
-        "new_peak": 1.8437594017345636e-08,
-        "old_peak": 1.8437594017345636e-08,
-        "peak_factor_new_over_old": 1.0,
-        "peak_normalized_linf_shape_distance": 0.0,
-        "relative_strong_l1": 0.0,
-        "within_superseded_regression_envelope": true
+      "numeric_runtime_identity": {
+        "blas": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "lapack": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "logical_cpu_count": 32,
+        "machine": "amd64",
+        "os_family": "win32",
+        "python_implementation": "cpython",
+        "runtime_cpu_features": [
+          "AVX",
+          "AVX2",
+          "BMI",
+          "BMI2",
+          "CX16",
+          "F16C",
+          "FMA3",
+          "LAHF",
+          "LZCNT",
+          "MMX",
+          "MOVBE",
+          "POPCNT",
+          "SSE",
+          "SSE2",
+          "SSE3",
+          "SSE41",
+          "SSE42",
+          "SSSE3",
+          "X86_V2",
+          "X86_V3"
+        ],
+        "simd": {
+          "baseline": [
+            "X86_V2"
+          ],
+          "found": [
+            "X86_V3"
+          ]
+        },
+        "thread_controls": {
+          "BLIS_NUM_THREADS": "1",
+          "MKL_CBWR": null,
+          "MKL_DYNAMIC": null,
+          "MKL_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1",
+          "OMP_DYNAMIC": null,
+          "OMP_NUM_THREADS": "1",
+          "OPENBLAS_CORETYPE": null,
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": null
+        }
       },
-      "10": {
-        "aligned_shape_residual_over_new_peak": 0.0,
-        "current_regression_atol_for_old_pin": 1.9129752751074079e-13,
-        "current_regression_rtol_for_old_pin": 0.0001,
-        "l2_amplitude_factor_new_over_old": 1.0,
-        "new_peak": 1.912975275107408e-07,
-        "old_peak": 1.912975275107408e-07,
-        "peak_factor_new_over_old": 1.0,
-        "peak_normalized_linf_shape_distance": 0.0,
-        "relative_strong_l1": 0.0,
-        "within_superseded_regression_envelope": true
+      "platform": {
+        "detail": "Windows-11-10.0.26100-SP0",
+        "machine": "AMD64",
+        "system": "Windows"
+      },
+      "python": {
+        "implementation": "CPython",
+        "version": "3.14.3"
       }
     },
-    "pinned_on": "win32",
-    "sha256": "0cd844124f9afbaebc15f77a14bc14a56aafe325910df446285970ea8093bd9d",
-    "unchanged_during_validation": true
-  },
-  "verifier": {
-    "repository": {
-      "git": {
-        "branch": "codex/audit-round7-fixes",
-        "head": "cd4fb81efdc0d19a2a46e2dca2fcd5a0b1e380a9",
-        "worktree_porcelain_sha256": "50f61940c0b804ce20a2c22dd0f56e578447565f765b7f4fa4b63620551c57b3"
+    "runtime_before": {
+      "library_versions": {
+        "numpy": "2.5.1",
+        "python": "3.14.3",
+        "scipy": "1.18.0"
       },
-      "path": "C:\\tmp\\qpsim-round7-fixes"
-    },
-    "source_snapshot_after": {
-      "fig3_cache_identity": "676ae6b32c44ee8624217dded1c12efc023919dcd3140dc9e778c9ba624ed1ba",
-      "fig3_cache_kwargs": {
-        "continuation_ratios": [
-          0.1,
-          0.3,
-          0.5,
-          1.0,
-          2.0,
-          3.0,
-          4.0,
-          5.0,
-          6.0,
-          7.0,
-          8.0,
-          9.0,
-          10.0
+      "matplotlib": {
+        "backend": "Agg",
+        "version": "3.11.1"
+      },
+      "numeric_runtime_identity": {
+        "blas": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "lapack": {
+          "name": "scipy-openblas",
+          "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
+          "version": "0.3.33.112.0"
+        },
+        "logical_cpu_count": 32,
+        "machine": "amd64",
+        "os_family": "win32",
+        "python_implementation": "cpython",
+        "runtime_cpu_features": [
+          "AVX",
+          "AVX2",
+          "BMI",
+          "BMI2",
+          "CX16",
+          "F16C",
+          "FMA3",
+          "LAHF",
+          "LZCNT",
+          "MMX",
+          "MOVBE",
+          "POPCNT",
+          "SSE",
+          "SSE2",
+          "SSE3",
+          "SSE41",
+          "SSE42",
+          "SSSE3",
+          "X86_V2",
+          "X86_V3"
         ],
-        "num_bins": 1620,
-        "paper_ratios": [
-          0.0,
-          0.1,
-          1.0,
-          10.0
-        ]
+        "simd": {
+          "baseline": [
+            "X86_V2"
+          ],
+          "found": [
+            "X86_V3"
+          ]
+        },
+        "thread_controls": {
+          "BLIS_NUM_THREADS": "1",
+          "MKL_CBWR": null,
+          "MKL_DYNAMIC": null,
+          "MKL_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1",
+          "OMP_DYNAMIC": null,
+          "OMP_NUM_THREADS": "1",
+          "OPENBLAS_CORETYPE": null,
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": null
+        }
       },
-      "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
-      "fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
-      "fig3_solver_fingerprint": {
+      "platform": {
+        "detail": "Windows-11-10.0.26100-SP0",
+        "machine": "AMD64",
+        "system": "Windows"
+      },
+      "python": {
+        "implementation": "CPython",
+        "version": "3.14.3"
+      }
+    },
+    "runtime_unchanged": true,
+    "source_identity_after": {
+      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solver_fingerprint": {
         "c_phot": 1e-09,
         "delta_0": 180.0,
         "e_max_factor": 10.0,
@@ -607,51 +768,97 @@
         "t_bath": 0.1,
         "tau_0": 438.0
       },
-      "independent_fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
-      "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
       "source_sha256": {
-        "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
-        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
-        "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
-        "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
-        "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
-        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
-        "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
-      },
-      "validator_canonical_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
-      "validator_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
-      "writer_canonical_source_sha256": "5c83b83b3d815c39072f0ccc08935aeb86fe8ffb6ec9f2fe6377b5d2d6a77f08",
-      "writer_source_sha256": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d"
+        "qpsim/__init__.py": "7e601e29b7c0227be17ba08c7f2a6ac90ba062fb85d5474a577197356bd0256e",
+        "qpsim/backends/__init__.py": "339ef68215e872377e56ae9beabad3d33aeaac6d49a188e9f412e101a07b1406",
+        "qpsim/backends/base.py": "aacd72e2dd308786456eb1956d1e55c73ef4af8e6356dd9afb1948ac9eb1020d",
+        "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
+        "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
+        "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
+        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+        "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
+        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+        "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+        "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
+        "qpsim/devices/device.py": "2e258be6d7bf4be0ed43dff16039c07f2c0865ce779670b4919ce48ad1abfa00",
+        "qpsim/devices/external_flux.py": "35bc3aea37f38582816803a8986d629cebb0934fb4e16ab263278e7955299161",
+        "qpsim/devices/junction.py": "8823516335eae94702002f64e886fb48da1c439b4912d71bf91a89a516f63539",
+        "qpsim/devices/m25_junction.py": "aa504031afa3959ebfd145f46a7060c8b10fc817c28604bf8328cb5827b9e904",
+        "qpsim/devices/qubit.py": "5872a88c0b79ba3f96b9352348ef952d75afb487abea6218b34afbcc65933358",
+        "qpsim/devices/region.py": "31912191aba40fab3d74eb68690039ceb4fe4c7f5e015facfa420eab1d7cc284",
+        "qpsim/experiments/__init__.py": "869d9436a01ff5d727232b3797a636751cb79ddb8b811aed5a9985dd7e808fd5",
+        "qpsim/experiments/prelim_resonators.py": "23550a2de390d99b14ba49f00ba505c92c3a2220d0ab4823f338a4c5d3ab9ca5",
+        "qpsim/geometries/__init__.py": "d8465674fc0e966aaa08a4987a55ec1d64154cbec6671761a82d6b8d17024936",
+        "qpsim/grid/__init__.py": "dab86d74d3bbd4383a1087addd6126b72712930bbccfef72a22f0267aa2622fb",
+        "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
+        "qpsim/grid/spatial_grid.py": "34977f92e4cd347e4861f8b587ca79547d8d3c39fca88e612719793931968f48",
+        "qpsim/materials/__init__.py": "f6188fecdeb447f2e6c82263f7f20bbffea26099a2db160787fdcafcae0eec03",
+        "qpsim/materials/data/Al.yaml": "096a84d3f39ccb329440f7839dd890bac49becbac2deda85b58552a667974b77",
+        "qpsim/materials/data/Nb.yaml": "fc8e586c54a4a16cc00b387bec91e5d76c5010be95cf8091ed34ee64324934eb",
+        "qpsim/materials/data/TiN.yaml": "93c7f531c2be90519be65d4dcd2ab1d00ac1a4de39058a41cc3894a573783342",
+        "qpsim/materials/database.py": "f550c6df0ded28a6d2277fc18509aa126e6825c1a9a7afb62dcf342fc44c3aa6",
+        "qpsim/materials/substrate.py": "df76325e7196d8102393fbf329cd101859632a5d4ef3c3ac9edebd83f218f199",
+        "qpsim/observables/__init__.py": "ea22ce595ab417480531f09453278b75030911bed15e9a7ee03fe289ff52000e",
+        "qpsim/observables/ac_conductivity.py": "3329e278fbbe3dee7b5a93f4295712698bee7948d24d547038a60614c7f830ec",
+        "qpsim/observables/density.py": "8f254db7e3581df373533df1d78336c3b1cb62592c3435179f55f9a3d8804467",
+        "qpsim/observables/effective_temperature.py": "dbc023a96812324ed69fed8263099443add0fd86eb50f450bd4e9e441f53ae58",
+        "qpsim/observables/frequency_shift.py": "612eae142d841eb2249182f283fd4376e51f210f6c11aba75cec71c0ab5264b6",
+        "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+        "qpsim/observables/quality_factor.py": "35604c52593c30d2a936d0561871174300c80d16d350279f0da631ef65dd49d2",
+        "qpsim/observables/spatial_ac_response.py": "c821015d3277227b494f18e0b12024e968d66a6b9e1a9ff483e46627fe338732",
+        "qpsim/phonon_models/__init__.py": "6141f5d2af06f9c4b43f7b7f73d056c20db2e02c50f62e7bc3ec1101d7938a75",
+        "qpsim/phonon_models/ph0_local.py": "679ad83721b9a613ff24e6976d7e3d4b1c1d4ac9db0d3e67f4fe2b4a0b04119c",
+        "qpsim/phonon_models/state.py": "375f1a227c4a395ab4795b47b4eb2b2b359616cd76d5638cff9bda4b1ccc9cc7",
+        "qpsim/physics/__init__.py": "12a87ceb8f24f6d2dc602cd5ea92657a243695d4880a30bb33f04651912e3438",
+        "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+        "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+        "qpsim/physics/kaplan_pair_breaking.py": "1d46f05d9acb25e18f8891fa37f0bbc1c6eef177edbb769b1a8343c7b6067f5e",
+        "qpsim/physics/kernels.py": "2b1cabfa50c7cb75f357997b5c1e2512f8327e44562ba49e41944c952c0179a4",
+        "qpsim/physics/phonon_escape.py": "13026fe01a7af2aad61274715dc1df403a54f1fe7d32aea0bff75642fa92f0b8",
+        "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+        "qpsim/services/__init__.py": "a8358d8ede8e2fc84def1deb5061fd5c81b60378af27c405c73354a822437425",
+        "qpsim/services/nbar_loop.py": "18ea088b277a542f4ce08fbc5e997a3b0705aef79d8e4c72f084044659a416e5",
+        "qpsim/services/rate_equation.py": "e2da4014c62e90d07bb18645a410fccf3e4e8de9a0efcfeb27341d73d275099d",
+        "qpsim/services/rate_equation_coefficients.py": "bd87f09e0a0e9873ddc8c5a08bfab7c598d71d220cbd9a2e3b157e3aecbef295",
+        "qpsim/services/steady_state.py": "97f009e24fa0bf00b538b85cbfdd741f2a25866f538a9aef403a475a1d290a42",
+        "qpsim/services/transient.py": "5de7e097d9ed58f7d4747eb75d143884480e072098e65ed2003f5208d0050190",
+        "qpsim/solvers/__init__.py": "d4cb4909416e3e2730b8c71fdb3b0b7e4067839f8ca26c3d666ce357fae8b4d9",
+        "qpsim/solvers/anderson.py": "28c2198776942dc848759a4f648788735112bdb8190115b741f42c466ce7a437",
+        "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
+        "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
+        "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
+        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
+        "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
+        "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
+        "qpsim/transport/__init__.py": "7012af249893c7a722e05861269ec6d7a9d9b092887dff79ef819a7ba13ad763",
+        "qpsim/transport/diffusion/__init__.py": "9284a34d7b7a87f90dd2f00c1ebe1e74ed8ff400a6af864fa9ef11b0cf42bae1",
+        "qpsim/transport/diffusion/base.py": "56f3f99ecb9921cdfa46aa081e1bde0263cd9f60838a83c5449d56247270a3a3",
+        "qpsim/webui/__init__.py": "c5c8f0b2ff937a4563aa1bd0612892e5eaca35362fc6a1da021b8dff2f5faf8c",
+        "qpsim/webui/__main__.py": "f228c5e9225336522d7188107ed505cad265bb54bbe94e8f6d999b96322eece9",
+        "qpsim/webui/builders.py": "4e07c4f164769fa8606692312ae8c6e98db16b73eefd561e936f8425b5d80060",
+        "qpsim/webui/cli.py": "539bb8821542de28561046df00295840db661f92f66d3d3cb265bd22cc265b85",
+        "qpsim/webui/execute.py": "e6dfa53a79a3b97c2bcb095669d7fe5da7ca050b18029571e8262d3e9e3bb1fa",
+        "qpsim/webui/hosts.py": "b241d1c3a427167665de68e16616ead98330f42c4a03402cbf07e7fcdca66ffa",
+        "qpsim/webui/plots.py": "c586c5dc3c21c1d08975df7b3002024a596d2765fbee91bc26d935c1dbf55af8",
+        "qpsim/webui/runner.py": "0261f6e719cac839e5cffdeed7fddfa270672045d2d85c997c356e253e3acf24",
+        "qpsim/webui/schemas.py": "37c69dde9a2157c93f190ee903c75455726b02cd75ba6119705b0612f358982b",
+        "qpsim/webui/server.py": "7b74dc089f631279be93a99128bc303db8ba3d9d66fe0b87fdb642fe51f30c05",
+        "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
+        "validation/fischer_2023/_paper_envelope.py": "10c63368d2500d7ddf98726daddf6c5227b35a2495304e16a8a306a2fa024eac",
+        "validation/fischer_2023/fig3_paper.py": "a06bce899851aaece7dfa92bd13cf73601317b958830dad4868f712d9c2a5ca8",
+        "validation/fischer_2023/fig3_solve.py": "912a6117b339e8abb7b80748e7c9eccee4a5c11215314e44078c73653c8165db",
+        "validation/fischer_2023/steady_state_certificate.py": "d0b4d1653390d46b0b1f15c6cc058e0526b268841de888cca5ba257d921f02bc",
+        "validation/fischer_2024/_pdf.py": "8ce3438d3490e6a9ca6cf21289395622694df5a8851f8ec4d828500147745ed1",
+        "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0",
+        "validation/sweep_cache.py": "f86e78cf7fe74222a53393c10781bc82bf1eeaad37562aeaf824a23735c061b4"
+      }
     },
-    "source_snapshot_before": {
-      "fig3_cache_identity": "676ae6b32c44ee8624217dded1c12efc023919dcd3140dc9e778c9ba624ed1ba",
-      "fig3_cache_kwargs": {
-        "continuation_ratios": [
-          0.1,
-          0.3,
-          0.5,
-          1.0,
-          2.0,
-          3.0,
-          4.0,
-          5.0,
-          6.0,
-          7.0,
-          8.0,
-          9.0,
-          10.0
-        ],
-        "num_bins": 1620,
-        "paper_ratios": [
-          0.0,
-          0.1,
-          1.0,
-          10.0
-        ]
-      },
-      "fig3_extra_source_sha256": "8587b73c5a926be87a0e5c917f0b17b588ef4ce18291107a977ed279ac026085",
-      "fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
-      "fig3_solver_fingerprint": {
+    "source_identity_before": {
+      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solver_fingerprint": {
         "c_phot": 1e-09,
         "delta_0": 180.0,
         "e_max_factor": 10.0,
@@ -668,26 +875,94 @@
         "t_bath": 0.1,
         "tau_0": 438.0
       },
-      "independent_fig3_solve_contract_digest": "34fd48de63da4dd98b3d2fd476d9ac162713023ebf9b9dcea611cf18b975c618",
-      "qpsim_solve_source_digest": "7a031a84dfba7b5b70796131ebdcd1c789b6071f5b2f7754b8ce0bb8f176a51d",
       "source_sha256": {
-        "qpsim/solvers/newton_steady_state.py": "1d0af0327e3af9f8601bd42cf548971e0302995ece011947514525a1617c85c5",
-        "validation/fischer_2023/_paper_envelope.py": "814018557b2dc88092c5a7afdda03bfca32416357b59da2106bd6048e6d6d47d",
-        "validation/fischer_2023/fig3_paper.py": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d",
-        "validation/fischer_2023/fig3_solve.py": "4785a102052e900c5d29c571dfc3995975783783eb787c382e51e1b13701171d",
-        "validation/fischer_2023/steady_state_certificate.py": "f0d579ad0fb2ba2b63dc5dd8284d7493bf0624f4f91c15ea34e8f49b9bfd66d7",
-        "validation/source_provenance.py": "2003c92ffeb2087029a069707ecc010af064c90c7819efebe307ae0ff76bf89c",
-        "validation/sweep_cache.py": "c754d5834509dfbf116e8958e38715f79776b4604c705849b38699cbf6f12a34"
-      },
-      "validator_canonical_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
-      "validator_source_sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55",
-      "writer_canonical_source_sha256": "5c83b83b3d815c39072f0ccc08935aeb86fe8ffb6ec9f2fe6377b5d2d6a77f08",
-      "writer_source_sha256": "e0d1bfa6df13e197a647f602dd74d59c272f4b88d631207dea40408ebe9a075d"
+        "qpsim/__init__.py": "7e601e29b7c0227be17ba08c7f2a6ac90ba062fb85d5474a577197356bd0256e",
+        "qpsim/backends/__init__.py": "339ef68215e872377e56ae9beabad3d33aeaac6d49a188e9f412e101a07b1406",
+        "qpsim/backends/base.py": "aacd72e2dd308786456eb1956d1e55c73ef4af8e6356dd9afb1948ac9eb1020d",
+        "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
+        "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
+        "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
+        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+        "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
+        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+        "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
+        "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
+        "qpsim/devices/device.py": "2e258be6d7bf4be0ed43dff16039c07f2c0865ce779670b4919ce48ad1abfa00",
+        "qpsim/devices/external_flux.py": "35bc3aea37f38582816803a8986d629cebb0934fb4e16ab263278e7955299161",
+        "qpsim/devices/junction.py": "8823516335eae94702002f64e886fb48da1c439b4912d71bf91a89a516f63539",
+        "qpsim/devices/m25_junction.py": "aa504031afa3959ebfd145f46a7060c8b10fc817c28604bf8328cb5827b9e904",
+        "qpsim/devices/qubit.py": "5872a88c0b79ba3f96b9352348ef952d75afb487abea6218b34afbcc65933358",
+        "qpsim/devices/region.py": "31912191aba40fab3d74eb68690039ceb4fe4c7f5e015facfa420eab1d7cc284",
+        "qpsim/experiments/__init__.py": "869d9436a01ff5d727232b3797a636751cb79ddb8b811aed5a9985dd7e808fd5",
+        "qpsim/experiments/prelim_resonators.py": "23550a2de390d99b14ba49f00ba505c92c3a2220d0ab4823f338a4c5d3ab9ca5",
+        "qpsim/geometries/__init__.py": "d8465674fc0e966aaa08a4987a55ec1d64154cbec6671761a82d6b8d17024936",
+        "qpsim/grid/__init__.py": "dab86d74d3bbd4383a1087addd6126b72712930bbccfef72a22f0267aa2622fb",
+        "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
+        "qpsim/grid/spatial_grid.py": "34977f92e4cd347e4861f8b587ca79547d8d3c39fca88e612719793931968f48",
+        "qpsim/materials/__init__.py": "f6188fecdeb447f2e6c82263f7f20bbffea26099a2db160787fdcafcae0eec03",
+        "qpsim/materials/data/Al.yaml": "096a84d3f39ccb329440f7839dd890bac49becbac2deda85b58552a667974b77",
+        "qpsim/materials/data/Nb.yaml": "fc8e586c54a4a16cc00b387bec91e5d76c5010be95cf8091ed34ee64324934eb",
+        "qpsim/materials/data/TiN.yaml": "93c7f531c2be90519be65d4dcd2ab1d00ac1a4de39058a41cc3894a573783342",
+        "qpsim/materials/database.py": "f550c6df0ded28a6d2277fc18509aa126e6825c1a9a7afb62dcf342fc44c3aa6",
+        "qpsim/materials/substrate.py": "df76325e7196d8102393fbf329cd101859632a5d4ef3c3ac9edebd83f218f199",
+        "qpsim/observables/__init__.py": "ea22ce595ab417480531f09453278b75030911bed15e9a7ee03fe289ff52000e",
+        "qpsim/observables/ac_conductivity.py": "3329e278fbbe3dee7b5a93f4295712698bee7948d24d547038a60614c7f830ec",
+        "qpsim/observables/density.py": "8f254db7e3581df373533df1d78336c3b1cb62592c3435179f55f9a3d8804467",
+        "qpsim/observables/effective_temperature.py": "dbc023a96812324ed69fed8263099443add0fd86eb50f450bd4e9e441f53ae58",
+        "qpsim/observables/frequency_shift.py": "612eae142d841eb2249182f283fd4376e51f210f6c11aba75cec71c0ab5264b6",
+        "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+        "qpsim/observables/quality_factor.py": "35604c52593c30d2a936d0561871174300c80d16d350279f0da631ef65dd49d2",
+        "qpsim/observables/spatial_ac_response.py": "c821015d3277227b494f18e0b12024e968d66a6b9e1a9ff483e46627fe338732",
+        "qpsim/phonon_models/__init__.py": "6141f5d2af06f9c4b43f7b7f73d056c20db2e02c50f62e7bc3ec1101d7938a75",
+        "qpsim/phonon_models/ph0_local.py": "679ad83721b9a613ff24e6976d7e3d4b1c1d4ac9db0d3e67f4fe2b4a0b04119c",
+        "qpsim/phonon_models/state.py": "375f1a227c4a395ab4795b47b4eb2b2b359616cd76d5638cff9bda4b1ccc9cc7",
+        "qpsim/physics/__init__.py": "12a87ceb8f24f6d2dc602cd5ea92657a243695d4880a30bb33f04651912e3438",
+        "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+        "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+        "qpsim/physics/kaplan_pair_breaking.py": "1d46f05d9acb25e18f8891fa37f0bbc1c6eef177edbb769b1a8343c7b6067f5e",
+        "qpsim/physics/kernels.py": "2b1cabfa50c7cb75f357997b5c1e2512f8327e44562ba49e41944c952c0179a4",
+        "qpsim/physics/phonon_escape.py": "13026fe01a7af2aad61274715dc1df403a54f1fe7d32aea0bff75642fa92f0b8",
+        "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+        "qpsim/services/__init__.py": "a8358d8ede8e2fc84def1deb5061fd5c81b60378af27c405c73354a822437425",
+        "qpsim/services/nbar_loop.py": "18ea088b277a542f4ce08fbc5e997a3b0705aef79d8e4c72f084044659a416e5",
+        "qpsim/services/rate_equation.py": "e2da4014c62e90d07bb18645a410fccf3e4e8de9a0efcfeb27341d73d275099d",
+        "qpsim/services/rate_equation_coefficients.py": "bd87f09e0a0e9873ddc8c5a08bfab7c598d71d220cbd9a2e3b157e3aecbef295",
+        "qpsim/services/steady_state.py": "97f009e24fa0bf00b538b85cbfdd741f2a25866f538a9aef403a475a1d290a42",
+        "qpsim/services/transient.py": "5de7e097d9ed58f7d4747eb75d143884480e072098e65ed2003f5208d0050190",
+        "qpsim/solvers/__init__.py": "d4cb4909416e3e2730b8c71fdb3b0b7e4067839f8ca26c3d666ce357fae8b4d9",
+        "qpsim/solvers/anderson.py": "28c2198776942dc848759a4f648788735112bdb8190115b741f42c466ce7a437",
+        "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
+        "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
+        "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
+        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
+        "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
+        "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
+        "qpsim/transport/__init__.py": "7012af249893c7a722e05861269ec6d7a9d9b092887dff79ef819a7ba13ad763",
+        "qpsim/transport/diffusion/__init__.py": "9284a34d7b7a87f90dd2f00c1ebe1e74ed8ff400a6af864fa9ef11b0cf42bae1",
+        "qpsim/transport/diffusion/base.py": "56f3f99ecb9921cdfa46aa081e1bde0263cd9f60838a83c5449d56247270a3a3",
+        "qpsim/webui/__init__.py": "c5c8f0b2ff937a4563aa1bd0612892e5eaca35362fc6a1da021b8dff2f5faf8c",
+        "qpsim/webui/__main__.py": "f228c5e9225336522d7188107ed505cad265bb54bbe94e8f6d999b96322eece9",
+        "qpsim/webui/builders.py": "4e07c4f164769fa8606692312ae8c6e98db16b73eefd561e936f8425b5d80060",
+        "qpsim/webui/cli.py": "539bb8821542de28561046df00295840db661f92f66d3d3cb265bd22cc265b85",
+        "qpsim/webui/execute.py": "e6dfa53a79a3b97c2bcb095669d7fe5da7ca050b18029571e8262d3e9e3bb1fa",
+        "qpsim/webui/hosts.py": "b241d1c3a427167665de68e16616ead98330f42c4a03402cbf07e7fcdca66ffa",
+        "qpsim/webui/plots.py": "c586c5dc3c21c1d08975df7b3002024a596d2765fbee91bc26d935c1dbf55af8",
+        "qpsim/webui/runner.py": "0261f6e719cac839e5cffdeed7fddfa270672045d2d85c997c356e253e3acf24",
+        "qpsim/webui/schemas.py": "37c69dde9a2157c93f190ee903c75455726b02cd75ba6119705b0612f358982b",
+        "qpsim/webui/server.py": "7b74dc089f631279be93a99128bc303db8ba3d9d66fe0b87fdb642fe51f30c05",
+        "qpsim/webui/store.py": "e320b64c92f54cc91d1a28d277fd0db6f9c650abc8f13fafbb8947bb86ae0cab",
+        "validation/fischer_2023/_paper_envelope.py": "10c63368d2500d7ddf98726daddf6c5227b35a2495304e16a8a306a2fa024eac",
+        "validation/fischer_2023/fig3_paper.py": "a06bce899851aaece7dfa92bd13cf73601317b958830dad4868f712d9c2a5ca8",
+        "validation/fischer_2023/fig3_solve.py": "912a6117b339e8abb7b80748e7c9eccee4a5c11215314e44078c73653c8165db",
+        "validation/fischer_2023/steady_state_certificate.py": "d0b4d1653390d46b0b1f15c6cc058e0526b268841de888cca5ba257d921f02bc",
+        "validation/fischer_2024/_pdf.py": "8ce3438d3490e6a9ca6cf21289395622694df5a8851f8ec4d828500147745ed1",
+        "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0",
+        "validation/sweep_cache.py": "f86e78cf7fe74222a53393c10781bc82bf1eeaad37562aeaf824a23735c061b4"
+      }
     },
-    "source_unchanged": true,
-    "validator": {
-      "path": "C:\\tmp\\validate_qpsim_fig3_round7.py",
-      "sha256": "23f41889c7a2e835e136d4a7cefbe9bc43f195c3909af8e590f563e44c4bbf55"
-    }
+    "source_unchanged": true
   }
 }

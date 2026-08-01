@@ -18,6 +18,20 @@ from qpsim.physics.kaplan_pair_breaking import (
 
 
 class TestKaplanSPlus:
+    @pytest.mark.parametrize(
+        "bad_x", [np.nan, np.inf, -np.inf, complex(2.5, 0.0)]
+    )
+    @pytest.mark.parametrize(
+        "evaluator", [kaplan_S_plus, kaplan_S_plus_numerical]
+    )
+    def test_rejects_nonfinite_or_complex_x(
+        self,
+        evaluator: object,
+        bad_x: complex | float,
+    ) -> None:
+        with pytest.raises(ValueError, match="x"):
+            evaluator(bad_x)  # type: ignore[operator]
+
     def test_below_threshold_zero_and_endpoint_right_limit(self) -> None:
         # Below threshold there is no pair channel. At exact threshold the
         # ideal-BCS K+ endpoint singularities have the finite right-limit pi.
@@ -63,6 +77,33 @@ class TestKaplanSPlus:
 
 
 class TestTauPBInverse:
+    @pytest.mark.parametrize(
+        ("parameter", "bad_value"),
+        [
+            ("omega_kelvin", np.nan),
+            ("gap_kelvin", np.inf),
+            ("tau_0_phonon_ns", -np.inf),
+            ("Delta_0_kelvin", complex(2.0, 0.0)),
+        ],
+    )
+    def test_rejects_nonfinite_or_complex_inputs(
+        self, parameter: str, bad_value: complex | float
+    ) -> None:
+        values: dict[str, complex | float | None] = {
+            "omega_kelvin": 6.0,
+            "gap_kelvin": 2.0,
+            "tau_0_phonon_ns": 0.2,
+            "Delta_0_kelvin": 2.0,
+        }
+        values[parameter] = bad_value
+        with pytest.raises(ValueError, match=parameter):
+            tau_PB_inverse_Hz(  # type: ignore[arg-type]
+                values["omega_kelvin"],
+                values["gap_kelvin"],
+                values["tau_0_phonon_ns"],
+                Delta_0_kelvin=values["Delta_0_kelvin"],
+            )
+
     def test_below_threshold_zero_and_exact_threshold_finite(self) -> None:
         # Ω < 2Δ has no pair breaking. At exact threshold the ideal-BCS
         # K+ endpoint gives 1/tau_0 when Delta=Delta_0.

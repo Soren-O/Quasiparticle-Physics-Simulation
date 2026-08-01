@@ -48,7 +48,7 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from scripts.run_prelim_spatial_finite_phonon_one import (
     FinitePhononSpatialRunner,
     readout_drive_from_resonator,
@@ -212,8 +212,7 @@ SHIFT_FIELDS = [
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E, dtype=float)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:

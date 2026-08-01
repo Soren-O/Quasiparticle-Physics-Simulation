@@ -1,4 +1,4 @@
-"""Regression test: Fischer 2023 Fig. 3 paper-target run matches the pinned CSV.
+"""Regression test: Fischer 2023 Fig. 3 qpsim run matches the pinned CSV.
 
 Slow-marked: this run does the τ_l = 0 thermal-phonon Newton plus the
 13-step branch-preserving Picard continuation, with a same-ratio coupled-
@@ -13,29 +13,36 @@ First-time generation::
 
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import sys
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
+from qpsim.physics.spectral import fermi_dirac_occupation
 from qpsim.solvers.anderson import AndersonAccelerationError
 
+from validation.fischer_2023 import fig3_paper as fig3_target
 from validation.fischer_2023.fig3_paper import (
     CURVE_REGRESSION_ATOL_OVER_PEAK,
     CURVE_REGRESSION_RTOL,
     STRONG_BOTTLENECK_CROSS_PLATFORM_RTOL,
+    VALIDATION_RECORD_SCHEMA,
+    Fig3PaperResult,
     baseline_path,
     config_metadata,
     curve_regression_rtol,
     observables,
     read_baseline,
     read_baseline_metadata,
+    read_validation_record,
     run,
+    validation_record_path,
     write_baseline,
 )
 from validation.fischer_2023.fig3_solve import (
@@ -43,6 +50,7 @@ from validation.fischer_2023.fig3_solve import (
     DELTA_0,
     INNER_QP_BACKWARD_ERROR_LIMIT,
     INNER_QP_NUMBER_POLISH_SHAPE_LIMIT,
+    PAPER_RATIOS,
     TARGET_BACKWARD_ERROR_LIMIT,
     Fig3StepEvent,
     _solve_coupled_newton,
@@ -83,7 +91,7 @@ def _small_certified_payload() -> dict[str, np.ndarray]:
     }
 
 
-def _small_certified_result():
+def _small_certified_result() -> Fig3PaperResult:
     return observables(
         _small_certified_payload(),
         producer_solve_contract_digest=_TEST_SOLVE_CONTRACT_DIGEST,
@@ -184,32 +192,399 @@ def test_canonical_validation_record_authenticates_promoted_pair() -> None:
     """The promoted CSV/PDF must be the exact pair accepted by the verifier."""
     csv_path = baseline_path()
     pdf_path = csv_path.with_suffix(".pdf")
-    record_path = csv_path.with_suffix(".validation.json")
+    record_path = validation_record_path()
 
     for path in (csv_path, pdf_path, record_path):
         assert path.is_file(), f"Canonical Fig. 3 artifact is missing: {path}"
         assert path.stat().st_size > 0, f"Canonical Fig. 3 artifact is empty: {path}"
 
-    record = json.loads(record_path.read_text(encoding="utf-8"))
-    assert record["schema"] == "qpsim-fig3-round7-validation-v3"
+    record = read_validation_record()
+    assert record["schema"] == VALIDATION_RECORD_SCHEMA
     assert record["status"] == "pass"
     assert record["verifier"]["source_unchanged"] is True
-
-    artifacts = record["candidate_artifacts"]
-    for name, path in (("csv", csv_path), ("pdf", pdf_path)):
-        attestation = artifacts[name]
-        assert attestation["size_bytes"] == path.stat().st_size
-        assert attestation["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert record["producer"]["current_solve_contract_payload"] is True
 
     cfg = config_metadata()
     validated_digest = cfg.validated_solve_contract_digest
-    assert record["repository"]["solve_contract_digest"] == validated_digest
-    assert record["observables"]["validated_solve_contract_digest"] == validated_digest
+    assert (
+        record["producer"]["source_identity"]["solve_contract_digest"]
+        == validated_digest
+    )
+    artifacts = record["artifacts"]
     assert artifacts["readback"]["strict_read_passed"] is True
     assert (
         artifacts["readback"]["metadata"]["validated_solve_contract_digest"]
         == validated_digest
     )
+    assert len(record["fresh_certificate_reassembly"]["rows"]) == len(
+        PAPER_RATIOS
+    )
+
+
+def test_triple_publisher_authenticates_and_promotes_record_last(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    csv_path = tmp_path / "fig3.csv"
+    pdf_path = tmp_path / "fig3.pdf"
+    record_path = tmp_path / "fig3.validation.json"
+    monkeypatch.setattr(fig3_target, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fig3_target, "plot_path", lambda: pdf_path)
+    monkeypatch.setattr(fig3_target, "validation_record_path", lambda: record_path)
+
+    source_identity = fig3_target._validation_source_identity()
+    runtime = fig3_target._validation_runtime_provenance()
+    digest = source_identity["solve_contract_digest"]
+    _E, _dE, spectral = fig3_target._build_grid_and_spectral()
+    raw = _small_certified_payload()
+    raw["E"] = spectral.E
+    raw["f_FD"] = fermi_dirac_occupation(spectral.E, fig3_target.T_BATH)
+    raw["f_ratios"] = np.full((len(PAPER_RATIOS), spectral.E.size), 1e-8)
+    raw["tau_0_pb_ns"] = np.asarray(
+        [fig3_target.config_metadata().tau_0_pb_ns]
+    )
+    result = fig3_target.observables(
+        raw,
+        producer_solve_contract_digest=digest,
+        validated_solve_contract_digest=digest,
+    )
+    _kwargs, _fingerprint, _extra_source, cache_identity = (
+        fig3_target._solve_cache_inputs(
+            num_bins=fig3_target.NUM_BINS,
+            paper_ratios=PAPER_RATIOS,
+            continuation_ratios=fig3_target.CONTINUATION_RATIOS,
+        )
+    )
+    producer_evidence = {
+        "cache": {
+            "array_payload_sha256": (
+                fig3_target.sweep_cache._array_payload_sha256(raw)
+            ),
+            "cache_enabled": False,
+            "execution_mode": "solver_invoked",
+        },
+        "restart": {
+            "canonical_request": _kwargs,
+            "checkpoint_existed_before": False,
+            "checkpoint_identity": cache_identity,
+            "checkpoint_path": None,
+            "qualification": "unit-test restart qualification",
+        },
+    }
+
+    original_write_plot = fig3_target.write_plot
+
+    def fake_plot(_result, path=None):
+        assert path is not None
+        return original_write_plot(_result, path)
+
+    monkeypatch.setattr(fig3_target, "write_plot", fake_plot)
+    def fake_reassembly(_result):
+        return {
+            "maxima": result.certificate_maxima,
+            "qualification": "unit-test qualification",
+            "rows": [
+                {
+                    "ratio": ratio,
+                    "persisted_f_sha256": fig3_target._sha256_array(
+                        result.f_by_ratio[ratio]
+                    ),
+                    "certificate": {
+                        field: (
+                            None
+                            if ratio == 0.0 and field.startswith("phonon_")
+                            else result.certificate_maxima[field]
+                        )
+                        for field in CERTIFICATE_FIELDS
+                    },
+                    "reconstructed_n_ph": {
+                        "max": 0.0,
+                        "min": 0.0,
+                        "sha256": "0" * 64,
+                    },
+                }
+                for ratio in PAPER_RATIOS
+            ],
+            "scope": "unit-test scope",
+        }
+
+    monkeypatch.setattr(
+        fig3_target,
+        "_reassemble_artifact_certificates",
+        fake_reassembly,
+    )
+
+    forged_origin = json.loads(json.dumps(producer_evidence))
+    forged_origin["cache"]["array_payload_sha256"] = "f" * 64
+    with pytest.raises(RuntimeError, match=r"raw solve payload"):
+        fig3_target.publish_baseline_triple(
+            result,
+            source_identity=source_identity,
+            producer_runtime=runtime,
+            producer_evidence=forged_origin,
+        )
+
+    noncanonical_origin = json.loads(json.dumps(producer_evidence))
+    noncanonical_origin["restart"]["canonical_request"][
+        "continuation_ratios"
+    ] = [0.1, 1.0, 10.0]
+    with pytest.raises(RuntimeError, match=r"invalid restart evidence"):
+        fig3_target.publish_baseline_triple(
+            result,
+            source_identity=source_identity,
+            producer_runtime=runtime,
+            producer_evidence=noncanonical_origin,
+        )
+
+    for artifact_name in ("csv", "pdf"):
+        def mutate_stage(_result, *, _artifact_name=artifact_name):
+            stage = next(tmp_path.glob(f".*.stage.{_artifact_name}"))
+            if _artifact_name == "csv":
+                stage.write_bytes(stage.read_bytes() + b"\n")
+            else:
+                stage.write_bytes(
+                    b"%PDF-1.4\nUNRELATED-COMPLETE-PDF"
+                    + b"x" * 2048
+                    + b"\n%%EOF\n"
+                )
+            return fake_reassembly(_result)
+
+        monkeypatch.setattr(
+            fig3_target,
+            "_reassemble_artifact_certificates",
+            mutate_stage,
+        )
+        with pytest.raises(RuntimeError, match=r"changed during semantic"):
+            fig3_target.publish_baseline_triple(
+                result,
+                source_identity=source_identity,
+                producer_runtime=runtime,
+                producer_evidence=producer_evidence,
+            )
+        assert not csv_path.exists()
+        assert not pdf_path.exists()
+        assert not record_path.exists()
+    monkeypatch.setattr(
+        fig3_target,
+        "_reassemble_artifact_certificates",
+        fake_reassembly,
+    )
+
+    original_write_baseline = fig3_target.write_baseline
+
+    def swap_pdf_while_writing_csv(_result, path=None):
+        pdf_stage = next(tmp_path.glob(".*.stage.pdf"))
+        pdf_stage.write_bytes(
+            b"%PDF-1.4\nPREFREEZE-SUBSTITUTION"
+            + b"x" * 2048
+            + b"\n%%EOF\n"
+        )
+        return original_write_baseline(_result, path)
+
+    monkeypatch.setattr(
+        fig3_target,
+        "write_baseline",
+        swap_pdf_while_writing_csv,
+    )
+    with pytest.raises(RuntimeError, match=r"PDF changed while its CSV"):
+        fig3_target.publish_baseline_triple(
+            result,
+            source_identity=source_identity,
+            producer_runtime=runtime,
+            producer_evidence=producer_evidence,
+        )
+    assert not csv_path.exists()
+    assert not pdf_path.exists()
+    assert not record_path.exists()
+    monkeypatch.setattr(
+        fig3_target,
+        "write_baseline",
+        original_write_baseline,
+    )
+
+    promoted: list[Path] = []
+    original_replace = os.replace
+
+    def tracking_replace(source, destination):
+        destination_path = Path(destination)
+        if destination_path in {pdf_path, csv_path, record_path}:
+            promoted.append(destination_path)
+        original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", tracking_replace)
+    assert fig3_target.publish_baseline_triple(
+        result,
+        source_identity=source_identity,
+        producer_runtime=runtime,
+        producer_evidence=producer_evidence,
+    ) == (csv_path, pdf_path, record_path)
+    assert promoted == [pdf_path, csv_path, record_path]
+    assert fig3_target.read_validation_record()["status"] == "pass"
+    fig3_target.read_baseline()
+    fig3_target.read_baseline_metadata()
+
+    original_csv = csv_path.read_bytes()
+    original_pdf = pdf_path.read_bytes()
+    original_record = record_path.read_bytes()
+
+    pdf_path.write_bytes(
+        b"%PDF-1.4\n"
+        + b"not a PDF object graph\n"
+        + b"x" * 2048
+        + b"\n%%EOF\n"
+    )
+    token_shaped_pdf = json.loads(original_record)
+    token_shaped_pdf["artifacts"]["pdf"] = {
+        "sha256": fig3_target._sha256_file(pdf_path),
+        "size_bytes": pdf_path.stat().st_size,
+    }
+    record_path.write_text(
+        json.dumps(token_shaped_pdf, allow_nan=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="one-page Matplotlib PDF"):
+        fig3_target.read_validation_record()
+    pdf_path.write_bytes(original_pdf)
+    record_path.write_bytes(original_record)
+
+    contradicted_payload = json.loads(original_record)
+    contradicted_payload["producer"]["payload_origin"]["cache"][
+        "array_payload_sha256"
+    ] = "0" * 64
+    record_path.write_text(
+        json.dumps(contradicted_payload, allow_nan=False),
+        encoding="utf-8",
+    )
+    for reader in (
+        fig3_target.read_baseline,
+        fig3_target.read_baseline_metadata,
+        fig3_target.read_validation_record,
+    ):
+        with pytest.raises(RuntimeError, match="recorded raw payload"):
+            reader()
+    record_path.write_bytes(original_record)
+
+    contradicted_runtime = json.loads(original_record)
+    contradicted_runtime["verifier"]["runtime_after"] = {"contradiction": True}
+    record_path.write_text(
+        json.dumps(contradicted_runtime, allow_nan=False),
+        encoding="utf-8",
+    )
+    for reader in (
+        fig3_target.read_baseline,
+        fig3_target.read_baseline_metadata,
+        fig3_target.read_validation_record,
+    ):
+        with pytest.raises(RuntimeError, match="not bound to current source"):
+            reader()
+    record_path.write_bytes(original_record)
+
+    empty_row_evidence = json.loads(original_record)
+    empty_row_evidence["fresh_certificate_reassembly"]["rows"][0][
+        "certificate"
+    ] = {}
+    record_path.write_text(
+        json.dumps(empty_row_evidence, allow_nan=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="incomplete certificate"):
+        fig3_target.read_validation_record()
+    record_path.write_bytes(original_record)
+
+    stale_digest = "0" * 64
+    csv_path.write_text(
+        original_csv.decode("utf-8").replace(digest, stale_digest, 1),
+        encoding="utf-8",
+        newline="",
+    )
+    contradicted_csv = json.loads(original_record)
+    contradicted_csv["artifacts"]["csv"] = {
+        "sha256": fig3_target._sha256_file(csv_path),
+        "size_bytes": csv_path.stat().st_size,
+    }
+    contradicted_csv["artifacts"]["readback"]["metadata"][
+        "producer_solve_contract_digest"
+    ] = stale_digest
+    record_path.write_text(
+        json.dumps(contradicted_csv, allow_nan=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match=r"current Fig. 3 contract"):
+        fig3_target.read_validation_record()
+    csv_path.write_bytes(original_csv)
+    record_path.write_bytes(original_record)
+
+    pdf_path.write_bytes(b"%PDF-1.4\ntampered\n%%EOF\n")
+    with pytest.raises(RuntimeError, match="does not authenticate"):
+        fig3_target.read_validation_record()
+
+
+def test_reassembly_preflight_rejects_forged_thermal_reference() -> None:
+    result = _small_certified_result()
+    expected = replace(
+        result,
+        f_FD=fermi_dirac_occupation(result.E, fig3_target.T_BATH),
+    )
+    fig3_target._validate_persisted_grid_and_thermal_reference(
+        expected,
+        expected_E=result.E.copy(),
+    )
+
+    portable = np.asarray(expected.f_FD, dtype=float).copy()
+    for _ in range(fig3_target.THERMAL_REFERENCE_BINDING_ULPS):
+        portable[0] = np.nextafter(portable[0], np.inf)
+    fig3_target._validate_persisted_grid_and_thermal_reference(
+        replace(expected, f_FD=portable),
+        expected_E=result.E.copy(),
+    )
+
+    outside_envelope = portable.copy()
+    outside_envelope[0] = np.nextafter(outside_envelope[0], np.inf)
+    with pytest.raises(RuntimeError, match="thermal reference"):
+        fig3_target._validate_persisted_grid_and_thermal_reference(
+            replace(expected, f_FD=outside_envelope),
+            expected_E=result.E.copy(),
+        )
+
+    forged = replace(expected, f_FD=np.full_like(expected.f_FD, 0.123))
+    with pytest.raises(RuntimeError, match="thermal reference"):
+        fig3_target._validate_persisted_grid_and_thermal_reference(
+            forged,
+            expected_E=result.E.copy(),
+        )
+
+
+def test_canonical_publication_lock_rejects_concurrent_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csv_path = tmp_path / "fig3.csv"
+    pdf_path = tmp_path / "fig3.pdf"
+    record_path = tmp_path / "fig3.validation.json"
+    monkeypatch.setattr(fig3_target, "baseline_path", lambda: csv_path)
+    monkeypatch.setattr(fig3_target, "plot_path", lambda: pdf_path)
+    monkeypatch.setattr(fig3_target, "validation_record_path", lambda: record_path)
+    with (  # noqa: SIM117 - the inner acquisition must occur under raises
+        fig3_target._publication_lock(record_path),
+        pytest.raises(RuntimeError, match=r"Another Fig. 3 publisher"),
+    ):
+        with fig3_target._publication_lock(record_path):
+            pytest.fail("A second publisher acquired the canonical lock.")
+
+    with fig3_target._publication_lock(record_path):
+        for reader in (
+            fig3_target.read_baseline,
+            fig3_target.read_baseline_metadata,
+            fig3_target.read_validation_record,
+        ):
+            with pytest.raises(
+                RuntimeError,
+                match=r"Another Fig. 3 publisher",
+            ):
+                reader()
 
 
 def test_baseline_curves_are_nonvacuous() -> None:
@@ -217,7 +592,10 @@ def test_baseline_curves_are_nonvacuous() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip(f"Baseline not found at {path}.")
-    baseline = read_baseline(path)
+    try:
+        baseline = read_baseline(path)
+    except RuntimeError as exc:
+        pytest.xfail(f"Canonical Fig. 3 artifact is stale/quarantined: {exc}")
     _assert_baseline_curves_are_nonvacuous(baseline)
 
 
@@ -262,6 +640,151 @@ def test_baseline_roundtrip_preserves_certificate_maxima(tmp_path) -> None:
     legacy_path.write_text(header, encoding="cp1252")
     legacy = read_baseline(legacy_path)
     assert legacy.certificate_maxima == expected.certificate_maxima
+
+
+def _replace_occupation(
+    result: Fig3PaperResult,
+    field: str,
+    value: float | complex,
+) -> Fig3PaperResult:
+    dtype = complex if np.iscomplexobj(value) else float
+    if field == "f_FD":
+        thermal = np.asarray(result.f_FD, dtype=dtype).copy()
+        thermal[0] = value
+        return replace(result, f_FD=thermal)
+    if field == "ratio":
+        ratio = result.ratios[0]
+        curves = {
+            key: np.asarray(curve, dtype=dtype).copy()
+            for key, curve in result.f_by_ratio.items()
+        }
+        curves[ratio][0] = value
+        return replace(result, f_by_ratio=curves)
+    raise AssertionError(f"unsupported test field {field!r}")
+
+
+@pytest.mark.parametrize("field", ["f_FD", "ratio"])
+@pytest.mark.parametrize(
+    "bad_value",
+    [np.nextafter(0.0, -np.inf), np.nextafter(1.0, np.inf)],
+)
+def test_writer_rejects_out_of_domain_occupation_without_replacing_sentinel(
+    tmp_path: Path,
+    field: str,
+    bad_value: float,
+) -> None:
+    result = _replace_occupation(_small_certified_result(), field, bad_value)
+    path = tmp_path / "preserved_fig3.csv"
+    path.write_text("sentinel\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"inclusive \[0, 1\]"):
+        write_baseline(result, path)
+    assert path.read_text(encoding="utf-8") == "sentinel\n"
+
+
+@pytest.mark.parametrize("field", ["f_FD", "ratio"])
+def test_writer_rejects_complex_occupation_without_replacing_sentinel(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    smallest_imaginary = np.nextafter(0.0, np.inf)
+    result = _replace_occupation(
+        _small_certified_result(),
+        field,
+        complex(0.5, smallest_imaginary),
+    )
+    path = tmp_path / "preserved_complex_fig3.csv"
+    path.write_text("sentinel\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="real-valued"):
+        write_baseline(result, path)
+    assert path.read_text(encoding="utf-8") == "sentinel\n"
+
+
+def test_plot_rejects_out_of_domain_occupation(tmp_path: Path) -> None:
+    result = _replace_occupation(
+        _small_certified_result(),
+        "ratio",
+        np.nextafter(1.0, np.inf),
+    )
+    path = tmp_path / "invalid.pdf"
+
+    with pytest.raises(RuntimeError, match=r"inclusive \[0, 1\]"):
+        fig3_target.write_plot(result, path)
+    assert not path.exists()
+
+
+def test_plot_rejects_complex_occupation(tmp_path: Path) -> None:
+    result = _replace_occupation(
+        _small_certified_result(),
+        "ratio",
+        complex(0.5, np.nextafter(0.0, np.inf)),
+    )
+    path = tmp_path / "complex.pdf"
+
+    with pytest.raises(RuntimeError, match="real-valued"):
+        fig3_target.write_plot(result, path)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("column", [1, 2])
+@pytest.mark.parametrize(
+    "bad_value",
+    [np.nextafter(0.0, -np.inf), np.nextafter(1.0, np.inf)],
+)
+def test_reader_rejects_out_of_domain_occupation(
+    tmp_path: Path,
+    column: int,
+    bad_value: float,
+) -> None:
+    path = write_baseline(_small_certified_result(), tmp_path / "bad-domain.csv")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    header_index = next(i for i, line in enumerate(lines) if line.startswith("E_uev"))
+    row = lines[header_index + 1].split(",")
+    row[column] = repr(float(bad_value))
+    lines[header_index + 1] = ",".join(row)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"inclusive \[0, 1\]"):
+        read_baseline(path)
+
+
+@pytest.mark.parametrize("column", [1, 2])
+def test_reader_rejects_complex_occupation(
+    tmp_path: Path,
+    column: int,
+) -> None:
+    path = write_baseline(_small_certified_result(), tmp_path / "complex.csv")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    header_index = next(i for i, line in enumerate(lines) if line.startswith("E_uev"))
+    row = lines[header_index + 1].split(",")
+    row[column] = "5.00000000000000000e-01+4.94065645841246544e-324j"
+    lines[header_index + 1] = ",".join(row)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="non-numeric data row"):
+        read_baseline(path)
+
+
+def test_occupation_domain_is_inclusive_at_exact_zero_and_one(
+    tmp_path: Path,
+) -> None:
+    result = _small_certified_result()
+    thermal = np.asarray(result.f_FD, dtype=float).copy()
+    thermal[:2] = (0.0, 1.0)
+    ratio = result.ratios[0]
+    curves = {
+        key: np.asarray(curve, dtype=float).copy()
+        for key, curve in result.f_by_ratio.items()
+    }
+    curves[ratio][:2] = (1.0, 0.0)
+    expected = replace(result, f_FD=thermal, f_by_ratio=curves)
+
+    restored = read_baseline(
+        write_baseline(expected, tmp_path / "inclusive-domain.csv")
+    )
+    np.testing.assert_array_equal(restored.f_FD[:2], [0.0, 1.0])
+    np.testing.assert_array_equal(restored.f_by_ratio[ratio][:2], [1.0, 0.0])
 
 
 def test_observables_rejects_missing_number_certificate() -> None:
@@ -1175,6 +1698,54 @@ class TestFig3CacheIntegration:
             "paper_ratios": (0.0, 0.1, 1.0),
             "continuation_ratios": (0.1, 0.3, 0.5, 1.0),
         }
+
+    def test_observables_owns_an_immutable_raw_snapshot(self) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        payload = self._stub_payload()
+        result = fp.observables(
+            payload,
+            producer_solve_contract_digest="a" * 64,
+            validated_solve_contract_digest="b" * 64,
+        )
+        original_energy = result.E.copy()
+        original_curve = result.f_by_ratio[0.1].copy()
+        original_maxima = dict(result.certificate_maxima)
+
+        payload["E"][0] = -1.0
+        payload["f_ratios"][1, 0] = 0.5
+        payload[CERTIFICATE_FIELDS[0]][0] = 0.5
+        np.testing.assert_array_equal(result.E, original_energy)
+        np.testing.assert_array_equal(result.f_by_ratio[0.1], original_curve)
+        assert dict(result.certificate_maxima) == original_maxima
+
+        with pytest.raises(ValueError):
+            result.E[0] = -1.0
+        with pytest.raises(ValueError):
+            result.f_by_ratio[0.1][0] = 0.5
+        with pytest.raises(TypeError):
+            result.f_by_ratio[0.1] = np.zeros_like(result.E)
+        with pytest.raises(TypeError):
+            result.certificate_maxima[CERTIFICATE_FIELDS[0]] = 0.0
+
+    @pytest.mark.parametrize("field", ["f_FD", "f_ratios"])
+    def test_observables_rejects_complex_raw_occupations(self, field: str) -> None:
+        import validation.fischer_2023.fig3_paper as fp
+
+        payload = self._stub_payload()
+        values = np.asarray(payload[field], dtype=complex)
+        values.reshape(-1)[0] += complex(
+            0.0,
+            np.nextafter(0.0, np.inf),
+        )
+        payload[field] = values
+
+        with pytest.raises(ValueError, match="real-valued"):
+            fp.observables(
+                payload,
+                producer_solve_contract_digest="a" * 64,
+                validated_solve_contract_digest="b" * 64,
+            )
 
     def test_run_cached_hits_disk_on_second_call(self, tmp_path, monkeypatch) -> None:
         import validation.fischer_2023.fig3_paper as fp

@@ -1,0 +1,271 @@
+{
+  "a1_binding": {
+    "anchor": {
+      "adapter_path": "validation/fischer_2023/fig6_author_adapter.py",
+      "anchor_id": "fischer-2023-fig6-T020-sweep049-author-exact-v1",
+      "anchor_path": "validation/paper_data/fischer_2023/fig6/author-point-T020-sweep049-exact-anchor.json",
+      "anchor_sha256": "3acfa5973a5766a29f23a6bd85704655462e4bc587f232e0576db04c17725010",
+      "author_source_manifest_path": "validation/paper_data/fischer_2023/fig6/author-source.json"
+    },
+    "manifest_sha256": "13afe789ed624504336dd969bfaf42bacb78ab16ffe7d8b953aac8d8b1f42aab"
+  },
+  "acceptance": {
+    "accepted": true,
+    "checks": {
+      "a1_final_state_relative_l2": true,
+      "a1_ordinate_absolute_error": true,
+      "final_occupations_physical": true,
+      "linear_solve_backward_error": true,
+      "newton_transitions": true,
+      "phonon_cancellation": true,
+      "qp_cancellation": true,
+      "stopping_rule": true
+    },
+    "limits": {
+      "a1_final_state_relative_l2_max": 1e-11,
+      "a1_ordinate_absolute_error_max": 1e-10,
+      "cancellation_residual_over_turnover_max": 1e-08,
+      "linear_solve_backward_error_max": 1e-12,
+      "newton_delta_symmetric_relative_max": 1e-12
+    }
+  },
+  "array_descriptors": {
+    "E_left_eV": {
+      "dtype": "<f8",
+      "npy_sha256": "c26bd380003fd55599c45c24c299dc53696f4c9e5a60bd98c45ccb67e56d727d",
+      "shape": [
+        1620
+      ]
+    },
+    "a1_final_state": {
+      "dtype": "<f8",
+      "npy_sha256": "bb70bbbd426d6bd7c7b7757d057a2df0d9bc576747f4f2dab68830ea06995e8b",
+      "shape": [
+        3239
+      ]
+    },
+    "f_final": {
+      "dtype": "<f8",
+      "npy_sha256": "3f0be646a40a163ee5860bc289756e5c4e15b84b5668592c655ab5ece6266029",
+      "shape": [
+        1620
+      ]
+    },
+    "final_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "0dfe8ed5f0f3c560ee13530ed7831167a1c2f5862d7337d819dbe1638ca242a6",
+      "shape": [
+        3239
+      ]
+    },
+    "initial_state": {
+      "dtype": "<f8",
+      "npy_sha256": "078cfd5e80ac5046205cee536a212ffc6574985c5e64b24e2e3571c4db69df8b",
+      "shape": [
+        3239
+      ]
+    },
+    "linear_solve_backward_errors": {
+      "dtype": "<f8",
+      "npy_sha256": "79ca33d43474924edacc428efe2883e8acb16035c9179f266963eb058095bc7c",
+      "shape": [
+        4
+      ]
+    },
+    "n_phonon_final": {
+      "dtype": "<f8",
+      "npy_sha256": "b461366a4b8105ecb436d62d9fca1ee74de1d7b486371aad41b71bec2a200a35",
+      "shape": [
+        1619
+      ]
+    },
+    "newton_deltas": {
+      "dtype": "<f8",
+      "npy_sha256": "fdf6fd895b7eb3476c0f080fb332bb5a6abdbedea2f9c926eadf36c6ba727978",
+      "shape": [
+        4,
+        3239
+      ]
+    },
+    "omega_phonon_eV": {
+      "dtype": "<f8",
+      "npy_sha256": "875822040800b090d5011d4fc8aa579df9b489aecedf9478c2e0ef59c1efe989",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_escape__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "e615457fc5dadc4bf9b61834007c471b8483293335e1b2db5e7188b18905435b",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_escape__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_pair__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "237baf5d1390e49ca42d4bdb06850de4c5586014d1f23d534f48d905dc58a62e",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_pair__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "fac8fa45dcd7aaa63f6cb3b167c062554fe1ea43cd1e0c8421cde86348096cd5",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_scattering__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "39397445030bcb20e011750d0c43d81ba8bf66c4a01d0b11414ae07affd8b3b0",
+      "shape": [
+        1619
+      ]
+    },
+    "phonon_scattering__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "163e09b45fcc5aa9f0573c5e9489228626b7d8ed7e07f0831505bc98a2820082",
+      "shape": [
+        1619
+      ]
+    },
+    "qp_pair__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "6523516672a93885c57fcd8707696588b8f046a6cc051bdf871a4aec39de7135",
+      "shape": [
+        1620
+      ]
+    },
+    "qp_pair__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "7ef337429788977802430204daa4b7ca3ab928c04327691e35d0dca955a50b90",
+      "shape": [
+        1620
+      ]
+    },
+    "qp_photon__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "85e46fbf3197b849c869048cd6de836314f6f3beea4df3d73348270ee729fa9e",
+      "shape": [
+        1620
+      ]
+    },
+    "qp_photon__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "5a7bcbc6d738c13735ad043e175e3a3ff1da8903e20b57dd75688e5c6513f72d",
+      "shape": [
+        1620
+      ]
+    },
+    "qp_scattering__gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "16f5253c63d92bdaa7885308e047104659f38acb743fa27da2546f2a1697d5e9",
+      "shape": [
+        1620
+      ]
+    },
+    "qp_scattering__loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "b378056f73c894e4685617db23e23a0f1454ab79af994aecab00133427b42fc4",
+      "shape": [
+        1620
+      ]
+    },
+    "relative_qp_steps": {
+      "dtype": "<f8",
+      "npy_sha256": "3bd5576e5313e7a9a6c21295b4926ed99e2dbadd5d99aff6dc40996d65e8345e",
+      "shape": [
+        4
+      ]
+    },
+    "state_history": {
+      "dtype": "<f8",
+      "npy_sha256": "6e2248380eca694fb68199d613da4643f0f890badf19beb2b654d0d11ea61fa9",
+      "shape": [
+        5,
+        3239
+      ]
+    },
+    "thermal_f": {
+      "dtype": "<f8",
+      "npy_sha256": "a3b11a0276d6d01b54b9cc1abcf1afcf5ec909b120331226d975a78a76ef2f11",
+      "shape": [
+        1620
+      ]
+    }
+  },
+  "comparison": {
+    "a1_figure6_ordinate": 0.12090908988993258,
+    "a1_final_state_relative_l2": 3.950703234104921e-16,
+    "a1_phonon_final_relative_l2": 3.9507022863401017e-16,
+    "a1_qp_final_relative_l2": 6.58131041732334e-14,
+    "figure6_ordinate_signed_difference": 0.0
+  },
+  "limitations": {
+    "author_initialization": "not validated; captured A1 initial state reused",
+    "continuation": "not validated",
+    "scope": "one authenticated point only; no full 300-point replay"
+  },
+  "observable": {
+    "driven_gap_eV": 0.00017999646581118777,
+    "driven_integral": 1.963457504700088e-05,
+    "figure6_ordinate": 0.12090908988993258,
+    "thermal_gap_eV": 0.00017999597972317586,
+    "thermal_integral": 2.2335120672141037e-05
+  },
+  "parameters": {
+    "T_c_K": 1.184,
+    "boltzmann_constant_J_per_K": 1.38064852e-23,
+    "c_photon_s_inv": 1.0000352684367704,
+    "delta0_eV": 0.00017999999999999998,
+    "electron_charge_C": 1.60217662e-19,
+    "gap_eV": 0.00017999999999999998,
+    "h_eV": 1e-06,
+    "max_newton_steps": 10,
+    "n_bar": 954548.4566618347,
+    "num_energy_cells": 1620,
+    "photon_bin": 20,
+    "relative_step_threshold": 1e-07,
+    "tau_0_pb_s": 2.553360200613721e-10,
+    "tau_0_s": 4.3800000000000003e-07,
+    "tau_l_s": 2.55e-10,
+    "temperature_K": 0.2
+  },
+  "raw_bundle": {
+    "manifest_sha256": "ebe32e48b93fa37d6ca230ce271732cf7086f58263db50f9a7b58dab32ae56ac",
+    "schema": "qpsim.fischer2023.fig6-author-c0-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c0-summary.v1",
+  "solver_verification": {
+    "iterations": 4,
+    "last_relative_qp_step": 1.1852570595909787e-09,
+    "maximum_linear_error_difference": 0.0,
+    "maximum_linear_solve_backward_error": 2.995062240363839e-17,
+    "maximum_newton_delta_symmetric_relative": 0.0,
+    "termination": "relative_qp_step_threshold",
+    "verified_every_transition": true
+  },
+  "stage": {
+    "comparison_stage_id": "A1",
+    "parent_stage_id": null,
+    "stage_id": "C0",
+    "status": "completed"
+  },
+  "summary_sources": {
+    "validation/author_source.py": "d363ed849b0f578c40ddc9560b42eb93ca07b2052b34f2690f0a70f8a71c4330",
+    "validation/fischer_2023/fig6_author_adapter.py": "340ea7c1f583e40077120bcf46c44d144301cabfce9e4149763024019621564f",
+    "validation/fischer_2023/fig6_author_c0_bundle.py": "b0be55aede65a523eeefb376a38c082a5af6e09afea603bc0aa670f169021a06",
+    "validation/fischer_2023/fig6_author_c0_summary.py": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d",
+    "validation/fischer_2023/fig6_author_frozen_state.py": "ba3f0e797ab6a89160935b2270974d8ef063dae93539554c6edac92ce5ac6120",
+    "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
+    "validation/reproduction_ladder.py": "ed4a09fd7edb8f10f4edb5279e5a3b438d57fb8dca61d112e90575c2a7273c4c",
+    "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+  }
+}

@@ -1,4 +1,4 @@
-"""Fischer 2023 Fig. 5 — paper-faithful two-panel reproduction.
+"""Fischer 2023 Fig. 5 — paper-topology numerical/analytic characterization.
 
 Two panels in the paper's sweep topology, on the paper's 1620-bin
 energy grid, at the paper's nominal $\\tau_\\ell = \\tau_0^{PB}$ phonon
@@ -15,9 +15,11 @@ Picard with Anderson). Dashed: analytical density balance from
 :func:`_xqp_analytic_eq47` --- generalized Rothwarf-Taylor (Eq. 47) with
 Appendix-E recombination corrections (Eq. E2).
 
-Cross-checked against the standalone reproduction at
-``paper reproductions/fischer2023-repro/src/fischer2023/solver.py``;
-see :mod:`test_fig5_paper_eq47`.
+The Eq. 47 helper is pinned against closed-form limits and adjudicated
+float64 reference values; see :mod:`test_fig5_paper_eq47`. The numerical
+and analytical arrays are regressed separately. This module does not
+compare either curve with digitized paper data, nor does it directly gate
+numerical-vs-analytical agreement.
 
 Fischer, Catelani --- Phys. Rev. Applied 19, 054087 (2023), Table I:
 parameters identical to :mod:`fig3_paper`.
@@ -37,11 +39,12 @@ import inspect
 import json
 import os
 import re
+import subprocess
 import tempfile
 import zlib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -74,7 +77,10 @@ from validation.fischer_2023.fig5_solve import (
     solve,
     solver_fingerprint,
 )
-from validation.source_provenance import source_sha256
+from validation.fischer_2024._pdf import (
+    validate_single_nonempty_matplotlib_pdf,
+)
+from validation.source_provenance import source_manifest
 
 
 @dataclass(frozen=True)
@@ -85,7 +91,7 @@ class Fig5PaperResult:
     # Upper panel: shape (n_T_bath, n_nbar) for each.
     upper_T_bath: np.ndarray
     upper_nbar: np.ndarray
-    upper_T_star: np.ndarray         # T_* / Δ (per (T_B, nbar))
+    upper_T_star: np.ndarray  # T_* / Δ (per (T_B, nbar))
     upper_x_qp_num: np.ndarray
     upper_x_qp_analytic: np.ndarray
     # Lower panel: shape (n_nbar, n_T_bath) for each.
@@ -103,6 +109,8 @@ class Fig5PaperResult:
     lower_phonon_residual_inf: np.ndarray
     lower_phonon_raw_backward_error: np.ndarray
     lower_phonon_backward_error: np.ndarray
+    upper_qp_number_backward_error: np.ndarray | None = None
+    lower_qp_number_backward_error: np.ndarray | None = None
     # Exact returned solver states.  Artifact certification is bound to these
     # arrays; callers cannot supply certificate scalars without the state that
     # independently reproduces them.
@@ -147,9 +155,10 @@ def _xqp_analytic_eq47(
              c₂ = (5/4)(a_{3/2}/a_{−1/2}) − (3/4)(a_{1/2}/a_{−1/2})²,
              (a_{−1/2}, a_{1/2}, a_{3/2}) = (2.1, 0.88, 0.77).
 
-    Cross-reference: ``paper reproductions/fischer2023-repro/src/
-    fischer2023/solver.py`` (``nqp_steady`` / ``R_bar`` / ``G_thermal``
-    / ``G_drive``); identical algebra at ρ_F = 1.
+    Historical values were compared with an external standalone
+    implementation, but finite-τ_l terms were later adjudicated and
+    corrected here. The checked-in tests pin the current helper and do not
+    rerun that external implementation.
 
     Thermal sanity check: at n̄ = 0 this reduces to
     x_qp = √(π T_B / (2 Δ)) · exp(−Δ/T_B), matching ``qp_fraction``
@@ -166,10 +175,7 @@ def _xqp_analytic_eq47(
 
     # Eq. 48: thermal generation
     G_T = (
-        (16.0 * np.pi / tau_bar)
-        * delta_over_Tc_cubed
-        * TB_uev
-        * np.exp(-2.0 * DELTA_0 / TB_uev)
+        (16.0 * np.pi / tau_bar) * delta_over_Tc_cubed * TB_uev * np.exp(-2.0 * DELTA_0 / TB_uev)
         if TB_uev > 0.0
         else 0.0
     )
@@ -181,7 +187,7 @@ def _xqp_analytic_eq47(
             (0.84 / tau_bar)
             * (tau_l / tau_0_pb)
             * delta_over_Tc_cubed
-            * x ** 4.5
+            * x**4.5
             * np.exp(-np.sqrt(14.0 / 5.0) * x ** (-3.0))
         )
     else:
@@ -191,7 +197,7 @@ def _xqp_analytic_eq47(
     # trapping correction (paper Eq. 112 leading order) on the linear term —
     # the same factor the Fig. 6 dashed derivation applies; omitting it left
     # this overlay 1.5–5.9% low (2026-07-20 review).
-    R0 = 2.0 * DELTA_0 ** 2 / (tau_bar * Tc_uev ** 3)
+    R0 = 2.0 * DELTA_0**2 / (tau_bar * Tc_uev**3)
     a_m12, a_p12, a_p32 = 2.1, 0.88, 0.77
     ratio = tau_l / tau_0_pb if tau_0_pb > 0.0 else 0.0
     trap = (1.0 + 0.5 * ratio) / (1.0 + ratio) if ratio > 0.0 else 1.0
@@ -249,7 +255,10 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig5PaperResult:
         for j in range(up_N.size):
             upper_x_num[i, j] = qp_fraction(upper_f[i, j], spectral, delta_0=DELTA_0)
             upper_x_ana[i, j] = _xqp_analytic_eq47(
-                float(up_T[i]), float(up_N[j]), tau_l=tau_l, tau_0_pb=tau_0_pb,
+                float(up_T[i]),
+                float(up_N[j]),
+                tau_l=tau_l,
+                tau_0_pb=tau_0_pb,
             )
             upper_T_star[i, j] = _kBTstar_eq35(float(up_N[j])) / DELTA_0
 
@@ -259,7 +268,10 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig5PaperResult:
         for j in range(lo_T.size):
             lower_x_num[i, j] = qp_fraction(lower_f[i, j], spectral, delta_0=DELTA_0)
             lower_x_ana[i, j] = _xqp_analytic_eq47(
-                float(lo_T[j]), float(lo_N[i]), tau_l=tau_l, tau_0_pb=tau_0_pb,
+                float(lo_T[j]),
+                float(lo_N[i]),
+                tau_l=tau_l,
+                tau_0_pb=tau_0_pb,
             )
 
     return Fig5PaperResult(
@@ -276,17 +288,19 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig5PaperResult:
         upper_qp_residual_inf=upper_certificates["qp_residual_inf"],
         upper_qp_backward_error=upper_certificates["qp_backward_error"],
         upper_phonon_residual_inf=upper_certificates["phonon_residual_inf"],
-        upper_phonon_raw_backward_error=upper_certificates[
-            "phonon_raw_backward_error"
-        ],
+        upper_phonon_raw_backward_error=upper_certificates["phonon_raw_backward_error"],
         upper_phonon_backward_error=upper_certificates["phonon_backward_error"],
+        upper_qp_number_backward_error=upper_certificates[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
         lower_qp_residual_inf=lower_certificates["qp_residual_inf"],
         lower_qp_backward_error=lower_certificates["qp_backward_error"],
         lower_phonon_residual_inf=lower_certificates["phonon_residual_inf"],
-        lower_phonon_raw_backward_error=lower_certificates[
-            "phonon_raw_backward_error"
-        ],
+        lower_phonon_raw_backward_error=lower_certificates["phonon_raw_backward_error"],
         lower_phonon_backward_error=lower_certificates["phonon_backward_error"],
+        lower_qp_number_backward_error=lower_certificates[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
         upper_f=upper_f,
         lower_f=lower_f,
         upper_n_ph=upper_n_ph,
@@ -302,7 +316,7 @@ def _certificate_arrays_from_raw(
 ) -> dict[str, np.ndarray]:
     """Load independently computed solve certificates without a fail-open default."""
     arrays: dict[str, np.ndarray] = {}
-    for field in certificate_module.CERTIFICATE_FIELDS:
+    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
         key = f"{prefix}_{field}"
         if key not in raw:
             raise ValueError(f"Fig. 5 raw solve payload is missing certificate field {key!r}.")
@@ -321,8 +335,7 @@ def _certificate_arrays_from_raw(
         values = arrays[field]
         if values.size and float(np.max(values)) > TARGET_BACKWARD_ERROR_LIMIT:
             raise RuntimeError(
-                f"Fig. 5 raw certificate {prefix}_{field} exceeds "
-                f"{TARGET_BACKWARD_ERROR_LIMIT:g}."
+                f"Fig. 5 raw certificate {prefix}_{field} exceeds {TARGET_BACKWARD_ERROR_LIMIT:g}."
             )
     return arrays
 
@@ -384,10 +397,7 @@ def run_cached(
         ),
         fingerprint=solver_fingerprint(num_bins=num_bins),
         kwargs=kwargs,
-        extra_source=(
-            inspect.getsource(fig5_solve)
-            + inspect.getsource(certificate_module)
-        ),
+        extra_source=(inspect.getsource(fig5_solve) + inspect.getsource(certificate_module)),
     )
     return observables(raw)
 
@@ -399,10 +409,7 @@ def baseline_path() -> Path:
     curves and the Eq. 47 + Appendix-E analytical overlay.
     """
     root = Path(__file__).resolve().parents[2]
-    return (
-        root / "validation" / "baselines" / "ph0_constant"
-        / "fischer_fig5_paper.csv"
-    )
+    return root / "validation" / "baselines" / "ph0_constant" / "fischer_fig5_paper.csv"
 
 
 def plot_path_a() -> Path:
@@ -441,43 +448,50 @@ def _legacy_write_baseline(result: Fig5PaperResult, path: Path | None = None) ->
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as fp:
         writer = csv.writer(fp)
-        writer.writerow([
-            "# Fischer 2023 Fig. 5 — paper-topology reproduction"
-        ])
-        writer.writerow([
-            f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_0={OMEGA_0} "
-            f"c_phot={C_PHOT}"
-        ])
-        writer.writerow([
-            f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"
-        ])
+        writer.writerow(["# Fischer 2023 Fig. 5 — paper-topology reproduction"])
+        writer.writerow(
+            [f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.6f} omega_0={OMEGA_0} c_phot={C_PHOT}"]
+        )
+        writer.writerow(
+            [f"# Grid: NE={NUM_BINS} E_min={E_MIN_FACTOR}*Delta E_max={E_MAX_FACTOR}*Delta"]
+        )
         writer.writerow([f"# tau_0_pb_ns={result.tau_0_pb_ns}  tau_l = 1.0 * tau_0_pb"])
-        writer.writerow([
-            "panel", "T_bath_K", "n_bar", "T_star_over_delta",
-            "x_qp_num", "x_qp_analytic",
-        ])
+        writer.writerow(
+            [
+                "panel",
+                "T_bath_K",
+                "n_bar",
+                "T_star_over_delta",
+                "x_qp_num",
+                "x_qp_analytic",
+            ]
+        )
         # Upper panel rows.
         for i, T_bath in enumerate(result.upper_T_bath):
             for j, n_bar in enumerate(result.upper_nbar):
-                writer.writerow([
-                    "upper",
-                    f"{T_bath:.17e}",
-                    f"{n_bar:.17e}",
-                    f"{result.upper_T_star[i, j]:.17e}",
-                    f"{result.upper_x_qp_num[i, j]:.17e}",
-                    f"{result.upper_x_qp_analytic[i, j]:.17e}",
-                ])
+                writer.writerow(
+                    [
+                        "upper",
+                        f"{T_bath:.17e}",
+                        f"{n_bar:.17e}",
+                        f"{result.upper_T_star[i, j]:.17e}",
+                        f"{result.upper_x_qp_num[i, j]:.17e}",
+                        f"{result.upper_x_qp_analytic[i, j]:.17e}",
+                    ]
+                )
         # Lower panel rows (T_*/Δ undefined for x-axis; store NaN).
         for i, n_bar in enumerate(result.lower_nbar):
             for j, T_bath in enumerate(result.lower_T_bath):
-                writer.writerow([
-                    "lower",
-                    f"{T_bath:.17e}",
-                    f"{n_bar:.17e}",
-                    "nan",
-                    f"{result.lower_x_qp_num[i, j]:.17e}",
-                    f"{result.lower_x_qp_analytic[i, j]:.17e}",
-                ])
+                writer.writerow(
+                    [
+                        "lower",
+                        f"{T_bath:.17e}",
+                        f"{n_bar:.17e}",
+                        "nan",
+                        f"{result.lower_x_qp_num[i, j]:.17e}",
+                        f"{result.lower_x_qp_analytic[i, j]:.17e}",
+                    ]
+                )
     return path
 
 
@@ -580,6 +594,12 @@ class BaselineMetadata:
     comment header — parsed back (or recomputed from the live config)
     without touching the data rows or running the two-panel sweep.
 
+    For a provenance-only v2-to-v3 rebind, this CSV fingerprint identifies
+    current publication reader/configuration compatibility, not a new
+    numerical producer. The immutable historical producer, runtime, source
+    commit, campaign, and prior artifact identities remain in the sibling v3
+    promotion record.
+
     Comparing the live config's fingerprint against the pinned baseline's is
     the cheap preflight that lets the slow regression test reject a stale
     config/baseline pairing in seconds rather than after the multi-minute run
@@ -612,9 +632,7 @@ def _legacy_read_baseline_metadata(path: Path | None = None) -> BaselineMetadata
     def _num(rx: re.Pattern[str], field: str) -> float:
         m = rx.search(text)
         if m is None:
-            raise RuntimeError(
-                f"Baseline header at {path} missing {field} metadata."
-            )
+            raise RuntimeError(f"Baseline header at {path} missing {field} metadata.")
         return float(m.group(1))
 
     ne_m = _GRID_NE_RE.search(text)
@@ -656,7 +674,7 @@ def config_metadata() -> BaselineMetadata:
     )
 
 
-ARTIFACT_SCHEMA = "qpsim.fischer2023.fig5_paper.v2"
+ARTIFACT_SCHEMA = "qpsim.fischer2023.fig5_paper.v3"
 _LEGACY_CANONICAL_LOGICAL_SHA256 = (
     "8a16aee9fcadf05eed62b00998c7e6294a0e08b511cf87af382a15db1acf8a95"
 )
@@ -667,15 +685,26 @@ _BASELINE_COLUMNS = (
     "T_star_over_delta",
     "x_qp_num",
     "x_qp_analytic",
-    *certificate_module.CERTIFICATE_FIELDS,
+    *certificate_module.NUMBER_CERTIFICATE_FIELDS,
     "state_f_f64_zlib_base64",
     "state_n_ph_f64_zlib_base64",
     "state_sha256",
 )
 _CERTIFIED_BACKWARD_ERROR_FIELDS = (
     "qp_backward_error",
+    certificate_module.QP_NUMBER_CERTIFICATE_FIELD,
     "phonon_backward_error",
 )
+PHONON_REASSEMBLY_BACKWARD_ERROR_LIMIT = 1.0e-8
+"""Cross-runtime limit for a freshly rebuilt Ph0 balance certificate.
+
+The producer still has to satisfy :data:`TARGET_BACKWARD_ERROR_LIMIT`
+(``1e-9``).  Reassembling the exact Windows-produced states on hosted Linux
+with the same NumPy/SciPy versions measured a maximum Ph0 certified backward
+error of ``7.41369469811521e-9``.  The diagnostic is sensitive to binary64
+reduction/FMA rounding at the representability allowance boundary, so the
+reader uses this separate rounded envelope without weakening either QP gate.
+"""
 _METADATA_KEYS = {
     "certificate_fields",
     "certificate_maxima",
@@ -687,39 +716,6 @@ _METADATA_KEYS = {
     "row_count",
     "schema",
 }
-_SOURCE_FINGERPRINT_FILES: tuple[str, ...] = (
-    "validation/fischer_2023/fig5_paper.py",
-    "validation/fischer_2023/fig5_solve.py",
-    "validation/fischer_2023/steady_state_certificate.py",
-    "validation/sweep_cache.py",
-    "validation/source_provenance.py",
-    "qpsim/backends/base.py",
-    "qpsim/backends/t3_diffusion.py",
-    "qpsim/collisions/_uniform_grid.py",
-    "qpsim/collisions/_validation.py",
-    "qpsim/collisions/pair_breaking_photon.py",
-    "qpsim/collisions/phonon.py",
-    "qpsim/collisions/sub_gap_photon.py",
-    "qpsim/constants.py",
-    "qpsim/devices/external_flux.py",
-    "qpsim/grid/energy_grid.py",
-    "qpsim/materials/database.py",
-    "qpsim/observables/density.py",
-    "qpsim/phonon_models/ph0_local.py",
-    "qpsim/phonon_models/state.py",
-    "qpsim/physics/bcs_quadrature.py",
-    "qpsim/physics/gap_equation.py",
-    "qpsim/physics/kaplan_pair_breaking.py",
-    "qpsim/physics/kernels.py",
-    "qpsim/physics/spectral.py",
-    "qpsim/services/steady_state.py",
-    "qpsim/solvers/anderson.py",
-    "qpsim/solvers/coupled_newton.py",
-    "qpsim/solvers/etd.py",
-    "qpsim/solvers/newton_steady_state.py",
-)
-
-
 class LegacyArtifactError(RuntimeError):
     """Raised only for the known pre-schema canonical Fig. 5 artifact."""
 
@@ -729,12 +725,18 @@ class ArtifactValidationError(RuntimeError):
 
 
 def source_hashes() -> dict[str, str]:
-    """Hash logical validation and numerical sources defining the artifact."""
-    root = Path(__file__).resolve().parents[2]
-    return {
-        relative: source_sha256(root / relative)
-        for relative in _SOURCE_FINGERPRINT_FILES
-    }
+    """Hash the producer plus the complete qpsim/material source tree."""
+    return source_manifest(
+        Path(__file__),
+        extra_validation_modules=(
+            Path(fig5_solve.__file__),
+            Path(certificate_module.__file__),
+            Path(sweep_cache.__file__),
+            Path(__file__).resolve().parents[1]
+            / "fischer_2024"
+            / "_pdf.py",
+        ),
+    )
 
 
 def artifact_fingerprint() -> dict[str, Any]:
@@ -754,11 +756,38 @@ def artifact_fingerprint() -> dict[str, Any]:
     }
 
 
-def _expected_row_count() -> int:
-    return (
-        len(UPPER_T_BATH_K) * UPPER_NBAR_VALUES.size
-        + len(LOWER_NBAR) * LOWER_T_BATH_K.size
+def producer_runtime_provenance() -> dict[str, Any]:
+    """Capture the floating-point runtime that produced an expensive solve."""
+    return {
+        "library_versions": sweep_cache._lib_versions(),
+        "numeric_runtime": sweep_cache._numeric_runtime_identity(),
+    }
+
+
+def capture_producer_identity() -> dict[str, Any]:
+    """Freeze source/configuration and runtime before the expensive solve."""
+    return json.loads(
+        json.dumps(
+            {
+                "fingerprint": artifact_fingerprint(),
+                "runtime": producer_runtime_provenance(),
+            },
+            sort_keys=True,
+        )
     )
+
+
+def assert_producer_identity_current(producer: Mapping[str, Any]) -> None:
+    """Reject persistence when source/configuration or runtime drifted."""
+    if dict(producer) != capture_producer_identity():
+        raise ArtifactValidationError(
+            "Fig. 5 source/configuration or numerical runtime changed "
+            "during generation; discard the result and rerun."
+        )
+
+
+def _expected_row_count() -> int:
+    return len(UPPER_T_BATH_K) * UPPER_NBAR_VALUES.size + len(LOWER_NBAR) * LOWER_T_BATH_K.size
 
 
 def _certificate_arrays(
@@ -767,7 +796,7 @@ def _certificate_arrays(
 ) -> dict[str, np.ndarray]:
     return {
         field: np.asarray(getattr(result, f"{prefix}_{field}"), dtype=float)
-        for field in certificate_module.CERTIFICATE_FIELDS
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
     }
 
 
@@ -779,9 +808,7 @@ def _validate_axis(
 ) -> np.ndarray:
     axis = np.asarray(values, dtype=float)
     if axis.shape != expected.shape or not np.array_equal(axis, expected):
-        raise ArtifactValidationError(
-            f"Fig. 5 artifact {name} axis is stale or reordered."
-        )
+        raise ArtifactValidationError(f"Fig. 5 artifact {name} axis is stale or reordered.")
     if np.any(~np.isfinite(axis)) or np.any(np.diff(axis) <= 0.0):
         raise ArtifactValidationError(
             f"Fig. 5 artifact {name} axis must be finite, unique, and increasing."
@@ -807,6 +834,61 @@ def _require_close(
         )
 
 
+def _validate_reassembled_certificate(
+    certificate: Mapping[str, float],
+    *,
+    context: str,
+) -> dict[str, float]:
+    """Validate one fresh certificate by semantics, not producer-stamp bits.
+
+    Producer stamps record the generating runtime's diagnostics. Current
+    production binds them to a same-runtime reconstruction before writing; a
+    provenance-rebound artifact additionally binds its immutable historical
+    stamps through the payload and promotion record. A later reader rebuilds
+    the same balance from the exact stored state. Cancellation-floor raw
+    diagnostics are not portable observables, so cross-runtime measurements
+    are each validated rather than compared to one another.
+    """
+    expected = set(certificate_module.NUMBER_CERTIFICATE_FIELDS)
+    if set(certificate) != expected:
+        missing = sorted(expected.difference(certificate))
+        extra = sorted(set(certificate).difference(expected))
+        raise ArtifactValidationError(
+            f"Fig. 5 reassembled certificate at {context} has "
+            f"missing={missing}, extra={extra}."
+        )
+    values: dict[str, float] = {}
+    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
+        raw = certificate[field]
+        if isinstance(raw, (bool, np.bool_)):
+            raise ArtifactValidationError(
+                f"Fig. 5 reassembled certificate {field!r} at {context} "
+                "cannot be boolean."
+            )
+        value = float(raw)
+        if not np.isfinite(value) or value < 0.0:
+            raise ArtifactValidationError(
+                f"Fig. 5 reassembled certificate {field!r} at {context} "
+                "must be finite and non-negative."
+            )
+        values[field] = value
+
+    limits = {
+        "qp_backward_error": TARGET_BACKWARD_ERROR_LIMIT,
+        certificate_module.QP_NUMBER_CERTIFICATE_FIELD: (
+            TARGET_BACKWARD_ERROR_LIMIT
+        ),
+        "phonon_backward_error": PHONON_REASSEMBLY_BACKWARD_ERROR_LIMIT,
+    }
+    for field, limit in limits.items():
+        if values[field] > limit:
+            raise ArtifactValidationError(
+                f"Fig. 5 reassembled certificate {field!r} at {context} "
+                f"is {values[field]:.3e}, above {limit:.3e}."
+            )
+    return values
+
+
 def _required_state_array(
     result: Fig5PaperResult,
     name: str,
@@ -821,22 +903,15 @@ def _required_state_array(
         )
     raw_array = np.asarray(raw)
     if np.issubdtype(raw_array.dtype, np.bool_):
-        raise ArtifactValidationError(
-            f"Fig. 5 state payload {name!r} cannot be boolean."
-        )
+        raise ArtifactValidationError(f"Fig. 5 state payload {name!r} cannot be boolean.")
     values = np.asarray(raw_array, dtype=float)
     if values.shape != expected_shape or np.any(~np.isfinite(values)):
         raise ArtifactValidationError(
-            f"Fig. 5 state payload {name!r} must have finite shape "
-            f"{expected_shape}."
+            f"Fig. 5 state payload {name!r} must have finite shape {expected_shape}."
         )
-    if np.any(values < 0.0) or (
-        upper_bound is not None and np.any(values > upper_bound)
-    ):
+    if np.any(values < 0.0) or (upper_bound is not None and np.any(values > upper_bound)):
         domain = f"[0, {upper_bound:g}]" if upper_bound is not None else "[0, inf)"
-        raise ArtifactValidationError(
-            f"Fig. 5 state payload {name!r} must lie in {domain}."
-        )
+        raise ArtifactValidationError(f"Fig. 5 state payload {name!r} must lie in {domain}.")
     return values
 
 
@@ -875,8 +950,26 @@ def _recomputed_point(
     )
 
 
-def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
-    """Validate and bind every table/certificate claim to returned raw states."""
+def _validate_result_and_reassemble_certificates(
+    result: Fig5PaperResult,
+    *,
+    require_stamped_match: bool,
+) -> tuple[
+    dict[str, float],
+    dict[str, np.ndarray],
+    dict[str, np.ndarray],
+]:
+    """Validate producer claims and independently recertify every raw state.
+
+    A current-production write must set ``require_stamped_match``: its
+    producer diagnostics and the independent reconstruction run in the same
+    numerical runtime, so accepting unrelated under-limit values would let a
+    writer forge the historical certificate record.  A provenance-only
+    migration deliberately clears it because the immutable producer stamps
+    came from another runtime; those stamps and the current reconstruction
+    are independently gated and are explicitly distinguished by the v3
+    promotion record.
+    """
     upper_T = _validate_axis(
         result.upper_T_bath,
         np.asarray(UPPER_T_BATH_K, dtype=float),
@@ -908,16 +1001,12 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
             atol=0.0,
         )
     ):
-        raise ArtifactValidationError(
-            "Fig. 5 artifact tau_0_pb_ns is stale or non-physical."
-        )
+        raise ArtifactValidationError("Fig. 5 artifact tau_0_pb_ns is stale or non-physical.")
 
     upper_shape = (upper_T.size, upper_nbar.size)
     lower_shape = (lower_nbar.size, lower_T.size)
     expected_upper_T_star = np.broadcast_to(
-        np.asarray(
-            [_kBTstar_eq35(float(value)) / DELTA_0 for value in upper_nbar]
-        ),
+        np.asarray([_kBTstar_eq35(float(value)) / DELTA_0 for value in upper_nbar]),
         upper_shape,
     )
     payloads = (
@@ -930,22 +1019,16 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
     for name, raw_values, expected_shape in payloads:
         raw_array = np.asarray(raw_values)
         if np.issubdtype(raw_array.dtype, np.bool_):
-            raise ArtifactValidationError(
-                f"Fig. 5 artifact {name} cannot be boolean."
-            )
+            raise ArtifactValidationError(f"Fig. 5 artifact {name} cannot be boolean.")
         values = np.asarray(raw_array, dtype=float)
         if values.shape != expected_shape or np.any(~np.isfinite(values)):
             raise ArtifactValidationError(
                 f"Fig. 5 artifact {name} must have finite shape {expected_shape}."
             )
         if name != "upper_T_star" and np.any(values < 0.0):
-            raise ArtifactValidationError(
-                f"Fig. 5 artifact {name} must be non-negative."
-            )
+            raise ArtifactValidationError(f"Fig. 5 artifact {name} must be non-negative.")
     if not np.array_equal(np.asarray(result.upper_T_star), expected_upper_T_star):
-        raise ArtifactValidationError(
-            "Fig. 5 artifact T_star values are inconsistent with Eq. 35."
-        )
+        raise ArtifactValidationError("Fig. 5 artifact T_star values are inconsistent with Eq. 35.")
 
     _, _, spectral = _build_grid_and_spectral(NUM_BINS)
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
@@ -975,7 +1058,15 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
     maxima: dict[str, float] = {}
     upper_certificates = _certificate_arrays(result, "upper")
     lower_certificates = _certificate_arrays(result, "lower")
-    for field in certificate_module.CERTIFICATE_FIELDS:
+    reassembled_upper = {
+        field: np.empty(upper_shape)
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+    }
+    reassembled_lower = {
+        field: np.empty(lower_shape)
+        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
+    }
+    for field in certificate_module.NUMBER_CERTIFICATE_FIELDS:
         if np.issubdtype(
             np.asarray(getattr(result, f"upper_{field}")).dtype,
             np.bool_,
@@ -983,9 +1074,7 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
             np.asarray(getattr(result, f"lower_{field}")).dtype,
             np.bool_,
         ):
-            raise ArtifactValidationError(
-                f"Fig. 5 certificate field {field!r} cannot be boolean."
-            )
+            raise ArtifactValidationError(f"Fig. 5 certificate field {field!r} cannot be boolean.")
         upper = upper_certificates[field]
         lower = lower_certificates[field]
         if upper.shape != upper_shape or lower.shape != lower_shape:
@@ -1003,10 +1092,7 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
             )
         maximum = float(max(np.max(upper), np.max(lower)))
         maxima[field] = maximum
-        if (
-            field in _CERTIFIED_BACKWARD_ERROR_FIELDS
-            and maximum > TARGET_BACKWARD_ERROR_LIMIT
-        ):
+        if field in _CERTIFIED_BACKWARD_ERROR_FIELDS and maximum > TARGET_BACKWARD_ERROR_LIMIT:
             raise ArtifactValidationError(
                 f"Fig. 5 certificate field {field!r} has maximum {maximum:.3e}, "
                 f"above {TARGET_BACKWARD_ERROR_LIMIT:.3e}."
@@ -1034,12 +1120,21 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
                     x_analytic,
                     name=f"upper x_qp_analytic[{i},{j}]",
                 )
-                for field in certificate_module.CERTIFICATE_FIELDS:
-                    _require_close(
-                        upper_certificates[field][i, j],
-                        certificate[field],
-                        name=f"upper {field}[{i},{j}]",
-                    )
+                fresh = _validate_reassembled_certificate(
+                    certificate,
+                    context=f"upper[{i},{j}]",
+                )
+                for field, value in fresh.items():
+                    if require_stamped_match:
+                        _require_close(
+                            upper_certificates[field][i, j],
+                            value,
+                            name=(
+                                "upper producer certificate "
+                                f"{field}[{i},{j}]"
+                            ),
+                        )
+                    reassembled_upper[field][i, j] = value
         for i, n_bar in enumerate(lower_nbar):
             for j, T_bath in enumerate(lower_T):
                 x_num, x_analytic, certificate = _recomputed_point(
@@ -1060,18 +1155,38 @@ def _validate_result_for_artifact(result: Fig5PaperResult) -> dict[str, float]:
                     x_analytic,
                     name=f"lower x_qp_analytic[{i},{j}]",
                 )
-                for field in certificate_module.CERTIFICATE_FIELDS:
-                    _require_close(
-                        lower_certificates[field][i, j],
-                        certificate[field],
-                        name=f"lower {field}[{i},{j}]",
-                    )
+                fresh = _validate_reassembled_certificate(
+                    certificate,
+                    context=f"lower[{i},{j}]",
+                )
+                for field, value in fresh.items():
+                    if require_stamped_match:
+                        _require_close(
+                            lower_certificates[field][i, j],
+                            value,
+                            name=(
+                                "lower producer certificate "
+                                f"{field}[{i},{j}]"
+                            ),
+                        )
+                    reassembled_lower[field][i, j] = value
     except ArtifactValidationError:
         raise
     except (TypeError, ValueError, RuntimeError) as exc:
         raise ArtifactValidationError(
             "Fig. 5 returned-state certificate could not be recomputed."
         ) from exc
+    return maxima, reassembled_upper, reassembled_lower
+
+
+def _validate_result_for_artifact(
+    result: Fig5PaperResult,
+) -> dict[str, float]:
+    """Validate a result while preserving the campaign runner's dict API."""
+    maxima, _, _ = _validate_result_and_reassemble_certificates(
+        result,
+        require_stamped_match=True,
+    )
     return maxima
 
 
@@ -1110,9 +1225,7 @@ def _array_bytes(values: np.ndarray) -> bytes:
 
 
 def _encode_state_array(values: np.ndarray) -> str:
-    return base64.b64encode(zlib.compress(_array_bytes(values), level=9)).decode(
-        "ascii"
-    )
+    return base64.b64encode(zlib.compress(_array_bytes(values), level=9)).decode("ascii")
 
 
 def _state_sha256(
@@ -1125,9 +1238,7 @@ def _state_sha256(
 ) -> str:
     digest = hashlib.sha256()
     digest.update(
-        _canonical_json(
-            {"T_bath_K": T_bath, "n_bar": n_bar, "panel": panel}
-        ).encode("ascii")
+        _canonical_json({"T_bath_K": T_bath, "n_bar": n_bar, "panel": panel}).encode("ascii")
     )
     digest.update(b"\0f\0")
     digest.update(_array_bytes(f))
@@ -1141,11 +1252,33 @@ def _payload_sha256(rows: list[list[str]]) -> str:
     return hashlib.sha256(_canonical_json(rows).encode("ascii")).hexdigest()
 
 
-def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
-    """Atomically write states and claims only after independent recertification."""
-    if path is None:
-        path = baseline_path()
-    maxima = _validate_result_for_artifact(result)
+def _is_canonical_bundle_path(path: Path) -> bool:
+    resolved = path.resolve()
+    canonical = baseline_path()
+    return resolved in {
+        canonical.resolve(),
+        plot_path_a().resolve(),
+        plot_path_b().resolve(),
+        canonical.with_suffix(".promotion.json").resolve(),
+    }
+
+
+def _write_baseline(
+    result: Fig5PaperResult,
+    path: Path,
+    *,
+    require_stamped_match: bool,
+) -> Path:
+    """Write one noncanonical CSV under an explicit certificate policy."""
+    if _is_canonical_bundle_path(path):
+        raise ArtifactValidationError(
+            "Direct writes to the canonical Fig. 5 bundle are forbidden; "
+            "use publish_artifacts() or generate_baseline()."
+        )
+    maxima, _, _ = _validate_result_and_reassemble_certificates(
+        result,
+        require_stamped_match=require_stamped_match,
+    )
     upper_f = np.asarray(result.upper_f, dtype=float)
     lower_f = np.asarray(result.lower_f, dtype=float)
     upper_n_ph = np.asarray(result.upper_n_ph, dtype=float)
@@ -1167,7 +1300,7 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
                     f"{result.upper_x_qp_analytic[i, j]:.17e}",
                     *[
                         f"{upper_certificates[field][i, j]:.17e}"
-                        for field in certificate_module.CERTIFICATE_FIELDS
+                        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
                     ],
                     _encode_state_array(state_f),
                     _encode_state_array(state_n_ph),
@@ -1195,7 +1328,7 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
                     f"{result.lower_x_qp_analytic[i, j]:.17e}",
                     *[
                         f"{lower_certificates[field][i, j]:.17e}"
-                        for field in certificate_module.CERTIFICATE_FIELDS
+                        for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
                     ],
                     _encode_state_array(state_f),
                     _encode_state_array(state_n_ph),
@@ -1209,9 +1342,9 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
                 ]
             )
     metadata = {
-        "certificate_fields": list(certificate_module.CERTIFICATE_FIELDS),
+        "certificate_fields": list(certificate_module.NUMBER_CERTIFICATE_FIELDS),
         "certificate_maxima": maxima,
-        "certificate_metric_version": certificate_module.CERTIFICATE_METRIC_VERSION,
+        "certificate_metric_version": certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION,
         "certificate_target_backward_error": TARGET_BACKWARD_ERROR_LIMIT,
         "columns": list(_BASELINE_COLUMNS),
         "fingerprint": artifact_fingerprint(),
@@ -1228,13 +1361,42 @@ def write_baseline(result: Fig5PaperResult, path: Path | None = None) -> Path:
     return path
 
 
+def write_baseline(
+    result: Fig5PaperResult,
+    path: Path | None = None,
+) -> Path:
+    """Atomically write current-producer states and bound diagnostics."""
+    resolved = baseline_path() if path is None else path
+    return _write_baseline(
+        result,
+        resolved,
+        require_stamped_match=True,
+    )
+
+
+def _write_rebound_baseline(
+    result: Fig5PaperResult,
+    path: Path,
+) -> Path:
+    """Write a migration candidate while retaining historical diagnostics.
+
+    This private helper is reachable only from the explicit v2-to-v3 rebind
+    transaction.  The raw states are independently recertified, but their
+    immutable producer stamps are intentionally not relabeled as diagnostics
+    from the current reader runtime.
+    """
+    return _write_baseline(
+        result,
+        path,
+        require_stamped_match=False,
+    )
+
+
 def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
         if key in value:
-            raise ArtifactValidationError(
-                f"Fig. 5 metadata contains duplicate JSON key {key!r}."
-            )
+            raise ArtifactValidationError(f"Fig. 5 metadata contains duplicate JSON key {key!r}.")
         value[key] = item
     return value
 
@@ -1244,9 +1406,7 @@ def _read_csv_rows(path: Path) -> list[list[str]]:
         with path.open("r", encoding="utf-8", newline="") as stream:
             rows = list(csv.reader(stream))
     except (OSError, UnicodeError, csv.Error) as exc:
-        raise ArtifactValidationError(
-            f"Could not read Fig. 5 artifact at {path}."
-        ) from exc
+        raise ArtifactValidationError(f"Could not read Fig. 5 artifact at {path}.") from exc
     if not rows or any(not row for row in rows):
         raise ArtifactValidationError(
             "Fig. 5 artifact must be non-empty and contain no blank rows."
@@ -1272,9 +1432,7 @@ def _artifact_metadata(path: Path, rows: list[list[str]]) -> dict[str, Any]:
                 f"The pinned Fig. 5 artifact at {path} predates the certified "
                 f"{ARTIFACT_SCHEMA} schema."
             )
-        raise ArtifactValidationError(
-            "Fig. 5 artifact has a missing or unsupported schema marker."
-        )
+        raise ArtifactValidationError("Fig. 5 artifact has a missing or unsupported schema marker.")
     if len(rows) < 3 or len(rows[1]) != 1:
         raise ArtifactValidationError("Fig. 5 artifact metadata row is malformed.")
     prefix = "# qpsim_metadata="
@@ -1282,7 +1440,7 @@ def _artifact_metadata(path: Path, rows: list[list[str]]) -> dict[str, Any]:
         raise ArtifactValidationError("Fig. 5 artifact metadata marker is missing.")
     try:
         metadata = json.loads(
-            rows[1][0][len(prefix):],
+            rows[1][0][len(prefix) :],
             object_pairs_hook=_strict_json_object,
             parse_constant=lambda value: (_ for _ in ()).throw(
                 ArtifactValidationError(
@@ -1302,11 +1460,11 @@ def _artifact_metadata(path: Path, rows: list[list[str]]) -> dict[str, Any]:
         raise ArtifactValidationError("Fig. 5 metadata schema is stale.")
     if metadata["columns"] != list(_BASELINE_COLUMNS):
         raise ArtifactValidationError("Fig. 5 metadata columns are stale or reordered.")
-    if metadata["certificate_fields"] != list(certificate_module.CERTIFICATE_FIELDS):
+    if metadata["certificate_fields"] != list(certificate_module.NUMBER_CERTIFICATE_FIELDS):
         raise ArtifactValidationError("Fig. 5 certificate field list is stale.")
     if (
         metadata["certificate_metric_version"]
-        != certificate_module.CERTIFICATE_METRIC_VERSION
+        != certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
     ):
         raise ArtifactValidationError("Fig. 5 certificate metric version is stale.")
     target = metadata["certificate_target_backward_error"]
@@ -1341,9 +1499,7 @@ def _artifact_metadata(path: Path, rows: list[list[str]]) -> dict[str, Any]:
         or any(character not in "0123456789abcdef" for character in payload_hash)
         or payload_hash != _payload_sha256(rows[3:])
     ):
-        raise ArtifactValidationError(
-            "Fig. 5 table/certificate/state payload hash does not match."
-        )
+        raise ArtifactValidationError("Fig. 5 table/certificate/state payload hash does not match.")
     return metadata
 
 
@@ -1375,9 +1531,7 @@ def _decode_state_array(text: str, *, size: int, name: str) -> np.ndarray:
         or decompressor.unused_data
         or decompressor.unconsumed_tail
     ):
-        raise ArtifactValidationError(
-            f"Fig. 5 state payload {name!r} has the wrong decoded size."
-        )
+        raise ArtifactValidationError(f"Fig. 5 state payload {name!r} has the wrong decoded size.")
     return np.frombuffer(payload, dtype="<f8", count=size).astype(float, copy=True)
 
 
@@ -1399,10 +1553,10 @@ def _read_artifact(path: Path) -> tuple[Fig5PaperResult, dict[str, Any]]:
     lower_x_num = np.empty(lower_shape)
     lower_x_analytic = np.empty(lower_shape)
     upper_certificates = {
-        field: np.empty(upper_shape) for field in certificate_module.CERTIFICATE_FIELDS
+        field: np.empty(upper_shape) for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
     }
     lower_certificates = {
-        field: np.empty(lower_shape) for field in certificate_module.CERTIFICATE_FIELDS
+        field: np.empty(lower_shape) for field in certificate_module.NUMBER_CERTIFICATE_FIELDS
     }
     upper_f = np.empty((*upper_shape, NUM_BINS))
     lower_f = np.empty((*lower_shape, NUM_BINS))
@@ -1420,9 +1574,7 @@ def _read_artifact(path: Path) -> tuple[Fig5PaperResult, dict[str, Any]]:
         for i, n_bar in enumerate(lower_nbar)
         for j, T_bath in enumerate(lower_T)
     )
-    for row, (panel, i, j, expected_T, expected_nbar) in zip(
-        rows[3:], contexts, strict=True
-    ):
+    for row, (panel, i, j, expected_T, expected_nbar) in zip(rows[3:], contexts, strict=True):
         if len(row) != len(_BASELINE_COLUMNS) or row[0] != panel:
             raise ArtifactValidationError(
                 "Fig. 5 data row has the wrong width, panel, or ordering."
@@ -1445,21 +1597,17 @@ def _read_artifact(path: Path) -> tuple[Fig5PaperResult, dict[str, Any]]:
             )
         certificate = {
             field: _finite_float(row[6 + offset], name=field)
-            for offset, field in enumerate(certificate_module.CERTIFICATE_FIELDS)
+            for offset, field in enumerate(certificate_module.NUMBER_CERTIFICATE_FIELDS)
         }
         if any(value < 0.0 for value in certificate.values()):
-            raise ArtifactValidationError(
-                "Fig. 5 certificate fields must be non-negative."
-            )
+            raise ArtifactValidationError("Fig. 5 certificate fields must be non-negative.")
         for field in _CERTIFIED_BACKWARD_ERROR_FIELDS:
             if certificate[field] > TARGET_BACKWARD_ERROR_LIMIT:
                 raise ArtifactValidationError(
                     f"Fig. 5 certificate field {field!r} exceeds its gate."
                 )
-        state_offset = 6 + len(certificate_module.CERTIFICATE_FIELDS)
-        state_f = _decode_state_array(
-            row[state_offset], size=NUM_BINS, name=f"{panel}.f[{i},{j}]"
-        )
+        state_offset = 6 + len(certificate_module.NUMBER_CERTIFICATE_FIELDS)
+        state_f = _decode_state_array(row[state_offset], size=NUM_BINS, name=f"{panel}.f[{i},{j}]")
         state_n_ph = _decode_state_array(
             row[state_offset + 1],
             size=omega.size,
@@ -1505,52 +1653,103 @@ def _read_artifact(path: Path) -> tuple[Fig5PaperResult, dict[str, Any]]:
         upper_qp_residual_inf=upper_certificates["qp_residual_inf"],
         upper_qp_backward_error=upper_certificates["qp_backward_error"],
         upper_phonon_residual_inf=upper_certificates["phonon_residual_inf"],
-        upper_phonon_raw_backward_error=upper_certificates[
-            "phonon_raw_backward_error"
-        ],
+        upper_phonon_raw_backward_error=upper_certificates["phonon_raw_backward_error"],
         upper_phonon_backward_error=upper_certificates["phonon_backward_error"],
+        upper_qp_number_backward_error=upper_certificates[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
         lower_qp_residual_inf=lower_certificates["qp_residual_inf"],
         lower_qp_backward_error=lower_certificates["qp_backward_error"],
         lower_phonon_residual_inf=lower_certificates["phonon_residual_inf"],
-        lower_phonon_raw_backward_error=lower_certificates[
-            "phonon_raw_backward_error"
-        ],
+        lower_phonon_raw_backward_error=lower_certificates["phonon_raw_backward_error"],
         lower_phonon_backward_error=lower_certificates["phonon_backward_error"],
+        lower_qp_number_backward_error=lower_certificates[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
         upper_f=upper_f,
         lower_f=lower_f,
         upper_n_ph=upper_n_ph,
         lower_n_ph=lower_n_ph,
     )
-    recomputed_maxima = _validate_result_for_artifact(result)
+    (
+        stamped_maxima_from_rows,
+        reassembled_upper,
+        reassembled_lower,
+    ) = _validate_result_and_reassemble_certificates(
+        result,
+        require_stamped_match=False,
+    )
     stamped_maxima = metadata["certificate_maxima"]
     if not isinstance(stamped_maxima, dict) or set(stamped_maxima) != set(
-        certificate_module.CERTIFICATE_FIELDS
+        certificate_module.NUMBER_CERTIFICATE_FIELDS
     ):
         raise ArtifactValidationError("Fig. 5 certificate maxima metadata is invalid.")
-    for field, recomputed in recomputed_maxima.items():
+    for field, row_maximum in stamped_maxima_from_rows.items():
         stamped = stamped_maxima[field]
         if (
             isinstance(stamped, bool)
             or not isinstance(stamped, (int, float))
             or not np.isfinite(stamped)
-            or float(stamped) != recomputed
+            or float(stamped) != row_maximum
         ):
             raise ArtifactValidationError(
                 f"Fig. 5 stamped certificate maximum {field!r} is forged."
             )
-    return result, metadata
+    fresh_result = replace(
+        result,
+        upper_qp_residual_inf=reassembled_upper["qp_residual_inf"],
+        upper_qp_backward_error=reassembled_upper["qp_backward_error"],
+        upper_qp_number_backward_error=reassembled_upper[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
+        upper_phonon_residual_inf=reassembled_upper["phonon_residual_inf"],
+        upper_phonon_raw_backward_error=reassembled_upper[
+            "phonon_raw_backward_error"
+        ],
+        upper_phonon_backward_error=reassembled_upper[
+            "phonon_backward_error"
+        ],
+        lower_qp_residual_inf=reassembled_lower["qp_residual_inf"],
+        lower_qp_backward_error=reassembled_lower["qp_backward_error"],
+        lower_qp_number_backward_error=reassembled_lower[
+            certificate_module.QP_NUMBER_CERTIFICATE_FIELD
+        ],
+        lower_phonon_residual_inf=reassembled_lower["phonon_residual_inf"],
+        lower_phonon_raw_backward_error=reassembled_lower[
+            "phonon_raw_backward_error"
+        ],
+        lower_phonon_backward_error=reassembled_lower[
+            "phonon_backward_error"
+        ],
+    )
+    return fresh_result, metadata
 
 
 def read_baseline(path: Path | None = None) -> Fig5PaperResult:
     """Read and independently re-certify an exact current-schema artifact."""
     resolved = baseline_path() if path is None else path
+    if resolved.resolve() == baseline_path().resolve():
+        with _publication_lock():
+            result = _read_artifact(resolved)[0]
+            read_promotion_record(_publication_lock_held=True)
+            return result
     return _read_artifact(resolved)[0]
 
 
 def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
-    """Read metadata only after the complete artifact has passed validation."""
+    """Read publication-compatible config after complete artifact validation.
+
+    This is not, by itself, numerical-producer provenance. For a rebound
+    canonical artifact, :func:`read_promotion_record` carries the historical
+    producer and the distinct current publication fingerprint.
+    """
     resolved = baseline_path() if path is None else path
-    _, metadata = _read_artifact(resolved)
+    if resolved.resolve() == baseline_path().resolve():
+        with _publication_lock():
+            _, metadata = _read_artifact(resolved)
+            read_promotion_record(_publication_lock_held=True)
+    else:
+        _, metadata = _read_artifact(resolved)
     config = metadata["fingerprint"]["config"]
     return BaselineMetadata(
         delta_0=float(config["delta_0"]),
@@ -1563,6 +1762,808 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         e_max_factor=float(config["e_max_factor"]),
         tau_0_pb_ns=float(config["tau_0_pb_ns"]),
     )
+
+
+_LEGACY_PROMOTION_RECORD_SCHEMA = "qpsim.fischer2023.fig5_promotion.v2"
+PROMOTION_RECORD_SCHEMA = "qpsim.fischer2023.fig5_promotion.v3"
+PUBLICATION_ATTESTATION_SCHEMA = (
+    "qpsim.fischer2023.fig5_publication_attestation.v1"
+)
+_CURRENT_PRODUCTION = "current-production"
+_PROVENANCE_REBIND = "provenance-rebind"
+_HISTORICAL_CAMPAIGN_MODE = "parallel-independent-continuation-rows"
+_HISTORICAL_CAMPAIGN_ROW_SCHEMA = "qpsim-fischer-2023-fig5-row-v1"
+_HISTORICAL_CAMPAIGN_STATUS_SCHEMA = "qpsim-fischer-2023-fig5-run-v1"
+
+
+def promotion_record_path() -> Path:
+    return baseline_path().with_suffix(".promotion.json")
+
+
+def campaign_record_path() -> Path:
+    """Return the immutable parallel-campaign evidence beside the bundle."""
+    return baseline_path().with_suffix(".campaign.json")
+
+
+def _campaign_path_for_promotion(record_path: Path) -> Path:
+    suffix = ".promotion.json"
+    if not record_path.name.endswith(suffix):
+        raise ArtifactValidationError(
+            "Fig. 5 promotion record name cannot identify its campaign "
+            "companion; pass campaign_path explicitly."
+        )
+    return record_path.with_name(
+        f"{record_path.name.removesuffix(suffix)}.campaign.json"
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    return {
+        "sha256": _sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _payload_identity(payload: bytes) -> dict[str, Any]:
+    return {
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size_bytes": len(payload),
+    }
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _require_file_identity(value: object, *, name: str) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"sha256", "size_bytes"}
+        or not _is_sha256(value["sha256"])
+        or isinstance(value["size_bytes"], bool)
+        or not isinstance(value["size_bytes"], int)
+        or value["size_bytes"] < 0
+    ):
+        raise ArtifactValidationError(
+            f"Fig. 5 {name} file identity is invalid."
+        )
+    return value
+
+
+def _require_plausible_pdf(path: Path) -> None:
+    payload = path.read_bytes()
+    try:
+        validate_single_nonempty_matplotlib_pdf(payload, path=path)
+    except ValueError as exc:
+        raise ArtifactValidationError(
+            "Fig. 5 plot is not a complete one-page Matplotlib PDF."
+        ) from exc
+
+
+@contextmanager
+def _publication_lock(record_path: Path | None = None) -> Iterator[None]:
+    """Serialize readers/publishers around one promotion commit marker."""
+    marker = promotion_record_path() if record_path is None else record_path
+    lock_path = marker.with_name(f"{marker.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # Keep one stable inode without append semantics.  Python/WSL can reject
+    # seek+read on an ``a+b`` file backed by DrvFS even though native Windows
+    # and Linux accept it (the Fig. 6 publisher uses the same discipline).
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+    stream = os.fdopen(descriptor, "r+b")
+    try:
+        stream.seek(0)
+        if stream.read(1) == b"":
+            stream.seek(0)
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(  # type: ignore[attr-defined]
+                stream.fileno(),
+                fcntl.LOCK_EX | fcntl.LOCK_NB,  # type: ignore[attr-defined]
+            )
+    except OSError as exc:
+        stream.close()
+        raise RuntimeError(
+            f"Another Fig. 5 publisher or reader holds {lock_path}; "
+            "refusing a mixed canonical artifact snapshot."
+        ) from exc
+    try:
+        yield
+    finally:
+        stream.seek(0)
+        if os.name == "nt":
+            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(  # type: ignore[attr-defined]
+                stream.fileno(),
+                fcntl.LOCK_UN,  # type: ignore[attr-defined]
+            )
+        stream.close()
+
+
+def _require_producer_identity(value: object) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"fingerprint", "runtime"}
+        or not isinstance(value["fingerprint"], dict)
+        or set(value["fingerprint"])
+        != {
+            "axes",
+            "config",
+            "gap_mode",
+            "solver",
+            "source_sha256",
+            "tau_l_over_tau_0_pb",
+        }
+        or not isinstance(value["runtime"], dict)
+        or not value["runtime"]
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical producer identity is malformed."
+        )
+    source_identities = value["fingerprint"]["source_sha256"]
+    if (
+        not isinstance(source_identities, dict)
+        or not source_identities
+        or any(
+            not isinstance(path, str) or not _is_sha256(digest)
+            for path, digest in source_identities.items()
+        )
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical producer source manifest is invalid."
+        )
+    return value
+
+
+def _fingerprint_without_sources(
+    fingerprint: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in fingerprint.items()
+        if key != "source_sha256"
+    }
+
+
+def _verify_historical_source_commit(
+    source_commit: str,
+    source_identities: Mapping[str, Any],
+) -> None:
+    """Bind a one-shot migration claim to exact Git blob contents.
+
+    Canonical readers deliberately do not require a Git checkout.  The
+    migration helper does: this is the moment an operator asserts that a
+    historical source tree produced the retained numerical payload, so every
+    source-manifest entry must be present with the claimed LF-canonical digest
+    at the named commit.
+    """
+    root = Path(__file__).resolve().parents[2]
+    try:
+        resolved = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "rev-parse",
+                "--verify",
+                f"{source_commit}^{{commit}}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ArtifactValidationError(
+            "Fig. 5 historical source commit cannot be resolved."
+        ) from exc
+    if resolved != source_commit:
+        raise ArtifactValidationError(
+            "Fig. 5 historical source commit did not resolve exactly."
+        )
+    for relative, expected in sorted(source_identities.items()):
+        if (
+            not isinstance(relative, str)
+            or not relative
+            or "\\" in relative
+            or relative.startswith("/")
+            or ".." in Path(relative).parts
+            or not _is_sha256(expected)
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical source manifest path/hash is invalid."
+            )
+        try:
+            payload = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "show",
+                    f"{source_commit}:{relative}",
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise ArtifactValidationError(
+                f"Fig. 5 historical source {relative!r} is absent from "
+                "the attested commit."
+            ) from exc
+        canonical = payload.replace(b"\r\n", b"\n").replace(
+            b"\r",
+            b"\n",
+        )
+        if hashlib.sha256(canonical).hexdigest() != expected:
+            raise ArtifactValidationError(
+                f"Fig. 5 historical source {relative!r} does not match "
+                "the producer manifest."
+            )
+
+
+def _verify_historical_campaign_runner(
+    source_commit: str,
+    status: Mapping[str, Any],
+) -> None:
+    """Bind the campaign's runner claim to its blob at ``source_commit``.
+
+    ``producer_sha256`` and ``run_identity`` make the campaign internally
+    self-consistent, but cannot establish that its claimed runner digest is
+    true.  The one-shot migration has a Git checkout and an explicit
+    historical commit, so it must check this separately before promotion.
+    Canonical readers remain Git-independent.
+    """
+    try:
+        runner = status["completion"]["campaign"]["runner"]
+    except (KeyError, TypeError) as exc:
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign runner evidence is missing."
+        ) from exc
+    if (
+        not isinstance(runner, dict)
+        or set(runner) != {"path", "sha256"}
+        or not isinstance(runner["path"], str)
+        or not runner["path"]
+        or not _is_sha256(runner["sha256"])
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign runner evidence is malformed."
+        )
+    _verify_historical_source_commit(
+        source_commit,
+        {runner["path"]: runner["sha256"]},
+    )
+
+
+def _campaign_producer(
+    producer: Mapping[str, Any],
+    campaign: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "artifact_producer": dict(producer),
+        "mode": campaign["mode"],
+        "runner": campaign["runner"],
+        "single_thread_environment": campaign[
+            "single_thread_environment"
+        ],
+    }
+
+
+def _campaign_producer_sha256(producer: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        _canonical_json(dict(producer)).encode("utf-8")
+    ).hexdigest()
+
+
+def _campaign_run_identity(
+    producer: Mapping[str, Any],
+    *,
+    row_schema: object,
+    status_schema: object,
+) -> str:
+    return hashlib.sha256(
+        _canonical_json(
+            {
+                "producer": dict(producer),
+                "row_schema": row_schema,
+                "status_schema": status_schema,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _read_campaign_attestation(
+    *,
+    producer: Mapping[str, Any],
+    rebound_from: Mapping[str, Any],
+    csv_path: Path,
+    campaign_path: Path,
+) -> dict[str, Any]:
+    campaign_identity = _require_file_identity(
+        rebound_from["campaign"],
+        name="historical campaign",
+    )
+    if (
+        not campaign_path.is_file()
+        or _file_identity(campaign_path) != campaign_identity
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign evidence does not match its "
+            "rebind attestation."
+        )
+    try:
+        status = json.loads(campaign_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign evidence is invalid."
+        ) from exc
+    if (
+        not isinstance(status, dict)
+        or set(status)
+        != {
+            "attempt",
+            "completed_rows",
+            "completion",
+            "producer_sha256",
+            "run_identity",
+            "schema",
+            "started_utc",
+            "state",
+            "total_rows",
+            "updated_utc",
+        }
+        or status.get("state") != "complete"
+        or status.get("completed_rows") != 6
+        or status.get("total_rows") != 6
+        or not isinstance(status.get("completion"), dict)
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign did not complete all six rows."
+        )
+    completion = status["completion"]
+    if set(completion) != {
+        "aggregate_worker_s",
+        "artifacts",
+        "campaign",
+        "certificate_maxima",
+        "new_rows",
+        "resumed_rows",
+        "row_payload_sha256",
+        "wall_s",
+    }:
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign completion shape is malformed."
+        )
+    if (
+        isinstance(completion["new_rows"], bool)
+        or not isinstance(completion["new_rows"], int)
+        or isinstance(completion["resumed_rows"], bool)
+        or not isinstance(completion["resumed_rows"], int)
+        or completion["new_rows"] < 0
+        or completion["resumed_rows"] < 0
+        or completion["new_rows"] + completion["resumed_rows"] != 6
+        or isinstance(completion["aggregate_worker_s"], bool)
+        or not isinstance(completion["aggregate_worker_s"], (int, float))
+        or not np.isfinite(completion["aggregate_worker_s"])
+        or completion["aggregate_worker_s"] <= 0.0
+        or isinstance(completion["wall_s"], bool)
+        or not isinstance(completion["wall_s"], (int, float))
+        or not np.isfinite(completion["wall_s"])
+        or completion["wall_s"] <= 0.0
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign completion metrics are invalid."
+        )
+    campaign = completion.get("campaign")
+    if (
+        not isinstance(campaign, dict)
+        or set(campaign)
+        != {
+            "mode",
+            "row_schema",
+            "rows",
+            "run_identity",
+            "runner",
+            "single_thread_environment",
+            "status_schema",
+        }
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign identity is malformed."
+        )
+    if (
+        campaign["mode"] != _HISTORICAL_CAMPAIGN_MODE
+        or campaign["row_schema"] != _HISTORICAL_CAMPAIGN_ROW_SCHEMA
+        or campaign["status_schema"] != _HISTORICAL_CAMPAIGN_STATUS_SCHEMA
+        or status["schema"] != campaign["status_schema"]
+        or not isinstance(campaign["runner"], dict)
+        or set(campaign["runner"]) != {"path", "sha256"}
+        or not isinstance(campaign["runner"]["path"], str)
+        or not campaign["runner"]["path"]
+        or not _is_sha256(campaign["runner"]["sha256"])
+        or not isinstance(campaign["single_thread_environment"], dict)
+        or not campaign["single_thread_environment"]
+        or any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(value, str)
+            for name, value in campaign[
+                "single_thread_environment"
+            ].items()
+        )
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign producer evidence is malformed."
+        )
+    campaign_producer = _campaign_producer(producer, campaign)
+    producer_sha256 = _campaign_producer_sha256(campaign_producer)
+    run_identity = _campaign_run_identity(
+        campaign_producer,
+        row_schema=campaign["row_schema"],
+        status_schema=campaign["status_schema"],
+    )
+    if (
+        status.get("producer_sha256") != producer_sha256
+        or status.get("run_identity") != run_identity
+        or campaign["run_identity"] != run_identity
+        or rebound_from["producer_sha256"] != producer_sha256
+        or rebound_from["run_identity"] != run_identity
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign producer/run identity is stale "
+            "or forged."
+        )
+    rows = campaign["rows"]
+    row_hashes = completion.get("row_payload_sha256")
+    if (
+        not isinstance(rows, list)
+        or len(rows) != 6
+        or not isinstance(row_hashes, dict)
+        or len(row_hashes) != 6
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical row evidence is incomplete."
+        )
+    labels: set[str] = set()
+    ordinals: set[int] = set()
+    expected_topology = {
+        row_index: {
+            "axis_value": float(axis_value),
+            "label": f"upper-t{row_index:02d}",
+            "panel": "upper",
+            "row_index": row_index,
+        }
+        for row_index, axis_value in enumerate(UPPER_T_BATH_K)
+    }
+    lower_offset = len(expected_topology)
+    expected_topology.update(
+        {
+            lower_offset + row_index: {
+                "axis_value": float(axis_value),
+                "label": f"lower-n{row_index:02d}",
+                "panel": "lower",
+                "row_index": row_index,
+            }
+            for row_index, axis_value in enumerate(LOWER_NBAR)
+        }
+    )
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or set(row)
+            != {
+                "axis_value",
+                "label",
+                "ordinal",
+                "panel",
+                "row_index",
+                "sha256",
+                "size_bytes",
+            }
+            or not isinstance(row["label"], str)
+            or not row["label"]
+            or isinstance(row["ordinal"], bool)
+            or not isinstance(row["ordinal"], int)
+            or row["panel"] not in {"upper", "lower"}
+            or isinstance(row["row_index"], bool)
+            or not isinstance(row["row_index"], int)
+            or isinstance(row["axis_value"], bool)
+            or not isinstance(row["axis_value"], (int, float))
+            or not np.isfinite(row["axis_value"])
+            or isinstance(row["size_bytes"], bool)
+            or not isinstance(row["size_bytes"], int)
+            or row["size_bytes"] <= 0
+            or not _is_sha256(row.get("sha256"))
+            or row_hashes.get(row["label"]) != row["sha256"]
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical row evidence is inconsistent."
+            )
+        expected = expected_topology.get(row["ordinal"])
+        if expected is None or any(
+            row[field] != value for field, value in expected.items()
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical row evidence does not match the exact "
+                "six-row Fig. 5 campaign topology."
+            )
+        labels.add(row["label"])
+        ordinals.add(row["ordinal"])
+    if (
+        len(labels) != 6
+        or ordinals != set(range(6))
+        or set(row_hashes) != labels
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical row evidence is duplicated or incomplete."
+        )
+    artifacts = completion.get("artifacts")
+    historical_artifacts = rebound_from["artifacts"]
+    expected_digests = {
+        "csv": historical_artifacts["csv"]["sha256"],
+        "pdf_a": historical_artifacts["pdf_a"]["sha256"],
+        "pdf_b": historical_artifacts["pdf_b"]["sha256"],
+        "record": rebound_from["promotion_record"]["sha256"],
+    }
+    if not isinstance(artifacts, dict) or set(artifacts) != set(
+        expected_digests
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign artifact evidence is incomplete."
+        )
+    for name, expected_digest in expected_digests.items():
+        evidence = artifacts[name]
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != {"path", "sha256"}
+            or not isinstance(evidence["path"], str)
+            or not evidence["path"]
+            or evidence["sha256"] != expected_digest
+        ):
+            raise ArtifactValidationError(
+                f"Fig. 5 historical campaign {name} evidence does not "
+                "match the promoted generation bundle."
+            )
+    metadata = _artifact_metadata(csv_path, _read_csv_rows(csv_path))
+    if completion.get("certificate_maxima") != metadata[
+        "certificate_maxima"
+    ]:
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign certificate maxima do not match "
+            "the retained numerical payload."
+        )
+    return status
+
+
+def _validate_publication_attestation(
+    publication: object,
+    *,
+    producer: Mapping[str, Any],
+    artifacts: Mapping[str, Any],
+    csv_path: Path,
+    pdf_a_path: Path,
+    pdf_b_path: Path,
+    campaign_path: Path,
+) -> dict[str, Any]:
+    if (
+        not isinstance(publication, dict)
+        or publication.get("schema") != PUBLICATION_ATTESTATION_SCHEMA
+        or publication.get("kind")
+        not in {_CURRENT_PRODUCTION, _PROVENANCE_REBIND}
+        or not isinstance(publication.get("fingerprint"), dict)
+        or publication["fingerprint"] != artifact_fingerprint()
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 current publication fingerprint is stale or invalid."
+        )
+    if publication["kind"] == _CURRENT_PRODUCTION:
+        if (
+            set(publication) != {"fingerprint", "kind", "schema"}
+            or producer["fingerprint"] != publication["fingerprint"]
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 current-production provenance is inconsistent."
+            )
+        return publication
+
+    if set(publication) != {
+        "fingerprint",
+        "kind",
+        "rebound_from",
+        "schema",
+    }:
+        raise ArtifactValidationError(
+            "Fig. 5 provenance-rebind attestation shape is invalid."
+        )
+    rebound_from = publication["rebound_from"]
+    if (
+        not isinstance(rebound_from, dict)
+        or set(rebound_from)
+        != {
+            "artifacts",
+            "campaign",
+            "payload_sha256",
+            "producer_sha256",
+            "promotion_record",
+            "run_identity",
+            "source_commit",
+        }
+        or not isinstance(rebound_from["artifacts"], dict)
+        or set(rebound_from["artifacts"])
+        != {"csv", "pdf_a", "pdf_b"}
+        or not _is_sha256(rebound_from["payload_sha256"])
+        or not _is_sha256(rebound_from["producer_sha256"])
+        or not _is_sha256(rebound_from["run_identity"])
+        or not isinstance(rebound_from["source_commit"], str)
+        or len(rebound_from["source_commit"]) != 40
+        or any(
+            character not in "0123456789abcdef"
+            for character in rebound_from["source_commit"]
+        )
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 provenance-rebind origin is invalid."
+        )
+    for name, value in rebound_from["artifacts"].items():
+        _require_file_identity(value, name=f"historical {name}")
+    _require_file_identity(
+        rebound_from["promotion_record"],
+        name="historical promotion record",
+    )
+    if _fingerprint_without_sources(producer["fingerprint"]) != (
+        _fingerprint_without_sources(publication["fingerprint"])
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 rebind changed axes, solver, configuration, or "
+            "physical mode; a new solve is required."
+        )
+    historical_artifacts = rebound_from["artifacts"]
+    if (
+        historical_artifacts["pdf_a"] != artifacts["pdf_a"]
+        or historical_artifacts["pdf_b"] != artifacts["pdf_b"]
+        or historical_artifacts["pdf_a"] != _file_identity(pdf_a_path)
+        or historical_artifacts["pdf_b"] != _file_identity(pdf_b_path)
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 provenance-only rebind changed a canonical PDF."
+        )
+    rows = _read_csv_rows(csv_path)
+    metadata = _artifact_metadata(csv_path, rows)
+    if metadata["payload_sha256"] != rebound_from["payload_sha256"]:
+        raise ArtifactValidationError(
+            "Fig. 5 provenance-only rebind changed numerical rows."
+        )
+    _read_campaign_attestation(
+        producer=producer,
+        rebound_from=rebound_from,
+        csv_path=csv_path,
+        campaign_path=campaign_path,
+    )
+    return publication
+
+
+def read_promotion_record(
+    path: Path | None = None,
+    *,
+    csv_path: Path | None = None,
+    pdf_a_path: Path | None = None,
+    pdf_b_path: Path | None = None,
+    campaign_path: Path | None = None,
+    _publication_lock_held: bool = False,
+) -> dict[str, Any]:
+    """Validate the commit marker binding one exact CSV/two-PDF set."""
+    record_path = promotion_record_path() if path is None else path
+    paths = {
+        "csv": baseline_path() if csv_path is None else csv_path,
+        "pdf_a": plot_path_a() if pdf_a_path is None else pdf_a_path,
+        "pdf_b": plot_path_b() if pdf_b_path is None else pdf_b_path,
+    }
+    resolved_campaign_path = (
+        campaign_path
+        if campaign_path is not None
+        else (
+            _campaign_path_for_promotion(record_path)
+            if record_path.name.endswith(".promotion.json")
+            else campaign_record_path()
+        )
+    )
+    if not _publication_lock_held:
+        with _publication_lock(record_path):
+            return read_promotion_record(
+                record_path,
+                csv_path=paths["csv"],
+                pdf_a_path=paths["pdf_a"],
+                pdf_b_path=paths["pdf_b"],
+                campaign_path=resolved_campaign_path,
+                _publication_lock_held=True,
+            )
+    try:
+        record_payload = record_path.read_bytes()
+        record_identity = _payload_identity(record_payload)
+        record = json.loads(record_payload.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ArtifactValidationError(
+            "Fig. 5 canonical publication record is missing or invalid."
+        ) from exc
+    if not isinstance(record, dict) or set(record) != {
+        "artifact_schema",
+        "artifacts",
+        "publication",
+        "producer",
+        "schema",
+    }:
+        raise ArtifactValidationError("Fig. 5 publication record shape is invalid.")
+    if (
+        record["schema"] != PROMOTION_RECORD_SCHEMA
+        or record["artifact_schema"] != ARTIFACT_SCHEMA
+    ):
+        raise ArtifactValidationError("Fig. 5 publication record schema is stale.")
+    artifacts = record["artifacts"]
+    if not isinstance(artifacts, dict) or set(artifacts) != set(paths):
+        raise ArtifactValidationError("Fig. 5 publication identities are invalid.")
+    for name, identity in artifacts.items():
+        _require_file_identity(identity, name=f"published {name}")
+    producer = _require_producer_identity(record["producer"])
+    for name, artifact_path in paths.items():
+        if artifacts[name] != _file_identity(artifact_path):
+            raise ArtifactValidationError(
+                f"Fig. 5 canonical {name} does not match its publication record."
+            )
+    publication = _validate_publication_attestation(
+        record["publication"],
+        producer=producer,
+        artifacts=artifacts,
+        csv_path=paths["csv"],
+        pdf_a_path=paths["pdf_a"],
+        pdf_b_path=paths["pdf_b"],
+        campaign_path=resolved_campaign_path,
+    )
+    _require_plausible_pdf(paths["pdf_a"])
+    _require_plausible_pdf(paths["pdf_b"])
+    # Commit-point snapshot check: portable/noncanonical bundles use the
+    # supplied record's sibling lock, and every byte identity is rechecked
+    # after all multi-file semantic validation.  A concurrent replacement
+    # can no longer make this call return success for a mixed snapshot.
+    for name, artifact_path in paths.items():
+        if artifacts[name] != _file_identity(artifact_path):
+            raise ArtifactValidationError(
+                f"Fig. 5 canonical {name} changed during publication "
+                "record validation."
+            )
+    if (
+        publication["kind"] == _PROVENANCE_REBIND
+        and publication["rebound_from"]["campaign"]
+        != _file_identity(resolved_campaign_path)
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 historical campaign changed during publication "
+            "record validation."
+        )
+    if record_identity != _file_identity(record_path):
+        raise ArtifactValidationError(
+            "Fig. 5 publication record changed during validation."
+        )
+    return record
 
 
 def _x_qp_qpsim_to_nqp(x_qp: np.ndarray | float) -> np.ndarray | float:
@@ -1596,21 +2597,32 @@ def write_plot_a(result: Fig5PaperResult, path: Path | None = None) -> Path:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path_a()
+    path = plot_path_a() if path is None else path
+    if _is_canonical_bundle_path(path):
+        raise ArtifactValidationError(
+            "Direct writes to the canonical Fig. 5 bundle are forbidden; "
+            "use publish_artifacts() or generate_baseline()."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(6.0, 4.6))
     for i, T_bath in enumerate(result.upper_T_bath):
         color = _FIG5_COLORS[i]
         ax.semilogy(
-            result.upper_T_star[i], _x_qp_qpsim_to_nqp(result.upper_x_qp_num[i]),
-            "-", color=color, lw=1.5,
+            result.upper_T_star[i],
+            _x_qp_qpsim_to_nqp(result.upper_x_qp_num[i]),
+            "-",
+            color=color,
+            lw=1.5,
             label=rf"$T_B = {T_bath:g}$ K",
         )
         ax.semilogy(
-            result.upper_T_star[i], _x_qp_qpsim_to_nqp(result.upper_x_qp_analytic[i]),
-            color=color, ls=(0, (5, 2)), lw=1.3, zorder=4,
+            result.upper_T_star[i],
+            _x_qp_qpsim_to_nqp(result.upper_x_qp_analytic[i]),
+            color=color,
+            ls=(0, (5, 2)),
+            lw=1.3,
+            zorder=4,
         )
     ax.set_xlabel(r"$T_*/\Delta$")
     ax.set_ylabel(r"$N\;(1/\mu m^3)$")
@@ -1633,21 +2645,32 @@ def write_plot_b(result: Fig5PaperResult, path: Path | None = None) -> Path:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path_b()
+    path = plot_path_b() if path is None else path
+    if _is_canonical_bundle_path(path):
+        raise ArtifactValidationError(
+            "Direct writes to the canonical Fig. 5 bundle are forbidden; "
+            "use publish_artifacts() or generate_baseline()."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(6.0, 4.6))
     for i, t_star in enumerate(LOWER_T_STAR_OVER_DELTA):
         color = _FIG5_COLORS[i]
         ax.semilogy(
-            result.lower_T_bath, _x_qp_qpsim_to_nqp(result.lower_x_qp_num[i]),
-            "-", color=color, lw=1.5,
+            result.lower_T_bath,
+            _x_qp_qpsim_to_nqp(result.lower_x_qp_num[i]),
+            "-",
+            color=color,
+            lw=1.5,
             label=rf"$T_*/\Delta = {t_star:g}$",
         )
         ax.semilogy(
-            result.lower_T_bath, _x_qp_qpsim_to_nqp(result.lower_x_qp_analytic[i]),
-            color=color, ls=(0, (5, 2)), lw=1.3, zorder=4,
+            result.lower_T_bath,
+            _x_qp_qpsim_to_nqp(result.lower_x_qp_analytic[i]),
+            color=color,
+            ls=(0, (5, 2)),
+            lw=1.3,
+            zorder=4,
         )
     ax.set_xlabel(r"$T_B$ (K)")
     ax.set_ylabel(r"$N\;(1/\mu m^3)$")
@@ -1664,14 +2687,443 @@ def write_plot_b(result: Fig5PaperResult, path: Path | None = None) -> Path:
 
 
 def write_plot(result: Fig5PaperResult, path: Path | None = None) -> Path:
-    """Write both single-panel PDFs (5a, 5b) from one solver run.
+    """Write both single-panel PDFs (5a, 5b) to noncanonical paths.
 
-    Returns the (5a) path for backward compatibility with callers that
-    expect a single Path; the (5b) path is :func:`plot_path_b`.
+    ``path`` names panel (a); panel (b) is written beside it with ``_b``
+    appended to the stem. Requiring an explicit destination prevents this
+    convenience API from silently overwriting the guarded canonical bundle.
+    The panel-(a) path is returned for backward compatibility.
     """
-    a = write_plot_a(result)
-    write_plot_b(result)
+    if path is None:
+        raise ArtifactValidationError(
+            "write_plot() requires an explicit noncanonical panel-(a) path; "
+            "use publish_artifacts() for the canonical Fig. 5 bundle."
+        )
+    panel_b_path = path.with_name(f"{path.stem}_b{path.suffix}")
+    a = write_plot_a(result, path)
+    write_plot_b(result, panel_b_path)
     return a
+
+
+def _restore_payload(path: Path, payload: bytes | None) -> None:
+    if payload is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.rollback.tmp")
+    try:
+        temporary.write_bytes(payload)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _restore_payloads(
+    payloads: Mapping[Path, bytes | None],
+) -> None:
+    """Attempt every rollback write before reporting restoration failure."""
+    failures: list[BaseException] = []
+    for path, payload in payloads.items():
+        try:
+            _restore_payload(path, payload)
+        except BaseException as exc:
+            failures.append(exc)
+    if failures:
+        raise RuntimeError(
+            "Fig. 5 publication rollback was incomplete after attempting "
+            f"all {len(payloads)} snapshot restorations."
+        ) from failures[0]
+
+
+def publish_artifacts(
+    result: Fig5PaperResult,
+    *,
+    producer: Mapping[str, Any],
+) -> tuple[Path, Path, Path, Path]:
+    """Stage, verify, and publish PDFs -> CSV -> commit marker under a lock."""
+    frozen_producer = json.loads(
+        json.dumps(dict(producer), allow_nan=False, sort_keys=True)
+    )
+    if (
+        not isinstance(frozen_producer, dict)
+        or set(frozen_producer) != {"fingerprint", "runtime"}
+    ):
+        raise ArtifactValidationError("Fig. 5 producer identity is malformed.")
+    assert_producer_identity_current(frozen_producer)
+    with _publication_lock():
+        assert_producer_identity_current(frozen_producer)
+        csv_path = baseline_path()
+        pdf_a_path = plot_path_a()
+        pdf_b_path = plot_path_b()
+        record_path = promotion_record_path()
+        stages = {
+            "csv": csv_path.with_name(f".{csv_path.stem}.{os.getpid()}.stage.csv"),
+            "pdf_a": pdf_a_path.with_name(
+                f".{pdf_a_path.stem}.{os.getpid()}.stage.pdf"
+            ),
+            "pdf_b": pdf_b_path.with_name(
+                f".{pdf_b_path.stem}.{os.getpid()}.stage.pdf"
+            ),
+            "record": record_path.with_name(
+                f".{record_path.stem}.{os.getpid()}.stage.json"
+            ),
+        }
+        for stage in stages.values():
+            stage.unlink(missing_ok=True)
+        source_before = artifact_fingerprint()
+        try:
+            write_plot_a(result, stages["pdf_a"])
+            write_plot_b(result, stages["pdf_b"])
+            for name in ("pdf_a", "pdf_b"):
+                _require_plausible_pdf(stages[name])
+            pdf_identities = {
+                name: _file_identity(stages[name])
+                for name in ("pdf_a", "pdf_b")
+            }
+            write_baseline(result, stages["csv"])
+            if any(
+                _file_identity(stages[name]) != pdf_identities[name]
+                for name in ("pdf_a", "pdf_b")
+            ):
+                raise ArtifactValidationError(
+                    "A staged Fig. 5 PDF changed while the CSV was written."
+                )
+            _read_artifact(stages["csv"])
+            if artifact_fingerprint() != source_before:
+                raise ArtifactValidationError(
+                    "Fig. 5 source/configuration changed during publication."
+                )
+            record = {
+                "artifact_schema": ARTIFACT_SCHEMA,
+                "artifacts": {
+                    "csv": _file_identity(stages["csv"]),
+                    **pdf_identities,
+                },
+                "publication": {
+                    "fingerprint": source_before,
+                    "kind": _CURRENT_PRODUCTION,
+                    "schema": PUBLICATION_ATTESTATION_SCHEMA,
+                },
+                "producer": frozen_producer,
+                "schema": PROMOTION_RECORD_SCHEMA,
+            }
+            with _atomic_text_file(stages["record"]) as stream:
+                stream.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+            read_promotion_record(
+                stages["record"],
+                csv_path=stages["csv"],
+                pdf_a_path=stages["pdf_a"],
+                pdf_b_path=stages["pdf_b"],
+                _publication_lock_held=True,
+            )
+            if artifact_fingerprint() != source_before:
+                raise ArtifactValidationError(
+                    "Fig. 5 source/configuration changed before promotion."
+                )
+            assert_producer_identity_current(frozen_producer)
+            final_paths = {
+                "pdf_a": pdf_a_path,
+                "pdf_b": pdf_b_path,
+                "csv": csv_path,
+                "record": record_path,
+            }
+            old_payloads = {
+                path: path.read_bytes() if path.is_file() else None
+                for path in final_paths.values()
+            }
+            try:
+                # The validation record is the commit marker and is promoted last.
+                for name in ("pdf_a", "pdf_b", "csv", "record"):
+                    os.replace(stages[name], final_paths[name])
+                read_promotion_record(_publication_lock_held=True)
+                _read_artifact(csv_path)
+                assert_producer_identity_current(frozen_producer)
+            except BaseException:
+                _restore_payloads(old_payloads)
+                raise
+            return csv_path, pdf_a_path, pdf_b_path, record_path
+        finally:
+            for stage in stages.values():
+                stage.unlink(missing_ok=True)
+
+
+def rebind_authenticated_artifacts(
+    result: Fig5PaperResult,
+    *,
+    historical_source_commit: str,
+    expected_previous_sha256: Mapping[str, str],
+) -> tuple[Path, Path, Path, Path]:
+    """Reissue metadata after a reader-only change without relabeling a solve.
+
+    This deliberately narrow, one-shot migration accepts the exact v2
+    canonical bundle
+    plus its immutable campaign companion, writes a current-fingerprint CSV
+    around the already authenticated numerical payload, and leaves both PDFs
+    byte-for-byte untouched.  The v3 commit marker keeps the historical
+    producer/runtime at top level and records the current source separately in
+    ``publication``.
+
+    ``result`` must have been exported by the historical reader after it
+    authenticated the old bundle.  Current code independently recertifies all
+    81 stored states before any staged write.  Every logical data row is then
+    required to be byte-identical to the old CSV; this helper cannot be used
+    to smuggle a changed solve through a provenance migration.  A v3 input is
+    rejected: any later source drift requires a fresh solve or a separately
+    designed chained-migration schema.
+
+    The CSV is replaced first and the v3 validation record last as the commit
+    marker.  In-process failures restore both old snapshots and all
+    restorations are attempted even if one fails.  This is fail-closed for
+    readers under the publication lock, not a claim of multi-file atomicity
+    across power loss.
+    """
+    required_hashes = {
+        "campaign",
+        "csv",
+        "pdf_a",
+        "pdf_b",
+        "promotion",
+    }
+    if (
+        set(expected_previous_sha256) != required_hashes
+        or any(
+            not _is_sha256(expected_previous_sha256[name])
+            for name in required_hashes
+        )
+        or len(historical_source_commit) != 40
+        or any(
+            character not in "0123456789abcdef"
+            for character in historical_source_commit
+        )
+    ):
+        raise ArtifactValidationError(
+            "Fig. 5 rebind expected-history manifest is malformed."
+        )
+
+    with _publication_lock():
+        csv_path = baseline_path()
+        pdf_a_path = plot_path_a()
+        pdf_b_path = plot_path_b()
+        record_path = promotion_record_path()
+        campaign_path = campaign_record_path()
+        paths = {
+            "csv": csv_path,
+            "pdf_a": pdf_a_path,
+            "pdf_b": pdf_b_path,
+        }
+        for name, path in {
+            **paths,
+            "promotion": record_path,
+            "campaign": campaign_path,
+        }.items():
+            if (
+                not path.is_file()
+                or _sha256_file(path) != expected_previous_sha256[name]
+            ):
+                raise ArtifactValidationError(
+                    f"Fig. 5 historical {name} bytes do not match the "
+                    "explicit rebind manifest."
+                )
+
+        try:
+            historical_record = json.loads(
+                record_path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ArtifactValidationError(
+                "Fig. 5 historical promotion record is invalid."
+            ) from exc
+        if (
+            not isinstance(historical_record, dict)
+            or set(historical_record)
+            != {"artifact_schema", "artifacts", "producer", "schema"}
+            or historical_record["schema"]
+            != _LEGACY_PROMOTION_RECORD_SCHEMA
+            or historical_record["artifact_schema"] != ARTIFACT_SCHEMA
+            or not isinstance(historical_record["artifacts"], dict)
+            or set(historical_record["artifacts"]) != set(paths)
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical promotion record is not the exact "
+                "supported v2 source bundle."
+            )
+        producer = _require_producer_identity(
+            historical_record["producer"]
+        )
+        _verify_historical_source_commit(
+            historical_source_commit,
+            producer["fingerprint"]["source_sha256"],
+        )
+        historical_artifacts = historical_record["artifacts"]
+        for name, path in paths.items():
+            _require_file_identity(
+                historical_artifacts[name],
+                name=f"historical {name}",
+            )
+            if historical_artifacts[name] != _file_identity(path):
+                raise ArtifactValidationError(
+                    f"Fig. 5 historical {name} is not bound by its v2 "
+                    "promotion record."
+                )
+
+        historical_rows = _read_csv_rows(csv_path)
+        if (
+            len(historical_rows) < 3
+            or historical_rows[0]
+            != [f"# qpsim_artifact_schema={ARTIFACT_SCHEMA}"]
+            or len(historical_rows[1]) != 1
+            or not historical_rows[1][0].startswith(
+                "# qpsim_metadata="
+            )
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical CSV framing is invalid."
+            )
+        try:
+            historical_metadata = json.loads(
+                historical_rows[1][0].split("=", 1)[1],
+                object_pairs_hook=_strict_json_object,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ArtifactValidationError(
+                "Fig. 5 historical CSV metadata is invalid."
+            ) from exc
+        if (
+            not isinstance(historical_metadata, dict)
+            or historical_metadata.get("fingerprint")
+            != producer["fingerprint"]
+            or historical_metadata.get("payload_sha256")
+            != _payload_sha256(historical_rows[3:])
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 historical CSV is not bound to its producer."
+            )
+
+        source_before = artifact_fingerprint()
+        if _fingerprint_without_sources(producer["fingerprint"]) != (
+            _fingerprint_without_sources(source_before)
+        ):
+            raise ArtifactValidationError(
+                "Fig. 5 solve-relevant configuration changed; provenance "
+                "rebinding is forbidden."
+            )
+        stage_csv = csv_path.with_name(
+            f".{csv_path.stem}.{os.getpid()}.rebind.stage.csv"
+        )
+        stage_record = record_path.with_name(
+            f".{record_path.stem}.{os.getpid()}.rebind.stage.json"
+        )
+        for stage in (stage_csv, stage_record):
+            stage.unlink(missing_ok=True)
+        try:
+            _write_rebound_baseline(result, stage_csv)
+            staged_bytes = stage_csv.read_bytes().splitlines(
+                keepends=True
+            )
+            historical_bytes = csv_path.read_bytes().splitlines(
+                keepends=True
+            )
+            if (
+                len(staged_bytes) != len(historical_bytes)
+                or staged_bytes[0] != historical_bytes[0]
+                or staged_bytes[2:] != historical_bytes[2:]
+            ):
+                raise ArtifactValidationError(
+                    "Fig. 5 provenance rebind changed a schema marker, "
+                    "column header, or numerical row."
+                )
+            _read_artifact(stage_csv)
+            if artifact_fingerprint() != source_before:
+                raise ArtifactValidationError(
+                    "Fig. 5 source/configuration changed during rebind."
+                )
+
+            campaign_status = json.loads(
+                campaign_path.read_text(encoding="utf-8")
+            )
+            if not isinstance(campaign_status, dict):
+                raise ArtifactValidationError(
+                    "Fig. 5 campaign evidence is malformed."
+                )
+            rebound_from = {
+                "artifacts": historical_artifacts,
+                "campaign": _file_identity(campaign_path),
+                "payload_sha256": historical_metadata[
+                    "payload_sha256"
+                ],
+                "producer_sha256": campaign_status.get(
+                    "producer_sha256"
+                ),
+                "promotion_record": _file_identity(record_path),
+                "run_identity": campaign_status.get("run_identity"),
+                "source_commit": historical_source_commit,
+            }
+            artifacts = {
+                "csv": _file_identity(stage_csv),
+                "pdf_a": _file_identity(pdf_a_path),
+                "pdf_b": _file_identity(pdf_b_path),
+            }
+            record = {
+                "artifact_schema": ARTIFACT_SCHEMA,
+                "artifacts": artifacts,
+                "producer": producer,
+                "publication": {
+                    "fingerprint": source_before,
+                    "kind": _PROVENANCE_REBIND,
+                    "rebound_from": rebound_from,
+                    "schema": PUBLICATION_ATTESTATION_SCHEMA,
+                },
+                "schema": PROMOTION_RECORD_SCHEMA,
+            }
+            with _atomic_text_file(stage_record) as stream:
+                stream.write(
+                    json.dumps(record, indent=2, sort_keys=True) + "\n"
+                )
+            read_promotion_record(
+                stage_record,
+                csv_path=stage_csv,
+                pdf_a_path=pdf_a_path,
+                pdf_b_path=pdf_b_path,
+                campaign_path=campaign_path,
+                _publication_lock_held=True,
+            )
+            _verify_historical_campaign_runner(
+                historical_source_commit,
+                campaign_status,
+            )
+            if artifact_fingerprint() != source_before:
+                raise ArtifactValidationError(
+                    "Fig. 5 source/configuration changed before rebind "
+                    "promotion."
+                )
+
+            old_csv = csv_path.read_bytes()
+            old_record = record_path.read_bytes()
+            try:
+                os.replace(stage_csv, csv_path)
+                os.replace(stage_record, record_path)
+                _read_artifact(csv_path)
+                read_promotion_record(_publication_lock_held=True)
+                if (
+                    _file_identity(pdf_a_path)
+                    != historical_artifacts["pdf_a"]
+                    or _file_identity(pdf_b_path)
+                    != historical_artifacts["pdf_b"]
+                ):
+                    raise ArtifactValidationError(
+                        "Fig. 5 PDF changed during provenance rebind."
+                    )
+            except BaseException:
+                _restore_payloads(
+                    {
+                        csv_path: old_csv,
+                        record_path: old_record,
+                    }
+                )
+                raise
+            return csv_path, pdf_a_path, pdf_b_path, record_path
+        finally:
+            stage_csv.unlink(missing_ok=True)
+            stage_record.unlink(missing_ok=True)
 
 
 def generate_baseline() -> tuple[Path, Path]:
@@ -1682,17 +3134,25 @@ def generate_baseline() -> tuple[Path, Path]:
     )
     print(
         f"  Grid: NE={NUM_BINS}, "
-        f"dE={(E_MAX_FACTOR-E_MIN_FACTOR)*DELTA_0/NUM_BINS:.3f} micro-eV"
+        f"dE={(E_MAX_FACTOR - E_MIN_FACTOR) * DELTA_0 / NUM_BINS:.3f} micro-eV"
     )
-    print(f"  Upper panel: T_B={list(UPPER_T_BATH_K)} K, nbar in "
-          f"[{UPPER_NBAR_VALUES[0]:.0e}, {UPPER_NBAR_VALUES[-1]:.0e}] "
-          f"({UPPER_NBAR_VALUES.size} pts)")
-    print(f"  Lower panel: nbar={list(LOWER_NBAR)}, T_B in "
-          f"[{LOWER_T_BATH_K[0]:.3f}, {LOWER_T_BATH_K[-1]:.3f}] K "
-          f"({LOWER_T_BATH_K.size} pts)")
+    print(
+        f"  Upper panel: T_B={list(UPPER_T_BATH_K)} K, nbar in "
+        f"[{UPPER_NBAR_VALUES[0]:.0e}, {UPPER_NBAR_VALUES[-1]:.0e}] "
+        f"({UPPER_NBAR_VALUES.size} pts)"
+    )
+    print(
+        f"  Lower panel: nbar={list(LOWER_NBAR)}, T_B in "
+        f"[{LOWER_T_BATH_K[0]:.3f}, {LOWER_T_BATH_K[-1]:.3f}] K "
+        f"({LOWER_T_BATH_K.size} pts)"
+    )
+    producer = capture_producer_identity()
     result = run_cached()
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
+    assert_producer_identity_current(producer)
+    csv_path, pdf_path, _, _ = publish_artifacts(
+        result,
+        producer=producer,
+    )
     print(f"  Baseline CSV: {csv_path}")
     print(f"  PDF plot:     {pdf_path}")
     return csv_path, pdf_path

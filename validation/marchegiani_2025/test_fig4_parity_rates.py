@@ -22,7 +22,7 @@ def test_matches_pinned_baseline() -> None:
             "python -m validation.marchegiani_2025.fig4_parity_rates"
         )
 
-    baseline = read_baseline()
+    baseline = read_baseline(accept_producer_certificate_claims=True)
     result = run()
 
     for panel_name, path, expected, actual in (
@@ -34,11 +34,8 @@ def test_matches_pinned_baseline() -> None:
             rtol=0.0, atol=1e-14,
             err_msg=f"{panel_name}: T_kelvin drifted",
         )
-        # Platform-stamped per-point pins (strict rtol=1e-6 on the
-        # generating platform, rtol=1e-3 elsewhere): the branch-
-        # continuation driver on the Γ̄-normalized moment system
-        # tracks a unique root, so the branch-jump scatter the old
-        # majority/median comparison tolerated is gone — see
+        # Platform-stamped per-point pins: strict rtol=1e-6 on the
+        # generating platform and rtol=1e-3 elsewhere; see
         # validation/marchegiani_2025/_robust.py.
         assert_pinned_match(
             actual.Gamma_P_Hz, expected.Gamma_P_Hz,
@@ -50,24 +47,18 @@ def test_matches_pinned_baseline() -> None:
         )
 
 
-def test_gamma_P_curves_smooth_no_multistability_scatter() -> None:
-    """The historical panel-(a) multi-stability scatter is gone: with
-    the branch-continuation driver on the Γ̄-normalized system the
-    Γ_P(T) curves are smooth. Enforce via a log-slope bound between
-    adjacent 5 mK points (branch jumps produced order-of-magnitude
-    spikes, dlog10 ≈ 1; genuine physics — including the paper's
-    low-T nonmonotonic dip on panel a and the steep thermal upturn
-    at the top of the sweep — stays below dlog10 ≈ 0.14)."""
+def test_gamma_P_has_no_adjacent_order_of_magnitude_jumps() -> None:
+    """Numerical continuity guard on the pinned 5 mK temperature grid."""
     if not (baseline_path_a().exists() and baseline_path_b().exists()):
         pytest.skip("Baseline missing.")
 
-    baseline = read_baseline()
+    baseline = read_baseline(accept_producer_certificate_claims=True)
     for panel in (baseline.panel_a, baseline.panel_b):
         dlog = np.abs(np.diff(np.log10(panel.Gamma_P_Hz)))
         assert float(dlog.max()) < 0.2, (
             f"ω_LR={panel.omega_LR_GHz}: Γ_P jumps by "
             f"10^{dlog.max():.2f} between adjacent T points — "
-            "multi-stability scatter regression"
+            "outside the broad continuity bound"
         )
 
 
@@ -79,7 +70,7 @@ def test_panel_b_ratio_increases_with_T() -> None:
     if not baseline_path_b().exists():
         pytest.skip("Baseline missing.")
 
-    baseline = read_baseline()
+    baseline = read_baseline(accept_producer_certificate_claims=True)
     panel_b = baseline.panel_b
     # Coarse monotonicity: tail above head.
     assert panel_b.ratio_eo_01_over_10[-1] > panel_b.ratio_eo_01_over_10[0]
@@ -90,21 +81,17 @@ def test_panel_b_ratio_increases_with_T() -> None:
     assert 0.05 < panel_b.ratio_eo_01_over_10[-1] < 1.0
 
 
-def test_panel_a_orange_dominates_at_high_T() -> None:
-    """Panel a paper trend: the large-asymmetry curve grows
-    monotonically while the small-asymmetry curve has a low-T peak
-    and then a long flatter region. By T ≈ 100 mK the large-
-    asymmetry Γ_P should be comparable to or larger than the
-    small-asymmetry Γ_P. Pin this crossover qualitatively."""
+def test_high_temperature_rates_have_broad_kHz_scale_and_ratio_sanity() -> None:
+    """Both computed families end at comparable few-kHz scales."""
     if not (baseline_path_a().exists() and baseline_path_b().exists()):
         pytest.skip("Baseline missing.")
 
-    baseline = read_baseline()
-    # Compare Γ_P at the high-T end. Both should be in the kHz–
-    # 100-kHz regime, with the large-asymmetry curve no more than
-    # 10× below the small-asymmetry one (the multi-stability noise
-    # caps the resolution at this level).
+    baseline = read_baseline(accept_producer_certificate_claims=True)
+    # This is a broad code-output sanity check, not a paper-digitized
+    # dominance claim. Both endpoints are a few kHz, and their ratio
+    # should remain within one broad factor-of-four comparability band.
     Gamma_a_end = baseline.panel_a.Gamma_P_Hz[-1]
     Gamma_b_end = baseline.panel_b.Gamma_P_Hz[-1]
-    assert Gamma_a_end > 1e3 and Gamma_b_end > 1e3
-    assert 0.1 < Gamma_b_end / Gamma_a_end < 100.0
+    assert 1e3 < Gamma_a_end < 2e4
+    assert 1e3 < Gamma_b_end < 2e4
+    assert 0.25 < Gamma_b_end / Gamma_a_end < 4.0

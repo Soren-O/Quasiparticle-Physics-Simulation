@@ -45,6 +45,17 @@ class TestComputeAcConductivity:
         with pytest.raises(ValueError, match="omega_0"):
             compute_ac_conductivity(f, ctx, omega_0=-1.0)
 
+    @pytest.mark.parametrize(
+        "bad_omega",
+        [np.nan, np.inf, -np.inf, complex(1.0, 0.0), True],
+    )
+    def test_rejects_nonfinite_complex_or_boolean_omega(
+        self, bad_omega: complex | float
+    ) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="omega_0"):
+            compute_ac_conductivity(f, ctx, omega_0=bad_omega)
+
     def test_rejects_dynes_context(self) -> None:
         ctx, f = _thermal_ctx_and_f()
         # Rebuild ctx with Dynes broadening.
@@ -63,6 +74,21 @@ class TestComputeAcConductivity:
         ctx, f = _thermal_ctx_and_f()
         with pytest.raises(ValueError, match="n_subgap"):
             compute_ac_conductivity(f, ctx, omega_0=1.0, n_subgap=-10)
+
+    @pytest.mark.parametrize(
+        "bad_count", [1.5, np.nan, np.inf, complex(10.0, 0.0), True]
+    )
+    def test_rejects_noninteger_n_subgap(
+        self, bad_count: complex | float
+    ) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="n_subgap"):
+            compute_ac_conductivity(
+                f,
+                ctx,
+                omega_0=1.0,
+                n_subgap=bad_count,  # type: ignore[arg-type]
+            )
 
     def test_n_subgap_propagates_from_quality_factor(self) -> None:
         # Bad n_subgap must also be caught when the call arrives via

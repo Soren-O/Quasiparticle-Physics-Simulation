@@ -1,0 +1,127 @@
+{
+  "attempt": 1,
+  "completed_rows": 6,
+  "completion": {
+    "aggregate_worker_s": 35471.7155438005,
+    "artifacts": {
+      "csv": {
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper.csv",
+        "sha256": "4e187e3286e45cb45e0a0b580789559fb8989044e7c80e9b5c10090b80af80df"
+      },
+      "pdf_a": {
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper_a.pdf",
+        "sha256": "d12bb18591102a7a833edde026cb0581b50bd225f0846004a6d6534b4400895c"
+      },
+      "pdf_b": {
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper_b.pdf",
+        "sha256": "e630769039c2853c4209dd33bbcac74493bc9a5048b9e95788df341191ce6bd5"
+      },
+      "record": {
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper.promotion.json",
+        "sha256": "a48cbc150aec9952b5175e25416c5e7a656318442d27dd64950ab8b044ef391a"
+      }
+    },
+    "campaign": {
+      "mode": "parallel-independent-continuation-rows",
+      "row_schema": "qpsim-fischer-2023-fig5-row-v1",
+      "rows": [
+        {
+          "axis_value": 0.1,
+          "label": "upper-t00",
+          "ordinal": 0,
+          "panel": "upper",
+          "row_index": 0,
+          "sha256": "0fa9a3a015f2b053edacd8c77532ac908c8e8e10c9a6f0e703f89f7d704f82af",
+          "size_bytes": 579993
+        },
+        {
+          "axis_value": 0.15,
+          "label": "upper-t01",
+          "ordinal": 1,
+          "panel": "upper",
+          "row_index": 1,
+          "sha256": "01858da5a9f4f6967582be7a7c2ea53566f415e7f5125337aec35535b042f216",
+          "size_bytes": 579618
+        },
+        {
+          "axis_value": 0.2,
+          "label": "upper-t02",
+          "ordinal": 2,
+          "panel": "upper",
+          "row_index": 2,
+          "sha256": "cc4cb0a7c8c81600eebb4155607586339fa3029280827e1a97f32f55c71601b3",
+          "size_bytes": 578959
+        },
+        {
+          "axis_value": 9667570.586301368,
+          "label": "lower-n00",
+          "ordinal": 3,
+          "panel": "lower",
+          "row_index": 0,
+          "sha256": "55132868fa4851787729aa17d6c53397cc652cfd9ad509e8741f47b4f982bb46",
+          "size_bytes": 539205
+        },
+        {
+          "axis_value": 51140025.345043555,
+          "label": "lower-n01",
+          "ordinal": 4,
+          "panel": "lower",
+          "row_index": 1,
+          "sha256": "7897d4ca787151d9a03c7533b3910817301c2df9d617c24d6f754116e55ab8b1",
+          "size_bytes": 537242
+        },
+        {
+          "axis_value": 101598581.408338,
+          "label": "lower-n02",
+          "ordinal": 5,
+          "panel": "lower",
+          "row_index": 2,
+          "sha256": "3546316652ebe1fd476257ca9fd998e8cabe8e47ccd0fe835ba4e49233cc1ee2",
+          "size_bytes": 536438
+        }
+      ],
+      "run_identity": "01e22c384d6473ec12df22bf3f557af544cd66a6d8f2fc12b80b1d610dedcccb",
+      "runner": {
+        "path": "scripts/regenerate_fischer_fig5_parallel.py",
+        "sha256": "254af009ffd98d98c09f22234ef2c6669a91c8e9902053cfc19f38f488bd9d2d"
+      },
+      "single_thread_environment": {
+        "BLIS_NUM_THREADS": "1",
+        "MKL_DYNAMIC": "FALSE",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_DYNAMIC": "FALSE",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "status_schema": "qpsim-fischer-2023-fig5-run-v1"
+    },
+    "certificate_maxima": {
+      "phonon_backward_error": 9.854812878444603e-10,
+      "phonon_raw_backward_error": 4.3907740567077333e-07,
+      "phonon_residual_inf": 1.2005257104774874e-11,
+      "qp_backward_error": 1.20654374850028e-16,
+      "qp_number_backward_error": 9.769986943814527e-11,
+      "qp_residual_inf": 1.3877787807814457e-17
+    },
+    "new_rows": 6,
+    "resumed_rows": 0,
+    "row_payload_sha256": {
+      "lower-n00": "55132868fa4851787729aa17d6c53397cc652cfd9ad509e8741f47b4f982bb46",
+      "lower-n01": "7897d4ca787151d9a03c7533b3910817301c2df9d617c24d6f754116e55ab8b1",
+      "lower-n02": "3546316652ebe1fd476257ca9fd998e8cabe8e47ccd0fe835ba4e49233cc1ee2",
+      "upper-t00": "0fa9a3a015f2b053edacd8c77532ac908c8e8e10c9a6f0e703f89f7d704f82af",
+      "upper-t01": "01858da5a9f4f6967582be7a7c2ea53566f415e7f5125337aec35535b042f216",
+      "upper-t02": "cc4cb0a7c8c81600eebb4155607586339fa3029280827e1a97f32f55c71601b3"
+    },
+    "wall_s": 9380.160611200146
+  },
+  "producer_sha256": "6800fc7b9dd349c67dc78a8e7600d7d4f33c8c20bd5fdfb5116036400bfbd646",
+  "run_identity": "01e22c384d6473ec12df22bf3f557af544cd66a6d8f2fc12b80b1d610dedcccb",
+  "schema": "qpsim-fischer-2023-fig5-run-v1",
+  "started_utc": "2026-07-28T06:42:47.638065+00:00",
+  "state": "complete",
+  "total_rows": 6,
+  "updated_utc": "2026-07-28T09:19:07.202009+00:00"
+}

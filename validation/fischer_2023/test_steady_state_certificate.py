@@ -13,7 +13,7 @@ from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2023.steady_state_certificate import (
     steady_state_certificate,
@@ -50,9 +50,7 @@ def certified_equilibrium() -> T3DiffusionState:
         gap=_GAP,
     )
     omega, _, _, _ = build_phonon_frequency_map(E)
-    f = 1.0 / (
-        np.exp(np.minimum(E / (KB_UEV_PER_K * _T_BATH), 500.0)) + 1.0
-    )
+    f = fermi_dirac_occupation(E, _T_BATH)
     n_ph = thermal_phonon_occupation(omega, _T_BATH)
     material = Material(
         name="certificate_test",

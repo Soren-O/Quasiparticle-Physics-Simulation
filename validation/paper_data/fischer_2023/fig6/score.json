@@ -1,0 +1,607 @@
+{
+  "comparison_id": "fischer-catelani-2023-fig6-paper-parity-v1",
+  "curve_scores": [
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_analytic",
+      "filter_value_K": 0.1,
+      "max_absolute_error": 0.0014376227982398349,
+      "max_relative_error": 0.00998555882447284,
+      "max_uncertainty_normalized_error": 0.38778779555441256,
+      "mean_absolute_error": 0.0008126344960864325,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.00031517131189073844,
+          "effective_uncertainty": 0.004100850882731416,
+          "paper_y": 0.128048780488,
+          "qpsim_y": 0.12773360917610926,
+          "relative_error": 0.0024613378642858257,
+          "uncertainty_normalized_error": 0.07685510175898304,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.0014376227982398349,
+          "effective_uncertainty": 0.0037072409568343788,
+          "paper_y": 0.143970189702,
+          "qpsim_y": 0.14253256690376018,
+          "relative_error": 0.00998555882447284,
+          "uncertainty_normalized_error": 0.38778779555441256,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.0010494648469210888,
+          "effective_uncertainty": 0.004353518750930685,
+          "paper_y": 0.157520325203,
+          "qpsim_y": 0.1564708603560789,
+          "relative_error": 0.006662409092722604,
+          "uncertainty_normalized_error": 0.24106129017975098,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.0006892607850783328,
+          "effective_uncertainty": 0.004658225344586023,
+          "paper_y": 0.170731707317,
+          "qpsim_y": 0.17004244653192166,
+          "relative_error": 0.004037098884031965,
+          "uncertainty_normalized_error": 0.1479663893631551,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.0007132690165069511,
+          "effective_uncertainty": 0.004282382521124955,
+          "paper_y": 0.183943089431,
+          "qpsim_y": 0.18322982041449304,
+          "relative_error": 0.003877661393604622,
+          "uncertainty_normalized_error": 0.16655892204594086,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.0004932332364187553,
+          "effective_uncertainty": 0.0038769249894518134,
+          "paper_y": 0.19647696477,
+          "qpsim_y": 0.19598373153358126,
+          "relative_error": 0.0025103870929406116,
+          "uncertainty_normalized_error": 0.12722279583967322,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.0009904194775493258,
+          "effective_uncertainty": 0.0031905703372176073,
+          "paper_y": 0.200203252033,
+          "qpsim_y": 0.19921283255545066,
+          "relative_error": 0.004947069877696455,
+          "uncertainty_normalized_error": 0.3104208253916879,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_eq53",
+      "rms_error": 0.0008844297289015236,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": false,
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_numerical",
+      "filter_value_K": 0.1,
+      "max_absolute_error": 0.03467244249837438,
+      "max_relative_error": 0.32700655033642356,
+      "max_uncertainty_normalized_error": 8.054224640149918,
+      "mean_absolute_error": 0.024785598427752704,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.03467244249837438,
+          "effective_uncertainty": 0.004304876514808631,
+          "paper_y": 0.106029810298,
+          "qpsim_y": 0.07135736779962562,
+          "relative_error": 0.32700655033642356,
+          "uncertainty_normalized_error": 8.054224640149918,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.030299888477068992,
+          "effective_uncertainty": 0.004345946883297041,
+          "paper_y": 0.116192411924,
+          "qpsim_y": 0.085892523446931,
+          "relative_error": 0.26077338421107715,
+          "uncertainty_normalized_error": 6.971987760255841,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.026993186253540052,
+          "effective_uncertainty": 0.004020536003443054,
+          "paper_y": 0.126693766938,
+          "qpsim_y": 0.09970058068445994,
+          "relative_error": 0.21305851823594196,
+          "uncertainty_normalized_error": 6.71382776585609,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.0235374609199651,
+          "effective_uncertainty": 0.004373702583789654,
+          "paper_y": 0.137195121951,
+          "qpsim_y": 0.1136576610310349,
+          "relative_error": 0.17156193737246456,
+          "uncertainty_normalized_error": 5.381586989294262,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.02035545293923574,
+          "effective_uncertainty": 0.0043770439572821725,
+          "paper_y": 0.148035230352,
+          "qpsim_y": 0.12767977741276426,
+          "relative_error": 0.13750411230376913,
+          "uncertainty_normalized_error": 4.650502288278367,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.017284437374021466,
+          "effective_uncertainty": 0.0038919592596734333,
+          "paper_y": 0.158536585366,
+          "qpsim_y": 0.14125214799197852,
+          "relative_error": 0.109024912666804,
+          "uncertainty_normalized_error": 4.44106328478674,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.020356320532063182,
+          "effective_uncertainty": 0.002621362819471296,
+          "paper_y": 0.161246612466,
+          "qpsim_y": 0.14089029193393682,
+          "relative_error": 0.12624339960230457,
+          "uncertainty_normalized_error": 7.765548660741614,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_num",
+      "rms_error": 0.025440074422917566,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_analytic",
+      "filter_value_K": 0.15,
+      "max_absolute_error": 0.000808251349934147,
+      "max_relative_error": 0.005735475925497986,
+      "max_uncertainty_normalized_error": 0.1995516117716188,
+      "mean_absolute_error": 0.00026039271568563193,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 6.630962707218635e-05,
+          "effective_uncertainty": 0.0041053486878816605,
+          "paper_y": 0.125338753388,
+          "qpsim_y": 0.1252724437609278,
+          "relative_error": 0.0005290432949090977,
+          "uncertainty_normalized_error": 0.016152008541423502,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000808251349934147,
+          "effective_uncertainty": 0.004050337367653878,
+          "paper_y": 0.140921409214,
+          "qpsim_y": 0.14011315786406586,
+          "relative_error": 0.005735475925497986,
+          "uncertainty_normalized_error": 0.1995516117716188,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 4.2012065299468215e-05,
+          "effective_uncertainty": 0.004357773659294828,
+          "paper_y": 0.154132791328,
+          "qpsim_y": 0.15409077926270054,
+          "relative_error": 0.0002725705862944184,
+          "uncertainty_normalized_error": 0.009640717619617396,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 1.773186468576049e-05,
+          "effective_uncertainty": 0.0043236307999655384,
+          "paper_y": 0.167682926829,
+          "qpsim_y": 0.16770065869368575,
+          "relative_error": 0.00010574639303524994,
+          "uncertainty_normalized_error": 0.00410115144103003,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 3.094134490627676e-05,
+          "effective_uncertainty": 0.003947684344865404,
+          "paper_y": 0.180894308943,
+          "qpsim_y": 0.18092525028790626,
+          "relative_error": 0.00017104653588646845,
+          "uncertainty_normalized_error": 0.00783784674844151,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.0003199096661235523,
+          "effective_uncertainty": 0.0035654687778524817,
+          "paper_y": 0.193428184282,
+          "qpsim_y": 0.19374809394812356,
+          "relative_error": 0.0016538937555095603,
+          "uncertainty_normalized_error": 0.08972443346320289,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.0005375930917780325,
+          "effective_uncertainty": 0.0035242176376064525,
+          "paper_y": 0.197493224932,
+          "qpsim_y": 0.19803081802377803,
+          "relative_error": 0.002722083716862359,
+          "uncertainty_normalized_error": 0.15254253484275457,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_eq53",
+      "rms_error": 0.00038767669475629155,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": false,
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_numerical",
+      "filter_value_K": 0.15,
+      "max_absolute_error": 0.03814843937591856,
+      "max_relative_error": 0.39238394786668057,
+      "max_uncertainty_normalized_error": 9.125634356900498,
+      "mean_absolute_error": 0.0326042840024925,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.03814843937591856,
+          "effective_uncertainty": 0.004180360277866271,
+          "paper_y": 0.0972222222222,
+          "qpsim_y": 0.059073782846281446,
+          "relative_error": 0.39238394786668057,
+          "uncertainty_normalized_error": 9.125634356900498,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.03719768550433279,
+          "effective_uncertainty": 0.00427458578266667,
+          "paper_y": 0.109417344173,
+          "qpsim_y": 0.07221965866866721,
+          "relative_error": 0.33996150962611055,
+          "uncertainty_normalized_error": 8.70205615130439,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.03542334221663222,
+          "effective_uncertainty": 0.004315138476070254,
+          "paper_y": 0.12093495935,
+          "qpsim_y": 0.08551161713336777,
+          "relative_error": 0.29291234236175584,
+          "uncertainty_normalized_error": 8.209085852765458,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.03259267134435816,
+          "effective_uncertainty": 0.0043499537796562095,
+          "paper_y": 0.131775067751,
+          "qpsim_y": 0.09918239640664185,
+          "relative_error": 0.2473356447514391,
+          "uncertainty_normalized_error": 7.4926477372672355,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.030204849152008648,
+          "effective_uncertainty": 0.004375482639920219,
+          "paper_y": 0.143292682927,
+          "qpsim_y": 0.11308783377499136,
+          "relative_error": 0.210791287698873,
+          "uncertainty_normalized_error": 6.903203974901245,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.02770991859703989,
+          "effective_uncertainty": 0.004375461573640415,
+          "paper_y": 0.154810298103,
+          "qpsim_y": 0.12710037950596012,
+          "relative_error": 0.17899273456991624,
+          "uncertainty_normalized_error": 6.333027528792817,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.02695308182715725,
+          "effective_uncertainty": 0.00437245630501743,
+          "paper_y": 0.158875338753,
+          "qpsim_y": 0.13192225692584275,
+          "relative_error": 0.16964924851591104,
+          "uncertainty_normalized_error": 6.164288433535257,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_num",
+      "rms_error": 0.03286923823226769,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_analytic",
+      "filter_value_K": 0.2,
+      "max_absolute_error": 0.0008499314865533236,
+      "max_relative_error": 0.004355898868574894,
+      "max_uncertainty_normalized_error": 0.25296119806027983,
+      "mean_absolute_error": 0.00038811541078577483,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.0003971007589127912,
+          "effective_uncertainty": 0.004109454403072072,
+          "paper_y": 0.122628726287,
+          "qpsim_y": 0.12302582704591279,
+          "relative_error": 0.0032382360229642883,
+          "uncertainty_normalized_error": 0.0966310171530152,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.0003067246438968607,
+          "effective_uncertainty": 0.0040543017938788175,
+          "paper_y": 0.138211382114,
+          "qpsim_y": 0.13790465747010314,
+          "relative_error": 0.0022192430117214733,
+          "uncertainty_normalized_error": 0.07565412233493654,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.00015666084058205132,
+          "effective_uncertainty": 0.004700411039431482,
+          "paper_y": 0.151761517615,
+          "qpsim_y": 0.15191817845558206,
+          "relative_error": 0.0010322830388365006,
+          "uncertainty_normalized_error": 0.033329178930913146,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 8.739352495651387e-05,
+          "effective_uncertainty": 0.004327427101351649,
+          "paper_y": 0.165650406504,
+          "qpsim_y": 0.1655630129790435,
+          "relative_error": 0.0005275780893082418,
+          "uncertainty_normalized_error": 0.020195262198458977,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.0002985348836794244,
+          "effective_uncertainty": 0.00429013850930191,
+          "paper_y": 0.17852303523,
+          "qpsim_y": 0.1788215701136794,
+          "relative_error": 0.0016722485324922201,
+          "uncertainty_normalized_error": 0.06958630427249349,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.0006204617369194587,
+          "effective_uncertainty": 0.003907828965302046,
+          "paper_y": 0.191056910569,
+          "qpsim_y": 0.19167737230591947,
+          "relative_error": 0.003247523133665346,
+          "uncertainty_normalized_error": 0.15877402578991878,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.0008499314865533236,
+          "effective_uncertainty": 0.003359928293630186,
+          "paper_y": 0.19512195122,
+          "qpsim_y": 0.19597188270655333,
+          "relative_error": 0.004355898868574894,
+          "uncertainty_normalized_error": 0.25296119806027983,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_eq53",
+      "rms_error": 0.0004598802084189677,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": false,
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_numerical",
+      "filter_value_K": 0.2,
+      "max_absolute_error": 0.03211387194652157,
+      "max_relative_error": 0.36638794881366704,
+      "max_uncertainty_normalized_error": 7.592851472828195,
+      "mean_absolute_error": 0.0302136695565369,
+      "native_qpsim_domain": [
+        0.15901904644787634,
+        0.7969831598325783
+      ],
+      "native_qpsim_node_count": 22,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.03003586843255751,
+          "effective_uncertainty": 0.004412009928605945,
+          "paper_y": 0.0819783197832,
+          "qpsim_y": 0.05194245135064249,
+          "relative_error": 0.36638794881366704,
+          "uncertainty_normalized_error": 6.807751777215037,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.031742819245938594,
+          "effective_uncertainty": 0.004180619015074055,
+          "paper_y": 0.0958672086721,
+          "qpsim_y": 0.0641243894261614,
+          "relative_error": 0.3311123760211935,
+          "uncertainty_normalized_error": 7.592851472828195,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.03211387194652157,
+          "effective_uncertainty": 0.00423506312080974,
+          "paper_y": 0.108739837398,
+          "qpsim_y": 0.07662596545147843,
+          "relative_error": 0.29532757005127014,
+          "uncertainty_normalized_error": 7.5828555632912105,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.03126238050940909,
+          "effective_uncertainty": 0.004288911468676179,
+          "paper_y": 0.12093495935,
+          "qpsim_y": 0.0896725788405909,
+          "relative_error": 0.25850573463155585,
+          "uncertainty_normalized_error": 7.289117702179705,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.03001317503205897,
+          "effective_uncertainty": 0.004340583982733159,
+          "paper_y": 0.133130081301,
+          "qpsim_y": 0.10311690626894102,
+          "relative_error": 0.22544247504965303,
+          "uncertainty_normalized_error": 6.914547708661177,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.028511996011005528,
+          "effective_uncertainty": 0.004353324420587118,
+          "paper_y": 0.145325203252,
+          "qpsim_y": 0.11681320724099446,
+          "relative_error": 0.19619443408976028,
+          "uncertainty_normalized_error": 6.549476504937395,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.02781557571826701,
+          "effective_uncertainty": 0.0043533244205871315,
+          "paper_y": 0.149390243902,
+          "qpsim_y": 0.121574668183733,
+          "relative_error": 0.1861940578697631,
+          "uncertainty_normalized_error": 6.3895021438617094,
+          "x_value": 0.409931506849
+        }
+      ],
+      "qpsim_y_column": "paper_observable_num",
+      "rms_error": 0.030250922104638044,
+      "uncertainty_normalized_limit": 1.0
+    }
+  ],
+  "error_budget": {
+    "components": [
+      {
+        "included_in_metric": true,
+        "name": "raster_digitization",
+        "note": "Per-point bounds include trace thickness, horizontal sampling width, and held-out calibration residuals.",
+        "status": "bounded"
+      },
+      {
+        "included_in_metric": false,
+        "name": "native_curve_interpolation",
+        "note": "The predeclared piecewise-linear interpolant is deterministic; alternative interpolants are outside this persisted metric.",
+        "status": "declared_method"
+      },
+      {
+        "included_in_metric": false,
+        "name": "solver_certification",
+        "note": "The scorer binds exact previously promoted CSV/record bytes but does not decode and recertify all 66 persisted states. Authoritative state replay remains the separate slow gate under the recorded single-thread environment.",
+        "status": "promotion_attested_not_replayed"
+      },
+      {
+        "included_in_metric": false,
+        "name": "parameter_uncertainty",
+        "note": "The paper raster does not supply uncertainty intervals for every transcribed simulation parameter.",
+        "status": "unbounded"
+      },
+      {
+        "included_in_metric": false,
+        "name": "qpsim_discretization",
+        "note": "A paper-parity-specific grid-convergence bound has not been established for this observable.",
+        "status": "unbounded"
+      }
+    ],
+    "gate_eligible": false,
+    "gate_ineligibility_reasons": [
+      "parameter_uncertainty is unbounded",
+      "qpsim_discretization is unbounded"
+    ]
+  },
+  "inputs": {
+    "comparison_spec": {
+      "path": "validation/paper_data/fischer_2023/fig6/comparison-spec.json",
+      "sha256": "8cc344367bbfa741332a01fd48880f56f4cf0e6d77f03b1028920902301e2e2e"
+    },
+    "paper_oracle": {
+      "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
+      "manifest_path": "validation/paper_data/fischer_2023/fig6/oracle.json",
+      "manifest_sha256": "169eaf05fdeed8d80fee6998b6e9e934e71bb61fac1f44484544cf1cc4e44727",
+      "points_path": "validation/paper_data/fischer_2023/fig6/points.csv",
+      "points_sha256": "26c61da67da06da1c7fcbd3de5def71a1a625cfb1cfff61ba38f60992d2d6882",
+      "source_raster_reproduction": {
+        "command": "python -m validation.fischer_2023.extract_fig6_paper_data <exact-arxiv-v2-source.tar>",
+        "status": "not_replayed_by_scorer"
+      }
+    },
+    "qpsim_artifact": {
+      "authentication": {
+        "authoritative_replay": "separate slow gate under the recorded single-thread environment",
+        "status": "promotion_attested_not_replayed"
+      },
+      "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
+      "csv_sha256": "5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c",
+      "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
+      "promotion_sha256": "a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823"
+    },
+    "scorer_sources": {
+      "validation/fischer_2023/fig6_paper_parity.py": "7c4cc3365d1272ed4ef8655d9e045a8adf768024a44dadbb6e3cab950fd71ade",
+      "validation/paper_parity.py": "17ef56037b2a77fa5a4e2649cf1b851b7c494609937f86ec940f9732dd19da45"
+    }
+  },
+  "observable_identity": {
+    "schema": "qpsim.fischer2023.fig6.observable-identity.v1",
+    "x": {
+      "conversion": "identity_ratio_not_energy",
+      "paper_quantity": "T_star_over_Delta",
+      "paper_unit": "dimensionless",
+      "qpsim_column": "T_star_over_delta",
+      "qpsim_unit": "dimensionless"
+    },
+    "y": {
+      "conversion": "identity_fraction_not_percent",
+      "definition": "delta_Delta_T is thermal-equilibrium gap suppression at T_bath; delta_Delta is driven nonequilibrium gap suppression",
+      "denominator": "delta_Delta_T",
+      "paper_quantity": "(delta_Delta_T - delta_Delta) / delta_Delta_T",
+      "paper_unit": "dimensionless",
+      "qpsim_analytic_column": "paper_observable_eq53",
+      "qpsim_numerical_column": "paper_observable_num",
+      "qpsim_unit": "dimensionless",
+      "sign_convention": "positive_when_driven_gap_suppression_is_smaller_than_thermal_equilibrium"
+    }
+  },
+  "result": {
+    "analytic_control_accepted": true,
+    "gate_eligible": false,
+    "numerical_parity_accepted": false,
+    "status": "diagnostic_mismatch"
+  },
+  "schema": "qpsim.fischer2023.fig6-paper-parity-score.v1"
+}

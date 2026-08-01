@@ -1,4 +1,6 @@
 validation/baselines/**/*.csv text eol=lf
+validation/baselines/**/*.json text eol=lf
+validation/paper_data/**/*.json text eol=lf
 validation/baselines/legacy/fischer_2024_pre_strict_v2/*.csv -text -eol
 validation/baselines/ph0_constant/fischer_fig5_paper.csv -text -eol
 validation/baselines/ph0_constant/fischer_figs_9_13_qi_vs_pread.csv -text -eol

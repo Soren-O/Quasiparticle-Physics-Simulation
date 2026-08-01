@@ -1,0 +1,130 @@
+{
+  "comparison_id": "fischer-catelani-2023-fig6-paper-parity-v1",
+  "error_budget": {
+    "components": [
+      {
+        "included_in_metric": true,
+        "name": "raster_digitization",
+        "note": "Per-point bounds include trace thickness, horizontal sampling width, and held-out calibration residuals.",
+        "status": "bounded"
+      },
+      {
+        "included_in_metric": false,
+        "name": "native_curve_interpolation",
+        "note": "The predeclared piecewise-linear interpolant is deterministic; alternative interpolants are outside this persisted metric.",
+        "status": "declared_method"
+      },
+      {
+        "included_in_metric": false,
+        "name": "solver_certification",
+        "note": "The scorer binds exact previously promoted CSV/record bytes but does not decode and recertify all 66 persisted states. Authoritative state replay remains the separate slow gate under the recorded single-thread environment.",
+        "status": "promotion_attested_not_replayed"
+      },
+      {
+        "included_in_metric": false,
+        "name": "parameter_uncertainty",
+        "note": "The paper raster does not supply uncertainty intervals for every transcribed simulation parameter.",
+        "status": "unbounded"
+      },
+      {
+        "included_in_metric": false,
+        "name": "qpsim_discretization",
+        "note": "A paper-parity-specific grid-convergence bound has not been established for this observable.",
+        "status": "unbounded"
+      }
+    ],
+    "gate_eligible": false,
+    "gate_ineligibility_reasons": [
+      "parameter_uncertainty is unbounded",
+      "qpsim_discretization is unbounded"
+    ]
+  },
+  "interpolation": {
+    "extrapolation": "forbidden, including every paper x-uncertainty interval",
+    "method": "piecewise_linear_on_native_qpsim_nodes"
+  },
+  "mappings": [
+    {
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_analytic",
+      "filter_value": 0.1,
+      "qpsim_y_column": "paper_observable_eq53"
+    },
+    {
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_numerical",
+      "filter_value": 0.1,
+      "qpsim_y_column": "paper_observable_num"
+    },
+    {
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_analytic",
+      "filter_value": 0.15,
+      "qpsim_y_column": "paper_observable_eq53"
+    },
+    {
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_numerical",
+      "filter_value": 0.15,
+      "qpsim_y_column": "paper_observable_num"
+    },
+    {
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_analytic",
+      "filter_value": 0.2,
+      "qpsim_y_column": "paper_observable_eq53"
+    },
+    {
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_numerical",
+      "filter_value": 0.2,
+      "qpsim_y_column": "paper_observable_num"
+    }
+  ],
+  "metric": {
+    "acceptance_rule": "max_raster_digitization_normalized_error <= limit",
+    "name": "raster_digitization_normalized_mismatch",
+    "uncertainty_normalized_limit": 1.0
+  },
+  "observable_identity": {
+    "schema": "qpsim.fischer2023.fig6.observable-identity.v1",
+    "x": {
+      "conversion": "identity_ratio_not_energy",
+      "paper_quantity": "T_star_over_Delta",
+      "paper_unit": "dimensionless",
+      "qpsim_column": "T_star_over_delta",
+      "qpsim_unit": "dimensionless"
+    },
+    "y": {
+      "conversion": "identity_fraction_not_percent",
+      "definition": "delta_Delta_T is thermal-equilibrium gap suppression at T_bath; delta_Delta is driven nonequilibrium gap suppression",
+      "denominator": "delta_Delta_T",
+      "paper_quantity": "(delta_Delta_T - delta_Delta) / delta_Delta_T",
+      "paper_unit": "dimensionless",
+      "qpsim_analytic_column": "paper_observable_eq53",
+      "qpsim_numerical_column": "paper_observable_num",
+      "qpsim_unit": "dimensionless",
+      "sign_convention": "positive_when_driven_gap_suppression_is_smaller_than_thermal_equilibrium"
+    }
+  },
+  "oracle": {
+    "path": "validation/paper_data/fischer_2023/fig6/oracle.json",
+    "sha256": "169eaf05fdeed8d80fee6998b6e9e934e71bb61fac1f44484544cf1cc4e44727"
+  },
+  "qpsim_artifact": {
+    "artifact_schema": "qpsim.fischer2023.fig6_paper.v2",
+    "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
+    "csv_sha256": "5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c",
+    "filter_column": "T_bath_K",
+    "native_row_count": 66,
+    "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
+    "promotion_schema": "qpsim.fischer2023.fig6_promotion.v2",
+    "promotion_sha256": "a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823",
+    "required_fingerprint_mode": {
+      "direct_gap_observable": false,
+      "fixed_gap_kinetics": false
+    },
+    "x_column": "T_star_over_delta"
+  },
+  "schema": "qpsim.paper-comparison.v1"
+}

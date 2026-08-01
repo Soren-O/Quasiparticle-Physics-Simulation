@@ -331,6 +331,57 @@ class TestCachedSolve:
         assert len(calls) == 1  # second call was a cache hit
         np.testing.assert_array_equal(r1["x"], r2["x"])
 
+    def test_authenticated_hit_reports_origin_and_rejects_tampered_sidecar(
+        self,
+        tmp_path,
+    ):
+        q = _make_qpsim_tree(tmp_path)
+        cdir = tmp_path / "cache"
+        calls = []
+
+        def solve():
+            calls.append(1)
+            return {"x": np.array([float(len(calls))])}
+
+        first, first_evidence = sc.cached_solve_with_evidence(
+            "figX",
+            solve,
+            fingerprint={"a": 1},
+            cache_dir=cdir,
+            qpsim_root=q,
+        )
+        second, second_evidence = sc.cached_solve_with_evidence(
+            "figX",
+            solve,
+            fingerprint={"a": 1},
+            cache_dir=cdir,
+            qpsim_root=q,
+        )
+        assert len(calls) == 1
+        assert first_evidence["execution_mode"] == "solver_invoked"
+        assert second_evidence["execution_mode"] == "authenticated_cache_hit"
+        assert (
+            second_evidence["array_payload_sha256"]
+            == sc._array_payload_sha256(first)
+        )
+        np.testing.assert_array_equal(first["x"], second["x"])
+
+        sidecar = next(cdir.rglob("*.meta.json"))
+        provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+        provenance["array_payload_sha256"] = "0" * 64
+        sidecar.write_text(json.dumps(provenance), encoding="utf-8")
+
+        third, third_evidence = sc.cached_solve_with_evidence(
+            "figX",
+            solve,
+            fingerprint={"a": 1},
+            cache_dir=cdir,
+            qpsim_root=q,
+        )
+        assert len(calls) == 2
+        assert third_evidence["execution_mode"] == "solver_invoked"
+        np.testing.assert_array_equal(third["x"], np.array([2.0]))
+
     def test_recomputes_on_solver_source_change_but_not_observable_change(self, tmp_path):
         q = _make_qpsim_tree(tmp_path)
         cdir = tmp_path / "cache"

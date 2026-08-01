@@ -1,6 +1,6 @@
-"""Fischer 2023 Fig. 7 paper-facing Q_i(T_B) validation.
+"""Fischer 2023 Fig. 7 paper-topology qpsim Q_i(T_B) regression.
 
-Uses the experimental-comparison parameters from Tables II/III:
+Uses parameter values transcribed from Tables II/III:
 
 * Delta_0 = 189 micro-eV, tau_0 = 63 ns, omega_0 = 22 micro-eV
 * c_phot = 0.06 Hz, tau_l = 170 ps, alpha = 0.13
@@ -9,11 +9,16 @@ Uses the experimental-comparison parameters from Tables II/III:
 * plotted quality factor capped by Eq. (65) with Table III Q_i,ext
 
 The quasiparticle kinetic solve is done by the qpsim T3 backend with the
-finite-tau_l phonon field.  The intrinsic quasiparticle Q_i is evaluated
-with the same leading Fischer Eq. (57) form used by the standalone paper
-reproduction:
+finite-tau_l phonon field. The intrinsic quasiparticle Q_i is evaluated
+with the leading Fischer Eq. (57) form used by the standalone
+transcribed-formula implementation:
 
     Q_i,qp = pi Delta / (omega_0 alpha sigma_1).
+
+This validates qpsim's internal paper-topology calculation and pinned
+formula transcription. It does not compare the simulated curves with
+digitized data from the published Fig. 7 and therefore is not evidence of
+quantitative agreement with the plotted experimental data.
 
 Usage:
 
@@ -67,6 +72,7 @@ from validation.fischer_2023.fig7_solve import (
     solve,
     solver_fingerprint,
 )
+from validation.fischer_2024 import _pdf as _pdf_validation
 
 _CACHE_ROOT = Path(tempfile.gettempdir()) / "qpsim-cache"
 _MPLCONFIGDIR = _CACHE_ROOT / "matplotlib"
@@ -96,6 +102,11 @@ Q_EXT_BY_DBM: dict[float, float] = {
 #: The former overlay passed Q_EXT (~0.7-2.5e6) as Eq. 65's Q_c, inflating
 #: the dashed curves by up to ~55x at 0.30 K (2026-07-20 round-4 review).
 Q_C_PAPER = 20100.0
+ARTIFACT_SCHEMA = "qpsim-fischer-2023-fig7-summary-v2"
+LIVE_CERTIFICATE_SCOPE = "independently-reassembled-live-state"
+SUMMARY_CERTIFICATE_SCOPE = (
+    "producer-asserted-summary-only; solved-f-and-n_ph-state-omitted"
+)
 
 _GAMMA0_EQ63 = 19.3  # gamma_0 = pi 2^{1/3} 5 sqrt(7) (2.1)^2/(2.3 * 3^{3/2})
 
@@ -122,7 +133,7 @@ def _fig7_Q_thermal(T_K: float) -> float:
 
 
 def _fig7_Q_i0_eq63(p_dbm: float) -> float:
-    """Low-T_B drive plateau, paper Eq. 63 (power 3 in prefactor AND exponent)."""
+    """Transcribed-formula pin for the low-T_B plateau in paper Eq. 63."""
     kBTs = TSTAR_OVER_DELTA[float(p_dbm)] * DELTA_0
     if TAU_L <= 0:
         return np.inf
@@ -138,7 +149,7 @@ def _fig7_Q_i0_eq63(p_dbm: float) -> float:
 
 
 def _fig7_Q_i_eq65(p_dbm: float, T_K: float, Q_c: float) -> float:
-    """Driven high-T_B branch, paper Eq. 65."""
+    """Transcribed-formula pin for the driven high-T_B branch in paper Eq. 65."""
     x_th = _fig7_x_th_paper(T_K)
     if x_th <= 0.0:
         return np.inf
@@ -150,14 +161,15 @@ def _fig7_Q_i_eq65(p_dbm: float, T_K: float, Q_c: float) -> float:
 
 
 def _fig7_dashed_Q_tot(p_dbm: float, T_K: float) -> float:
-    """Paper-faithful dashed overlay: Eqs. 63+65 (or thermal at -100 dBm).
+    """Transcribed-formula pin: Eqs. 63+65 (or thermal at -100 dBm).
 
-    Verified against the paper source (2026-07-20 round-4 review):
-    Q_c = 20100 from Table 2, combined with the extrinsic loss as an
-    effective coupling 1/Q_c_eff = 1/Q_c + 1/Q_ext; the paper compares
-    the -100 dBm curve "to the thermal equilibrium expression [31]"
-    because T_{*,0} ~ omega_0 there. The Eq. 63 plateau and Eq. 65
-    branch add harmonically (loss channels), then parallel with Q_ext.
+    The transcription uses Q_c = 20100 from Table 2, combined with the
+    extrinsic loss as an effective coupling
+    ``1/Q_c_eff = 1/Q_c + 1/Q_ext``. The -100 dBm branch uses the thermal
+    equilibrium expression because ``T_{*,0} ~ omega_0`` there. The Eq. 63
+    plateau and Eq. 65 branch add harmonically, then parallel with Q_ext.
+    These helpers pin the implemented formulas; they are not a comparison
+    with digitized Fig. 7 curve data.
     """
     Q_ext = Q_EXT_BY_DBM[float(p_dbm)]
     if float(p_dbm) == -100.0:
@@ -234,6 +246,7 @@ class Fig7PaperResult:
     phonon_raw_backward_error: np.ndarray
     phonon_backward_error: np.ndarray
     qp_number_backward_error: np.ndarray
+    certificate_scope: str = LIVE_CERTIFICATE_SCOPE
 
 
 @dataclass(frozen=True)
@@ -264,40 +277,21 @@ def file_sha256(path: Path) -> str:
 
 
 def complete_pdf_record(path: Path) -> ArtifactRecord:
-    """Validate a complete one-or-more-page PDF and return its content record.
-
-    This is intentionally stronger than the former non-empty-file check.  It
-    verifies the header, terminal EOF marker, ``startxref`` pointer, catalog,
-    page tree, and at least one page object before bytes can be promoted.
-    """
+    """Validate one nonempty Matplotlib PDF page and return its content record."""
     try:
         payload = path.read_bytes()
     except OSError as exc:
         raise RuntimeError(f"Cannot read Fig. 7 PDF at {path}: {exc}") from exc
-    stripped = payload.rstrip(b"\x00\t\n\f\r ")
-    if not re.match(br"%PDF-\d\.\d(?:\r?\n)", payload[:16]):
-        raise RuntimeError(f"Fig. 7 artifact at {path} has no valid PDF header.")
-    if not stripped.endswith(b"%%EOF"):
-        raise RuntimeError(f"Fig. 7 artifact at {path} has no terminal PDF EOF.")
-    startxref_match = re.search(
-        br"startxref\s+(\d+)\s+%%EOF\Z",
-        stripped,
-    )
-    if startxref_match is None:
-        raise RuntimeError(f"Fig. 7 artifact at {path} has no terminal startxref.")
-    xref_offset = int(startxref_match.group(1))
-    if xref_offset < 0 or xref_offset >= len(payload):
-        raise RuntimeError(f"Fig. 7 artifact at {path} has an invalid xref offset.")
-    xref_prefix = payload[xref_offset : xref_offset + 32]
-    if not (
-        xref_prefix.startswith(b"xref")
-        or re.match(br"\d+\s+\d+\s+obj\b", xref_prefix)
-    ):
-        raise RuntimeError(f"Fig. 7 artifact at {path} has a broken xref pointer.")
-    if b"/Type /Catalog" not in payload or b"/Type /Pages" not in payload:
-        raise RuntimeError(f"Fig. 7 artifact at {path} has no catalog/page tree.")
-    if re.search(br"/Type\s*/Page(?!s)\b", payload) is None:
-        raise RuntimeError(f"Fig. 7 artifact at {path} contains no PDF page.")
+    try:
+        _pdf_validation.validate_single_nonempty_matplotlib_pdf(
+            payload,
+            path=path,
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Fig. 7 artifact at {path} is not a complete nonempty "
+            "one-page Matplotlib PDF."
+        ) from exc
     return ArtifactRecord(
         sha256=hashlib.sha256(payload).hexdigest(),
         size_bytes=len(payload),
@@ -393,7 +387,10 @@ def observable_contract_digest() -> str:
     newline-canonical bytes so Windows and POSIX checkouts agree.
     """
     root = Path(__file__).resolve().parents[2]
-    paths = [Path(__file__).resolve()]
+    paths = [
+        Path(__file__).resolve(),
+        Path(_pdf_validation.__file__).resolve(),
+    ]
     paths.extend(sorted((root / "qpsim" / "observables").rglob("*.py")))
     digest = hashlib.sha256()
     for path in paths:
@@ -566,6 +563,7 @@ def observables(raw: Mapping[str, np.ndarray]) -> Fig7PaperResult:
         qp_number_backward_error=certificate_arrays[
             certificate_module.QP_NUMBER_CERTIFICATE_FIELD
         ],
+        certificate_scope=LIVE_CERTIFICATE_SCOPE,
     )
 
 
@@ -648,6 +646,8 @@ _COMPANION_PDF_SHA_RE = re.compile(
     r"companion_pdf_sha256=(none|[0-9a-f]{64})"
 )
 _COMPANION_PDF_SIZE_RE = re.compile(r"companion_pdf_size_bytes=(\d+)")
+_ARTIFACT_SCHEMA_RE = re.compile(r"artifact_schema='([^']*)'")
+_CERTIFICATE_SCOPE_RE = re.compile(r"certificate_scope='([^']*)'")
 _GENERATOR_RE = {
     "platform": re.compile(r"generator_platform='([^']*)'"),
     "python": re.compile(r"generator_python='([^']*)'"),
@@ -837,6 +837,11 @@ def write_baseline(
             "use publish_baseline_pair() or generate_baseline()."
         )
     _validate_result_for_artifact(result)
+    if result.certificate_scope != LIVE_CERTIFICATE_SCOPE:
+        raise RuntimeError(
+            "Fig. 7 publication requires independently certified live-state "
+            f"evidence; got certificate_scope={result.certificate_scope!r}."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     if producer is None:
         producer = capture_producer_identity(Path(__file__).resolve())
@@ -851,7 +856,10 @@ def write_baseline(
         raise ValueError("Fig. 7 companion PDF record is malformed.")
     with _atomic_text_file(path) as fp:
         writer = csv.writer(fp, lineterminator="\n")
-        writer.writerow(["# Fischer 2023 Fig. 7 paper-facing Q_i(T_B); pinned by qpsim"])
+        writer.writerow([
+            "# Fischer 2023 Fig. 7 paper-topology qpsim regression; "
+            "no digitized-data comparison"
+        ])
         writer.writerow([
             f"# Delta_0={DELTA_0} tau_0={TAU_0} T_c={T_C:.17g} omega_0={OMEGA_0} "
             f"alpha={ALPHA_KI} c_phot={C_PHOT} tau_l={TAU_L} tau_0_pb={TAU_0_PB}"
@@ -862,6 +870,10 @@ def write_baseline(
             f"{certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION!r} "
             "target_backward_error_limit="
             f"{TARGET_BACKWARD_ERROR_LIMIT}"
+        ])
+        writer.writerow([
+            f"# artifact_schema={ARTIFACT_SCHEMA!r} "
+            f"certificate_scope={SUMMARY_CERTIFICATE_SCOPE!r}"
         ])
         writer.writerow([
             "# solve_contract_digest="
@@ -906,12 +918,45 @@ def read_baseline(
     *,
     companion_pdf_path: Path | None = None,
     require_companion_pdf: bool = False,
+    accept_producer_certificate_claims: bool = False,
     _validate_canonical_attestation: bool = True,
+    _publication_lock_held: bool = False,
 ) -> Fig7PaperResult:
+    """Read a persisted Fig. 7 summary.
+
+    The CSV omits the solved quasiparticle and phonon states. Its certificate
+    scalars are authenticated producer assertions, not quantities a reader can
+    independently reassemble from the persisted summary. Every summary read
+    therefore requires an explicit opt-in; regenerate the sweep when independent
+    live-state certification is required. Canonical reads additionally
+    authenticate the guarded CSV/PDF promotion record.
+    """
     if path is None:
         path = baseline_path()
-    metadata = read_baseline_metadata(path)
     canonical_read = path.resolve() == baseline_path().resolve()
+    if canonical_read and not _publication_lock_held:
+        with _publication_lock(promotion_attestation_path(path)):
+            return read_baseline(
+                path,
+                companion_pdf_path=companion_pdf_path,
+                require_companion_pdf=require_companion_pdf,
+                accept_producer_certificate_claims=(
+                    accept_producer_certificate_claims
+                ),
+                _validate_canonical_attestation=_validate_canonical_attestation,
+                _publication_lock_held=True,
+            )
+    if not accept_producer_certificate_claims:
+        raise RuntimeError(
+            "Fig. 7 summary artifacts omit solved f(E) and n_ph states, so "
+            "its persisted certificate scalars are producer assertions only. "
+            "Pass accept_producer_certificate_claims=True to read the summary, "
+            "or regenerate for independent live-state certification."
+        )
+    metadata = read_baseline_metadata(
+        path,
+        _publication_lock_held=_publication_lock_held,
+    )
     if canonical_read:
         require_companion_pdf = True
         if companion_pdf_path is None:
@@ -951,6 +996,17 @@ def read_baseline(
             f"Fig. 7 baseline at {path} has certificate target "
             f"{metadata.target_backward_error_limit:.17g}; expected "
             f"{TARGET_BACKWARD_ERROR_LIMIT:.17g}."
+        )
+    if metadata.artifact_schema != ARTIFACT_SCHEMA:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} uses unsupported artifact schema "
+            f"{metadata.artifact_schema!r}; expected {ARTIFACT_SCHEMA!r}."
+        )
+    if metadata.certificate_scope != SUMMARY_CERTIFICATE_SCOPE:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} has unsupported certificate scope "
+            f"{metadata.certificate_scope!r}; expected "
+            f"{SUMMARY_CERTIFICATE_SCOPE!r}."
         )
     rows: list[list[float]] = []
     powers: list[float] = []
@@ -1082,6 +1138,7 @@ def read_baseline(
         qp_number_backward_error=certificate_arrays[
             certificate_module.QP_NUMBER_CERTIFICATE_FIELD
         ],
+        certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
     )
     _validate_result_for_artifact(result)
     if canonical_read and _validate_canonical_attestation:
@@ -1095,6 +1152,7 @@ def read_baseline(
             attestation_path,
             csv_path=path,
             pdf_path=cast(Path, companion_pdf_path),
+            _publication_lock_held=_publication_lock_held,
         )
     return result
 
@@ -1127,6 +1185,8 @@ class BaselineMetadata:
     e_max_factor: float
     certificate_metric_version: str
     target_backward_error_limit: float
+    artifact_schema: str
+    certificate_scope: str
     solve_contract_digest: str
     observable_contract_digest: str
     runner_sha256: str
@@ -1142,7 +1202,11 @@ class LegacyArtifactError(RuntimeError):
     """A pre-provenance Fig. 7 pin that must not validate current code."""
 
 
-def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
+def read_baseline_metadata(
+    path: Path | None = None,
+    *,
+    _publication_lock_held: bool = False,
+) -> BaselineMetadata:
     """Parse a baseline CSV's comment header into a :class:`BaselineMetadata`.
 
     Reads only the comment block (no data rows, no solve). Raises
@@ -1151,6 +1215,13 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     """
     if path is None:
         path = baseline_path()
+    canonical_read = path.resolve() == baseline_path().resolve()
+    if canonical_read and not _publication_lock_held:
+        with _publication_lock(promotion_attestation_path(path)):
+            return read_baseline_metadata(
+                path,
+                _publication_lock_held=True,
+            )
     text = path.read_text(encoding="utf-8")
 
     def _num(rx: re.Pattern[str], field: str) -> float:
@@ -1174,6 +1245,8 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
     runner_hashes = _RUNNER_SHA_RE.findall(text)
     companion_hashes = _COMPANION_PDF_SHA_RE.findall(text)
     companion_sizes = _COMPANION_PDF_SIZE_RE.findall(text)
+    artifact_schemas = _ARTIFACT_SCHEMA_RE.findall(text)
+    certificate_scopes = _CERTIFICATE_SCOPE_RE.findall(text)
     if ne_m is None or len(versions) != 1 or len(limits) != 1:
         raise RuntimeError(
             f"Baseline header at {path} must contain NE and exactly one "
@@ -1205,6 +1278,17 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
         raise LegacyArtifactError(
             f"Fig. 7 baseline at {path} has no unique runner/PDF provenance; "
             "regenerate it through the guarded Fig. 7 publisher."
+        )
+    if not artifact_schemas or not certificate_scopes:
+        raise LegacyArtifactError(
+            f"Fig. 7 baseline at {path} predates explicit artifact schema / "
+            "producer-certificate scope metadata; regenerate it through the "
+            "guarded Fig. 7 publisher."
+        )
+    if len(artifact_schemas) != 1 or len(certificate_scopes) != 1:
+        raise RuntimeError(
+            f"Fig. 7 baseline at {path} must contain exactly one artifact "
+            "schema and certificate-scope record."
         )
     companion_sha = (
         None if companion_hashes[0] == "none" else companion_hashes[0]
@@ -1240,6 +1324,8 @@ def read_baseline_metadata(path: Path | None = None) -> BaselineMetadata:
             _CERTIFICATE_LIMIT_RE,
             "target_backward_error_limit",
         ),
+        artifact_schema=artifact_schemas[0],
+        certificate_scope=certificate_scopes[0],
         solve_contract_digest=contracts[0],
         observable_contract_digest=observable_contracts[0],
         runner_sha256=runner_hashes[0],
@@ -1273,6 +1359,8 @@ def config_metadata() -> BaselineMetadata:
             certificate_module.NUMBER_CERTIFICATE_METRIC_VERSION
         ),
         target_backward_error_limit=TARGET_BACKWARD_ERROR_LIMIT,
+        artifact_schema=ARTIFACT_SCHEMA,
+        certificate_scope=SUMMARY_CERTIFICATE_SCOPE,
         solve_contract_digest=str(provenance["solve_contract_digest"]),
         observable_contract_digest=str(
             provenance["observable_contract_digest"]
@@ -1357,6 +1445,54 @@ def promotion_attestation_path(csv_path: Path | None = None) -> Path:
     if csv_path is None:
         csv_path = baseline_path()
     return csv_path.with_suffix(".promotion.json")
+
+
+@contextmanager
+def _publication_lock(
+    attestation_path: Path | None = None,
+) -> Iterator[None]:
+    """Serialize readers/publishers of one canonical Fig. 7 artifact triple."""
+    if attestation_path is None:
+        attestation_path = promotion_attestation_path()
+    lock_path = attestation_path.with_suffix(attestation_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    stream = lock_path.open("a+b")
+    try:
+        stream.seek(0)
+        if stream.read(1) == b"":
+            stream.seek(0)
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(  # type: ignore[attr-defined]
+                stream.fileno(),
+                fcntl.LOCK_EX | fcntl.LOCK_NB,  # type: ignore[attr-defined]
+            )
+    except OSError as exc:
+        stream.close()
+        raise RuntimeError(
+            f"Another Fig. 7 publisher or reader holds {lock_path}; "
+            "refusing a mixed canonical artifact snapshot."
+        ) from exc
+    try:
+        yield
+    finally:
+        stream.seek(0)
+        if os.name == "nt":
+            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(  # type: ignore[attr-defined]
+                stream.fileno(),
+                fcntl.LOCK_UN,  # type: ignore[attr-defined]
+            )
+        stream.close()
 
 
 def _assert_same_result(
@@ -1493,6 +1629,7 @@ _PROMOTION_ATTESTATION_KEYS = {
     "artifacts",
     "campaign",
     "certificate_maxima",
+    "certificate_scope",
     "created_utc",
     "observable_contract_digest",
     "point_hashes",
@@ -1787,8 +1924,20 @@ def validate_promotion_attestation(
     expected_producer: Fig7ProducerIdentity | None = None,
     run_dir: Path | None = None,
     status_path: Path | None = None,
+    _publication_lock_held: bool = False,
 ) -> dict[str, object]:
     """Strictly validate the durable record for a promoted artifact pair."""
+    if not _publication_lock_held:
+        with _publication_lock(path):
+            return validate_promotion_attestation(
+                path,
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                expected_producer=expected_producer,
+                run_dir=run_dir,
+                status_path=status_path,
+                _publication_lock_held=True,
+            )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -1799,8 +1948,13 @@ def validate_promotion_attestation(
         raise RuntimeError(
             f"Fig. 7 promotion attestation at {path} has the wrong schema fields."
         )
-    if payload["schema"] != "qpsim-fischer-2023-fig7-promotion-v1":
+    if payload["schema"] != "qpsim-fischer-2023-fig7-promotion-v2":
         raise RuntimeError(f"Fig. 7 promotion attestation at {path} is stale.")
+    if payload["certificate_scope"] != SUMMARY_CERTIFICATE_SCOPE:
+        raise RuntimeError(
+            "Fig. 7 promotion attestation has the wrong producer-certificate "
+            "scope."
+        )
     for field in (
         "solve_contract_digest",
         "observable_contract_digest",
@@ -1876,7 +2030,9 @@ def validate_promotion_attestation(
         csv_path,
         companion_pdf_path=pdf_path,
         require_companion_pdf=True,
+        accept_producer_certificate_claims=True,
         _validate_canonical_attestation=False,
+        _publication_lock_held=_publication_lock_held,
     )
     expected_maxima = {
         field: float(np.max(np.asarray(getattr(restored, field))))
@@ -1976,6 +2132,7 @@ def publish_baseline_pair(
     worker_payload_hashes: Mapping[tuple[int, int], str] | None = None,
     campaign: Mapping[str, object] | None = None,
     replace_file: Callable[[Path, Path], object] | None = None,
+    _publication_lock_held: bool = False,
 ) -> tuple[Path, Path, Path]:
     """Crash-safe, rollback-capable publication of one certified Fig. 7 pair.
 
@@ -1986,14 +2143,28 @@ def publish_baseline_pair(
     durable attestation is promoted last and binds source/runtime, every point,
     certificate maxima, and both final artifact byte streams.
     """
-    _validate_result_for_artifact(result)
-    assert_producer_identity_current(producer, runner_path)
     if csv_path is None:
         csv_path = baseline_path()
     if pdf_path is None:
         pdf_path = csv_path.with_suffix(".pdf")
     if attestation_path is None:
         attestation_path = promotion_attestation_path(csv_path)
+    if not _publication_lock_held:
+        with _publication_lock(attestation_path):
+            return publish_baseline_pair(
+                result,
+                producer=producer,
+                runner_path=runner_path,
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                attestation_path=attestation_path,
+                worker_payload_hashes=worker_payload_hashes,
+                campaign=campaign,
+                replace_file=replace_file,
+                _publication_lock_held=True,
+            )
+    _validate_result_for_artifact(result)
+    assert_producer_identity_current(producer, runner_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     attestation_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2043,6 +2214,7 @@ def publish_baseline_pair(
             csv_stage,
             companion_pdf_path=pdf_stage,
             require_companion_pdf=True,
+            accept_producer_certificate_claims=True,
         )
         _assert_same_result(result, round_trip)
         metadata = read_baseline_metadata(csv_stage)
@@ -2059,7 +2231,8 @@ def publish_baseline_pair(
         csv_record = _artifact_record(csv_stage)
         point_hashes = _result_point_hashes(result, worker_payload_hashes)
         attestation: dict[str, object] = {
-            "schema": "qpsim-fischer-2023-fig7-promotion-v1",
+            "schema": "qpsim-fischer-2023-fig7-promotion-v2",
+            "certificate_scope": SUMMARY_CERTIFICATE_SCOPE,
             "created_utc": datetime.now(UTC).isoformat(),
             "solve_contract_digest": producer.solve_contract_digest,
             "observable_contract_digest": producer.observable_contract_digest,
@@ -2104,9 +2277,11 @@ def publish_baseline_pair(
             csv_path,
             companion_pdf_path=pdf_path,
             require_companion_pdf=True,
+            accept_producer_certificate_claims=True,
             # The new attestation is staged but deliberately not canonical
             # yet. Validate it after its final atomic replacement below.
             _validate_canonical_attestation=False,
+            _publication_lock_held=_publication_lock_held,
         )
         _assert_same_result(result, promoted)
         replace(attestation_stage, attestation_path)
@@ -2117,6 +2292,7 @@ def publish_baseline_pair(
             csv_path=csv_path,
             pdf_path=pdf_path,
             expected_producer=producer,
+            _publication_lock_held=_publication_lock_held,
         )
         return csv_path, pdf_path, attestation_path
     except BaseException:
@@ -2130,7 +2306,10 @@ def publish_baseline_pair(
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer 2023 Fig. 7 paper-facing Q_i(T_B) ...")
+    print(
+        "Fischer 2023 Fig. 7 paper-topology qpsim Q_i(T_B) regression "
+        "(no digitized-data comparison) ..."
+    )
     print(
         f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, omega_0={OMEGA_0} micro-eV, "
         f"alpha={ALPHA_KI}, tau_l={TAU_L} ns"

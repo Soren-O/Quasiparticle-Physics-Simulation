@@ -1197,6 +1197,48 @@ def newton_solve_f(
             best_number_alpha: float | None = None
             for _ in range(20):
                 f_trial = np.clip(base_f + alpha * delta_f, 0.0, 1.0)
+                if certify_total_number and not np.any(f_trial[active] != 0.0):
+                    # Projection can turn an ill-conditioned cold Newton
+                    # direction into the exact vacuum.  A smaller dimensional
+                    # residual does not make that boundary point physical
+                    # when finite pair absorption or another number source
+                    # drives QPs out of it.  This was BLAS-order dependent on
+                    # the 1,620-bin Fig. 3 thermal-phonon solve: one valid
+                    # linear-solve direction overshot the tiny positive state
+                    # by a few ulps, clipped every bin to zero, and then left
+                    # no nonzero shape for the scalar number-mode recovery.
+                    #
+                    # Reject only a *proved non-absorbing* vacuum and
+                    # backtrack the same Newton direction.  Exact loss-only
+                    # vacua and systems with no number-changing channel keep
+                    # their historical endpoint semantics.
+                    (
+                        gain_trial_number,
+                        _loss_trial_number,
+                        _trial_number_configured,
+                    ) = number_changing_gain_loss(
+                        f_trial,
+                        ctx,
+                        K_r0,
+                        T_bath,
+                        pb_photon_params=pb_photon_params,
+                        N_emit=N_emit,
+                        N_abs=N_abs,
+                        external_flux=external_flux,
+                    )
+                    if not _is_exact_absorbing_vacuum(
+                        f_trial,
+                        gain_trial_number,
+                        active,
+                        T_bath=T_bath,
+                        K_r0=K_r0,
+                        N_abs=N_abs,
+                        N_abs_override=N_abs_override,
+                        pb_photon_params=pb_photon_params,
+                        ctx=ctx,
+                    ):
+                        alpha *= 0.5
+                        continue
                 gain_trial, loss_trial = _gain_loss_sum(
                     f_trial, ctx, K_s0, K_r0, T_bath,
                     photon_params, pb_photon_params,

@@ -1,1 +1,1 @@
-"""Marchegiani & Catelani 2025 reproductions (M25). Parity-switching rate tests."""
+"""M25 paper-topology qpsim regressions and parity-switching tests."""

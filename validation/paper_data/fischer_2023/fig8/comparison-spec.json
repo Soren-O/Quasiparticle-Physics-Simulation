@@ -1,0 +1,75 @@
+{
+  "comparison_id": "fischer-catelani-2023-fig8-cleanroom-analytic-v1",
+  "error_budget": {
+    "components": [
+      {
+        "included_in_metric": true,
+        "name": "raster_digitization",
+        "note": "Per-point bounds include trace thickness, horizontal sampling width, and held-out calibration residuals.",
+        "status": "bounded"
+      },
+      {
+        "included_in_metric": false,
+        "name": "printed_moment_precision",
+        "note": "The paper prints the three Eq. E2 moments to two significant decimal places and supplies no rounding uncertainty.",
+        "status": "unbounded"
+      }
+    ],
+    "gate_eligible": false,
+    "gate_ineligibility_reasons": [
+      "printed_moment_precision is unbounded",
+      "the solid numerical curve has no author code or tabulated source bound to this comparison"
+    ]
+  },
+  "interpolation": {
+    "extrapolation": "forbidden, including every paper x-uncertainty interval",
+    "method": "piecewise_linear_on_dense_cleanroom_nodes",
+    "native_domain": [
+      0.0,
+      0.92
+    ],
+    "native_node_count": 921
+  },
+  "mapping": {
+    "curve_id": "T_bath_0K",
+    "curve_kind": "paper_analytic",
+    "reference_function": "fig8_analytic_curve",
+    "reference_path": "validation/reference_models/fischer_2023/fig8_analytic.py",
+    "reference_sha256": "f044a6d4af2f7c403c1f57da39dd1dd625722191165e29c1d8459c759b6620a7"
+  },
+  "metric": {
+    "acceptance_rule": "max_raster_digitization_normalized_error <= limit",
+    "name": "raster_digitization_normalized_mismatch",
+    "uncertainty_normalized_limit": 1.0
+  },
+  "numerical_curve_status": {
+    "curve_id": "T_bath_0K",
+    "curve_kind": "paper_numerical",
+    "note": "The blue solid trace is independently digitized and provenance-bound, but this layer has no author-supplied numerical implementation or qpsim replacement to score against it.",
+    "score_eligible": false,
+    "status": "digitized_reference_only"
+  },
+  "observable_identity": {
+    "schema": "qpsim.fischer2023.fig8.observable-identity.v1",
+    "x": {
+      "conversion": "identity_ratio",
+      "paper_quantity": "T_star_over_Delta",
+      "paper_unit": "dimensionless",
+      "reference_argument": "t_star_over_delta",
+      "reference_unit": "dimensionless"
+    },
+    "y": {
+      "conversion": "identity_ratio",
+      "definition": "photon-number-corrected recombination coefficient divided by the zeroth-order recombination coefficient",
+      "paper_quantity": "R_bar_over_R",
+      "paper_unit": "dimensionless",
+      "reference_quantity": "Eq. E2 R_bar_over_R",
+      "reference_unit": "dimensionless"
+    }
+  },
+  "oracle": {
+    "path": "validation/paper_data/fischer_2023/fig8/oracle.json",
+    "sha256": "2f486d84b90d6a7061b176610a47bc1ba4abe4bb57fc242d366bc44b7c7429c9"
+  },
+  "schema": "qpsim.fischer2023.fig8-comparison.v1"
+}

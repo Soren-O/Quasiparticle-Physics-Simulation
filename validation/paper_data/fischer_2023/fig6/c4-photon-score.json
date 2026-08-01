@@ -1,0 +1,578 @@
+{
+  "acceptance": {
+    "all_raw_arrays_recomputed_bit_exact": true,
+    "c3_parent_replayed_from_c3_and_c2_raw": true,
+    "common_rows_within_64eps": true,
+    "conservation_within_limit": true,
+    "guard_cells_canonical_positive_zero": true,
+    "loss_rate_semantics_verified": true,
+    "non_photon_locality_verified": true,
+    "snap_exact": true,
+    "status": "pass",
+    "terminal_support_exact": true
+  },
+  "array_descriptors": {
+    "arithmetic_delta_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "c57095229532aacc1866b39ea19f707dda77590bf78e32fc3f47aeed9324cd81",
+      "shape": [
+        1640
+      ]
+    },
+    "arithmetic_delta_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "6cf7fe976fd35de15c53594a7acaffc4169f8c2e1a98b1e41b958c3e8aaf58bd",
+      "shape": [
+        1640
+      ]
+    },
+    "arithmetic_delta_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "605c3dbd16557dd6c03dd7e40547b4ab9aff92120e1c7793090babbeaad804fe",
+      "shape": [
+        1640
+      ]
+    },
+    "hybrid_phonon_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "8902664899769d6d3b66980141f493acdc196d4a00520be7628c010035e91457",
+      "shape": [
+        1619
+      ]
+    },
+    "hybrid_qp_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "5f944cb8eab53849626762146ddce7a56c6da9ba00d8aa7db945b4b54f12c711",
+      "shape": [
+        1640
+      ]
+    },
+    "operator_delta_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "1927e15736ff772204cfe749758a01d496342df4e8b9f2b54451f65834ea89a2",
+      "shape": [
+        1640
+      ]
+    },
+    "operator_delta_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "3c4969c9e91a29f319abe58a6dea1c71a20b8b241c528fb398d106ca9997e5d5",
+      "shape": [
+        1640
+      ]
+    },
+    "operator_delta_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "dcf958800ac6ea4967ae8c32430032eed97320625b5b940bd90dbd988bc70480",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_active_mask": {
+      "dtype": "|b1",
+      "npy_sha256": "4197e228fd3eb925efa15bb52da1858752ffbf39a3c8a1102a33913614c691ce",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_cell_weights_ueV": {
+      "dtype": "<f8",
+      "npy_sha256": "678c0e0b5731430303929aa612dabd46e01fd32801499d136e613529d41fa383",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_f": {
+      "dtype": "<f8",
+      "npy_sha256": "c59d39f4b2c42b2e4525ddc6ce6e1dce9fbb0a7bcdc7759bd82618765501ad81",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_phonon_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "8902664899769d6d3b66980141f493acdc196d4a00520be7628c010035e91457",
+      "shape": [
+        1619
+      ]
+    },
+    "parent_qp_photon_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "3ea4a5ac0d1256b9be097c0872949426c365de9fa9785e796a2a5501f04cadab",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_qp_photon_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "b839d359e5aabaacc446ea1cc4b26844bd6ec73c0f49131a012c27b80089ce66",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_qp_photon_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "8240438e4e13320b0cb41da9a05db7ad5e1d456d7566f6ab55c924c84efc58de",
+      "shape": [
+        1640
+      ]
+    },
+    "parent_qp_residual_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "b731de906b3f4bc87d3af3e0c714ea89e42e14a409aac74a463b5bb5f9ca9b87",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_author_endpoint_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "0992ec035d84df2ad36a523f036cedd542fd48c276c8e13c8c5ec0e73229c2e0",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_author_endpoint_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "832e2c7beb8aa7101f9e1ba1470ce8347990c0e6e70ce782babb1741e3254903",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_author_endpoint_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "f0910b307a7cacefa5bb898fa7d09f6ef84ab6b592b58b4530839f7cff0b9ed9",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_gain_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "72ba1cb9658edce3e57705aad6ad5af4b1173208c7b47b8a6273a985a5f70652",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "3e828e22a0c73a0c62daf1263e9d4de285b95ba96c41a109dee9f4f2648d3a85",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_loss_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "c1c3d297eee521dce74b7f41afc027740015cf8d84933f8b98fc42216015afdd",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_loss_rate_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "fb3d8fc853ba3e6547471b346a6de8c3d8cda9d42bd58246882e8c7b845e212f",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "d3414ab8c2a97261d6091df509f6dd6f112dd54526770627a43d05680e27ad12",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_net_ns_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "48ce5aaabae73e94740c944e7f6dff857e9ca972e7b6c5f828401aafe089d348",
+      "shape": [
+        1640
+      ]
+    },
+    "qpsim_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "f206f39878d22e5620ffeb2ba6fcd074beee83a8572acb0a1276fc8a8e5ed092",
+      "shape": [
+        1640
+      ]
+    },
+    "terminal_extension_gain_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "1219078994f68fceaea74fccd86f59829262fdca1ccfc006e7f9b3409eabd6b3",
+      "shape": [
+        1640
+      ]
+    },
+    "terminal_extension_loss_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "652c75cc5c368162b538076d9e62c167215dd7c6df03979924596ca2b9dc38e8",
+      "shape": [
+        1640
+      ]
+    },
+    "terminal_extension_net_s_inv": {
+      "dtype": "<f8",
+      "npy_sha256": "6c169e47e9dcd3455d92fdfb8a5e27d6a950e6378445616f5cfb372d2603a45b",
+      "shape": [
+        1640
+      ]
+    },
+    "terminal_extension_support_mask": {
+      "dtype": "|b1",
+      "npy_sha256": "804f7bd7167efd1dba3f279e1cc297b9a14baf6ca1164eed39d0e1a81ba20764",
+      "shape": [
+        1640
+      ]
+    }
+  },
+  "component_locality": {
+    "hybrid_phonon_residual": {
+      "dtype": "<f8",
+      "npy_sha256": "8902664899769d6d3b66980141f493acdc196d4a00520be7628c010035e91457",
+      "shape": [
+        1619
+      ]
+    },
+    "hybrid_qp_residual": {
+      "dtype": "<f8",
+      "npy_sha256": "5f944cb8eab53849626762146ddce7a56c6da9ba00d8aa7db945b4b54f12c711",
+      "shape": [
+        1640
+      ]
+    },
+    "inherited_c3c_arrays": {
+      "c3c_native_cell_density__phonon_escape__gain_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "f9e95e72aa464becc595847c888e9a20101c5e5c4c53a2599abc159ca7974c46",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_escape__loss_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "515d5149726593aa246e9304fdf5daced19f8173d61c78b774d2e27fce632f90",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_escape__net_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "b96dc112d22b23edd34064c6281a9baa0dcc33952239a569c90ddb554cc241d9",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_pair__gain_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "072f1f8ffce78b1209f14f3adc09221978a8e3390588ee1f85d4dd608279f621",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_pair__loss_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "3ff790798b2bbd52587c684c2cea63b70e54ec638a2ef882082436d619e8091f",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_pair__net_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "bbcad74505f07d56462f13cce15901339a7ae87fe14223473cf54841d283fcb5",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_residual_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "8902664899769d6d3b66980141f493acdc196d4a00520be7628c010035e91457",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_scattering__gain_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "a5d654c6478895b4e369f545f13bc5641c98d5597475464dc893bcd74d1d11e4",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_scattering__loss_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "995d034931c615d8ab9c3b40eb875170d771523eca01282b6521100dfc6d95c1",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__phonon_scattering__net_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "43cc81b0b13678a7932663710c44da0b3af6dd7f77c4eb6584d7175b4964c333",
+        "shape": [
+          1619
+        ]
+      },
+      "c3c_native_cell_density__qp_pair__gain_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "c98459014ad7dc1e3ee96ade7ed5047d3213884a4aadafdaa8072c1be54e3707",
+        "shape": [
+          1640
+        ]
+      },
+      "c3c_native_cell_density__qp_pair__loss_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "fb18dfdbd57bb1d751214b6a20b01bfc5a7e4d714ffd366af7dd2f98400ccfa2",
+        "shape": [
+          1640
+        ]
+      },
+      "c3c_native_cell_density__qp_pair__net_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "7fd485245c3310110ee3d315375785e33017158da54cd0f36dd3aed085fa289b",
+        "shape": [
+          1640
+        ]
+      },
+      "c3c_native_cell_density__qp_scattering__gain_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "2bf9ace8c033ffb6a01b3de445d073a1da30c9ce9c99b41a2b69ba1bb7fb6940",
+        "shape": [
+          1640
+        ]
+      },
+      "c3c_native_cell_density__qp_scattering__loss_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "946edf30b655c87718283287a5215070d2f7c3277330955fa23ba5dfddfa310c",
+        "shape": [
+          1640
+        ]
+      },
+      "c3c_native_cell_density__qp_scattering__net_s_inv": {
+        "dtype": "<f8",
+        "npy_sha256": "255ee56dce54448b79bd11ac877738bd4fb9db52ffb01340ece5a11bfe2ed210",
+        "shape": [
+          1640
+        ]
+      }
+    },
+    "semantic_terminal_child_indices": [
+      1619,
+      1639
+    ],
+    "statement": "Only QP photon gain, physical loss, net, and the derived QP residual change; all non-photon channels and the phonon residual remain the accepted C3c arrays. Public source-order arithmetic differs from C3c by roundoff on common rows; only the semantic endpoint extension is confined to the listed terminal child indices."
+  },
+  "conservation": {
+    "public_photon": {
+      "absolute_number_residual_ueV_s_inv": {
+        "hex": "0x1.30c249a0f11c1p-40",
+        "value": 1.082721240608757e-12
+      },
+      "limit_relative_to_turnover": {
+        "hex": "0x1.19799812dea11p-40",
+        "value": 1e-12
+      },
+      "relative_to_turnover": {
+        "hex": "0x1.89f70692029d1p-55",
+        "value": 4.271376481740244e-17
+      },
+      "turnover_ueV_s_inv": {
+        "hex": "0x1.8c11312efc046p+14",
+        "value": 25348.29803079392
+      }
+    },
+    "terminal_extension": {
+      "absolute_number_residual_ueV_s_inv": {
+        "hex": "0x1.0000000000000p-167",
+        "value": 5.345529420184391e-51
+      },
+      "limit_relative_to_turnover": {
+        "hex": "0x1.19799812dea11p-40",
+        "value": 1e-12
+      },
+      "relative_to_turnover": {
+        "hex": "0x1.8ed2e986adedfp-55",
+        "value": 4.324057126089553e-17
+      },
+      "turnover_ueV_s_inv": {
+        "hex": "0x1.48a5755f5785ap-113",
+        "value": 1.23623006456869e-34
+      }
+    }
+  },
+  "endpoint_comparison": {
+    "arithmetic_control_vs_c3c": {
+      "gain": {
+        "maximum_absolute_s_inv": {
+          "hex": "0x1.0000000000000p-45",
+          "value": 2.842170943040401e-14
+        },
+        "maximum_relative": {
+          "hex": "0x1.fc0d8ebd42826p-52",
+          "value": 4.4066569775022037e-16
+        }
+      },
+      "loss": {
+        "maximum_absolute_s_inv": {
+          "hex": "0x1.0000000000000p-42",
+          "value": 2.2737367544323206e-13
+        },
+        "maximum_relative": {
+          "hex": "0x1.fd3af5abfe24ap-52",
+          "value": 4.416868877196782e-16
+        }
+      },
+      "net": {
+        "maximum_absolute_s_inv": {
+          "hex": "0x1.4b40000000000p-42",
+          "value": 2.942091015256665e-13
+        },
+        "maximum_relative": {
+          "hex": "0x1.4c37c24d5046fp-52",
+          "value": 2.881530158261858e-16
+        }
+      }
+    },
+    "maximum_relative": {
+      "hex": "0x1.fd3af5abfe24ap-52",
+      "value": 4.416868877196782e-16
+    },
+    "roundoff_limit_relative": {
+      "hex": "0x1.0000000000000p-46",
+      "value": 1.4210854715202004e-14
+    },
+    "roundoff_multiplier": {
+      "hex": "0x1.0000000000000p+6",
+      "value": 64.0
+    },
+    "semantic_terminal_child_indices": [
+      1619,
+      1639
+    ]
+  },
+  "limitations": {
+    "scope": "one authenticated C3c frozen point only",
+    "statement": "No C4 nonlinear root, Newton history, stopping result, plotted ordinate, 300-point curve, observable change, or paper-parity claim is made. Non-photon channels are inherited from C3 and are not re-evaluated."
+  },
+  "operator_comparison": {
+    "gain": {
+      "l1_absolute_s_inv": {
+        "hex": "0x1.4ae9bfd069f84p-42",
+        "value": 2.9390985920687567e-13
+      },
+      "linf_absolute_s_inv": {
+        "hex": "0x1.0000000000000p-45",
+        "value": 2.842170943040401e-14
+      },
+      "symmetric_relative_l1": {
+        "hex": "0x1.139544f657ba4p-55",
+        "value": 2.987877778643742e-17
+      }
+    },
+    "loss": {
+      "l1_absolute_s_inv": {
+        "hex": "0x1.65f0a5eeed47bp-41",
+        "value": 6.358292238341556e-13
+      },
+      "linf_absolute_s_inv": {
+        "hex": "0x1.0000000000000p-42",
+        "value": 2.2737367544323206e-13
+      },
+      "symmetric_relative_l1": {
+        "hex": "0x1.2ebc125b44a53p-54",
+        "value": 6.564511414882551e-17
+      }
+    },
+    "net": {
+      "l1_absolute_s_inv": {
+        "hex": "0x1.6f95c9db26676p-41",
+        "value": 6.529623265709012e-13
+      },
+      "linf_absolute_s_inv": {
+        "hex": "0x1.4b40000000000p-42",
+        "value": 2.942091015256665e-13
+      },
+      "symmetric_relative_l1": {
+        "hex": "0x1.22b7223f63066p-49",
+        "value": 2.017243083178416e-15
+      }
+    }
+  },
+  "operator_inputs": {
+    "c_photon_ns_inv": {
+      "hex": "0x1.12e0be826d695p-30",
+      "value": 1e-09
+    },
+    "c_photon_s_inv": {
+      "hex": "0x1.0000000000000p+0",
+      "value": 1.0
+    },
+    "dE_ueV": {
+      "hex": "0x1.0000000000000p+0",
+      "value": 1.0
+    },
+    "gap_ueV": {
+      "hex": "0x1.6800000000000p+7",
+      "value": 180.0
+    },
+    "n_bar": {
+      "hex": "0x1.d2168e9cf947bp+19",
+      "value": 954548.4566618347
+    },
+    "omega_0_ueV": {
+      "hex": "0x1.4000000000000p+4",
+      "value": 20.0
+    },
+    "photon_step_bins": 20,
+    "seconds_per_ns": {
+      "hex": "0x1.12e0be826d695p-30",
+      "value": 1e-09
+    },
+    "snap_fraction_of_bin": {
+      "hex": "0x0.0p+0",
+      "value": 0.0
+    }
+  },
+  "parent_bindings": {
+    "c2_raw_manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "c3_operator_stage_id": "c3c_native_cell_density",
+    "c3_raw_manifest_sha256": "b7d44d5da1115853d86f6badbd2c2b87893078e41cae484cfe96c2e0c875ce4e",
+    "c3_raw_schema": "qpsim.fischer2023.fig6-author-c3-grid-bundle.v1",
+    "c3_receipt_path": "validation/paper_data/fischer_2023/fig6/c3-raw-manifest-receipt.json",
+    "c3_receipt_schema": "qpsim.fischer2023.fig6-author-c3-raw-manifest-receipt.v1",
+    "c3_receipt_sha256": "48b347f5899fd24bd9d8f632556f6f84e6179eda132dd4003e32108ab4ed9196",
+    "c3_score_path": "validation/paper_data/fischer_2023/fig6/c3-grid-score.json",
+    "c3_score_schema": "qpsim.fischer2023.fig6-author-c3-grid-score.v1",
+    "c3_score_sha256": "aa993f1354f86ab2b8f8fac3ceed5f390b7164fc25ce843476a8d3112645eb35",
+    "c3_stage_id": "C3"
+  },
+  "raw_bundle": {
+    "manifest_sha256": "78a86c7fca432e78a5d4bd7d9512cc2b84befea9accd20e844cf929f246f7af7",
+    "schema": "qpsim.fischer2023.fig6-author-c4-photon-bundle.v1"
+  },
+  "schema": "qpsim.fischer2023.fig6-author-c4-photon-score.v1",
+  "source_binding": {
+    "hash_kind": "canonical_sha256_import_time_disk_snapshot",
+    "scope": "independent C4 verifier, exact C3/C2 parent replay, and all raw/public photon source dependencies"
+  },
+  "sources": {
+    "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+    "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
+    "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
+    "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
+    "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
+    "validation/fischer_2023/fig6_author_c3_score.py": "0cd5cf35f3577210f1bce2cb20cd92bfa3404d02f235a434aa2ab64d57798659",
+    "validation/fischer_2023/fig6_author_c4_bundle.py": "687103e1232972058b3d65421a9238e65365fc292b7a017435d61ed86b55db22",
+    "validation/fischer_2023/fig6_author_c4_score.py": "7b9c14940d367d62f647cca216bdc2de5f140114b2e69fd95cb5eb123480bb4d",
+    "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+  },
+  "stage": {
+    "changed_component": "photon_operator",
+    "comparison_stage_id": "c3c_native_cell_density",
+    "evidence_class": "hybrid_component_substitution",
+    "parent_stage_id": "C3",
+    "stage_id": "C4",
+    "status": "completed"
+  },
+  "units": {
+    "comparison_arrays": "per second",
+    "public_native_arrays": "per nanosecond",
+    "public_return_contract": "gain includes target Pauli factor; loss_rate multiplies f to form actual loss"
+  }
+}

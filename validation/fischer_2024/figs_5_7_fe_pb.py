@@ -1,10 +1,12 @@
-"""Fischer & Catelani 2024 Figs 5-7 — f(E) under pair-breaking photon drive.
+"""Qpsim-native f(E) sweep inspired by Fischer & Catelani 2024 Figs. 5–7.
 
-Sweeps the five power levels from F24 Sec. IV at fixed bath
+Sweeps five qpsim-native power levels at fixed bath
 temperature ``T_B = 0.1 K`` and records the converged ``f(E)`` per
-power, producing the overlay figure that Fischer 2024 presents as
-three panels (Figs 5, 6, 7). We emit a single combined plot and a
-single baseline CSV; the tests assert bit-identity column-by-column.
+power, following the paper's broad sweep topology. We emit a single
+combined plot and a single baseline CSV; the tests assert artifact
+regression identity column-by-column. This is not a quantitative paper
+reproduction: it uses qpsim-native ns⁻¹ drive products and compares
+neither digitized paper data nor paper analytic curves.
 
 Parameters are shared with :mod:`validation.fischer_2024.fig8_xqp_pb`
 — same ω_PB / n̄_PB / grid / powers — so the two modules exercise the
@@ -60,7 +62,7 @@ from validation.fischer_2024.fig8_xqp_pb import (
 
 T_BATH_FE = 0.1  # F24 Figs 5-7 fix T_B at 0.1 K
 
-ARTIFACT_SCHEMA = "qpsim.fischer2024.figs_5_7_fe_pb.v3"
+ARTIFACT_SCHEMA = "qpsim.fischer2024.figs_5_7_fe_pb.v4"
 NEWTON_TOL = 1.0e-14
 NEWTON_BACKWARD_ERROR_TOL = 1.0e-6
 NEWTON_MAX_ITER = 500
@@ -75,6 +77,7 @@ class Figs57Result:
     x_qp_by_power: dict[float, float]  # power → scalar x_qp
     qp_backward_error_by_power: dict[float, float]
     qp_residual_inf_by_power: dict[float, float]
+    qp_number_backward_error_by_power: dict[float, float]
 
 
 def solver_fingerprint() -> dict[str, Any]:
@@ -130,6 +133,7 @@ def run() -> Figs57Result:
     x_qp_by_power: dict[float, float] = {}
     qp_backward: dict[float, float] = {}
     qp_residual: dict[float, float] = {}
+    qp_number_backward: dict[float, float] = {}
 
     for power in POWER_LEVELS:
         pb_params = {
@@ -156,6 +160,7 @@ def run() -> Figs57Result:
         )
         qp_backward[power] = certificate.backward_error
         qp_residual[power] = certificate.residual_inf
+        qp_number_backward[power] = certificate.qp_number_backward_error
 
     return Figs57Result(
         E=state.spectral.E,
@@ -165,6 +170,7 @@ def run() -> Figs57Result:
         x_qp_by_power=x_qp_by_power,
         qp_backward_error_by_power=qp_backward,
         qp_residual_inf_by_power=qp_residual,
+        qp_number_backward_error_by_power=qp_number_backward,
     )
 
 
@@ -196,6 +202,10 @@ def write_baseline(
         ("x_qp_by_power", set(result.x_qp_by_power)),
         ("qp_backward_error_by_power", set(result.qp_backward_error_by_power)),
         ("qp_residual_inf_by_power", set(result.qp_residual_inf_by_power)),
+        (
+            "qp_number_backward_error_by_power",
+            set(result.qp_number_backward_error_by_power),
+        ),
     )
     for name, keys in mapping_keys:
         if keys != set(POWER_LEVELS):
@@ -244,6 +254,9 @@ def write_baseline(
         stamped = QPCertificate(
             backward_error=float(result.qp_backward_error_by_power[power]),
             residual_inf=float(result.qp_residual_inf_by_power[power]),
+            qp_number_backward_error=float(
+                result.qp_number_backward_error_by_power[power]
+            ),
         )
         certificates[_point_id(power)] = bind_certificate(
             stamped,
@@ -304,25 +317,54 @@ def read_baseline(path: Path | None = None) -> Figs57Result:
         raise ArtifactValidationError(
             f"Artifact at {path} thermal occupation is not the live Fermi-Dirac state."
         )
+    base_state = _build_state(_material(), T_BATH_FE)
+    f_by_power = {
+        power: data[:, i + 2] for i, power in enumerate(POWER_LEVELS)
+    }
     x_qp_by_power = {
         power: float(
-            qp_fraction(
-                data[:, i + 2], _build_state(_material(), T_BATH_FE).spectral, delta_0=DELTA_0
-            )
+            qp_fraction(f_by_power[power], base_state.spectral, delta_0=DELTA_0)
         )
-        for i, power in enumerate(POWER_LEVELS)
+        for power in POWER_LEVELS
     }
+    certificates: dict[float, QPCertificate] = {}
+    for power in POWER_LEVELS:
+        pb_params = {
+            "omega_PB": OMEGA_PB,
+            "n_bar_PB": N_BAR_PB,
+            "c_phot_PB": power / N_BAR_PB,
+        }
+        try:
+            reassembled = qp_certificate(
+                replace(base_state, f=f_by_power[power].copy()),
+                pb_photon_params=pb_params,
+                residual_inf_limit=NEWTON_TOL,
+            )
+        except (RuntimeError, ValueError) as exc:
+            raise ArtifactValidationError(
+                f"Artifact at {path} power={power:g} ns^-1 fails fresh "
+                "QP-equation certificate reassembly."
+            ) from exc
+        certificates[power] = bind_certificate(
+            artifact.certificates[_point_id(power)],
+            reassembled,
+            context=f"Artifact at {path} power={power:g} ns^-1",
+            residual_inf_limit=NEWTON_TOL,
+        )
     return Figs57Result(
         E=data[:, 0],
         powers=POWER_LEVELS,
         f_thermal=data[:, 1],
-        f_by_power={p: data[:, i + 2] for i, p in enumerate(POWER_LEVELS)},
+        f_by_power=f_by_power,
         x_qp_by_power=x_qp_by_power,
         qp_backward_error_by_power={
-            p: artifact.certificates[_point_id(p)].backward_error for p in POWER_LEVELS
+            p: certificates[p].backward_error for p in POWER_LEVELS
         },
         qp_residual_inf_by_power={
-            p: artifact.certificates[_point_id(p)].residual_inf for p in POWER_LEVELS
+            p: certificates[p].residual_inf for p in POWER_LEVELS
+        },
+        qp_number_backward_error_by_power={
+            p: certificates[p].qp_number_backward_error for p in POWER_LEVELS
         },
     )
 
@@ -361,9 +403,10 @@ def write_plot(result: Figs57Result, path: Path) -> Path:
     ax.set_xlabel(r"$E / \Delta$", fontsize=14)
     ax.set_ylabel(r"$f(E)$", fontsize=14)
     ax.set_title(
-        "Fischer & Catelani 2024 Figs 5-7 — PB-photon drive at fixed $T_B$\n"
+        "qpsim-native PB-photon sweep — F24 Figs. 5–7 topology only\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\tau_0={TAU_0:.0f}$ ns, "
-        rf"$\omega_{{\mathrm{{PB}}}}=2.8\,\Delta_0$, $T_B={T_BATH_FE}$ K",
+        rf"$\omega_{{\mathrm{{PB}}}}=2.8\,\Delta_0$, $T_B={T_BATH_FE}$ K; "
+        r"drive products are qpsim-native ns$^{-1}$",
         fontsize=10,
     )
     ax.set_xlim(1.0, min(E_MAX_FACTOR, 5.0))
@@ -380,7 +423,7 @@ def write_plot(result: Figs57Result, path: Path) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer & Catelani 2024 Figs 5-7 -- f(E) with PB-photon drive ...")
+    print("qpsim-native PB f(E) sweep -- F24 Figs. 5-7 topology only ...")
     print(
         f"  Delta_0={DELTA_0} micro-eV, tau_0={TAU_0} ns, "
         f"omega_PB={OMEGA_PB:.2f} micro-eV, T_B={T_BATH_FE} K"

@@ -1,0 +1,83 @@
+{
+  "acquisition": {
+    "acquired_by": "repository owner",
+    "acquisition_date": "2026-05-20",
+    "method": "email_attachment",
+    "provenance_note": "An external project README/STATUS records receipt of the authors' Figure 6 code; the attachment itself is content-bound here.",
+    "repository_email_metadata": "not preserved in this repository"
+  },
+  "archive": {
+    "filename": "PhysApplPaper_Figure_6.zip",
+    "locator_environment_variable": "QPSIM_FISCHER2023_FIG6_AUTHOR_ARCHIVE",
+    "member_root": "PhysApplPaper_Figure_6/",
+    "sha256": "31d76c92ef12c8056b583ef0d770f9f5c1ef48c561db971cc0dab1b733481bc1",
+    "size_bytes": 3827356
+  },
+  "classification": {
+    "evidence_class": "author_supplied_reproduction_source",
+    "publication_source_identity": "not_established",
+    "redistribution_status": "permission_not_established",
+    "scope": "Fischer-Catelani 2023 Figure 6 only"
+  },
+  "execution": {
+    "default_newton_steps": 10,
+    "default_sweep_points": 300,
+    "dependencies": [
+      "Python",
+      "NumPy",
+      "SciPy",
+      "Matplotlib",
+      "Numba"
+    ],
+    "entry_point": "PhysApplPaper_Figure_6/examples/Figure_6.py",
+    "original_runtime_evidence": "Bundled CPython 3.8 bytecode; exact package versions were not recorded.",
+    "output_member": "PhysApplPaper_Figure_6/examples/figures/gap_1_fig_2.png",
+    "replay_status": "source and bundled output authenticated; full 300-point solve not yet replayed"
+  },
+  "members": [
+    {
+      "path": "PhysApplPaper_Figure_6/examples/Figure_6.py",
+      "role": "entry_point",
+      "sha256": "5e29885e9d3fdb868823e5ced7573d12ed48cddf93219fb5a1eab175ae041900",
+      "size_bytes": 7486
+    },
+    {
+      "path": "PhysApplPaper_Figure_6/quasiparticle_solver.py",
+      "role": "quasiparticle_solver",
+      "sha256": "bb6cd6fa8ff7d2ce11d96cbe79bbc64dea7226c0a814e6d0c4aa8c02cb3d2c61",
+      "size_bytes": 56052
+    },
+    {
+      "path": "PhysApplPaper_Figure_6/quasiparticle_and_phonon_solver.py",
+      "role": "coupled_solver",
+      "sha256": "cf7664866b8bd9abfaf7f008353e5d7d4d36dc371407df4024341d8f56f412dc",
+      "size_bytes": 31707
+    },
+    {
+      "path": "PhysApplPaper_Figure_6/materials.py",
+      "role": "material_parameters",
+      "sha256": "966baa24462c977bd438e93b97488421a9b46a91757933aec4702ea595c25ee1",
+      "size_bytes": 1989
+    },
+    {
+      "path": "PhysApplPaper_Figure_6/array_operations.py",
+      "role": "array_helpers",
+      "sha256": "ebde868802f8d3aac554b4834e84daf27f4dea7ef4b6c7fa1190f199298d8ab9",
+      "size_bytes": 1286
+    },
+    {
+      "path": "PhysApplPaper_Figure_6/examples/figures/gap_1_fig_2.png",
+      "role": "bundled_output_oracle",
+      "sha256": "6c1a02dabe75034e963911cc20de08e2fedc0a870093bf1180c6da7149e35ac3",
+      "size_bytes": 804625
+    }
+  ],
+  "paper": {
+    "arxiv_id": "2212.08155",
+    "citation": "P. B. Fischer and G. Catelani, Phys. Rev. Applied 19, 054087 (2023)",
+    "figure": "Figure 6",
+    "version": "arXiv:2212.08155v2"
+  },
+  "schema": "qpsim.author-source.v1",
+  "source_id": "fischer-catelani-2023-fig6-author-email-attachment-v1"
+}

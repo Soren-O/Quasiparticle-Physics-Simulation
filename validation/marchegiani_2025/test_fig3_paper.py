@@ -1,4 +1,4 @@
-"""Regression test: M25 Fig 3 paper-target run matches the pinned baseline.
+"""Regression test: M25 Fig. 3 paper-topology qpsim run matches its pin.
 
 Fast since the branch-continuation driver landed: the two-panel sweep
 at 29 temperatures is a few seconds of warm-started Newton solves on
@@ -99,16 +99,23 @@ def test_panel_omega_LR_values() -> None:
     assert baseline.panel_b.omega_LR_GHz == PANEL_B_OMEGA_LR_GHZ
 
 
-def test_chemical_potentials_approach_zero_at_T_bar() -> None:
-    """M25 paper text: μ_α → 0 around the Lambert-W crossover T̄."""
+def test_chemical_potentials_are_small_at_150_mK_endpoint() -> None:
+    """Broad endpoint sanity, not an independent crossover measurement."""
     if not (baseline_path_a().exists() and baseline_path_b().exists()):
         pytest.skip("Baseline missing.")
 
     baseline = read_baseline()
     for panel in (baseline.panel_a, baseline.panel_b):
         idx_150 = int(np.argmin(np.abs(panel.T_kelvin - 0.150)))
+        np.testing.assert_allclose(
+            panel.T_kelvin[idx_150],
+            0.150,
+            rtol=0.0,
+            atol=1e-14,
+        )
         for mu in (panel.mu_L_GHz, panel.mu_Rgt_GHz, panel.mu_Rlt_GHz):
-            assert abs(mu[idx_150]) < 10.0, (
-                f"ω_LR={panel.omega_LR_GHz}: |μ| at T≈150 mK "
-                f"is {mu[idx_150]:.2g} GHz, expected ≈ 0 (paper M25)"
+            assert abs(mu[idx_150]) < 0.03 * panel.Delta_L_GHz, (
+                f"ω_LR={panel.omega_LR_GHz}: |μ|/Δ_L at the 150 mK "
+                f"endpoint is {abs(mu[idx_150]) / panel.Delta_L_GHz:.3g}; "
+                "expected below the broad 3% sanity bound"
             )

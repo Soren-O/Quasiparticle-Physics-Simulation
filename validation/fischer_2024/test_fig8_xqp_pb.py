@@ -25,7 +25,6 @@ from validation.fischer_2024.fig8_xqp_pb import (
     T_BATH_VALUES,
     Fig8Result,
     baseline_path,
-    read_baseline,
     run,
 )
 
@@ -63,6 +62,9 @@ def _synthetic_result() -> Fig8Result:
         },
         qp_backward_error_by_power={p: np.full(T_bath.size, 1.0e-8) for p in POWER_LEVELS},
         qp_residual_inf_by_power={p: np.full(T_bath.size, 1.0e-16) for p in POWER_LEVELS},
+        qp_number_backward_error_by_power={
+            p: np.full(T_bath.size, 1.0e-9) for p in POWER_LEVELS
+        },
         f_by_power=f_by_power,
     )
 
@@ -80,12 +82,19 @@ def _write_baseline(result: Fig8Result, path: Path) -> Path:
     return target.write_baseline(result, path, producer=producer)
 
 
+def _read_summary(path: Path | None = None) -> Fig8Result:
+    return target.read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         target,
         "qp_certificate",
-        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16),
+        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-16, 1.0e-9),
     )
 
 
@@ -98,13 +107,21 @@ def test_current_artifact_round_trips(
         rows = list(csv.reader(fp))
     metadata = json.loads(rows[1][0].split("=", 1)[1])
     assert metadata["certificate_target_qp_residual_inf"] == NEWTON_TOL
-    decoded = read_baseline(path)
+    with pytest.raises(ArtifactValidationError, match="producer assertions only"):
+        target.read_baseline(path)
+    decoded = _read_summary(path)
     assert decoded.powers == POWER_LEVELS
     np.testing.assert_array_equal(decoded.T_bath, T_BATH_VALUES)
+    assert decoded.f_by_power is None
+    assert decoded.certificate_scope == target.SUMMARY_CERTIFICATE_SCOPE
     for power in POWER_LEVELS:
         np.testing.assert_array_equal(
             decoded.qp_backward_error_by_power[power],
             np.full(len(T_BATH_VALUES), 1.0e-8),
+        )
+        np.testing.assert_array_equal(
+            decoded.qp_number_backward_error_by_power[power],
+            np.full(len(T_BATH_VALUES), 1.0e-9),
         )
 
 
@@ -159,7 +176,7 @@ def test_reader_rejects_invalid_artifacts(
 
     _rewrite_csv(path, mutate)
     with pytest.raises(ArtifactValidationError) as captured:
-        read_baseline(path)
+        _read_summary(path)
     assert not isinstance(captured.value, LegacyArtifactError)
     if mutation == "payload_drift":
         assert "payload hash" in str(captured.value)
@@ -185,7 +202,7 @@ def test_reduced_live_run_writes_bound_artifact(
     monkeypatch.setattr(target, "T_BATH_VALUES", (0.10,))
     monkeypatch.setattr(target, "POWER_LEVELS", (1.0e-2,))
     result = target.run()
-    decoded = target.read_baseline(
+    decoded = _read_summary(
         _write_baseline(result, tmp_path / "reduced_fig8.csv")
     )
     np.testing.assert_allclose(
@@ -204,13 +221,13 @@ def test_archived_legacy_artifact_is_explicitly_rejected() -> None:
         / baseline_path().name
     )
     with pytest.raises(ArtifactValidationError, match=r"legacy|wrong schema"):
-        read_baseline(legacy_path)
+        _read_summary(legacy_path)
 
 
-def test_promoted_canonical_is_current_and_certified() -> None:
+def test_promoted_canonical_is_current_summary_with_producer_claims() -> None:
     path = baseline_path()
-    assert path.is_file(), f"Promoted strict-v2 canonical is missing at {path}."
-    baseline = read_baseline(path)
+    assert path.is_file(), f"Promoted current-schema canonical is missing at {path}."
+    baseline = _read_summary(path)
     np.testing.assert_array_equal(baseline.T_bath, target.T_BATH_VALUES)
     assert baseline.powers == target.POWER_LEVELS
 
@@ -221,7 +238,7 @@ def test_matches_pinned_baseline() -> None:
     if not path.exists():
         pytest.xfail(f"Certified baseline not found at {path}.")
     try:
-        baseline = read_baseline(path)
+        baseline = _read_summary(path)
     except LegacyArtifactError as exc:
         pytest.xfail(f"Legacy uncertified canonical baseline is quarantined: {exc}")
 
@@ -232,7 +249,7 @@ def test_matches_pinned_baseline() -> None:
         result.x_qp_thermal,
         baseline.x_qp_thermal,
         rtol=1e-6,
-        atol=1e-14,
+        atol=0.0,
     )
     for power in result.powers:
         np.testing.assert_allclose(

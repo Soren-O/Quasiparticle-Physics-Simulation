@@ -1,0 +1,670 @@
+{
+  "accepted": true,
+  "author_source": {
+    "manifest_path": "validation/paper_data/fischer_2023/fig6/author-source.json",
+    "manifest_sha256": "b6b85366a07710281e8a5734698231a3530ec33fcaa84232ee9fba694acd4c18",
+    "used_by_this_comparison": false
+  },
+  "claim": "The independent clean-room Eq. 47/53 implementation agrees with the digitized dashed Fig. 6 traces within the bounded raster digitization uncertainty.",
+  "curve_scores": [
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.10K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.00126637448005,
+      "max_relative_error": 0.00879608815317,
+      "max_uncertainty_normalized_error": 0.341082419932,
+      "mean_absolute_error": 0.000560331253825,
+      "native_reference_domain": [
+        0.24,
+        0.42
+      ],
+      "native_reference_node_count": 1801,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.000158286383893,
+          "effective_uncertainty": 0.00409356269537,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "2fcb8f43ea0e9c66adb720125d1ded0b5275df5d08c166a92618dedb5108c1b6",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 205,
+              "trace_min_y_pixel": 203,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 204.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.128048780488
+            }
+          },
+          "paper_y": 0.128048780488,
+          "reference_y": 0.127890494104,
+          "relative_error": 0.00123614128373,
+          "uncertainty_normalized_error": 0.0386671453871,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.00126637448005,
+          "effective_uncertainty": 0.00371281076374,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "cc3acc873bbb24335c426859d426f6405a8762f8e9352a498fb44e45fb10e04c",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 181,
+              "trace_min_y_pixel": 180,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 180.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.143970189702
+            }
+          },
+          "paper_y": 0.143970189702,
+          "reference_y": 0.142703815222,
+          "relative_error": 0.00879608815317,
+          "uncertainty_normalized_error": 0.341082419932,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.000878344711131,
+          "effective_uncertainty": 0.004349115805,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "2fed6fc76ea732d60ca0f806026d7033f4b851fc853c8f1133c072109cd72983",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 162,
+              "trace_min_y_pixel": 159,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 160.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.157520325203
+            }
+          },
+          "paper_y": 0.157520325203,
+          "reference_y": 0.156641980492,
+          "relative_error": 0.00557607223067,
+          "uncertainty_normalized_error": 0.20195937531,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.00053148668166,
+          "effective_uncertainty": 0.00464616795136,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "12cc5d5d3de6cfdb885ab9de53c43a528d5d90bbd73f48ba3759c4db2dfa485c",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 143,
+              "trace_min_y_pixel": 139,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 141.0,
+              "y_uncertainty": 0.00318428184282,
+              "y_value": 0.170731707317
+            }
+          },
+          "paper_y": 0.170731707317,
+          "reference_y": 0.170200220635,
+          "relative_error": 0.00311299342115,
+          "uncertainty_normalized_error": 0.114392481551,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000568682606047,
+          "effective_uncertainty": 0.00426529766932,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "be8358ecdf47d466b9515989844aaae769d0ac1d21215cc5cc4fe82d2d1017b0",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 123,
+              "trace_min_y_pixel": 120,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 121.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.183943089431
+            }
+          },
+          "paper_y": 0.183943089431,
+          "reference_y": 0.183374406825,
+          "relative_error": 0.00309162256547,
+          "uncertainty_normalized_error": 0.133327765173,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000326859438925,
+          "effective_uncertainty": 0.00387858933424,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "b1020cc48a021a84b72d5fba7ba8e75d5af380d702c217061e6841652526a014",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 104,
+              "trace_min_y_pixel": 102,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 103.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.19647696477
+            }
+          },
+          "paper_y": 0.19647696477,
+          "reference_y": 0.196150105331,
+          "relative_error": 0.00166360183397,
+          "uncertainty_normalized_error": 0.0842727627901,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.000192284475073,
+          "effective_uncertainty": 0.00349150340796,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "3ca22ce11d315149a8c4873d27e3025ee4d5b2513f03422f0740ab7f0d0612ce",
+            "values": {
+              "curve_id": "T_bath_0.10K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 98,
+              "trace_min_y_pixel": 97,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 97.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.200203252033
+            }
+          },
+          "paper_y": 0.200203252033,
+          "reference_y": 0.200395536508,
+          "relative_error": 0.000960446312036,
+          "uncertainty_normalized_error": 0.055072114389,
+          "x_value": 0.409931506849
+        }
+      ],
+      "reference_model": "clean_room_paper_equations",
+      "rms_error": 0.000670813657965,
+      "temperature_K": 0.1,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.15K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.00072177897017,
+      "max_relative_error": 0.00458697142847,
+      "max_uncertainty_normalized_error": 0.20420984279,
+      "mean_absolute_error": 0.00033680202879,
+      "native_reference_domain": [
+        0.24,
+        0.42
+      ],
+      "native_reference_node_count": 1801,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 8.09645643283e-05,
+          "effective_uncertainty": 0.00409805822833,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "789880d468ac0d36a739664cb557acc36597a5b9dad4a2da6288cd10f501a7d0",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 209,
+              "trace_min_y_pixel": 207,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 208.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.125338753388
+            }
+          },
+          "paper_y": 0.125338753388,
+          "reference_y": 0.125419717952,
+          "relative_error": 0.00064596592945,
+          "uncertainty_normalized_error": 0.0197568115964,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000646402477725,
+          "effective_uncertainty": 0.00405594069802,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "52305cf53ca03262f99b29066bd0a360edd424fc8b35acfa58d695b1307d031e",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 186,
+              "trace_min_y_pixel": 184,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 185.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.140921409214
+            }
+          },
+          "paper_y": 0.140921409214,
+          "reference_y": 0.140275006736,
+          "relative_error": 0.00458697142847,
+          "uncertainty_normalized_error": 0.159371777314,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.000119868937539,
+          "effective_uncertainty": 0.004353375623,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "9e8890f51166d0be8e0fa4c7b998d3f87c3033bd6904aaf956a6a521a0daa318",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 167,
+              "trace_min_y_pixel": 164,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 165.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.154132791328
+            }
+          },
+          "paper_y": 0.154132791328,
+          "reference_y": 0.154252660266,
+          "relative_error": 0.000777699128825,
+          "uncertainty_normalized_error": 0.0275347105143,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000166385472756,
+          "effective_uncertainty": 0.00431155623822,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "5eaf1ffbc02f9186898eef18c603ed5d9f7c19bfe38be9e3fe5b624ecd2f6d6d",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 147,
+              "trace_min_y_pixel": 144,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 145.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.167682926829
+            }
+          },
+          "paper_y": 0.167682926829,
+          "reference_y": 0.167849312302,
+          "relative_error": 0.000992262455707,
+          "uncertainty_normalized_error": 0.0385905839011,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000166521838982,
+          "effective_uncertainty": 0.00393057174368,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "efe36a99296446f50c89ec16c9f7210faa993aec03168835b3f752be03ec3c84",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 127,
+              "trace_min_y_pixel": 125,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 126.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.180894308943
+            }
+          },
+          "paper_y": 0.180894308943,
+          "reference_y": 0.181060830782,
+          "relative_error": 0.000920547694148,
+          "uncertainty_normalized_error": 0.0423658057507,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000455691940027,
+          "effective_uncertainty": 0.00354925731966,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "fae16cad063bff09045e10d1555d3516550350b605fd7162161981409d1a673b",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 108,
+              "trace_min_y_pixel": 107,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 107.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.193428184282
+            }
+          },
+          "paper_y": 0.193428184282,
+          "reference_y": 0.193883876222,
+          "relative_error": 0.00235587146578,
+          "uncertainty_normalized_error": 0.128390786856,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.00072177897017,
+          "effective_uncertainty": 0.00353449647828,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "d9957c23b78ed74b02c8890d3dca70483e2cacd1e603fac934ac9a79b87b6e10",
+            "values": {
+              "curve_id": "T_bath_0.15K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 102,
+              "trace_min_y_pixel": 101,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 101.5,
+              "y_uncertainty": 0.00216802168022,
+              "y_value": 0.197493224932
+            }
+          },
+          "paper_y": 0.197493224932,
+          "reference_y": 0.198215003902,
+          "relative_error": 0.00365470243558,
+          "uncertainty_normalized_error": 0.20420984279,
+          "x_value": 0.409931506849
+        }
+      ],
+      "reference_model": "clean_room_paper_equations",
+      "rms_error": 0.00041795311775,
+      "temperature_K": 0.15,
+      "uncertainty_normalized_limit": 1.0
+    },
+    {
+      "accepted": true,
+      "curve_id": "T_bath_0.20K",
+      "curve_kind": "paper_analytic",
+      "max_absolute_error": 0.000844478437886,
+      "max_relative_error": 0.00432795199416,
+      "max_uncertainty_normalized_error": 0.250562035524,
+      "mean_absolute_error": 0.000370217771958,
+      "native_reference_domain": [
+        0.24,
+        0.42
+      ],
+      "native_reference_node_count": 1801,
+      "point_count": 7,
+      "points": [
+        {
+          "absolute_error": 0.000338196075185,
+          "effective_uncertainty": 0.00410252104598,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "86f682b32b02cae893b32799048f52014e93e672ae1695dbc1f2132fd6b209a2",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 213,
+              "trace_min_y_pixel": 211,
+              "x_pixel": 221,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.249657534247,
+              "y_pixel": 212.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.122628726287
+            }
+          },
+          "paper_y": 0.122628726287,
+          "reference_y": 0.122966922362,
+          "relative_error": 0.00275788622637,
+          "uncertainty_normalized_error": 0.0824361584972,
+          "x_value": 0.249657534247
+        },
+        {
+          "absolute_error": 0.000347508712765,
+          "effective_uncertainty": 0.00406028539537,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "0a1c238f62e98840982adc820b49ff8384e403c238cffdcbfccfd8762932b330",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 190,
+              "trace_min_y_pixel": 188,
+              "x_pixel": 251,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.280479452055,
+              "y_pixel": 189.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.138211382114
+            }
+          },
+          "paper_y": 0.138211382114,
+          "reference_y": 0.137863873401,
+          "relative_error": 0.00251432774529,
+          "uncertainty_normalized_error": 0.0855872626986,
+          "x_value": 0.280479452055
+        },
+        {
+          "absolute_error": 0.00011921020722,
+          "effective_uncertainty": 0.00469635782859,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "66dc2fb57a1ba4574e7d636f1cdd6067629b93833a92bbf43d92b0ba2426dbad",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 171,
+              "trace_min_y_pixel": 167,
+              "x_pixel": 280,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.310273972603,
+              "y_pixel": 169.0,
+              "y_uncertainty": 0.00318428184282,
+              "y_value": 0.151761517615
+            }
+          },
+          "paper_y": 0.151761517615,
+          "reference_y": 0.151880727822,
+          "relative_error": 0.000785510115431,
+          "uncertainty_normalized_error": 0.0253835443488,
+          "x_value": 0.310273972603
+        },
+        {
+          "absolute_error": 0.000134894287861,
+          "effective_uncertainty": 0.00431566777213,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "7281a6c50e94f7c34b91883fa3960e554e83d5ddc91e831fd8f7f98dd8950a4c",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 150,
+              "trace_min_y_pixel": 147,
+              "x_pixel": 309,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.340068493151,
+              "y_pixel": 148.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.165650406504
+            }
+          },
+          "paper_y": 0.165650406504,
+          "reference_y": 0.165515512216,
+          "relative_error": 0.000814331161073,
+          "uncertainty_normalized_error": 0.0312568749457,
+          "x_value": 0.340068493151
+        },
+        {
+          "absolute_error": 0.000241047707904,
+          "effective_uncertainty": 0.00427331823013,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "36487359528a107a5c59c73790b46526974d9edc946a94021a13a488deb9235d",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 131,
+              "trace_min_y_pixel": 128,
+              "x_pixel": 338,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.369863013699,
+              "y_pixel": 129.5,
+              "y_uncertainty": 0.00284552845528,
+              "y_value": 0.17852303523
+            }
+          },
+          "paper_y": 0.17852303523,
+          "reference_y": 0.178764082938,
+          "relative_error": 0.00135023308109,
+          "uncertainty_normalized_error": 0.0564076193073,
+          "x_value": 0.369863013699
+        },
+        {
+          "absolute_error": 0.000566188974885,
+          "effective_uncertainty": 0.00389188861657,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "9d916d3df8e99947e304bd8de7388a8504982e26b75f6bf97077016531097408",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 112,
+              "trace_min_y_pixel": 110,
+              "x_pixel": 367,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.399657534247,
+              "y_pixel": 111.0,
+              "y_uncertainty": 0.00250677506775,
+              "y_value": 0.191056910569
+            }
+          },
+          "paper_y": 0.191056910569,
+          "reference_y": 0.191623099544,
+          "relative_error": 0.0029634571877,
+          "uncertainty_normalized_error": 0.145479234034,
+          "x_value": 0.399657534247
+        },
+        {
+          "absolute_error": 0.000844478437886,
+          "effective_uncertainty": 0.00337033675561,
+          "paper_point": {
+            "schema": "qpsim.paper-point-anchor.v1",
+            "sha256": "012f831be05ec039b0c1b9709473cb7277c3792376582ae3d6c20be0ca00ad60",
+            "values": {
+              "curve_id": "T_bath_0.20K",
+              "curve_kind": "paper_analytic",
+              "trace_max_y_pixel": 105,
+              "trace_min_y_pixel": 105,
+              "x_pixel": 377,
+              "x_uncertainty": 0.00325342465753,
+              "x_value": 0.409931506849,
+              "y_pixel": 105.0,
+              "y_uncertainty": 0.002,
+              "y_value": 0.19512195122
+            }
+          },
+          "paper_y": 0.19512195122,
+          "reference_y": 0.195966429658,
+          "relative_error": 0.00432795199416,
+          "uncertainty_normalized_error": 0.250562035524,
+          "x_value": 0.409931506849
+        }
+      ],
+      "reference_model": "clean_room_paper_equations",
+      "rms_error": 0.000440675490897,
+      "temperature_K": 0.2,
+      "uncertainty_normalized_limit": 1.0
+    }
+  ],
+  "evidence_class": "clean_room_paper_equations",
+  "implementation": {
+    "forbidden_dependency": "qpsim",
+    "parameters": {
+      "c_photon_per_ns": 1e-09,
+      "delta_0_over_kBT_c": 1.764,
+      "delta_0_ueV": 180.0,
+      "omega_0_ueV": 20.0,
+      "tau_0_ns": 438.0,
+      "tau_0_pb_ns": 0.255,
+      "tau_l_ns": 0.255
+    },
+    "path": "validation/reference_models/fischer_2023/fig6_analytic.py",
+    "sha256": "d09036a2919da83261a158d531d5b043b9c5a229834f99d5209c0937ab86c35c",
+    "thermal_denominator": "continuum ideal-BCS direct-gap integral after E=Delta*cosh(u)"
+  },
+  "paper_oracle": {
+    "archive_sha256": "5a6567096cb0ba7446113a3b6c05b9e1e079ea0aa2c48c393fa6d4f6642ce3cf",
+    "manifest_path": "validation/paper_data/fischer_2023/fig6/oracle.json",
+    "manifest_sha256": "169eaf05fdeed8d80fee6998b6e9e934e71bb61fac1f44484544cf1cc4e44727",
+    "points_path": "validation/paper_data/fischer_2023/fig6/points.csv",
+    "points_sha256": "26c61da67da06da1c7fcbd3de5def71a1a625cfb1cfff61ba38f60992d2d6882"
+  },
+  "producer": {
+    "runtime": {
+      "packages": {
+        "numpy": "2.4.2",
+        "scipy": "1.17.0"
+      },
+      "python": {
+        "cache_tag": "cpython-314",
+        "implementation": "CPython",
+        "version": "3.14.3"
+      }
+    },
+    "sources": {
+      "validation/fischer_2023/fig6_cleanroom_parity.py": {
+        "hash_kind": "source_canonical_sha256",
+        "sha256": "2c604272d447d5c0fa1da403102c2a0a7ee6082f6e8c6fecc1f130c03398c394"
+      },
+      "validation/paper_parity.py": {
+        "hash_kind": "source_canonical_sha256",
+        "sha256": "17ef56037b2a77fa5a4e2649cf1b851b7c494609937f86ec940f9732dd19da45"
+      },
+      "validation/reference_models/fischer_2023/fig6_analytic.py": {
+        "hash_kind": "source_canonical_sha256",
+        "sha256": "d09036a2919da83261a158d531d5b043b9c5a229834f99d5209c0937ab86c35c"
+      },
+      "validation/source_provenance.py": {
+        "hash_kind": "source_canonical_sha256",
+        "sha256": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
+      }
+    }
+  },
+  "qualification": {
+    "does_not_claim": [
+      "identity with the author-supplied numerical source",
+      "agreement with the paper's solid numerical curves",
+      "validation of qpsim's collision kernels or nonlinear solver"
+    ],
+    "metric_scope": "raster_digitization_uncertainty_only",
+    "parameter_uncertainty": "not included",
+    "quadrature": "adaptive continuum integral; source and tolerances bound above"
+  },
+  "schema": "qpsim.fischer2023.fig6-cleanroom-analytic-score.v1",
+  "scorer": {
+    "metric": "raster_digitization_normalized_mismatch",
+    "path": "validation/paper_parity.py",
+    "sha256": "17ef56037b2a77fa5a4e2649cf1b851b7c494609937f86ec940f9732dd19da45"
+  },
+  "status": "accepted_clean_room_analytic"
+}

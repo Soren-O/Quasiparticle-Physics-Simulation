@@ -70,6 +70,50 @@ class TestDetailedBalance:
         np.testing.assert_allclose(residual / scale, 0.0, atol=1e-10)
 
 
+    def test_recombination_balance_on_actual_7mk_al_grid(self) -> None:
+        # The historical exponent-500 floor made thermal pair generation
+        # 10^60 too large in the first cell of this exact preliminary grid.
+        gap = 180.0
+        T_bath = 0.007
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.0,
+            energy_max_factor=5.0,
+            num_energy_bins=28,
+        )
+        ctx = SpectralContext(
+            E_bins=E,
+            dE_bins=integration_widths_from_centers(E),
+            gap=gap,
+        )
+        exponent = E / (KB_UEV_PER_K * T_bath)
+        exp_negative = np.exp(-exponent)
+        f = exp_negative / (1.0 + exp_negative)
+        K_r0 = build_recombination_kernel_base(
+            ctx,
+            tau_0=438.0,
+            T_c=1.18,
+        )
+
+        gain, loss_rate = phonon_collision_rates(
+            f,
+            ctx,
+            None,
+            K_r0,
+            T_bath,
+            enable_scattering=False,
+            enable_recombination=True,
+        )
+        loss = loss_rate * f
+        turnover = float(np.sum(ctx.cell_weights * (np.abs(gain) + np.abs(loss))))
+        backward_error = float(
+            np.sum(ctx.cell_weights * np.abs(gain - loss)) / turnover
+        )
+
+        assert turnover > 0.0
+        assert backward_error < 1e-12
+
+
 class TestKernelBuilders:
     @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 0.0])
     def test_phonon_side_times_must_be_finite_positive(self, bad: float) -> None:

@@ -14,6 +14,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.steady_state import (
+    _fermi_dirac,
     _phonon_balance_backward_error,
     _picard_convergence_ratio,
     _resolve_picard_balance_tol,
@@ -113,6 +114,18 @@ class TestThermalPhononPath:
         kT = KB_UEV_PER_K * T_bath
         f_FD = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
         np.testing.assert_allclose(f, f_FD, atol=1e-8)
+
+    def test_cold_fermi_seed_preserves_representable_tail(self) -> None:
+        E = np.array([360.0])
+        T_bath = 0.007
+        exponent = E / (KB_UEV_PER_K * T_bath)
+        exp_negative = np.exp(-exponent)
+        expected = exp_negative / (1.0 + exp_negative)
+
+        got = _fermi_dirac(E, T_bath)
+
+        np.testing.assert_allclose(got, expected, rtol=2e-14)
+        assert 0.0 < got[0] < np.exp(-500.0)
 
     def test_rejects_bad_initial_guess_shape(self) -> None:
         import pytest

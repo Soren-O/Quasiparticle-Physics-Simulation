@@ -29,6 +29,17 @@ class TestComputeQualityFactor:
         with pytest.raises(ValueError, match="alpha"):
             compute_quality_factor(f, ctx, omega_0=1.0, alpha=0.0)
 
+    @pytest.mark.parametrize(
+        "bad_alpha",
+        [np.nan, np.inf, -np.inf, -0.1, 1.1, complex(0.1, 0.0), True],
+    )
+    def test_rejects_alpha_outside_finite_real_fraction(
+        self, bad_alpha: complex | float
+    ) -> None:
+        ctx, f = _thermal_ctx_and_f()
+        with pytest.raises(ValueError, match="alpha"):
+            compute_quality_factor(f, ctx, omega_0=1.0, alpha=bad_alpha)
+
     def test_positive_Q_at_finite_T(self) -> None:
         ctx, f = _thermal_ctx_and_f(T_bath=0.3)
         Q = compute_quality_factor(f, ctx, omega_0=1.0, alpha=0.1)
@@ -76,8 +87,13 @@ class TestComputeQualityFactor:
             f, ctx, omega_0=1.0, alpha=0.5, Q_ext=6.0
         ) == float("inf")
 
-    @pytest.mark.parametrize("bad_q_ext", [0.0, -1.0, np.nan, np.inf])
-    def test_rejects_invalid_external_q(self, bad_q_ext: float) -> None:
+    @pytest.mark.parametrize(
+        "bad_q_ext",
+        [0.0, -1.0, np.nan, np.inf, complex(1e5, 0.0), True],
+    )
+    def test_rejects_invalid_external_q(
+        self, bad_q_ext: complex | float
+    ) -> None:
         ctx, f = _thermal_ctx_and_f()
         with pytest.raises(ValueError, match="Q_ext"):
             compute_quality_factor(

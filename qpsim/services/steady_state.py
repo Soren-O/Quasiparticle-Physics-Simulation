@@ -31,14 +31,13 @@ from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     phonon_occupation_matrices_from_state,
 )
-from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.phonon_models.ph0_local import (
     phonon_balance_diagnostics,
     phonon_steady_state,
 )
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.solvers.anderson import anderson_extrapolate
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
@@ -660,6 +659,4 @@ def solve_steady_state(
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0:
         return np.where(np.asarray(E) > 0, 0.0, 1.0)
-    kT = _KB_UEV_PER_K * T
-    exponent = np.minimum(np.asarray(E) / kT, 500.0)
-    return 1.0 / (np.exp(exponent) + 1.0)
+    return fermi_dirac_occupation(E, T)

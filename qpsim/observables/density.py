@@ -35,9 +35,30 @@ from qpsim.physics.spectral import SpectralContext
 _UEV_PER_EV = 1.0e6
 
 
+def _finite_real_scalar(name: str, raw: float) -> float:
+    """Return one finite real scalar without silent complex coercion."""
+    if isinstance(raw, (bool, np.bool_)) or np.iscomplexobj(raw):
+        raise ValueError(f"{name} must be a finite real scalar; got {raw!r}.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {raw!r}."
+        ) from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value!r}.")
+    return value
+
+
 def _qp_integral_uev(f: np.ndarray, ctx: SpectralContext) -> float:
     """Return ``∫ ρ(E) f(E) dE`` with the appropriate spectral measure."""
-    f_arr = np.asarray(f, dtype=float)
+    f_raw = np.asarray(f)
+    if np.iscomplexobj(f_raw):
+        raise ValueError("f must be real-valued.")
+    try:
+        f_arr = np.asarray(f_raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("f must be a real numeric array.") from exc
     if f_arr.shape != ctx.E.shape:
         raise ValueError(
             f"f must have shape {ctx.E.shape}; got {f_arr.shape}."
@@ -74,6 +95,7 @@ def qp_number_density(
         (e.g. Al ``1.74e28``). This is not J⁻¹ m⁻³, which would be
         approximately ``1e47`` for Al.
     """
+    rho_F = _finite_real_scalar("rho_F", rho_F)
     rho_F = validate_rho_F_eV(rho_F, allow_zero=False)
     integral_uev = _qp_integral_uev(f, ctx)
     return 4.0 * rho_F * integral_uev / _UEV_PER_EV
@@ -93,7 +115,8 @@ def qp_fraction(f: np.ndarray, ctx: SpectralContext, delta_0: float) -> float:
 
     ``ρ_F`` cancels in the ratio, so it isn't an argument.
     """
-    if not np.isfinite(delta_0) or delta_0 <= 0:
+    delta_0 = _finite_real_scalar("delta_0", delta_0)
+    if delta_0 <= 0.0:
         raise ValueError("delta_0 must be finite and positive.")
     return _qp_integral_uev(f, ctx) / delta_0
 

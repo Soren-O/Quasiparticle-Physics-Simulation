@@ -883,12 +883,371 @@ That regression now pins the physical curves and thresholds both independently
 reassembled certificate quantities against their semantic acceptance bounds.
 Both adjudications are recorded in `CODE-REVIEW-FALSE-POSITIVES.md`.
 
+## 2026-07-27 fourth external-review follow-up (Round 8)
+
+This round audited the numerical software and integration surfaces only. The
+paper was consulted solely where needed to ensure that a changed numerical
+formula still implements the stated physics.
+
+- **Cold thermal arithmetic:** the repaired Bose path still imposed an
+  `exp(-500)` floor, changing the actual 7 mK Al pair occupation by roughly
+  sixty orders of magnitude. Bose evaluation now uses
+  `exp(-x)/-expm1(-x)` through the full binary64 range; Fermi evaluation uses
+  a sign-split form. A shared `frexp`/`ldexp` energy-over-`k_B T` evaluator
+  prevents intermediate overflow or underflow even for subnormal finite
+  energies and temperatures. The actual 7 mK pair detailed-balance residual
+  is pinned near `4.3e-33`, not against the old artificial floor.
+- **Effective phonon temperature:** the amplitude-free shape fit now works in
+  log-temperature space, normalizes before taking logarithms, preserves its
+  exact public bounds, and refuses one-frequency, zero-weight, normalized-
+  underflow, and ill-conditioned frequency support. Complex arrays and
+  unrepresentable default bounds fail before SciPy sees them. WebUI results
+  persist an upper-clamp warning as a run note instead of presenting the
+  clamp as an ordinary measurement.
+- **Public numerical contracts:** observables, gap helpers, rate-equation
+  services, and Crank–Nicolson inputs reject complex/nonfinite values before
+  conversion. Arbitrary SciPy sparse matrix formats are normalized to CSR
+  before coefficient checks. The M25 branch temperature grid is owned,
+  immutable, finite, positive, and strictly increasing. The Lambert-W
+  crossover calculation avoids finite-ratio overflow and rejects a final
+  temperature outside binary64.
+- **Campaign geometry and durability:** preliminary 1-D campaigns now use
+  true midpoint finite-volume cells, so backend conservation and resonator
+  quadrature share the same spatial measure. The 100 µm driver passes its own
+  configured length explicitly. The 7 mK replacement campaign preserves old
+  metadata together with old aggregates until the first new case succeeds;
+  metadata replacement is atomic.
+- **WebUI concurrency/persistence:** automatic colliding setup slugs are one
+  serialized selection/write transaction; queued futures cancelled during
+  shutdown receive durable terminal manifests; malformed setup records and
+  object arrays fail closed. Regression tests exercise the original
+  concurrent-save and queued-shutdown races.
+- **Validation callers:** production validation helpers now use the shared
+  full-range Fermi evaluator instead of duplicating the `exp(-500)` floor.
+  This intentionally changes conservative solve-source fingerprints.
+  No metadata-only rebind was performed and no regenerated artifact was
+  promoted. The current Fig. 3, Fig. 7, and four Fischer-2024 promoted
+  families therefore remain **source-stale** until their real producers run
+  on the final committed tree. Their numerical payloads are historical
+  evidence, not current-source certification.
+
+One finding was refuted and added to
+`CODE-REVIEW-FALSE-POSITIVES.md`: non-positive/NaN densities in
+`chemical_potentials_kelvin` are deliberate failed-sweep markers, scoped to
+that plotting/inversion helper. At this Round-6 snapshot the promoted
+transient baseline was still historical strict-v3 evidence. The later
+strict-v4 producer binds executable source, configuration, and numerical
+runtime through a source manifest, but requires a genuine v4 regeneration
+before the canonical pair is current. That source binding is separate from
+trajectory evidence: the sparse stored snapshots do not independently certify
+the intervening ETD2 path, which remains owned by the slow live-recomputation
+test.
+
+Frozen-tree verification: Ruff passed, mypy passed all 75 source files, and
+the full default pytest collection completed with **2327 passed, 18
+deselected, 12 warnings, and 7 failures in 833.43 s**. The seven failures
+were exactly the predeclared currentness gates: Fig. 3 configuration and
+promoted-pair authentication, Fig. 7 configuration, and the four
+Fischer-2024 promoted families. No other test failed.
+
+## 2026-07-28 Round-8 regeneration and validation-pipeline closeout
+
+This closeout supersedes the source-stale working snapshot immediately above;
+that snapshot remains in place as dated history. The final current working
+tree now has current-source canonical Fischer-2023 Fig. 3/5/6/7 bundles:
+
+- **Fig. 3:** all 14 continuation steps completed in `12022.121 s` aggregate
+  step time. The final CSV/PDF/validation-record SHA-256 values are
+  `2264f6c09f2917d5863d274a5edbaf0e8484e9ec86e51018720cf868a4378616`,
+  `1f3c762a461a83d999dc9013ecd1f167c2c2f6963b2208ef518e211833e20e43`,
+  and `6776776f643e73667fe4f836c8352ded670f4e0c239addbf5f85516e53b3f89b`.
+  The unchanged authenticated raw-array payload is
+  `78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45`;
+  an independent closeout reconciliation corrected two status-table entries
+  whose formerly recorded full hash had the same visible prefix/suffix but
+  incorrect interior bytes. The finite-ratio `n_ph` qualification remains in
+  the validation record.
+- **Fig. 5:** six independent continuation rows produced all 81 points under
+  identity
+  `01e22c384d6473ec12df22bf3f557af544cd66a6d8f2fc12b80b1d610dedcccb`
+  in `9380.161 s` wall (`35471.716 s` aggregate worker time).
+  CSV/PDF-A/PDF-B/promotion/campaign SHA-256 values are
+  `4e187e3286e45cb45e0a0b580789559fb8989044e7c80e9b5c10090b80af80df`,
+  `d12bb18591102a7a833edde026cb0581b50bd225f0846004a6d6534b4400895c`,
+  `e630769039c2853c4209dd33bbcac74493bc9a5048b9e95788df341191ce6bd5`,
+  `a48cbc150aec9952b5175e25416c5e7a656318442d27dd64950ab8b044ef391a`,
+  and `f43d2938e31a2011f6e9a816fd1e2489a50e0a9dee704f250693b4abe9efb3fa`.
+  The campaign JSON is a separately published binding companion, not a member
+  of the CSV/two-PDF/promotion-record transaction.
+- **Fig. 6:** all 66 points completed under identity
+  `cbfb0006b55835435ba5e0d84580d03b3ae8ab996f34203c6c8119071bdf9a43`
+  in `15223.850 s` wall (`43470.213 s` aggregate worker time).
+  CSV/PDF/promotion SHA-256 values are
+  `8a833204a6f3c718d821f62fcfc171704f9453f5ab3e76480539c1c9b18842ac`,
+  `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`,
+  and `af620406d2f9007d8f4135a8ec6678931318d4de70c7f10bb7fd964568f958bd`.
+- **Fig. 7:** all 48 independent points completed under identity
+  `ea1664421e7697ad60de52384d59c04fd01db351553d965c3dac92db5c476a8c`
+  and solve digest
+  `d674caa55e5bebd0d73bc46e6620dc8eeb6d0d2cfca94c5298b6ed44fbf53fb5`
+  in `4387.907 s` wall (`15458.707 s` aggregate worker time).
+  CSV/PDF/promotion SHA-256 values are
+  `2bb97283a3ff93257896f756a4f491fc798cc4644a00ff89d7cedab9d3a15634`,
+  `d0c3029fb780f8e4c6954b66c78b3a9ef16a67d9fef91608b24630f157d17586`,
+  and `32fc656b270839378696ac76f55fc62207b49f1304e720f609baed225166f37d`.
+
+The deeper Round-8 validation-pipeline review changed the interpretation of
+these artifacts. At that closeout there was no tracked Fischer/Catelani
+paper-data oracle: no scraped or digitized curves, source raster, panel/crop
+calibration, extracted points, or quantitative alignment score. The
+comparison helpers rasterized qpsim PDFs and placed a caller-supplied paper
+image beside them. Canonical CSVs are qpsim-generated data. They prove
+artifact provenance/currentness, qpsim-to-qpsim regression, and
+discretized-equation certificate consistency, plus broad manual anchors; they
+do **not** themselves prove pointwise paper parity.
+`CODE-REVIEW-FALSE-POSITIVES.md` records both the refuted “hidden scraped
+data” premise and the then-genuine missing capability.
+
+## 2026-07-28 Round-9 independent Fig. 6 paper-data oracle
+
+Round 9 implemented the missing capability for Fischer-2023 Fig. 6 without
+touching or replaying the expensive producer:
+
+- the exact arXiv-v2 source archive is bound at
+  `5a656709…2ce3cf`; its original author `gap_test.png` member is bound at
+  `31ea18e5…11a29` with dimensions, DPI, software metadata, and panel crop;
+- `oracle.json` records two-axis fit and held-out tick controls, residual
+  limits, explicit color/trace identity, a non-crossing separation guard,
+  sampling geometry, and a conservative raster uncertainty model;
+- the extractor rejects source/member/hash drift, nonopaque RGBA input,
+  calibration drift, ambiguous traces, path escape, and existing-output
+  races. Replaying the exact archive reproduces the 42-row `points.csv`
+  byte-for-byte;
+- `comparison-spec.json` separately maps the dashed analytic traces to
+  `paper_observable_eq53` and solid numerical traces to
+  `paper_observable_num`, fixes piecewise-linear interpolation with no
+  extrapolation (including each x-uncertainty interval), and binds the exact
+  promoted CSV/promotion record;
+- the deterministic score binds the oracle, points, mapping, scorer sources,
+  and canonical qpsim identities. It byte-attests the exact promoted
+  CSV/record but does not decode and recertify all 66 stored states; the
+  authoritative replay remains the separate slow gate under the recorded
+  single-thread environment. The final checked `score.json` is
+  `360646f27610a22e746436abd8c0f3cd149ac6d7b41a37f3a01444f33cff2629`;
+  19 focused checks pass with one exact-source opt-in skip, and 20/20 pass
+  when the bound arXiv-v2 source archive is supplied.
+
+The result is substantive. The three independently digitized dashed controls
+pass with maximum raster-uncertainty-normalized errors `0.388`, `0.200`, and
+`0.253`, which strongly checks calibration and curve identity. The solid
+numerical curves fail with maxima `8.05`, `9.13`, and `7.59`; maximum relative
+discrepancies are about `33%`, `39%`, and `37%` over seven sampled points on
+the visible rising branch (`T*/Delta ≈ 0.250–0.410`). Unsampled curve regions
+are not characterized. A one-time independent linear-versus-PCHIP check on
+this exact snapshot did not explain the difference; that check is audit
+evidence, not a recomputed or persisted score field. The recorded status is
+therefore
+`diagnostic_mismatch` and `numerical_parity_accepted=false`. It remains
+`gate_eligible=false`, not because the mismatch is ignored, but because
+paper-parameter and qpsim-discretization uncertainties are still unbounded in
+the comparison-specific error budget.
+
+The Fig. 5/6 fast tripwires now authenticate scalar identities, axes, and
+stored certificate columns without transitively replaying every persisted
+state several times. They reject negative/nonfinite metrics and explicitly
+gate the amplitude-sensitive QP-number certificate. One deliberate full-state
+replay remains in the non-manual slow tier. Fig. 6 also has a separately
+authenticated, noncanonical signed diagnostic that exposes all finite
+numerical and Eq. 53 samples outside the paper-window plot. Its publisher
+locks the canonical snapshot and both output resources, uses unique
+stage/rollback paths, refuses canonical or renderer-source drift, commits the
+timezone-aware UTC timestamp into the PDF, and records the forced `Agg`
+backend. Final diagnostic PDF/JSON/renderer SHA-256 values are
+`1b6fcbad941343427c3909c4c0f0d56b261a896ff431cf22f36f2d763582dc39`,
+`03facc0568e06b889a872aa86a778da4c6261f5bb7546518626a18d06320447a`,
+and `166a01034b7c8b4a502b5e3cab00c9ed1bf9ca9bfd3a5e68c73f8a47f4bafc46`.
+
+Terminal machine evidence on the final numerical source/test tree:
+
+- default selection: **2509 passed, 1 intentional opt-in skip, 20
+  deselected, and 12 warnings in 836.01 s**;
+- bounded non-manual slow selection: **15 passed, 1 expected Figs. 9–13
+  quarantine xfail, 2514 deselected, and 1 warning in 4497.19 s**; and
+- explicit external Fig. 5 archive reauthentication:
+  **1 passed in 96.14 s**, covering all six raw campaign rows under the exact
+  recorded single-thread environment.
+
+The final static rerun also passed: Ruff clean, mypy clean across all 75
+`qpsim` source files, bytecode compilation clean for `qpsim`, `tests`,
+`validation`, and `scripts`, and `git diff --check` clean apart from Git's
+Windows LF-to-CRLF advisories.
+
+This closes current-tree local regression and artifact evidence; it does not
+close the independent scientific-validation work. Remaining scope includes
+extending paper-data oracles beyond Fig. 6, bounding Fig. 6 parameter and grid
+uncertainties, Fig. 5 commensurate-grid refinement, optional Fig. 6
+direct-mode/grid refinement, the quarantined Figs. 9–13 convergence problem,
+and explicitly selected `manual_slow` release producers. This closeout is
+frozen in the publication commit containing this paragraph. Hosted CI and any
+merge decision remain separate actions.
+
+## 2026-07-28 hosted slow-gate portability follow-up
+
+GitHub Actions run `30409496531` passed the static and default gates on Python
+3.13 and 3.14, then failed the same three slow nodes on both jobs. All three
+were confirmed validation defects:
+
+- **Fischer-2023 Fig. 5:** exact-state replay was sound, but the reader compared
+  cancellation-floor raw residuals and reduction-sensitive diagnostics to the
+  Windows producer almost bit-for-bit. Producer stamps remain authenticated
+  and must satisfy the original `1e-9` scientific gates. Reader-host QP and
+  number certificates independently retain `1e-9`; the freshly reassembled
+  phonon backward-error envelope is narrowly measured at `1e-8` (hosted Linux
+  maximum `7.41369469811521e-9`). Raw diagnostics must be finite and
+  nonnegative but are not physical observables.
+- **Fischer-2023 Fig. 6:** the persisted equilibrium gap and a Linux
+  recomputation differed by one binary64 ULP. Dividing through
+  `Delta_0 - Delta_eq ≈ 8.32e-8 µeV` amplified that harmless root drift to
+  about `8.95e-6` relative in the derived suppression ratio. The current
+  calibration still authenticates the stored equilibrium gap near-bitwise;
+  producer-derived ratios are rebuilt from the authenticated persisted
+  producer anchor. Producer and fresh scientific certificates are gated
+  independently, while raw diagnostics are finite/nonnegative. Historical
+  worker semantic hashes continue to use the exact producer-stamped arrays
+  after fresh recertification succeeds.
+- **Fischer-2024 Fig. 5:** the `1e-2 Hz` producer stopped at
+  `qp_number_backward_error = 9.565e-7`, effectively on the `1e-6`
+  cross-platform curve boundary. Tightening the solve gate to `1e-7` reduced
+  the regenerated certificate to about `4.58e-13`; the hosted discrepancy
+  collapsed from `1.033e-6` to about `3.2e-9` relative. Only the high-drive
+  column changed; `E`, the thermal seed, and the two lower-drive columns are
+  byte-identical.
+
+The two expensive F23 artifacts were provenance-rebound without numerical
+reruns:
+
+- Fig. 5 promotion schema v3 separates the immutable historical producer from
+  the current publication fingerprint. It verifies all 84 producer source
+  hashes against commit `269c5633258a2fc66236a5cd7fe7ef9dacad41ed`,
+  binds the original campaign/artifact tuple, rejects changed rows or
+  solve-relevant configuration, and promotes the commit marker last with
+  fail-closed rollback. All 81 numerical rows, payload
+  `d35c6d5c6d4a2e152ad079538bd6aa874332a5a6156a1b6d55c060876147ceb9`,
+  PDFs, and campaign bytes are unchanged. New CSV/promotion SHA-256 values are
+  `c114a291559f98bacf76416657116fb224d539d5a97ca804d4bad9f9618198bf`
+  and `b1f86b0d669d3dabe467b04f3d4a175e3ff1f7131a9346237919214a56447f5f`.
+- Fig. 6 retains all 66 numerical rows, payload
+  `5b237ad6b6f8f5dfb3f97d3669948827e34740d0f7dbe1d8203477b2defb39ab`,
+  PDF `52f7372c53ac87b3039f6461aa94188d714f86524b65579a2ca68dc7694a0837`,
+  historical run identity, and all three worker semantic hashes. New
+  CSV/promotion SHA-256 values are
+  `5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c`
+  and `a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823`.
+
+The downstream Fig. 6 paper-data comparison was rebound to those exact
+current CSV/promotion identities as well. Its 42 extracted paper points, all
+six curve scores, and the `diagnostic_mismatch` verdict are unchanged; only
+the comparison-spec digest and qpsim artifact identities changed. The
+resulting checked score SHA-256 is
+`d92243ff16c619117914713bbbbb913308f9dca05c035a70d56bcec66d2446b1`.
+
+A pre-push adversarial pass then found four weaknesses in the new Fig. 5
+verifier itself. Current-production writes could retain unrelated under-limit
+producer certificate stamps; the historical campaign runner digest was
+internally self-consistent but not checked against the attested Git commit;
+the six campaign rows were not bound to the exact upper/lower panel topology;
+and copied/noncanonical bundles lacked a per-record lock plus a final
+multi-file identity recheck. All four are fixed. Same-runtime writes now bind
+every stamp near-bitwise to a fresh reconstruction, while only the private
+one-shot migration writer may retain separately gated historical stamps. The
+migration verifies both the 84-file producer manifest and runner blob at
+`269c563…41ed`, requires the exact six-row topology, and locks/rechecks every
+supplied commit-marker tuple. The lock uses `O_CREAT` plus read/write mode on
+both Windows and Linux/WSL rather than append semantics. Focused evidence:
+18 provenance/transaction tests, three synthetic campaign tests, and the
+portable-lock test on Windows and WSL all pass. These hardening edits changed
+the shared source fingerprint, so Fig. 5, Fig. 6, and the dependent paper
+score were rebound once more from their unchanged historical payloads; no
+numerical producer was rerun.
+
+A final independent diff review found the analogous policy boundary in the
+Fig. 6 writer: cross-runtime readers correctly gate historical producer
+stamps and fresh reader-host certificates separately, but current-production
+writes had inherited that permissive policy and could retain arbitrary
+under-limit stamps. Current writes now require near-bitwise agreement with
+their same-runtime reconstruction; the private migration writer alone may
+retain separately authenticated historical stamps. An adversarial regression
+pins both paths. The resulting Fig. 6 source-only rebind again preserved all
+66 numerical rows, payload, PDF, historical run identity, and worker hashes;
+the downstream paper score changed only in its provenance identities.
+
+The three formerly failing nodes pass together on Windows
+(`3 passed in 196.04 s`) and native Linux (`3 passed in 202.75 s`). The
+expanded changed-area selection passes 188 tests with two intentional
+external-input skips and seven slow deselections. The complete default
+selection passes 2,557 tests with two intentional skips, 20 slow
+deselections, and 12 expected warnings in `1130.00 s`. Ruff, mypy, and diff
+checks are clean. Hosted CI remains the authoritative remote verdict.
+
+## 2026-07-28 M25 hosted-default portability follow-up
+
+The next hosted run, `30423446933` at `f319bf5`, failed during the default
+suite before reaching the slow gate: both Python 3.13 and 3.14 reported the
+same 13 Marchegiani-2025 failures. The count was a reader cascade with two
+roots:
+
+- Fig. 3 chemical/paper residual stamps and a fresh reconstruction were both
+  valid by the source-scaled scientific criterion, but the reader additionally
+  required their cancellation-floor values to agree across hosts. That
+  comparison has no numerical meaning. Bundle-authenticated producer stamps
+  must now be finite, nonnegative, correctly shaped, and have residual ratio
+  at most one. The independently reassembled reader-host metrics must pass the
+  same conditions. The two near-zero families are never compared.
+- The Eq. 8 crossover bundle put all 63 materialized `np.logspace` values in
+  its configuration fingerprint and then required bitwise equality to a
+  freshly generated host axis. The fingerprint now records the semantic
+  minimum, maximum, point count, and log spacing. The reader permits only a
+  `1e-15` relative axis difference with zero absolute floor and recomputes the
+  closed form from the authenticated persisted axis. Tests accept a one-ULP
+  perturbation and reject a `1e-10` relative grid change.
+
+The certificate schema is now
+`m25-source-scaled-residual-v3` with policy `independently-gated`.
+Adversarial checks separately reject malformed or above-limit producer stamps
+and an above-limit fresh reconstruction. The wrong-state test continues to
+reject a doubled density through full-state residual reassembly.
+
+Five bundles were transactionally republished: Fig. 3 chemical potentials,
+Fig. 3 paper topology, Fig. 4 paper topology, Fig. 4 parity rates, and the
+Fig. 3 crossover. The four shared-state bundles were generated in one process
+so their branch-sweep cache was common. All eight CSV numerical payload hashes
+are unchanged:
+
+- Fig. 3 panel a: `8ea4d439a9266006f2a971e2d8d23fbf9fe135b864c12f4cd4d1524407d39cfe`;
+- Fig. 3 panel b: `603c1d167bb7524c7aaf94995c3376488ad7797f331e2f1099a98b5f13a3fa49`;
+- Eq. 8 crossover: `a15362b516023141fb0f3b28dbb700b17399f8a316001bdda6bb1a202afda90a`;
+- Fig. 4 paper: `cd78fa0801621892c3ad8548123f08cbdf431dd2495e2bd9c02b5517f9de3407`;
+- Fig. 4 parity panels a/b:
+  `2f61f7af3e42fdd90329e9eb852aedd03b4fabae05e7e01dd54bcf2ae0380c1e`
+  and
+  `710dfee19e269485c0686742cdff9097cb1378468b3207992c6eb083b60127d6`.
+
+The full M25 directory passes 37 tests on Windows and on native Linux using
+the hosted Python 3.14.6 / NumPy 2.5.1 / SciPy 1.18 stack. The complete
+Windows default suite passes **2559 tests, 2 intentional skips, 20 slow
+deselections, and 12 warnings in 1061.47 s**. A Linux full run reached 2557
+passes; its only two failures were Git-history tests unable to resolve a
+Windows absolute `.git` path from the WSL-linked worktree. Both pass when the
+worktree's `GIT_DIR` and `GIT_WORK_TREE` are mapped into WSL. Ruff and mypy
+remain clean. Hosted CI on the corrective commit remains the final remote
+portability verdict.
+
 ## Full audit record
 
 Original 2026-07-19 workflow findings (including its 40 lows and five
 subsequently refuted false positives): machine-readable record committed at
 [`audit-2026-07-19-findings.json`](audit-2026-07-19-findings.json); human
 summary at `C:\tmp\qpsim-audit-2026-07-19-fable-report.md` (off-repo). Later
-external-review and Round-6/7 adjudications are recorded in this document and
+external-review and Round-6–9 adjudications are recorded in this document and
 [`CODE-REVIEW-FALSE-POSITIVES.md`](CODE-REVIEW-FALSE-POSITIVES.md), not in
 that original workflow JSON.

@@ -42,9 +42,8 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
     phonon_source_sink_jacobian_f,
 )
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.solvers.newton_steady_state import (
     _gain_loss_sum,
     _is_exact_absorbing_vacuum,
@@ -386,11 +385,7 @@ def coupled_newton_solve(
 
     n_th = thermal_phonon_occupation(omega_bins, T_bath)
     inv_tau_l = 1.0 / tau_l
-    if T_bath > 0.0:
-        kT = T_bath * KB_UEV_PER_K
-        f_th = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
-    else:
-        f_th = np.zeros_like(ctx.E)
+    f_th = fermi_dirac_occupation(ctx.E, T_bath)
 
     thermal_map_is_canonical: bool | None = None
 

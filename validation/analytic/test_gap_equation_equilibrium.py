@@ -21,11 +21,11 @@ import numpy as np
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.gap_equation import calibrate_gap, solve_gap
+from qpsim.physics.spectral import fermi_dirac_occupation
 
 
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 class TestGapEquilibriumFischerScale:

@@ -22,12 +22,22 @@ from __future__ import annotations
 import numpy as np
 
 from qpsim.constants import KB_UEV_PER_K as _KB_UEV_PER_K
-from qpsim.physics.spectral import coherence_factor_minus, coherence_factor_plus
+from qpsim.physics.spectral import (
+    _energy_over_kbt,
+    coherence_factor_minus,
+    coherence_factor_plus,
+)
 
 
 def _finite_energy_grid(E_bins: np.ndarray) -> np.ndarray:
     """Return a one-dimensional, non-empty, finite floating energy grid."""
-    E = np.asarray(E_bins, dtype=float)
+    raw = np.asarray(E_bins)
+    if np.iscomplexobj(raw):
+        raise ValueError("E_bins must be real-valued.")
+    try:
+        E = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("E_bins must be a real numeric array.") from exc
     if E.ndim != 1:
         raise ValueError("E_bins must be a 1D array.")
     if E.size == 0:
@@ -39,7 +49,14 @@ def _finite_energy_grid(E_bins: np.ndarray) -> np.ndarray:
 
 def _finite_scalar(name: str, value: float) -> float:
     """Return ``value`` as a float, rejecting NaN and infinity."""
-    result = float(value)
+    if isinstance(value, (bool, np.bool_)) or np.iscomplexobj(value):
+        raise ValueError(f"{name} must be a finite real scalar; got {value!r}.")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must be a finite real scalar; got {value!r}."
+        ) from exc
     if not np.isfinite(result):
         raise ValueError(f"{name} must be finite; got {result}.")
     return result
@@ -66,23 +83,30 @@ def _bose_occupation_from_exponent(exponent: np.ndarray) -> np.ndarray:
 
     The exact zero-frequency mode is assigned zero occupation because it is a
     decoupled, zero-transfer bookkeeping bin in qpsim's discrete phonon grid.
-    Positive exponents use ``expm1`` so that energy spacings below machine
-    epsilon do not collapse to a false zero denominator.  If the mathematical
-    occupation exceeds binary64 range, the result saturates at the largest
-    finite float rather than introducing an infinity into downstream products.
+    Positive exponents are evaluated as ``exp(-x) / -expm1(-x)``: ``expm1``
+    resolves arbitrarily small transfers, while the negative-exponent form
+    preserves representable occupations through the subnormal range instead
+    of overflowing at ``exp(x)``.  If the mathematical occupation exceeds
+    binary64 range, the result saturates at the largest finite float rather
+    than introducing an infinity into downstream products.  ``x = +inf`` is
+    the exact limiting zero occupation.
     """
-    x = np.asarray(exponent, dtype=float)
-    if np.any(~np.isfinite(x)) or np.any(x < 0.0):
-        raise ValueError("Bose exponents must be finite and non-negative.")
+    raw = np.asarray(exponent)
+    if np.iscomplexobj(raw):
+        raise ValueError("Bose exponents must be real-valued.")
+    x = np.asarray(raw, dtype=float)
+    if np.any(np.isnan(x)) or np.any(x < 0.0):
+        raise ValueError("Bose exponents must be non-negative and not NaN.")
 
     occupation = np.zeros_like(x)
     positive = x > 0.0
     if not np.any(positive):
         return occupation
 
-    denominator = np.expm1(np.minimum(x[positive], 500.0))
-    with np.errstate(divide="ignore", over="ignore"):
-        values = 1.0 / denominator
+    positive_x = x[positive]
+    with np.errstate(divide="ignore", over="ignore", under="ignore"):
+        exp_negative = np.exp(-positive_x)
+        values = exp_negative / (-np.expm1(-positive_x))
     occupation[positive] = np.minimum(values, np.finfo(float).max)
     return occupation
 
@@ -92,19 +116,19 @@ def _thermal_bose_occupation(
     temperature: float,
 ) -> np.ndarray:
     """Return a stable Bose occupation for non-negative energy transfers."""
-    energy = np.asarray(energy_transfer, dtype=float)
+    raw_energy = np.asarray(energy_transfer)
+    if np.iscomplexobj(raw_energy):
+        raise ValueError("Bose energy transfers must be real-valued.")
+    energy = np.asarray(raw_energy, dtype=float)
     if np.any(~np.isfinite(energy)) or np.any(energy < 0.0):
         raise ValueError("Bose energy transfers must be finite and non-negative.")
     temperature_value = _positive_scalar("temperature", temperature)
 
-    # Divide in two stages instead of forming k_B*T, which can overflow for a
-    # finite extreme temperature. A positive ratio that underflows to zero
-    # represents an occupation beyond binary64 range, so feed the smallest
-    # positive exponent to the saturating evaluator rather than confusing it
-    # with the exact zero-transfer bookkeeping mode.
-    with np.errstate(divide="ignore", over="ignore", under="ignore"):
-        exponent = (energy / _KB_UEV_PER_K) / temperature_value
-    exponent = np.minimum(exponent, 500.0)
+    # A positive ratio that mathematically underflows to zero represents an
+    # occupation beyond binary64 range. Feed the smallest positive exponent
+    # to the saturating evaluator rather than confusing it with the exact
+    # zero-transfer bookkeeping mode.
+    exponent = _energy_over_kbt(energy, temperature_value)
     underflowed = (energy > 0.0) & (exponent == 0.0)
     if np.any(underflowed):
         exponent = exponent.copy()
@@ -120,10 +144,17 @@ def thermal_phonon_occupation(
 
     Returns zeros at ``temperature == 0``. The exact ``omega == 0`` bookkeeping
     mode is also zero because it carries no energy transfer. Finite positive
-    values are returned for positive frequencies and temperatures; the
-    exponent is clipped at 500 for numerical safety.
+    values are returned for positive frequencies and temperatures throughout
+    the representable binary64 range; physically underflowed occupations are
+    returned as zero.
     """
-    omega = np.asarray(omega_bins, dtype=float)
+    raw_omega = np.asarray(omega_bins)
+    if np.iscomplexobj(raw_omega):
+        raise ValueError("omega_bins must be real-valued.")
+    try:
+        omega = np.asarray(raw_omega, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("omega_bins must be a real numeric array.") from exc
     if omega.ndim != 1:
         raise ValueError("omega_bins must be a 1D array.")
     if np.any(~np.isfinite(omega)):

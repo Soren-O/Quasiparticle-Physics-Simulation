@@ -1,4 +1,4 @@
-"""Fischer 2023 Figs 9-13 — Q_i(P_read) via the self-consistent n̄ loop.
+"""Development-only Fischer 2023 Sec. V Q_i(P_read) characterization.
 
 Sweeps drive power ``P_read`` log-spaced from -100 dBm to -60 dBm at
 fixed ``T_B = 0.1 K`` and records ``Q_i``, ``Q_tot``, and the
@@ -23,16 +23,19 @@ Parameters (Fischer 2023 Table I / default ``qi_vs_pread``):
     T_B      = 0.1 K
     P_read   ∈ [-100, -60] dBm, 21 log-spaced points
 
-Grid: 405 bins (ω_0/dE = 5 integer). Tolerance tier per NFP §6.4.1
-is 1e-4 (nbar-loop tol × MB sub-gap quadrature).
+Grid: 405 bins (ω_0/dE = 5 integer). If an independently refined artifact is
+eventually promoted, its nominal tolerance tier per NFP §6.4.1 is 1e-4
+(nbar-loop tol × MB sub-gap quadrature). There is currently no active accepted
+pin.
 
 Artifact policy
 ---------------
 
-The historical CSV predates versioned solver certificates and is deliberately
-quarantined by :func:`read_baseline`. A development artifact may be generated
-with the command below, but it must not replace the canonical pin until an
-independent energy-grid refinement study supports promotion.
+The historical canonical CSV predates versioned solver certificates and is
+deliberately quarantined by :func:`read_baseline`. The command below writes
+distinct ``*.development.{csv,pdf}`` files; it does not replace the historical
+canonical path. Development output must not be promoted until an independent
+energy-grid refinement study supports it.
 
 Development generation::
 
@@ -67,7 +70,7 @@ from qpsim.materials.database import Material
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.nbar_loop import dbm_to_uev_per_ns, solve_nbar_loop
 
 from validation.source_provenance import canonical_source_bytes
@@ -158,8 +161,7 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    kT = KB_UEV_PER_K * T_bath
-    f_FD = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    f_FD = fermi_dirac_occupation(E, T_bath)
     return T3DiffusionState(
         f=f_FD,
         gap=DELTA_0,
@@ -418,6 +420,17 @@ def baseline_path() -> Path:
 
 def plot_path() -> Path:
     return baseline_path().with_suffix(".pdf")
+
+
+def development_baseline_path() -> Path:
+    """Noncanonical output path for the unpromoted refinement candidate."""
+    canonical = baseline_path()
+    return canonical.with_name(f"{canonical.stem}.development{canonical.suffix}")
+
+
+def development_plot_path() -> Path:
+    """Noncanonical plot path paired with :func:`development_baseline_path`."""
+    return development_baseline_path().with_suffix(".pdf")
 
 
 _METADATA_KEYS = frozenset(
@@ -740,7 +753,7 @@ def write_plot(result: Figs913Result, path: Path | None = None) -> Path:
 
 
 def generate_baseline() -> tuple[Path, Path]:
-    print("Fischer 2023 Figs 9-13 — Q_i(P_read) via n̄ loop ...")
+    print("Fischer 2023 Sec. V development characterization — Q_i(P_read) via n̄ loop ...")
     print(
         f"  Δ₀={DELTA_0} μeV, τ_0={TAU_0} ns, ω_0={OMEGA_0:.2f} μeV, "
         f"α={ALPHA_KI}, Q_c={Q_C:g}, T_B={T_BATH} K"
@@ -753,10 +766,11 @@ def generate_baseline() -> tuple[Path, Path]:
         f"  n̄ spans  {result.n_bar.min():.2e} → {result.n_bar.max():.2e}, "
         f"iterations mean = {result.iterations.mean():.1f}"
     )
-    csv_path = write_baseline(result)
-    pdf_path = write_plot(result)
-    print(f"  Baseline CSV: {csv_path}")
-    print(f"  PDF plot:     {pdf_path}")
+    csv_path = write_baseline(result, development_baseline_path())
+    pdf_path = write_plot(result, development_plot_path())
+    print(f"  Development CSV: {csv_path}")
+    print(f"  Development PDF: {pdf_path}")
+    print("  Not an accepted pin; independent energy-grid refinement is still required.")
     return csv_path, pdf_path
 
 

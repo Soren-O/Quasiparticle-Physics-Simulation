@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from qpsim.observables.ac_conductivity import compute_ac_conductivity
+from qpsim.observables.ac_conductivity import (
+    _finite_real_scalar,
+    compute_ac_conductivity,
+)
 from qpsim.physics.spectral import SpectralContext
 
 
@@ -34,6 +37,9 @@ def compute_frequency_shift(
     is undefined unless the current response is also zero; that case fails
     loudly rather than being mislabeled as no shift.
     """
+    alpha = _finite_real_scalar("alpha", alpha)
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must lie in [0, 1].")
     _, s2 = compute_ac_conductivity(f, ctx, omega_0, n_subgap=n_subgap)
     _, s2_ref = compute_ac_conductivity(f_ref, ctx, omega_0, n_subgap=n_subgap)
 

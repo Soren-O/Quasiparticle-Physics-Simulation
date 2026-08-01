@@ -31,9 +31,11 @@ on the form of the diffusion operator. qpsim is an open-source (MIT), pure NumPy
 framework that solves the energy-resolved kinetic equations for f(E,x,t) coupled to phonons
 n_ph(ω,t) and a self-consistent gap Δ(x,t), composes multi-region devices with junctions and
 qubits, and maps solutions to experimental observables (x_qp, σ₁/σ₂, Q_i, δf_r, parity rates).
-Every physics channel is pinned by analytic identities (exact discrete detailed balance,
-Mattis–Bardeen limits) and by quantitative reproductions of published results from three
-papers (Fischer & Catelani 2023, 2024; Marchegiani & Catelani 2025). The diffusion-operator
+Physics channels are pinned by analytic identities (exact discrete detailed balance,
+Mattis–Bardeen limits) and paper-topology numerical regressions derived from three
+papers (Fischer & Catelani 2023, 2024; Marchegiani & Catelani 2025). These are
+qpsim-generated regression artifacts, not an independent digitized-data comparison.
+The diffusion-operator
 family it implements is the subject of the companion theory paper [qp-diffusion], which
 adjudicates the correct operator; qpsim is the reference implementation of that result.
 
@@ -144,20 +146,24 @@ Three layers, in increasing integration:
 1. **Analytic identities** (run in the default gate): detailed balance vanishing at
    (f_FD, n_BE) for all three collision channels; Mattis–Bardeen thermal limits; gap-equation
    round-trip — `validation/analytic/`.
-2. **Literature reproductions** (the validation spine; `validation/{fischer_2023,
+2. **Literature-derived numerical regressions** (the validation spine; `validation/{fischer_2023,
    fischer_2024, marchegiani_2025}/` + pinned CSV baselines):
    - F23 Fig. 3 — f(E) under sub-gap drive, finite τ_l family.
    - F23 Figs. 5/6 — x_qp and gap enhancement/suppression observable.
    - F23 Fig. 7 (+9–13) — MKID chain: Q_i(T_B), Q_i(P_read) with self-consistent n̄ loop.
-   - F24 Figs. 5–7 — pair-breaking-photon f(E) (+ Neumann-series analytic overlays).
+   - F24 Figs. 5–7 — pair-breaking-photon f(E); placeholder Neumann-series
+     estimates are explicitly non-canonical until derived.
    - F24 Fig. 8 — x_qp(T_B) under fixed PB drive.
    - M25 Eq. 8 — Lambert-W crossover T̄ (machine precision).
-   - M25 Fig. 3 — three chemical potentials (~2% agreement, T ≤ 75 mK).
+   - M25 Fig. 3 — three chemical potentials; authenticated qpsim
+     paper-topology regression with broad manual anchors, not a digitized
+     pointwise agreement measurement.
    - M25 Fig. 4 — parity-switching rate + eo ratio.
 3. **Operator benchmarks** (shared with Paper 1; cite, show at most one).
 
-Presentation rule: figures show **qpsim output only**, with published curves digitized and
-overlaid where licensing permits, otherwise quantitative agreement stated in text/table.
+Presentation rule: figures show **qpsim output only**. A future validation
+campaign may digitize and overlay published curves where licensing permits;
+that quantitative paper-data layer is not currently implemented in this tree.
 Never reprint published figure panels (avoids permissions entirely).
 
 ### §6 Demonstration: an end-to-end device study
@@ -199,14 +205,14 @@ solver not yet wired into the spatial path (verify current status at drafting ti
 | # | Content | Generator / source | Status |
 |---|---------|--------------------|--------|
 | 1 | Pipeline + architecture schematic (JJ source → f(E,x,t) ⇄ n_ph → σ₁/σ₂ → δf_r, Q_i; package layers) | new (TikZ/vector); prelim deck slide 2 as basis | to make |
-| 2 | F23 Fig. 3 reproduction: f(E) family over τ_l/τ_PB | `validation/fischer_2023/fig3_*.py` | ONGOING — π/2 threshold residual ticket; overlays optional |
-| 3 | F23 Figs. 5+6 panel: x_qp sweeps + gap observable | `fig5_paper.py`, `fig6_gap_suppression.py` | PAPER-PARITY GAPS — Eq. 47 overlay placeholder; fig6 ordinate + Eq. 53 overlay |
+| 2 | F23 Fig. 3 reproduction: f(E) family over τ_l/τ_PB | `validation/fischer_2023/fig3_*.py` | authenticated qpsim regression; source-honest Round-8 regeneration in progress; no digitized parity |
+| 3 | F23 Figs. 5+6 panel: x_qp sweeps + gap observable | `fig5_paper.py`, `fig6_paper.py` | Eq. 47/Eq. 53 helpers and overlays implemented; state-bound current-source regeneration in progress; no digitized parity |
 | 4 | MKID chain: Q_i(T_B) and Q_i(P_read) | `fig7_with_drive.py`, `figs_9_13_qi_vs_pread.py` | model-only framing OK for this paper |
-| 5 | F24 PB-photon f(E) + Neumann overlays; x_qp(T_B) | `validation/fischer_2024/*.py` | ONGOING — overlays + Hz/ns⁻¹ unit audit |
-| 6 | M25 junction: T̄(g^ph) Lambert-W + μ_α(T) + Γ_P(T) | `validation/marchegiani_2025/*.py` | done 2026-07-04 — Γ̄ normalization fix + `solve_rate_equation_branch`; curves match published figures (linear μ to T̄ ≈ 146 mK, Γ_P low-T dip) |
+| 5 | F24 PB-photon f(E) + x_qp(T_B) | `validation/fischer_2024/*.py` | hardened current qpsim artifacts complete; analytic paper overlays remain absent |
+| 6 | M25 junction: T̄(g^ph) Lambert-W + μ_α(T) + Γ_P(T) | `validation/marchegiani_2025/*.py` | authenticated bundles complete after the Γ̄ normalization fix; broad paper anchors checked manually, with no digitized pointwise parity |
 | 7 | One operator benchmark (self-consistent feedback well) | `validation/diffusion_operators/self_consistent_feedback.py` | done (Paper 1 Fig. 5); re-render, don't reuse the exact Paper 1 figure |
 | 8 | Al-strip device study: δf_r / Q_i vs (τ_l, D₀) | `scripts/run_prelim_*.py` | rerun on current main; prelim numbers exist |
-| 9 | Transient photon kick f(E,t), x_qp(t) → steady state | `validation/transient/photon_kick_response.py` | needs paired regression test first |
+| 9 | Transient photon kick f(E,t), x_qp(t) → steady state | `validation/transient/photon_kick_response.py` | strict-v3 paired artifact/regression implemented; current-source regeneration in progress |
 | 10 | Web UI screenshot (1D strip mode) | `qpsim-ui` | trivial once figures frozen |
 
 Figure style: one shared matplotlib style file for the whole paper; colorblind-safe palette
@@ -216,21 +222,23 @@ Figure style: one shared matplotlib style file for the whole paper; colorblind-s
 ## 6. Gap-closure work list (before/during drafting)
 
 Blocking for their figures (from `qpsim_validation_plan` status tags + 2026-07-02 review):
-1. F23 Fig. 5: replace thermal-at-T* placeholder with verified Eq. 47 analytic overlay.
-2. F23 Fig. 6: paper ordinate (δΔ_T−δΔ)/δΔ_T, reuse finite-τ_l sweep, Eq. 53 overlay.
+1. F23 Fig. 5: Eq. 47 overlay is implemented; finish current-source
+   regeneration and numerical qualification.
+2. F23 Fig. 6: paper ordinate and Eq. 53 overlay are implemented; finish the
+   state-bound parallel campaign and numerical qualification.
 3. F23 Fig. 3: threshold-discretization residual (asymptotic-fit extraction ticket); check
    `_paper_envelope.py:64` Airy-argument precedence (review item 4) — it touches this
    figure's dashed overlay.
-4. F24 Figs. 5/8: Neumann-series + analytic-density overlays; pin the Hz ↔ ns⁻¹ unit audit
-   into the paired regression tests.
+4. F24 Figs. 5/8: source/runtime artifact hardening is complete; the paper
+   analytic overlays remain an explicit separate gap.
 5. ~~M25 Figs. 3/4~~ done 2026-07-04, and bigger than planned: the "multi-stability" was a
    Γ̄ = Γ̃/N_CP(R) normalization bug in the density equations (M25 text below Eq. 6); with
    the fix the root is unique. `solve_rate_equation_branch` (continuation driver) shipped,
    real global-QE + renormalized comparison models implemented, all baselines regenerated,
-   corrected anchors documented in STATUS.md. Paper §5 must cite the corrected agreement
-   (μ linear to T̄ ≈ 146 mK; Γ_P ≈ 1.7 kHz @ 10 mK vs paper ~1.9), not the old pseudo-root
-   numbers.
-6. Transient demo: add the paired regression test (flagged in `Validation_Chain.md`).
+    corrected broad manual anchors documented in STATUS.md. Paper §5 must
+    label them as manual anchors rather than a digitized agreement metric.
+6. Transient demo: paired strict-v3 regression implemented; preserve its
+   provenance/currentness and trajectory/certificate checks.
 7. Rerun the prelim sweep campaigns (§6 figures) on current main — prelim numbers predate
    the ×2 recombination fix and the 2026-07 fixes, so all demo numbers must be regenerated.
 8. Performance table: benchmark on one stated reference machine.

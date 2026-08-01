@@ -34,11 +34,10 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.materials.database import Material
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 from validation.fischer_2023.steady_state_certificate import (
-    CERTIFICATE_FIELDS,
-    CERTIFICATE_METRIC_VERSION,
+    NUMBER_CERTIFICATE_FIELDS,
     NUMBER_CERTIFICATE_METRIC_VERSION,
     QP_NUMBER_CERTIFICATE_FIELD,
     steady_state_certificate,
@@ -60,14 +59,7 @@ NUM_BINS = 1620
 # Eq. 35 prefactor (μeV^6) — A·n̄ has units μeV^6, (A·n̄)^(1/6) is in μeV.
 # Sets the n̄ sweep axes below, so it is solve-affecting and lives here;
 # fig5_paper._kBTstar_eq35 imports it for the analytic T_* overlay.
-_A_EQ35 = (
-    (105.0 / 64.0)
-    * (KB_UEV_PER_K * T_C) ** 3
-    * C_PHOT
-    * TAU_0
-    * OMEGA_0 ** 2
-    * DELTA_0
-)
+_A_EQ35 = (105.0 / 64.0) * (KB_UEV_PER_K * T_C) ** 3 * C_PHOT * TAU_0 * OMEGA_0**2 * DELTA_0
 
 # Upper panel — three bath temperatures, swept over n̄ chosen so the
 # T_*/Δ axis (Eq. 35) covers the paper's plotted range [0.30, 0.95].
@@ -131,7 +123,7 @@ def _build_grid_and_spectral(
     m = round(OMEGA_0 / dE_scalar)
     if abs(OMEGA_0 - m * dE_scalar) / OMEGA_0 > 1e-10:
         raise RuntimeError(
-            f"Fischer Fig. 5 paper grid not commensurate: ω_0={OMEGA_0}, m·dE={m*dE_scalar}"
+            f"Fischer Fig. 5 paper grid not commensurate: ω_0={OMEGA_0}, m·dE={m * dE_scalar}"
         )
     spectral = SpectralContext(E_bins=E, dE_bins=dE, gap=DELTA_0)
     return E, dE, spectral
@@ -140,25 +132,30 @@ def _build_grid_and_spectral(
 def _compute_tau_0_pb(spectral: SpectralContext) -> float:
     """Same definition as :func:`fig3_solve._compute_tau_0_pb`."""
     K_r0_phonon_side = build_recombination_kernel_phonon_side(
-        spectral, tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
+        spectral,
+        tau_0_pb_ns=PAPER_TAU_0_PB_PS / 1000.0,
     )
     omega_bins, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(
         spectral.E,
     )
     f_zero = np.zeros(spectral.E.size)
     _, b_ph = compute_phonon_source_sink(
-        f_zero, spectral, None, None,
-        idx_diff, idx_sum, diff_sign,
+        f_zero,
+        spectral,
+        None,
+        None,
+        idx_diff,
+        idx_sum,
+        diff_sign,
         omega_bins.size,
-        enable_scattering=False, enable_recombination=True,
+        enable_scattering=False,
+        enable_recombination=True,
         K_r0_phonon_side=K_r0_phonon_side,
     )
     threshold = 2.0 * spectral.gap
     above = (omega_bins >= threshold) & (b_ph < -1e-30)
     if not np.any(above):
-        raise RuntimeError(
-            "Could not find a phonon bin above 2Δ with a pair-breaking rate."
-        )
+        raise RuntimeError("Could not find a phonon bin above 2Δ with a pair-breaking rate.")
     first_idx = int(np.argmax(above))
     return float(1.0 / -b_ph[first_idx])
 
@@ -183,8 +180,7 @@ def _build_state(
         branches=[PhononBranchSpec(name="debye_average")],
     )
     if f_seed is None:
-        kT = KB_UEV_PER_K * T_bath
-        f_seed = 1.0 / (np.exp(np.minimum(spectral.E / kT, 500.0)) + 1.0)
+        f_seed = fermi_dirac_occupation(spectral.E, T_bath)
     return T3DiffusionState(
         f=f_seed.copy(),
         gap=DELTA_0,
@@ -213,14 +209,12 @@ def _solve_picard(
 
 def _check_tau_0_pb(tau_0_pb: float) -> None:
     tau_ps = tau_0_pb * 1000.0
-    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns "
-          f"({tau_ps:.1f} ps)")
+    print(f"  tau_0^PB (phonon-side extracted)     = {tau_0_pb:.4f} ns ({tau_ps:.1f} ps)")
     print(f"  Paper-quoted tau_0^PB                 ~= {PAPER_TAU_0_PB_PS:.0f} ps")
     ratio = tau_ps / PAPER_TAU_0_PB_PS
     if ratio > TAU_0_PB_WARN_FACTOR or ratio < 1.0 / TAU_0_PB_WARN_FACTOR:
         print(
-            f"  WARNING: tau_0^PB normalization mismatch: "
-            f"extracted/paper = {ratio:.2f}x.",
+            f"  WARNING: tau_0^PB normalization mismatch: extracted/paper = {ratio:.2f}x.",
             flush=True,
         )
 
@@ -262,12 +256,10 @@ def solve(
     upper_n_ph = np.zeros((up_T.size, up_N.size, omega_bins.size))
     lower_n_ph = np.zeros((lo_N.size, lo_T.size, omega_bins.size))
     upper_certificates = {
-        field: np.zeros((up_T.size, up_N.size), dtype=float)
-        for field in CERTIFICATE_FIELDS
+        field: np.zeros((up_T.size, up_N.size), dtype=float) for field in NUMBER_CERTIFICATE_FIELDS
     }
     lower_certificates = {
-        field: np.zeros((lo_N.size, lo_T.size), dtype=float)
-        for field in CERTIFICATE_FIELDS
+        field: np.zeros((lo_N.size, lo_T.size), dtype=float) for field in NUMBER_CERTIFICATE_FIELDS
     }
 
     print("Upper panel -- sweep nbar at three T_B:")
@@ -276,11 +268,17 @@ def solve(
         n_ph_seed: np.ndarray | None = None
         for j, n_bar in enumerate(up_N):
             state = _build_state(
-                material, spectral, float(T_bath), tau_l,
-                f_seed=f_seed, n_ph_seed=n_ph_seed,
+                material,
+                spectral,
+                float(T_bath),
+                tau_l,
+                f_seed=f_seed,
+                n_ph_seed=n_ph_seed,
             )
             photon_params = {
-                "omega_0": OMEGA_0, "n_bar": float(n_bar), "c_phot": C_PHOT,
+                "omega_0": OMEGA_0,
+                "n_bar": float(n_bar),
+                "c_phot": C_PHOT,
             }
             converged = _solve_picard(backend, state, photon_params)
             upper_f[i, j] = converged.f
@@ -290,7 +288,7 @@ def solve(
                 photon_params=photon_params,
                 tau_l=tau_l,
             )
-            for field in CERTIFICATE_FIELDS:
+            for field in NUMBER_CERTIFICATE_FIELDS:
                 upper_certificates[field][i, j] = certificate[field]
             _require_certified_point(
                 certificate,
@@ -299,8 +297,7 @@ def solve(
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
             print(
-                f"  upper  T_B={float(T_bath):.2f} K  "
-                f"nbar={float(n_bar):.2e}",
+                f"  upper  T_B={float(T_bath):.2f} K  nbar={float(n_bar):.2e}",
                 flush=True,
             )
 
@@ -310,11 +307,17 @@ def solve(
         n_ph_seed = None
         for j, T_bath in enumerate(lo_T):
             state = _build_state(
-                material, spectral, float(T_bath), tau_l,
-                f_seed=f_seed, n_ph_seed=n_ph_seed,
+                material,
+                spectral,
+                float(T_bath),
+                tau_l,
+                f_seed=f_seed,
+                n_ph_seed=n_ph_seed,
             )
             photon_params = {
-                "omega_0": OMEGA_0, "n_bar": float(n_bar), "c_phot": C_PHOT,
+                "omega_0": OMEGA_0,
+                "n_bar": float(n_bar),
+                "c_phot": C_PHOT,
             }
             converged = _solve_picard(backend, state, photon_params)
             lower_f[i, j] = converged.f
@@ -324,7 +327,7 @@ def solve(
                 photon_params=photon_params,
                 tau_l=tau_l,
             )
-            for field in CERTIFICATE_FIELDS:
+            for field in NUMBER_CERTIFICATE_FIELDS:
                 lower_certificates[field][i, j] = certificate[field]
             _require_certified_point(
                 certificate,
@@ -333,8 +336,7 @@ def solve(
             f_seed = converged.f.copy()
             n_ph_seed = converged.phonon.n_ph[0, :, 0].copy()
             print(
-                f"  lower  nbar={float(n_bar):.2e}  "
-                f"T_B={float(T_bath):.3f} K",
+                f"  lower  nbar={float(n_bar):.2e}  T_B={float(T_bath):.3f} K",
                 flush=True,
             )
 
@@ -401,10 +403,7 @@ def solver_fingerprint(*, num_bins: int = NUM_BINS) -> dict[str, Any]:
         "gap_mode": "fixed",
         "solver": dict(SOLVER_KWARGS),
         "picard_mixing": 0.30,
-        "certificate_metric_version": CERTIFICATE_METRIC_VERSION,
-        "certificate_fields": list(CERTIFICATE_FIELDS),
-        "live_number_certificate_metric_version": (
-            NUMBER_CERTIFICATE_METRIC_VERSION
-        ),
+        "certificate_metric_version": NUMBER_CERTIFICATE_METRIC_VERSION,
+        "certificate_fields": list(NUMBER_CERTIFICATE_FIELDS),
         "target_backward_error_limit": TARGET_BACKWARD_ERROR_LIMIT,
     }

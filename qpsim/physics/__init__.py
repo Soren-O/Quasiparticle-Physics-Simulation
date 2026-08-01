@@ -20,6 +20,10 @@ _EXPORTS = {
     "coherence_factor_plus": ("qpsim.physics.spectral", "coherence_factor_plus"),
     "constant_tau_l": ("qpsim.physics.phonon_escape", "constant_tau_l"),
     "dynes_density_of_states": ("qpsim.physics.spectral", "dynes_density_of_states"),
+    "fermi_dirac_occupation": (
+        "qpsim.physics.spectral",
+        "fermi_dirac_occupation",
+    ),
     "kaplan_S_plus": ("qpsim.physics.kaplan_pair_breaking", "kaplan_S_plus"),
     "kaplan_S_plus_numerical": (
         "qpsim.physics.kaplan_pair_breaking",

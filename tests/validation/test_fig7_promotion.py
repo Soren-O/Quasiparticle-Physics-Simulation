@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -59,6 +62,47 @@ def _producer() -> tuple[fig7_paper.Fig7ProducerIdentity, Path]:
     return fig7_paper.capture_producer_identity(runner), runner
 
 
+def test_complete_pdf_record_rejects_token_shaped_blank_pdf(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "token-shaped-blank.pdf"
+    prefix = (
+        b"%PDF-1.4\n"
+        b"/Type /Catalog\n"
+        b"/Type /Pages\n"
+        b"/Type /Page\n"
+    )
+    path.write_bytes(
+        prefix
+        + b"xref\n"
+        + b"startxref\n"
+        + str(len(prefix)).encode("ascii")
+        + b"\n%%EOF"
+    )
+
+    with pytest.raises(RuntimeError, match="one-page Matplotlib PDF"):
+        fig7_paper.complete_pdf_record(path)
+
+
+def test_observable_contract_fingerprints_shared_pdf_parser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    visited: list[Path] = []
+    original = fig7_paper.source_provenance.canonical_source_bytes
+
+    def tracking_source(path: Path) -> bytes:
+        visited.append(path.resolve())
+        return original(path)
+
+    monkeypatch.setattr(
+        fig7_paper.source_provenance,
+        "canonical_source_bytes",
+        tracking_source,
+    )
+    assert len(fig7_paper.observable_contract_digest()) == 64
+    assert Path(fig7_paper._pdf_validation.__file__).resolve() in visited
+
+
 def test_shared_publisher_binds_pair_and_writes_durable_attestation(
     tmp_path: Path,
 ) -> None:
@@ -91,6 +135,7 @@ def test_shared_publisher_binds_pair_and_writes_durable_attestation(
         csv_path,
         companion_pdf_path=pdf_path,
         require_companion_pdf=True,
+        accept_producer_certificate_claims=True,
     )
     fig7_paper._assert_same_result(result, restored)
     attestation = fig7_paper.validate_promotion_attestation(
@@ -100,6 +145,10 @@ def test_shared_publisher_binds_pair_and_writes_durable_attestation(
         expected_producer=producer,
     )
     assert attestation["campaign"] == {"mode": "unit-test"}
+    assert (
+        attestation["certificate_scope"]
+        == fig7_paper.SUMMARY_CERTIFICATE_SCOPE
+    )
     assert len(attestation["point_hashes"]) == 48
 
 
@@ -160,11 +209,12 @@ def test_pdf_and_attestation_corruption_are_rejected(tmp_path: Path) -> None:
 
     original_pdf = pdf_path.read_bytes()
     pdf_path.write_bytes(original_pdf + b"trailing-corruption")
-    with pytest.raises(RuntimeError, match="terminal PDF EOF"):
+    with pytest.raises(RuntimeError, match="one-page Matplotlib PDF"):
         fig7_paper.read_baseline(
             csv_path,
             companion_pdf_path=pdf_path,
             require_companion_pdf=True,
+            accept_producer_certificate_claims=True,
         )
     pdf_path.write_bytes(original_pdf)
 
@@ -172,6 +222,34 @@ def test_pdf_and_attestation_corruption_are_rejected(tmp_path: Path) -> None:
     payload["artifacts"]["csv"]["sha256"] = "0" * 64
     attestation_path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(RuntimeError, match="authenticate csv"):
+        fig7_paper.validate_promotion_attestation(
+            attestation_path,
+            csv_path=csv_path,
+            pdf_path=pdf_path,
+            expected_producer=producer,
+        )
+
+
+def test_attestation_rejects_wrong_producer_certificate_scope(
+    tmp_path: Path,
+) -> None:
+    result = _full_result()
+    producer, runner = _producer()
+    csv_path = tmp_path / "fig7.csv"
+    pdf_path = tmp_path / "fig7.pdf"
+    attestation_path = tmp_path / "fig7.promotion.json"
+    fig7_paper.publish_baseline_pair(
+        result,
+        producer=producer,
+        runner_path=runner,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+    )
+    payload = json.loads(attestation_path.read_text(encoding="utf-8"))
+    payload["certificate_scope"] = "independently-reassembled"
+    attestation_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="producer-certificate scope"):
         fig7_paper.validate_promotion_attestation(
             attestation_path,
             csv_path=csv_path,
@@ -219,17 +297,19 @@ def test_canonical_read_requires_an_intact_promotion_attestation(
         pdf_path=pdf_path,
         attestation_path=attestation_path,
     )
-    fig7_paper.read_baseline()
+    with pytest.raises(RuntimeError, match="producer assertions only"):
+        fig7_paper.read_baseline()
+    fig7_paper.read_baseline(accept_producer_certificate_claims=True)
 
     original = attestation_path.read_bytes()
     attestation_path.unlink()
     with pytest.raises(fig7_paper.LegacyArtifactError, match="no current"):
-        fig7_paper.read_baseline()
+        fig7_paper.read_baseline(accept_producer_certificate_claims=True)
     attestation_path.write_bytes(b"{not-json")
     with pytest.raises(RuntimeError, match="Cannot read"):
-        fig7_paper.read_baseline()
+        fig7_paper.read_baseline(accept_producer_certificate_claims=True)
     attestation_path.write_bytes(original)
-    fig7_paper.read_baseline()
+    fig7_paper.read_baseline(accept_producer_certificate_claims=True)
 
 
 def test_canonical_read_is_portable_across_consumer_runtime(
@@ -264,8 +344,167 @@ def test_canonical_read_is_portable_across_consumer_runtime(
         attestation_path=attestation_path,
     )
 
-    restored = fig7_paper.read_baseline()
+    restored = fig7_paper.read_baseline(
+        accept_producer_certificate_claims=True,
+    )
     fig7_paper._assert_same_result(result, restored)
+    assert restored.certificate_scope == fig7_paper.SUMMARY_CERTIFICATE_SCOPE
+
+
+def test_canonical_readers_refuse_snapshot_while_publication_lock_is_held(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _full_result()
+    producer, runner = _producer()
+    csv_path = tmp_path / "fig7.csv"
+    pdf_path = tmp_path / "fig7.pdf"
+    attestation_path = tmp_path / "fig7.promotion.json"
+    fig7_paper.publish_baseline_pair(
+        result,
+        producer=producer,
+        runner_path=runner,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+    )
+    _make_paths_canonical(
+        monkeypatch,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+    )
+
+    with fig7_paper._publication_lock(attestation_path):
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.read_baseline(
+                accept_producer_certificate_claims=True,
+            )
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.read_baseline_metadata()
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.validate_promotion_attestation(
+                attestation_path,
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+            )
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.publish_baseline_pair(
+                result,
+                producer=producer,
+                runner_path=runner,
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                attestation_path=attestation_path,
+            )
+
+
+def test_publisher_holds_lock_across_every_canonical_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _full_result()
+    producer, runner = _producer()
+    csv_path = tmp_path / "fig7.csv"
+    pdf_path = tmp_path / "fig7.pdf"
+    attestation_path = tmp_path / "fig7.promotion.json"
+    _make_paths_canonical(
+        monkeypatch,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+    )
+    replacements = 0
+
+    def guarded_replace(source: Path, destination: Path) -> object:
+        nonlocal replacements
+        replacements += 1
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.read_baseline(
+                accept_producer_certificate_claims=True,
+            )
+        return os.replace(source, destination)
+
+    fig7_paper.publish_baseline_pair(
+        result,
+        producer=producer,
+        runner_path=runner,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+        replace_file=guarded_replace,
+    )
+    assert replacements == 3
+
+
+def test_cross_process_lock_excludes_canonical_reader_and_publisher(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _full_result()
+    producer, runner = _producer()
+    csv_path = tmp_path / "fig7.csv"
+    pdf_path = tmp_path / "fig7.pdf"
+    attestation_path = tmp_path / "fig7.promotion.json"
+    ready = tmp_path / "ready"
+    release = tmp_path / "release"
+    _make_paths_canonical(
+        monkeypatch,
+        csv_path=csv_path,
+        pdf_path=pdf_path,
+        attestation_path=attestation_path,
+    )
+    script = """
+import sys
+import time
+from pathlib import Path
+from validation.fischer_2023.fig7_paper import _publication_lock
+
+attestation, ready, release = map(Path, sys.argv[1:4])
+with _publication_lock(attestation):
+    ready.write_text("ready", encoding="utf-8")
+    while not release.exists():
+        time.sleep(0.01)
+"""
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(attestation_path),
+            str(ready),
+            str(release),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    try:
+        deadline = time.monotonic() + 10.0
+        while (
+            not ready.exists()
+            and process.poll() is None
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert ready.exists(), "child failed to acquire the Fig. 7 artifact lock"
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.read_baseline_metadata()
+        with pytest.raises(RuntimeError, match="publisher or reader"):
+            fig7_paper.publish_baseline_pair(
+                result,
+                producer=producer,
+                runner_path=runner,
+                csv_path=csv_path,
+                pdf_path=pdf_path,
+                attestation_path=attestation_path,
+            )
+    finally:
+        release.write_text("release", encoding="utf-8")
+        try:
+            process.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10.0)
+    assert process.returncode == 0
 
 
 def test_post_run_validation_independently_authenticates_worker_payloads(

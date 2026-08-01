@@ -1,4 +1,4 @@
-"""Regression test: M25 Eq. 8 crossover-T̄ sweep matches pinned CSV."""
+"""Eq. 8 formula-transcription self-regression against its pinned CSV."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from validation.marchegiani_2025.fig3_crossover_temperature import (
 )
 
 
-def test_matches_pinned_baseline() -> None:
+def test_formula_transcription_matches_pinned_self_regression() -> None:
     path = baseline_path()
     if not path.exists():
         pytest.skip(
@@ -33,8 +33,9 @@ def test_matches_pinned_baseline() -> None:
     np.testing.assert_allclose(
         result.g_photon_R_Hz, baseline.g_photon_R_Hz, rtol=1e-15, atol=0.0,
     )
-    # Eq. 8 is a closed-form Lambert-W evaluation — the whole sweep
-    # should reproduce to floating-point precision from run to run.
+    # Eq. 8 is a closed-form Lambert-W evaluation. This verifies source and
+    # artifact currentness to floating-point precision; it is not an
+    # independent numerical validation of the formula.
     np.testing.assert_allclose(
         result.T_bar_kelvin, baseline.T_bar_kelvin, rtol=1e-12, atol=0.0,
     )

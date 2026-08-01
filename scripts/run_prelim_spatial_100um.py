@@ -26,13 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState, T3SpatialFlux1D
-from qpsim.constants import HBAR_UEV_NS, KB_UEV_PER_K
+from qpsim.constants import HBAR_UEV_NS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
+from scripts.run_prelim_spatial_overnight import _cell_centered_strip_grid
 
 
 OUT_DIR = ROOT / "outputs" / "prelim_spatial_100um"
@@ -62,8 +63,7 @@ KINETIC_INDUCTANCE_FRACTION = 0.08
 def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     if T <= 0.0:
         return np.zeros_like(E, dtype=float)
-    kT = KB_UEV_PER_K * T
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T)
 
 
 def _build_state(D0: float) -> T3Spatial1DState:
@@ -81,7 +81,7 @@ def _build_state(D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x = np.linspace(0.0, LENGTH_UM, NX)
+    x, _dx_um = _cell_centered_strip_grid(NX, length_um=LENGTH_UM)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], NX, axis=1)
     return T3Spatial1DState(
         f=f0,
@@ -210,7 +210,7 @@ def main() -> None:
         f_ref = _mean_f(state)
         flux = _source_flux(state)
         backend = T3Spatial1DBackend()
-        dx_um = LENGTH_UM / (NX - 1)
+        dx_um = state.dx
         dt = min(DT_NS, CFL_TARGET * dx_um * dx_um / D0)
         print(f"  dt={dt:g} ns (diffusion number {D0 * dt / dx_um**2:.1f})", flush=True)
         result = backend.run_until_steady_state(

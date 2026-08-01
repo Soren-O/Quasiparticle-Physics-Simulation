@@ -58,14 +58,13 @@ def _synthetic_result() -> target.Fig8PaperResult:
             )
             for drive in target.PAPER_DRIVES_HZ
         },
-        x_qp_ana_by_drive={
-            d: np.full(T_bath.size, target._xqp_analytic_pb(d * target.HZ_TO_NS_INV))
-            for d in target.PAPER_DRIVES_HZ
-        },
         qp_backward_error_by_drive={
             d: np.full(T_bath.size, 1.0e-8) for d in target.PAPER_DRIVES_HZ
         },
         qp_residual_inf_by_drive={d: np.full(T_bath.size, 1.0e-12) for d in target.PAPER_DRIVES_HZ},
+        qp_number_backward_error_by_drive={
+            d: np.full(T_bath.size, 1.0e-9) for d in target.PAPER_DRIVES_HZ
+        },
         f_by_drive=f_by_drive,
     )
 
@@ -83,12 +82,19 @@ def _write_baseline(result: target.Fig8PaperResult, path: Path) -> Path:
     return target.write_baseline(result, path, producer=producer)
 
 
+def _read_summary(path: Path | None = None) -> target.Fig8PaperResult:
+    return target.read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
+
+
 @pytest.fixture
 def _synthetic_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         target,
         "qp_certificate",
-        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-12),
+        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-12, 1.0e-9),
     )
 
 
@@ -98,19 +104,78 @@ def test_unit_audit_pinned() -> None:
     target._assert_unit_audit()
 
 
+def test_v5_schema_contains_numerical_curves_only() -> None:
+    assert target.ARTIFACT_SCHEMA.endswith(".v5")
+    columns = target._columns()
+    assert len(columns) == 2 + len(target.PAPER_DRIVES_HZ)
+    assert all("x_qp_num_" in column for column in columns[2:])
+    assert not any(
+        token in column
+        for column in columns
+        for token in ("ana", "analytic", "heuristic", "placeholder")
+    )
+
+
+def test_plot_emits_only_thermal_and_numerical_curves(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from matplotlib.axes import Axes
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    titles: list[str] = []
+    original_loglog = Axes.loglog
+    original_set_title = Axes.set_title
+
+    def recording_loglog(
+        self: Axes,
+        *args: object,
+        **kwargs: object,
+    ) -> list[object]:
+        calls.append((args, kwargs))
+        return original_loglog(self, *args, **kwargs)
+
+    def recording_set_title(
+        self: Axes,
+        label: str,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        titles.append(label)
+        return original_set_title(self, label, *args, **kwargs)
+
+    monkeypatch.setattr(Axes, "loglog", recording_loglog)
+    monkeypatch.setattr(Axes, "set_title", recording_set_title)
+    target.write_plot(_synthetic_result(), tmp_path / "fig8.pdf")
+
+    assert len(calls) == 1 + len(target.PAPER_DRIVES_HZ)
+    assert calls[0][0][2] == "k--"  # thermal reference only
+    assert all(call[0][2] == "-" for call in calls[1:])
+    assert any("borrowed from the Fig. 5 caption" in title for title in titles)
+    assert any("topology only" in title for title in titles)
+
+
 def test_current_artifact_round_trips(
     tmp_path: Path,
     _synthetic_certificate: None,
 ) -> None:
     reference = _synthetic_result()
     path = _write_baseline(reference, tmp_path / "fig8_paper.csv")
-    decoded = target.read_baseline(path)
+    with pytest.raises(ArtifactValidationError, match="producer assertions only"):
+        target.read_baseline(path)
+    decoded = _read_summary(path)
     np.testing.assert_array_equal(decoded.T_bath, reference.T_bath)
     assert decoded.drives_hz == target.PAPER_DRIVES_HZ
+    assert decoded.f_by_drive is None
+    assert decoded.certificate_scope == target.SUMMARY_CERTIFICATE_SCOPE
     for drive in target.PAPER_DRIVES_HZ:
         np.testing.assert_array_equal(
             decoded.qp_backward_error_by_drive[drive],
             np.full(reference.T_bath.size, 1.0e-8),
+        )
+        np.testing.assert_array_equal(
+            decoded.qp_number_backward_error_by_drive[drive],
+            np.full(reference.T_bath.size, 1.0e-9),
         )
     assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
 
@@ -159,7 +224,7 @@ def test_reader_rejects_invalid_artifacts(
 
     _rewrite_csv(path, mutate)
     with pytest.raises(ArtifactValidationError) as captured:
-        target.read_baseline(path)
+        _read_summary(path)
     assert not isinstance(captured.value, LegacyArtifactError)
 
 
@@ -194,7 +259,7 @@ def test_temperature_reset_and_full_state_strong_to_weak_continuation(
     monkeypatch.setattr(
         target,
         "qp_certificate",
-        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-12),
+        lambda *_args, **_kwargs: QPCertificate(1.0e-8, 1.0e-12, 1.0e-9),
     )
 
     target.run()
@@ -227,7 +292,7 @@ def test_reduced_sweep_returns_independently_certified_state(
     residual = result.qp_residual_inf_by_drive[1.0e-2][0]
     assert np.isfinite(backward) and backward <= TARGET_QP_BACKWARD_ERROR_LIMIT
     assert np.isfinite(residual) and residual <= TARGET_QP_RESIDUAL_INF_LIMIT
-    decoded = target.read_baseline(
+    decoded = _read_summary(
         _write_baseline(result, tmp_path / "reduced_fig8.csv")
     )
     np.testing.assert_allclose(
@@ -246,13 +311,13 @@ def test_archived_legacy_artifact_is_explicitly_rejected() -> None:
         / target.baseline_path().name
     )
     with pytest.raises(ArtifactValidationError, match=r"legacy|wrong schema"):
-        target.read_baseline(legacy_path)
+        _read_summary(legacy_path)
 
 
-def test_promoted_canonical_is_current_and_certified() -> None:
+def test_promoted_canonical_is_current_summary_with_producer_claims() -> None:
     path = target.baseline_path()
-    assert path.is_file(), f"Promoted strict-v2 canonical is missing at {path}."
-    baseline = target.read_baseline(path)
+    assert path.is_file(), f"Promoted current-schema canonical is missing at {path}."
+    baseline = _read_summary(path)
     np.testing.assert_array_equal(baseline.T_bath, target.T_BATH_VALUES)
     assert baseline.drives_hz == target.PAPER_DRIVES_HZ
 
@@ -263,7 +328,7 @@ def test_matches_pinned_baseline() -> None:
     if not path.exists():
         pytest.xfail(f"Certified baseline not found at {path}.")
     try:
-        baseline = target.read_baseline(path)
+        baseline = _read_summary(path)
     except LegacyArtifactError as exc:
         pytest.xfail(f"Legacy uncertified canonical baseline is quarantined: {exc}")
 
@@ -280,7 +345,7 @@ def test_matches_pinned_baseline() -> None:
         result.x_qp_thermal,
         baseline.x_qp_thermal,
         rtol=1e-6,
-        atol=1e-14,
+        atol=0.0,
     )
     for drive in result.drives_hz:
         np.testing.assert_allclose(

@@ -1,4 +1,4 @@
-"""Regression test for the Fischer 2023 Fig. 7 paper-facing validation."""
+"""Fig. 7 paper-topology qpsim regression; no digitized-data comparison."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from validation.fischer_2023.fig7_paper import (
     QP_LOSS_CROSS_PLATFORM_RTOL,
     QP_LOSS_REGRESSION_ATOL,
     QP_LOSS_REGRESSION_RTOL,
+    SUMMARY_CERTIFICATE_SCOPE,
     T_BATH_VALUES,
     LegacyArtifactError,
     baseline_path,
@@ -81,12 +82,10 @@ def test_live_gate_thresholds_all_three_backward_errors(field: str) -> None:
         _require_certified_point(certificate, context="test point")
 
 
-def _assert_certified_baseline_balances(base) -> None:
+def _assert_producer_certificate_claims_within_limits(base) -> None:
     for field in NUMBER_CERTIFICATE_FIELDS:
         values = getattr(base, field)
-        assert np.all(np.isfinite(values)), (
-            f"certified baseline has non-finite {field}"
-        )
+        assert np.all(np.isfinite(values)), f"producer certificate summary has non-finite {field}"
     for field in (
         "qp_backward_error",
         "phonon_backward_error",
@@ -94,7 +93,7 @@ def _assert_certified_baseline_balances(base) -> None:
     ):
         values = getattr(base, field)
         assert np.all(values <= TARGET_BACKWARD_ERROR_LIMIT), (
-            f"certified baseline {field} exceeds "
+            f"producer certificate summary {field} exceeds "
             f"{TARGET_BACKWARD_ERROR_LIMIT:g}: {values.tolist()}"
         )
 
@@ -111,7 +110,10 @@ def _assert_config_matches_baseline(path) -> None:
     """
     cfg = config_metadata()
     meta = read_baseline_metadata(path)
-    base = read_baseline(path)
+    base = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
+    )
 
     assert cfg.num_bins == meta.num_bins, (
         f"grid NE config={cfg.num_bins} != baseline {meta.num_bins}"
@@ -127,13 +129,12 @@ def _assert_config_matches_baseline(path) -> None:
     assert cfg.tau_l == pytest.approx(meta.tau_l)
     assert cfg.tau_0_pb == pytest.approx(meta.tau_0_pb)
     assert cfg.certificate_metric_version == meta.certificate_metric_version
-    assert (
-        cfg.certificate_metric_version
-        == NUMBER_CERTIFICATE_METRIC_VERSION
-    )
+    assert cfg.certificate_metric_version == NUMBER_CERTIFICATE_METRIC_VERSION
     assert cfg.target_backward_error_limit == pytest.approx(
         meta.target_backward_error_limit,
     )
+    assert cfg.artifact_schema == meta.artifact_schema
+    assert cfg.certificate_scope == meta.certificate_scope
     assert cfg.solve_contract_digest == meta.solve_contract_digest
     assert cfg.observable_contract_digest == meta.observable_contract_digest
     assert meta.generator_platform
@@ -146,32 +147,26 @@ def _assert_config_matches_baseline(path) -> None:
         "regenerate the baseline or restore the power set before the slow run."
     )
     np.testing.assert_allclose(
-        np.asarray(T_BATH_VALUES, dtype=float), base.T_bath,
-        rtol=0.0, atol=1e-14,
+        np.asarray(T_BATH_VALUES, dtype=float),
+        base.T_bath,
+        rtol=0.0,
+        atol=1e-14,
         err_msg="T_bath axis (range/count) differs from baseline",
     )
     for p in base.p_read_dbm:
         assert _nbar_from_table_iii(p) == pytest.approx(
-            base.n_bar_by_dbm[p], rel=1e-12,
+            base.n_bar_by_dbm[p],
+            rel=1e-12,
         ), f"n_bar(P={p:g} dBm) config != baseline — Table III T*/Δ mapping changed?"
-    _assert_certified_baseline_balances(base)
+    _assert_producer_certificate_claims_within_limits(base)
 
 
 def test_config_matches_baseline_metadata() -> None:
     """Fast tripwire (not slow-marked): config fingerprint matches the pinned
     baseline header. Mirrors the inline gate in the slow test below."""
     path = baseline_path()
-    if not path.exists():
-        pytest.skip(f"Baseline not found at {path}.")
-    if "certificate_metric_version=" not in path.read_text(encoding="utf-8"):
-        pytest.xfail(
-            "legacy Fig. 7 baseline is not independently certified; "
-            "the active full regeneration must complete before preflight can pass"
-        )
-    try:
-        _assert_config_matches_baseline(path)
-    except LegacyArtifactError as error:
-        pytest.xfail(str(error))
+    assert path.is_file(), f"Promoted Fig. 7 baseline is missing at {path}."
+    _assert_config_matches_baseline(path)
 
 
 def test_reproducible_solver_contract_is_tight() -> None:
@@ -215,18 +210,14 @@ def test_regression_tolerances_are_platform_scoped() -> None:
             atol=QP_LOSS_REGRESSION_ATOL,
         )
     with pytest.raises(AssertionError):
-        np.testing.assert_allclose(
-            hosted_q_tot, pinned_q_tot, rtol=strict_q_tot, atol=0.0
-        )
+        np.testing.assert_allclose(hosted_q_tot, pinned_q_tot, rtol=strict_q_tot, atol=0.0)
     np.testing.assert_allclose(
         hosted_loss,
         pinned_loss,
         rtol=portable_loss,
         atol=QP_LOSS_REGRESSION_ATOL,
     )
-    np.testing.assert_allclose(
-        hosted_q_tot, pinned_q_tot, rtol=portable_q_tot, atol=0.0
-    )
+    np.testing.assert_allclose(hosted_q_tot, pinned_q_tot, rtol=portable_q_tot, atol=0.0)
     with pytest.raises(AssertionError):
         np.testing.assert_allclose([1.009], [1.0], rtol=portable_loss, atol=0.0)
     with pytest.raises(AssertionError):
@@ -259,10 +250,11 @@ def test_matches_pinned_baseline() -> None:
         pytest.xfail(str(error))
 
     metadata = read_baseline_metadata(path)
-    loss_rtol, q_tot_rtol = fig7_regression_tolerances(
-        metadata.generator_platform
+    loss_rtol, q_tot_rtol = fig7_regression_tolerances(metadata.generator_platform)
+    baseline = read_baseline(
+        path,
+        accept_producer_certificate_claims=True,
     )
-    baseline = read_baseline(path)
     result = run(
         temperatures=tuple(float(x) for x in baseline.T_bath),
         powers_dbm=baseline.p_read_dbm,
@@ -290,7 +282,8 @@ def test_matches_pinned_baseline() -> None:
             ),
         )
         np.testing.assert_allclose(
-            result.Q_tot_by_dbm[p], baseline.Q_tot_by_dbm[p],
+            result.Q_tot_by_dbm[p],
+            baseline.Q_tot_by_dbm[p],
             rtol=q_tot_rtol,
             atol=0.0,
             err_msg=(
@@ -316,16 +309,15 @@ def test_low_temperature_plateau_is_extrinsic_limited() -> None:
     assert q_qp > 1e3 * q_ext
     assert q_tot > 0.999 * q_ext
 
-    baseline = read_baseline(baseline_path())
-    matching = np.flatnonzero(
-        np.isclose(baseline.T_bath, 0.06, rtol=0.0, atol=1e-14)
+    baseline = read_baseline(
+        baseline_path(),
+        accept_producer_certificate_claims=True,
     )
+    matching = np.flatnonzero(np.isclose(baseline.T_bath, 0.06, rtol=0.0, atol=1e-14))
     assert matching.size == 1
     baseline_index = int(matching[0])
     metadata = read_baseline_metadata(baseline_path())
-    loss_rtol, q_tot_rtol = fig7_regression_tolerances(
-        metadata.generator_platform
-    )
+    loss_rtol, q_tot_rtol = fig7_regression_tolerances(metadata.generator_platform)
     np.testing.assert_allclose(
         1.0 / q_qp,
         1.0 / baseline.Q_qp_by_dbm[-64.0][baseline_index],
@@ -411,9 +403,7 @@ class TestFig7CacheIntegration:
                     getattr(res, field),
                     getattr(ref, field),
                 )
-            assert res.n_bar_by_dbm[-64.0] == pytest.approx(
-                _nbar_from_table_iii(-64.0)
-            )
+            assert res.n_bar_by_dbm[-64.0] == pytest.approx(_nbar_from_table_iii(-64.0))
 
     def test_run_cached_disabled_always_recomputes(self, tmp_path, monkeypatch) -> None:
         import validation.fischer_2023.fig7_paper as fp
@@ -448,19 +438,30 @@ class TestFig7CacheIntegration:
         )
 
         with pytest.raises(RuntimeError, match="certificate metric"):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_certified_baseline_round_trip(self, tmp_path) -> None:
         reference = observables(self._stub_payload())
         path = write_baseline(reference, tmp_path / "certified_fig7.csv")
         assert b"\r" not in path.read_bytes()
-        restored = read_baseline(path)
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+        assert "paper-topology qpsim regression" in first_line
+        assert "no digitized-data comparison" in first_line
+        with pytest.raises(RuntimeError, match="producer assertions"):
+            read_baseline(path)
+        restored = read_baseline(
+            path,
+            accept_producer_certificate_claims=True,
+        )
+        assert restored.certificate_scope == SUMMARY_CERTIFICATE_SCOPE
 
         for field in NUMBER_CERTIFICATE_FIELDS:
             np.testing.assert_array_equal(
                 getattr(restored, field),
                 getattr(reference, field),
             )
+        with pytest.raises(RuntimeError, match="live-state evidence"):
+            write_baseline(restored, tmp_path / "republished-summary.csv")
 
     @pytest.mark.parametrize(
         ("temperatures", "powers", "match"),
@@ -513,10 +514,16 @@ class TestFig7CacheIntegration:
     @pytest.mark.parametrize(
         ("mutation", "match"),
         [
-            (lambda payload: payload.__setitem__("f_solved", payload["f_solved"][..., :-1]), "f_solved has shape"),
+            (
+                lambda payload: payload.__setitem__("f_solved", payload["f_solved"][..., :-1]),
+                "f_solved has shape",
+            ),
             (lambda payload: payload["f_solved"].__setitem__((0, 0, 0), -1.0), "occupations in"),
             (lambda payload: payload["n_bar"].__setitem__(0, 2.0), "Table-III power axis"),
-            (lambda payload: payload.__setitem__("num_bins", np.array([NUM_BINS + 0.5])), "finite integer"),
+            (
+                lambda payload: payload.__setitem__("num_bins", np.array([NUM_BINS + 0.5])),
+                "finite integer",
+            ),
         ],
     )
     def test_raw_payload_rejects_shape_and_domain_corruption(
@@ -531,9 +538,7 @@ class TestFig7CacheIntegration:
 
     def test_raw_payload_rejects_failed_number_certificate(self) -> None:
         payload = self._stub_payload()
-        payload[QP_NUMBER_CERTIFICATE_FIELD][0, 0] = (
-            2.0 * TARGET_BACKWARD_ERROR_LIMIT
-        )
+        payload[QP_NUMBER_CERTIFICATE_FIELD][0, 0] = 2.0 * TARGET_BACKWARD_ERROR_LIMIT
 
         with pytest.raises(
             ValueError,
@@ -566,7 +571,7 @@ class TestFig7CacheIntegration:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match=r"Q_qp .* not bound to sigma1"):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_duplicate_cartesian_key_replacing_missing_key_is_rejected(
         self,
@@ -587,7 +592,7 @@ class TestFig7CacheIntegration:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match=r"duplicate .*P_read, T_bath"):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_missing_cartesian_key_is_rejected(self, tmp_path) -> None:
         reference = observables(
@@ -602,7 +607,7 @@ class TestFig7CacheIntegration:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="not the exact Cartesian"):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     @pytest.mark.parametrize(
         ("replacement", "match"),
@@ -626,7 +631,7 @@ class TestFig7CacheIntegration:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match=match):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_bad_persisted_number_certificate_is_rejected(self, tmp_path) -> None:
         reference = observables(self._stub_payload())
@@ -642,7 +647,7 @@ class TestFig7CacheIntegration:
             RuntimeError,
             match=r"qp_number_backward_error.*above target",
         ):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_malformed_current_schema_is_rejected(self, tmp_path) -> None:
         reference = observables(self._stub_payload())
@@ -652,7 +657,7 @@ class TestFig7CacheIntegration:
         path.write_text(text, encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="expected current certified schema"):
-            read_baseline(path)
+            read_baseline(path, accept_producer_certificate_claims=True)
 
     def test_missing_observable_contract_digest_is_rejected(self, tmp_path) -> None:
         reference = observables(self._stub_payload())
@@ -691,17 +696,19 @@ class TestFig7CacheIntegration:
         )
 
         with pytest.raises(AssertionError, match="qp_backward_error exceeds"):
-            _assert_certified_baseline_balances(bad)
+            _assert_producer_certificate_claims_within_limits(bad)
 
 
 class TestDashedAnalyticOverlay:
-    """2026-07-20 round-4 review: the plot-time dashed helpers were never
-    tested, used (Δ/T*)^{3/2} where Eq. 63 has power 3, substituted an
-    equilibrium expression for the driven Eq. 65 branch, and passed Q_EXT
-    (~1e6) as Eq. 65's Q_c where Table 2 gives Q_c = 20100 — dashed
-    curves were off by up to ~6x. These pins were cross-checked
-    independently against the reviewer's corrected values (exact
-    agreement at all four points)."""
+    """Pins for the transcribed Eq. 63/65 implementation.
+
+    A 2026-07-20 review found that the plot-time helpers used
+    ``(Δ/T*)^{3/2}`` where Eq. 63 has power 3, substituted an equilibrium
+    expression for the driven Eq. 65 branch, and passed Q_EXT (~1e6) as
+    Eq. 65's Q_c where Table 2 gives Q_c = 20100. The numerical pins below
+    guard the corrected formula transcription; they do not compare qpsim
+    output with digitized Fig. 7 data.
+    """
 
     def test_dashed_Q_tot_pins_at_030K(self) -> None:
         import pytest
@@ -743,3 +750,52 @@ class TestDashedAnalyticOverlay:
             * np.exp(np.sqrt(14.0 / 5.0) * (1.0 / ts) ** 3)
         )
         assert _fig7_Q_i0_eq63(p) == pytest.approx(manual, rel=1e-12)
+
+    def test_eq65_branch_matches_independent_formula_transcription(self) -> None:
+        """Guard Eq. 65 algebra separately from the dashed-curve float pins."""
+        import numpy as np
+        import pytest
+        from qpsim.constants import KB_UEV_PER_K
+
+        from validation.fischer_2023.fig7_paper import (
+            ALPHA_KI,
+            Q_C_PAPER,
+            Q_EXT_BY_DBM,
+            _fig7_Q_i_eq65,
+        )
+        from validation.fischer_2023.fig7_solve import (
+            DELTA_0,
+            OMEGA_0,
+            TSTAR_OVER_DELTA,
+        )
+
+        p = -64.0
+        temperature = 0.30
+        q_external = Q_EXT_BY_DBM[p]
+        q_c_effective = 1.0 / (1.0 / Q_C_PAPER + 1.0 / q_external)
+        temperature_uev = temperature * KB_UEV_PER_K
+        x_thermal = (
+            np.sqrt(2.0 * np.pi * temperature_uev / DELTA_0)
+            * np.exp(-DELTA_0 / temperature_uev)
+        )
+        amplitude = (
+            2.1
+            * np.sqrt(2.0)
+            * np.pi
+            * DELTA_0
+            / (2.3 * ALPHA_KI * OMEGA_0)
+        )
+        manual = (
+            np.sqrt(
+                (q_c_effective / 2.0) ** 2
+                + amplitude**2
+                * TSTAR_OVER_DELTA[p] ** 3
+                / x_thermal**2
+            )
+            - q_c_effective / 2.0
+        )
+        assert _fig7_Q_i_eq65(
+            p,
+            temperature,
+            q_c_effective,
+        ) == pytest.approx(manual, rel=1e-12)

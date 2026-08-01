@@ -33,13 +33,12 @@ sys.path.insert(0, str(ROOT))
 
 from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
-from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.density import qp_fraction
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
-from qpsim.physics.spectral import SpectralContext
+from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
 MATERIALS = ("Al", "Nb", "TiN")
 T_OVER_TC = (0.02, 0.05, 0.08, 0.11, 0.15, 0.20, 0.25, 0.30)
@@ -57,8 +56,7 @@ OUT_DIR = ROOT / "outputs" / "demo_materials_pb_response"
 def _fermi_dirac(E: np.ndarray, T_K: float) -> np.ndarray:
     if T_K <= 0.0:
         return np.zeros_like(E)
-    kT = KB_UEV_PER_K * T_K
-    return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
+    return fermi_dirac_occupation(E, T_K)
 
 
 def _build_state(material_name: str, T_bath_K: float,

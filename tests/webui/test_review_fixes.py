@@ -9,7 +9,11 @@ successful solve, and the spatial mode carrying a dead probe config.
 
 from __future__ import annotations
 
+import json
 import math
+import threading
+import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -126,6 +130,101 @@ class TestStoreRobustness:
         files = {p.name for p in ws.run_dir(run_id).iterdir()}
         assert files == {"result.npz"}
         assert "a" in ws.array_names(run_id)
+
+    def test_object_arrays_are_rejected_before_persistence(
+        self, tmp_path: Path,
+    ) -> None:
+        ws = Workspace(tmp_path)
+        run_id = ws.new_run_id()
+        with pytest.raises(ValueError, match="object dtype"):
+            ws.write_arrays(
+                run_id,
+                {"unsafe": np.array([{"payload": 1}], dtype=object)},
+            )
+        assert not (ws.run_dir(run_id) / "result.npz").exists()
+
+    def test_automatic_setup_slugs_do_not_overwrite_distinct_names(
+        self, tmp_path: Path,
+    ) -> None:
+        ws = Workspace(tmp_path)
+        first = SetupEnvelope(name="A+B", setup=SteadyState0DSetup())
+        second = SetupEnvelope(name="A B", setup=SteadyState0DSetup())
+        slug_first = ws.save_setup(first)
+        slug_second = ws.save_setup(second)
+
+        assert slug_first != slug_second
+        assert ws.load_setup(slug_first).name == "A+B"
+        assert ws.load_setup(slug_second).name == "A B"
+
+    def test_concurrent_automatic_slug_selection_is_one_transaction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Colliding request threads must not both claim the base slug."""
+        import qpsim.webui.store as store_module
+
+        ws = Workspace(tmp_path)
+        first_selected = threading.Event()
+        release_first = threading.Event()
+        calls_lock = threading.Lock()
+        calls = 0
+        real_select = store_module._collision_safe_slug
+
+        def synchronize_old_race(directory: Path, name: str) -> str:
+            nonlocal calls
+            candidate = real_select(directory, name)
+            with calls_lock:
+                calls += 1
+                call_number = calls
+            if call_number == 1:
+                first_selected.set()
+                # With the transaction lock the second selector cannot enter
+                # until this returns. Without it, the second selector releases
+                # us after choosing the same still-free base slug.
+                release_first.wait(0.25)
+            else:
+                release_first.set()
+            return candidate
+
+        monkeypatch.setattr(
+            store_module, "_collision_safe_slug", synchronize_old_race
+        )
+        envelopes = (
+            SetupEnvelope(name="A+B", setup=SteadyState0DSetup()),
+            SetupEnvelope(name="A B", setup=SteadyState0DSetup()),
+        )
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(ws.save_setup, envelope) for envelope in envelopes]
+            assert first_selected.wait(1.0)
+            slugs = [future.result(timeout=2.0) for future in futures]
+
+        assert len(set(slugs)) == 2
+        assert {ws.load_setup(slug).name for slug in slugs} == {"A+B", "A B"}
+
+    def test_long_automatic_setup_slug_is_bounded(self, tmp_path: Path) -> None:
+        ws = Workspace(tmp_path)
+        name = "x" * 300
+        slug = ws.save_setup(
+            SetupEnvelope(name=name, setup=SteadyState0DSetup())
+        )
+        assert len(slug) <= 120
+        assert ws.load_setup(slug).name == name
+
+    @pytest.mark.parametrize("setup_value", [None, "bad", []])
+    def test_malformed_setup_record_is_isolated(
+        self, tmp_path: Path, setup_value: object,
+    ) -> None:
+        ws = Workspace(tmp_path)
+        ws.setups_dir.mkdir(parents=True)
+        (ws.setups_dir / "bad.json").write_text(
+            f'{{"name": "bad", "setup": {json.dumps(setup_value)}}}',
+            encoding="utf-8",
+        )
+        entries = ws.list_setups()
+        assert entries == [
+            {"slug": "bad", "name": "bad", "mode": "unreadable"}
+        ]
+        with pytest.raises(ValueError, match=r"setup.*object"):
+            ws.load_setup("bad")
 
     def test_corrupt_manifest_listed_as_unreadable(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
@@ -266,6 +365,119 @@ class TestRunnerRecovery:
         assert job.pending_manifest is None
         runner.shutdown()
 
+    def test_queued_cancel_is_durable_and_never_executes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.webui.runner as runner_module
+        from qpsim.webui.execute import RunPayload
+        from qpsim.webui.runner import JobRunner
+
+        ws = Workspace(tmp_path)
+        runner = JobRunner(ws)
+        first_started = threading.Event()
+        release_first = threading.Event()
+        calls = 0
+
+        def controlled_execute(*_args: object, **_kwargs: object) -> RunPayload:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                first_started.set()
+                assert release_first.wait(5.0)
+            return RunPayload(arrays={"f": np.ones(2)})
+
+        monkeypatch.setattr(runner_module, "execute_setup", controlled_execute)
+        envelope = SetupEnvelope(name="queued", setup=SteadyState0DSetup())
+        first_id = runner.submit(envelope)
+        assert first_started.wait(5.0)
+        first_job = runner.live_state(first_id)
+        assert first_job is not None
+        queued_id = runner.submit(envelope)
+
+        assert runner.cancel(queued_id)
+        assert ws.read_manifest(queued_id)["status"] == "cancelled"
+        release_first.set()
+        assert first_job.worker_finished.wait(5.0)
+        runner.shutdown()
+        assert calls == 1
+
+    def test_shutdown_durably_cancels_a_queued_future(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.webui.runner as runner_module
+        from qpsim.webui.execute import RunPayload
+        from qpsim.webui.runner import JobRunner
+
+        ws = Workspace(tmp_path)
+        runner = JobRunner(ws)
+        first_started = threading.Event()
+        release_first = threading.Event()
+        calls = 0
+
+        def controlled_execute(*_args: object, **_kwargs: object) -> RunPayload:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                first_started.set()
+                assert release_first.wait(5.0)
+            return RunPayload(arrays={"f": np.ones(2)})
+
+        monkeypatch.setattr(runner_module, "execute_setup", controlled_execute)
+        envelope = SetupEnvelope(name="shutdown", setup=SteadyState0DSetup())
+        first_id = runner.submit(envelope)
+        assert first_started.wait(5.0)
+        first_job = runner.live_state(first_id)
+        assert first_job is not None
+        queued_id = runner.submit(envelope)
+
+        runner.shutdown()
+        assert ws.read_manifest(queued_id)["status"] == "cancelled"
+        release_first.set()
+        assert first_job.worker_finished.wait(5.0)
+        assert ws.read_manifest(first_id)["status"] == "cancelled"
+        assert calls == 1
+
+    def test_cancel_during_array_persistence_cannot_publish_done(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.webui.runner as runner_module
+        from qpsim.webui.execute import RunPayload
+        from qpsim.webui.runner import JobRunner
+
+        ws = Workspace(tmp_path)
+        runner = JobRunner(ws)
+        write_started = threading.Event()
+        release_write = threading.Event()
+        real_write = ws.write_arrays
+
+        monkeypatch.setattr(
+            runner_module,
+            "execute_setup",
+            lambda *_args, **_kwargs: RunPayload(arrays={"f": np.ones(2)}),
+        )
+
+        def blocking_write(
+            run_id: str, arrays: dict[str, np.ndarray],
+        ) -> None:
+            write_started.set()
+            assert release_write.wait(5.0)
+            real_write(run_id, arrays)
+
+        monkeypatch.setattr(ws, "write_arrays", blocking_write)
+        run_id = runner.submit(
+            SetupEnvelope(name="cancel-persistence", setup=SteadyState0DSetup())
+        )
+        assert write_started.wait(5.0)
+        job = runner.live_state(run_id)
+        assert job is not None
+        assert runner.cancel(run_id)
+        release_write.set()
+        assert job.worker_finished.wait(5.0)
+
+        assert ws.read_manifest(run_id)["status"] == "cancelled"
+        assert not (ws.run_dir(run_id) / "result.npz").exists()
+        runner.shutdown()
+
 
 class TestDiagnosticsNeverSinkARun:
     def test_failing_gap_suppression_becomes_a_note(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -285,6 +497,42 @@ class TestDiagnosticsNeverSinkARun:
         assert "delta_suppression_ueV" not in payload.summary
         assert "rel_gap_suppression" not in payload.summary
         assert any("synthetic diagnostic failure" in n for n in payload.notes)
+
+    def test_effective_temperature_clamp_warning_becomes_a_note(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import qpsim.webui.execute as execute_mod
+        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+
+        def return_input_state(
+            _backend: T3DiffusionBackend,
+            state: object,
+            **_kwargs: object,
+        ) -> object:
+            return state
+
+        def clamped_fit(*_args: object, **_kwargs: object) -> float:
+            warnings.warn(
+                "effective temperature is a clamp, not a fit",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return 1.0
+
+        monkeypatch.setattr(
+            T3DiffusionBackend, "steady_state", return_input_state
+        )
+        monkeypatch.setattr(
+            execute_mod, "effective_phonon_temperature", clamped_fit
+        )
+        setup = SteadyState0DSetup()
+        setup.grid.num_bins = 48
+        setup.phonons.mode = "dynamic_escape"
+
+        payload = execute_setup(setup, _noop_progress, _never)
+
+        assert payload.summary["T_phonon_eff_K"] == 1.0
+        assert any("clamp, not a fit" in note for note in payload.notes)
 
 
 class TestSpatialProbeRemoved:

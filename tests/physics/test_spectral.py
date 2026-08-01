@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from qpsim.constants import KB_UEV_PER_K
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import (
     SpectralContext,
@@ -12,6 +13,7 @@ from qpsim.physics.spectral import (
     coherence_factor_minus,
     coherence_factor_plus,
     dynes_density_of_states,
+    fermi_dirac_occupation,
     thermal_qp_weights,
 )
 
@@ -94,6 +96,48 @@ class TestThermalQpWeights:
         # ρ = 0 below the gap ⇒ weight = 0 there regardless of T.
         E = np.array([0.5, 0.9])
         assert np.all(thermal_qp_weights(E, gap=1.0, temperature=1.0) == 0.0)
+
+
+    def test_representable_cold_tail_is_not_floored(self) -> None:
+        E = np.array([360.0])
+        gap = 180.0
+        temperature = 0.007
+        exponent = E / (KB_UEV_PER_K * temperature)
+        exp_negative = np.exp(-exponent)
+        fermi = exp_negative / (1.0 + exp_negative)
+        expected = bcs_density_of_states(E, gap) * fermi
+
+        got = thermal_qp_weights(E, gap=gap, temperature=temperature)
+
+        np.testing.assert_allclose(got, expected, rtol=2e-14)
+        assert 0.0 < got[0] < np.exp(-500.0)
+
+    def test_shared_fermi_evaluator_handles_limits(self) -> None:
+        E = np.array([0.0, 360.0, 800.0 * KB_UEV_PER_K * 0.007])
+        got = fermi_dirac_occupation(E, 0.007)
+        exponent = E / (KB_UEV_PER_K * 0.007)
+        exp_negative = np.exp(-exponent)
+        expected = exp_negative / (1.0 + exp_negative)
+
+        np.testing.assert_array_equal(got, expected)
+        np.testing.assert_array_equal(
+            fermi_dirac_occupation(E, 0.0),
+            np.zeros_like(E),
+        )
+
+    def test_shared_fermi_evaluator_rejects_complex_energy(self) -> None:
+        with pytest.raises(ValueError, match="real-valued"):
+            fermi_dirac_occupation(np.array([1.0 + 2.0j]), 0.1)
+
+    def test_shared_fermi_evaluator_preserves_subnormal_input_ratio(self) -> None:
+        smallest = np.nextafter(0.0, 1.0)
+        energy = np.array([smallest, 100.0 * smallest])
+        exponent = (energy / smallest) / KB_UEV_PER_K
+        expected = np.exp(-exponent) / (1.0 + np.exp(-exponent))
+
+        got = fermi_dirac_occupation(energy, smallest)
+
+        np.testing.assert_allclose(got, expected, rtol=2e-15)
 
 
 class TestFiniteInputs:
