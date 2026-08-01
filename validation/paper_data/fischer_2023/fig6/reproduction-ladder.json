@@ -35,11 +35,23 @@
           "path": "validation/paper_data/fischer_2023/fig6/author-output-score.json",
           "role": "bundled-author-output versus paper-raster score",
           "sha256": "deaf4b4891f92fc3a651451d51219ad10053d55500d935467ef4c7b484d5f08e"
+        },
+        {
+          "hash_kind": "source_canonical",
+          "path": "validation/fischer_2023/fig6_author_replay_sweep.py",
+          "role": "full-sweep author replay driver implementation",
+          "sha256": "c9a95b0e8db9c2385b0468ca6a56565e120ac2e1c48e481a0432e0d01124e1da"
+        },
+        {
+          "hash_kind": "file_bytes",
+          "path": "validation/paper_data/fischer_2023/fig6/author-replay-sweep.json",
+          "role": "full-sweep author replay comparison record",
+          "sha256": "f4d4b868aae7a3bd8f42100ba6886d1b480c0712f90da9f2bbaafcc17ec48c88"
         }
       ],
       "evidence_class": "author_supplied_reproduction_source",
       "parent_stage_id": null,
-      "qualification": "Archive 31d76c92...81bc1 and six primary members are authenticated; it is author-supplied reproduction source, not a proven historical publication checkout. One exact full-resolution point is replayed and bound at A1; the full 300-point solve has not been replayed.",
+      "qualification": "Archive 31d76c92...81bc1 and six primary members are authenticated; it is author-supplied reproduction source, not a proven historical publication checkout. One exact full-resolution point is replayed and bound at A1. On 2026-07-31 the full 300-point solve was replayed through the unmodified adapter from the re-located byte-exact archive: all 300 points meet the author threshold in 2-4 Newton iterations, the anchored ordinate reproduces bit-for-bit, and the replayed curves agree with the independent raster digitization within 0.12 of its declared uncertainty. The status remains source-authenticated because the replay record is a diagnostic comparison, not an independently verified stage product.",
       "stage_id": "A0",
       "status": "source_authenticated_not_replayed"
     },

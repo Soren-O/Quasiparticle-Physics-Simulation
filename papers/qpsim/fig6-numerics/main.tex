@@ -54,11 +54,13 @@ point, versus the published $0.1209$.  Two smaller policy differences ---
 the one-bin labeling of recombination-phonon frequencies and an analytic
 (Kaplan) treatment of the near-threshold pair-breaking quadrature that
 the original midpoint sum overestimates by up to $27\%$ per bin --- are
-isolated with dedicated controls.  Grid refinement to $\mathrm{d}E = 0.25\ueV$ shows the
-center-carrier reading already converged at the published resolution
-while the left-edge reading still moves by $\sim 9\%$ per halving ---
-the published observable carries a discretization offset comparable to
-the inter-code discrepancy itself.  We argue that figures constructed
+isolated with dedicated controls.  Grid refinement to $\mathrm{d}E = 0.125\ueV$ shows the center-carrier
+reading stable within $\pm 3\%$ while the left-edge reading falls
+monotonically by $23\%$, with the inter-convention gap decaying more
+slowly than $\sqrt{\mathrm{d}E}$ --- the published observable carries a
+discretization offset comparable to the inter-code discrepancy itself,
+and is not continuum-converged under either reading at any practical
+resolution.  We argue that figures constructed
 from ratios of nearly equal gap shifts amplify such sampling offsets by
 more than an order of magnitude, and recommend that published kinetic
 benchmarks state their sampling convention and demonstrate grid
@@ -103,7 +105,13 @@ reproduces the authors' plotted ordinate at an anchored point exactly,
 and \qpsim{}'s public observable, parameters, grid, photon operator,
 electron--phonon operators, and phonon balance each reproduce the
 corresponding author computation to within a few parts in $10^{15}$ on
-identical states.  \emph{Second}, an attribution: the entire historical
+identical states.  We additionally replayed the authors' program in
+full: all 300 sweep points converge under their Newton policy in 2--4
+iterations, the anchored ordinate reproduces to the last bit, and the
+replayed curves agree with an independent digitization of the
+published raster within $0.12\times$ its declared uncertainty ---
+so the exact published curves, not raster estimates, serve as the
+comparison ground truth below.  \emph{Second}, an attribution: the entire historical
 discrepancy reduces to three labeled numerical choices, none of which is
 a defect in the collision physics of either code.  \emph{Third}, a
 warning of general interest: the plotted observable is so sensitive to
@@ -153,7 +161,9 @@ receipt; ``exact'' means bit-for-bit.}
 Stage & Changed component & Outcome at the anchored point \\
 \colrule
 A0/A1 & --- (authentication) & author program and output authenticated;
-one exact full-resolution point replayed \\
+full 300-point sweep replayed, all points converging under the authors'
+policy, matching the published rasters within $0.12\times$ the
+digitization uncertainty \\
 C0 & --- (clean-room port) & author ordinate $0.12090908988993258$
 reproduced exactly; final state to $4.0\times10^{-16}$ \\
 C1 & observable & bit-exact \\
@@ -344,12 +354,15 @@ published window ($\mathrm{d}E = 1\ueV$, certificate-mode solves;
 $T_B=0.15$~K at a documented one-decade-relaxed certificate at its
 float64 floor).  Solid: the solved occupation read under the authors'
 left-edge convention; dashed: the same states read at cell centers;
-open circles: the published numerical curves digitized from the
-arXiv raster (error bars smaller than the markers).  The published
-points lie \emph{between} the two readings of one and the same
-solution family; $T_B=0.10$~K is excluded per
-Sec.~\ref{sec:certificates}.  Diagnostic artifact:
-\texttt{fig6-Q0-sweep-de1-v1.json} (+\texttt{-t015-v1}).}
+dash-dotted: the authors' own program, replayed in full (300/300
+points converging under their Newton policy); open circles: the
+published numerical curves digitized from the arXiv raster.  The
+replayed author curves pass through the digitized points within
+$0.12\times$ the digitization uncertainty, and lie \emph{between} the
+two readings of the \qpsim{} solution family; $T_B=0.10$~K \qpsim{}
+curves are excluded per Sec.~\ref{sec:certificates}.  Artifacts:
+\texttt{fig6-Q0-sweep-de1-v1.json} (+\texttt{-t015-v1}),
+\texttt{author-replay-sweep.json}.}
 \end{figure}
 
 \begin{figure}[t]
@@ -368,30 +381,39 @@ gives, for the re-solved root read under each convention:
 \begin{tabular}{lccccc}
 $\mathrm{d}E$ ($\ueV$) & 1 & 0.5 & 1/3 & 0.25 & 0.125 \\
 \colrule
-author sampling & 0.1454 & 0.1326 & 0.1262 & 0.1220 & \todo{de8} \\
-center sampling & 0.0505 & 0.0480 & 0.0477 & 0.0479 & \todo{de8} \\
+author sampling & 0.1454 & 0.1326 & 0.1262 & 0.1220 & 0.1125 \\
+center sampling & 0.0505 & 0.0480 & 0.0477 & 0.0479 & 0.0492 \\
 \end{tabular}
 \end{ruledtabular}
 \end{table}
 
 \noindent
-The center-carrier reading is grid-converged at the published
-resolution (stable within $\pm 0.0002$ from $\mathrm{d}E = 0.5\ueV$
-on), whereas the left-edge reading of the same solved states is still
-moving at $\mathrm{d}E = 0.25\ueV$, with successive differences
-decaying \emph{sub-linearly} (apparent order $\sim 0.3$, consistent
-with an edge-cell-dominated quadrature error).  Both readings are
-consistent discretizations of the same continuum functional and must
-meet as $\mathrm{d}E \to 0$; the measured sequence already shows that
-the published observable, at the published $1\ueV$ resolution and under
-its own sampling convention, carries a discretization offset of at
-least $\sim 20\%$ relative to its refined value --- comparable to the
-entire inter-code discrepancy that motivated this study.  We
-deliberately refrain from a three-parameter continuum extrapolation:
-the four points do not determine the limit robustly, and the slow
-left-edge decay merits its own analytic treatment of the singular
-gap-edge cells. \todo{physicist review; fill the
-$\mathrm{d}E = 0.125\ueV$ column when the run completes.}
+The two readings behave very differently but \emph{neither} is
+continuum-converged at any resolution probed.  The center-carrier
+reading varies only within $\pm 3\%$ across the full eightfold
+refinement (with a shallow minimum near $\mathrm{d}E = 1/3\ueV$ and a
+mild upturn at $0.125\ueV$), while the left-edge reading falls
+monotonically by $23\%$ over the same range with sub-linearly decaying
+differences.  The gap between the readings --- which must vanish as
+$\mathrm{d}E \to 0$, since both discretize the same continuum
+functional --- has closed by only about one third across the eightfold
+refinement, decaying more slowly than $\sqrt{\mathrm{d}E}$.  Two
+conclusions follow.  First, the published observable at the published
+$1\ueV$ resolution, under its own sampling convention, carries a
+discretization offset of at least $\sim 23\%$ relative to its own
+$\mathrm{d}E = 0.125\ueV$ value --- comparable to the entire
+inter-code discrepancy that motivated this study --- while the
+center reading is the far more stable (though not strictly converged)
+choice at practical resolutions.  Second, no single-resolution value of
+this observable should be treated as converged: the solver residual
+certifies to $10^{-12}$-level balance at every resolution shown while
+the plotted number is still drifting, an instructive separation of
+``solved'' from ``resolved.''  We deliberately refrain from a
+continuum extrapolation --- the anomalously slow decay (consistent
+with an edge-singularity-dominated error possibly compounded by the
+resolution dependence of the near-threshold pair-breaking physics)
+merits its own analytic treatment of the singular gap-edge cells.
+\todo{physicist review of this paragraph before submission.}
 
 \todo{Insert refinement figure (\texttt{fig\_refinement.pdf}) and the
 $0.10/0.15$~K refinement columns; data:

@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 REPO = Path(__file__).resolve().parents[3]
 RUNS = REPO / "tmp" / "author-runs"
 POINTS_CSV = REPO / "validation/paper_data/fischer_2023/fig6/points.csv"
+REPLAY_JSON = REPO / "validation/paper_data/fischer_2023/fig6/author-replay-sweep.json"
 OUT = Path(__file__).resolve().parent
 
 # Okabe-Ito trio, fixed identity order by bath temperature (validated:
@@ -72,6 +73,14 @@ def figure_curves(de1_path: Path, extra_paths: list[Path]) -> None:
                 )
             )
     curve_id = {0.1: "T_bath_0.10K", 0.15: "T_bath_0.15K", 0.2: "T_bath_0.20K"}
+    replay: dict[float, list[dict]] = {}
+    if REPLAY_JSON.is_file():
+        data = json.loads(REPLAY_JSON.read_text(encoding="utf-8"))
+        for point in data["points"]:
+            if point.get("replay_ok"):
+                replay.setdefault(point["T_bath_K"], []).append(point)
+        for series in replay.values():
+            series.sort(key=lambda p: p["actual_t_star_over_delta"])
 
     fig, ax = plt.subplots(figsize=(3.4, 2.7), constrained_layout=True)
     for T in (0.1, 0.15, 0.2):
@@ -93,6 +102,15 @@ def figure_curves(de1_path: Path, extra_paths: list[Path]) -> None:
             color=COLOR[T],
             linewidth=1.1,
         )
+        replayed = replay.get(T, [])
+        if replayed:
+            ax.plot(
+                [p["actual_t_star_over_delta"] for p in replayed],
+                [p["ordinate"] for p in replayed],
+                linestyle=(0, (3, 1, 1, 1)),
+                color=COLOR[T],
+                linewidth=1.0,
+            )
         digitized = sorted(paper.get(curve_id[T], []))
         if digitized:
             ax.errorbar(
@@ -108,6 +126,14 @@ def figure_curves(de1_path: Path, extra_paths: list[Path]) -> None:
             )
     ax.plot([], [], "-", color="#666666", label="qpsim, author sampling")
     ax.plot([], [], "--", color="#666666", label="qpsim, center sampling")
+    ax.plot(
+        [],
+        [],
+        linestyle=(0, (3, 1, 1, 1)),
+        color="#666666",
+        linewidth=1.0,
+        label="authors' program, replayed",
+    )
     ax.errorbar(
         [],
         [],

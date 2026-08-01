@@ -13,9 +13,16 @@
 > row `paper_observable_num = 0.0908` at `T*/Δ = 0.3426`), and the
 > author-vs-promoted gap decomposes as sampling convention (−0.095) +
 > pair-label/Kaplan (+0.02) + moving-gap feedback (+0.04). Refinement
-> densified with dE = 1/3 (authors `0.1262`, centers `0.0477`; authors
-> differences decay sub-linearly, apparent order ~0.3; dE = 0.125
-> computing). **Erratum:** the C7 evidence prose and earlier handoff
+> densified to five spacings (dE = 1, 1/2, 1/3, 1/4, 1/8 µeV; anchor
+> authors `0.1454/0.1326/0.1262/0.1220/0.1125`, centers
+> `0.0505/0.0480/0.0477/0.0479/0.0492`): the centers reading stays
+> within ±3% with a shallow minimum near dE = 1/3 while the authors
+> reading falls monotonically 23%; the inter-convention gap closes only
+> ~1/3 across the eightfold refinement (slower than sqrt(dE)) — the
+> observable is **not continuum-converged under either reading** at any
+> probed resolution even though the solver residual certifies at every
+> one (this supersedes the "grid-converged" phrasing in the 07-30 block
+> below). **Erratum:** the C7 evidence prose and earlier handoff
 > text described the authenticated A1 seed as a "continuation" state;
 > the author program actually constructs each sweep point independently
 > from a thermal initializer. The ladder C7 qualification and manuscript
