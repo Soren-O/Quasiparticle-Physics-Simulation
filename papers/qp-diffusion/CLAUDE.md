@@ -632,8 +632,10 @@ Soren-directed); this describes the *current* layout, not a change log:
   cross-reference via xr-hyper, each needs the other's .aux), plain `make`
   afterwards; `make roadmap` rebuilds the routes figure; `make verify` runs
   the sympy proof-check scripts (needs `../.venv` or `make setup`).
-- Current clean-build state: paper.pdf 45pp, supplement.pdf 65pp, zero
-  undefined references/citations, zero overfull hboxes/vboxes. `make
+- Current clean-build state (verified 2026-08-01): paper.pdf 47pp,
+  supplement.pdf 65pp, zero undefined references/citations, zero overfull
+  hboxes; one ~3.3pt overfull vbox p.9 (pagination luck after the abstract
+  grammar fixes, note-only per standing rule). `make
   verify` is 7/7 PASS (`verify_fT.py`, `verify_gA_convention.py`,
   `verify_nonadiabatic.py`, `verify_proximity.py`, `verify_supercurrent.py`,
   `verify_tdep_inhomogeneous.py`, `verify_traces.py`).
