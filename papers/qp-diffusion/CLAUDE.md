@@ -302,7 +302,10 @@ hosseinkhani2018, and goldie2013.
   \(g_-\partial_tf_1\) term that IS present in (10.55), so (10.107) is
   quasistatic. Don't flag the paper's \(\partial_t\) term as disagreeing
   with Kopnin.
-- **Explicit conjugation map (`eq:beta_conjugation_map`):**
+- **Explicit conjugation map (as of 2026-07-20 an unnumbered inline
+  equation in a footnote attached to `eq:beta_f_from_modes`; the former
+  display `eq:beta_conjugation_map` was folded into that footnote and
+  the label no longer exists):**
   \(h=\sigma(1-2n^{\mathrm K})=f^{(1)}+\sigma\lambda^{-1}f_2'\) — Kopnin's
   \(n^{\mathrm K}\) is the Fermi function only on the electron-like branch;
   the \(\sigma\) placement differs from Kopnin's Eq. (15.4) by exactly this
@@ -629,7 +632,7 @@ Soren-directed); this describes the *current* layout, not a change log:
   cross-reference via xr-hyper, each needs the other's .aux), plain `make`
   afterwards; `make roadmap` rebuilds the routes figure; `make verify` runs
   the sympy proof-check scripts (needs `../.venv` or `make setup`).
-- Current clean-build state: paper.pdf 56pp, supplement.pdf 52pp, zero
+- Current clean-build state: paper.pdf 45pp, supplement.pdf 65pp, zero
   undefined references/citations, zero overfull hboxes/vboxes. `make
   verify` is 7/7 PASS (`verify_fT.py`, `verify_gA_convention.py`,
   `verify_nonadiabatic.py`, `verify_proximity.py`, `verify_supercurrent.py`,
