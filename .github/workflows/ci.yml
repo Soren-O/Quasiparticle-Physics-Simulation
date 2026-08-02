@@ -36,4 +36,11 @@ jobs:
       # and cache-wiring guards remain in the default suite.
       - name: Test (slow / paper validation)
         timeout-minutes: 180
+        # Pin the BLAS thread count: the low-occupancy Picard/Newton chains
+        # amplify thread-count-dependent reduction rounding ~1e11x, which is
+        # what made fig7's cold points "non-deterministic" across runners
+        # (AUDIT-2026-08-01-fanout.md F1). One thread makes a given runner
+        # arch bitwise reproducible (cross-arch kernel variance remains).
+        env:
+          OPENBLAS_NUM_THREADS: "1"
         run: pytest -m "slow and not manual_slow"
