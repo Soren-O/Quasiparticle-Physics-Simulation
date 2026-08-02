@@ -2,7 +2,7 @@
   "artifacts": {
     "csv": {
       "name": "fischer_fig7_paper.csv",
-      "sha256": "2bb97283a3ff93257896f756a4f491fc798cc4644a00ff89d7cedab9d3a15634",
+      "sha256": "4c4fa0ea35fc783e88d0a7bfc92b89669ca8d9de7db62c79613391f3dee47fbe",
       "size_bytes": 15078
     },
     "pdf": {
@@ -492,5 +492,5 @@
   "runner_path": "scripts/regenerate_fischer_fig7_parallel.py",
   "runner_sha256": "31e0ed99a14b485b47dba551dfb14626b9ec25a7cbd73a614ff9a4ca94dfdc5c",
   "schema": "qpsim-fischer-2023-fig7-promotion-v2",
-  "solve_contract_digest": "d674caa55e5bebd0d73bc46e6620dc8eeb6d0d2cfca94c5298b6ed44fbf53fb5"
+  "solve_contract_digest": "c118992a5bb19641c09d5cc5a4fc70bdf6bb6c75e00480d6e6bd9f861ac3873a"
 }

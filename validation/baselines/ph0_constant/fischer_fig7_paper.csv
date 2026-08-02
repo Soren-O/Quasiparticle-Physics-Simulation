@@ -3,7 +3,7 @@
 # Grid: NE=1701 E_min=1.0*Delta E_max=10.0*Delta
 # certificate_metric_version='qp-l1-v1_qp-number-v1_ph0-nearest-binary64-v1' target_backward_error_limit=2e-08
 # artifact_schema='qpsim-fischer-2023-fig7-summary-v2' certificate_scope='producer-asserted-summary-only; solved-f-and-n_ph-state-omitted'
-# solve_contract_digest=d674caa55e5bebd0d73bc46e6620dc8eeb6d0d2cfca94c5298b6ed44fbf53fb5 observable_contract_digest=8f5d6ffde4f0e6080482ec418aeb38f511d17355c3237745542d5489517dfc51 generator_platform='Windows-11-10.0.26100-SP0' generator_python='3.14.3' generator_numpy='2.5.1' generator_scipy='1.18.0'
+# solve_contract_digest=c118992a5bb19641c09d5cc5a4fc70bdf6bb6c75e00480d6e6bd9f861ac3873a observable_contract_digest=8f5d6ffde4f0e6080482ec418aeb38f511d17355c3237745542d5489517dfc51 generator_platform='Windows-11-10.0.26100-SP0' generator_python='3.14.3' generator_numpy='2.5.1' generator_scipy='1.18.0'
 # runner_sha256=31e0ed99a14b485b47dba551dfb14626b9ec25a7cbd73a614ff9a4ca94dfdc5c companion_pdf_sha256=d0c3029fb780f8e4c6954b66c78b3a9ef16a67d9fef91608b24630f157d17586 companion_pdf_size_bytes=18155
 "# p_read_dbm=-100,-90,-80,-72,-68,-64"
 T_bath_K,P_read_dbm,n_bar,Q_qp,Q_tot,sigma1,qp_residual_inf,qp_backward_error,phonon_residual_inf,phonon_raw_backward_error,phonon_backward_error,qp_number_backward_error

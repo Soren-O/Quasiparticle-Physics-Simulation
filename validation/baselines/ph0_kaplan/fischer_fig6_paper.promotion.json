@@ -2,7 +2,7 @@
   "artifact_schema": "qpsim.fischer2023.fig6_paper.v2",
   "artifacts": {
     "csv": {
-      "sha256": "5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c",
+      "sha256": "10c926f485c42aaf39fd66476adf982c2070428b598abbd90963832100cb1fbf",
       "size_bytes": 3678644
     },
     "pdf": {
