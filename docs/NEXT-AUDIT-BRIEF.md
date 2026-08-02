@@ -56,6 +56,11 @@ tell you what is or isn't a bug.
 - `validation/baselines/ph0_constant/fischer_fig3_paper.csv` `f_ratio_10` column
   is **all zeros** (unphysical); `test_fig3_paper` compares it at `atol=1e-6`
   while the signal is ≤ 1.5e-8, so that assertion is **vacuous**. Green ≠ correct there.
+  **Escalated 2026-08-01** (`AUDIT-2026-08-01-fanout.md` F2): the zeros are a LIVE
+  reproducible collapse of the r=10 coupled-Newton solve (fd_step ~ solution scale
+  → trivial f≡0 branch accepted by the absolute gate), and EVERY ratio column's
+  gate is vacuous (43–61% physics drift passes silently). Needs a solver fix,
+  then baseline regen + relative gates.
 - Known-minor, flagged not fixed: duplicate terminal snapshot (1 ulp apart) in
   transient/spatial output; webui `kind="step"` with equal gaps + `interface_G_N`
   fails at runtime instead of returning a 400; a run whose manifest write keeps
@@ -68,7 +73,11 @@ tell you what is or isn't a bug.
   now gates losses at rtol=1e-3 / atol=1e-10, which absorbs the noise, but the
   underlying run-to-run irreproducibility (thread-order/BLAS-reduction dependent
   accumulation in the Picard chain?) is an unexplained engine finding worth a
-  root-cause pass.
+  root-cause pass. **Root-caused 2026-08-01** (`AUDIT-2026-08-01-fanout.md` F1):
+  BLAS thread-count-dependent rounding, ~1e11× amplified by the low-occupancy
+  chain; bitwise deterministic at fixed (platform, BLAS, thread count); hash
+  randomization and Anderson ruled out at the probed point. Optional CI remedy:
+  pin `OPENBLAS_NUM_THREADS=1` in the slow step.
 
 ## Orthogonal: paper physics
 
