@@ -57,10 +57,13 @@ PAPER_RATIOS: tuple[float, ...] = (0.0, 0.1, 1.0, 10.0)
 # Picard fixed point stays in the basin of attraction. Targets pulled
 # out and stored; non-target ratios are discarded after the continuation
 # step. Picard struggles above ratio ~5 (the map is non-contractile near
-# the strong-bottleneck branch), so the final 5 → 10 step switches to
-# coupled Newton on the joint (f, n_ph) state.
+# the strong-bottleneck branch), so steps above 5 switch to coupled
+# Newton on the joint (f, n_ph) state. The 6.5/8 rungs keep each Newton
+# step's seed inside the physical basin: the historic single 5 → 10 jump
+# walked downhill onto the trivial f ≡ 0 branch, which the legacy
+# absolute tol then certified (AUDIT-2026-08-01-fanout.md F2a).
 CONTINUATION_RATIOS: tuple[float, ...] = (
-    0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0,
+    0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 6.5, 8.0, 10.0,
 )
 
 # τ_0^PB normalization sanity check (paper Eq. 1 in §IV).
@@ -204,7 +207,16 @@ def _solve_coupled_newton(
     state: T3DiffusionState,
     photon_params: dict[str, float],
 ) -> T3DiffusionState:
-    """Coupled Newton on the joint (f, n_ph) vector (strong-bottleneck branch)."""
+    """Coupled Newton on the joint (f, n_ph) vector (strong-bottleneck branch).
+
+    ``coupled_newton_step_rtol`` engages the scale-invariant convergence
+    certificate (relative Newton step + dimensionless gain/loss balance),
+    matching fig6's usage. The legacy absolute-only ``tol`` path let the
+    τ_l/τ_0^PB = 10 solve certify a collapse onto the trivial f ≡ 0 branch,
+    where every rate is ~1e-19 and any absolute tolerance is meaningless
+    (AUDIT-2026-08-01-fanout.md F2a); the pinned all-zero f_ratio_10
+    baseline column was that collapse.
+    """
     return backend.steady_state(
         state,
         method="coupled_newton",
@@ -213,6 +225,8 @@ def _solve_coupled_newton(
         coupled_newton_tol=1e-10,
         coupled_newton_max_iter=50,
         coupled_newton_fd_step=1e-8,
+        coupled_newton_step_rtol=1e-6,
+        coupled_newton_analytic_cross=True,
     )
 
 

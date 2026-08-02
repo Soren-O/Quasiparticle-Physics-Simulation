@@ -90,13 +90,29 @@ def test_matches_pinned_baseline() -> None:
         err_msg="Fermi-Dirac reference drift",
     )
 
+    # Two-regime relative gate. The historic ``rtol=0, atol=1e-6`` gate was
+    # vacuous — the physical signal tops out at ~1e-7, so 43–61% physics
+    # drift (and an all-zero collapsed curve) passed silently for the life
+    # of the repo (AUDIT-2026-08-01-fanout.md F2b). Bins with meaningful
+    # occupation are gated relatively: rtol=1e-3 absorbs cross-platform
+    # solver noise (~2e-4 observed ubuntu vs the win32 pin) while
+    # physics-level drift screams. Deep-tail bins (baseline < 1e-30, pure
+    # Boltzmann tails down to ~1e-158) amplify per-platform libm ulps
+    # relatively, so they are only required to stay in the tail — which is
+    # exactly the check the collapsed f ≡ 0 curve would also have failed
+    # in reverse (a real curve must EXCEED the floor in the signal bins).
+    _SIG_FLOOR = 1e-30
     for ratio in result.ratios:
+        cur = result.f_by_ratio[ratio]
+        base = baseline.f_by_ratio[ratio]
+        sig = base > _SIG_FLOOR
+        assert np.any(sig), f"baseline at τ_l/τ_0^PB = {ratio} has no signal bins"
         np.testing.assert_allclose(
-            result.f_by_ratio[ratio],
-            baseline.f_by_ratio[ratio],
-            rtol=0.0,
-            atol=1e-6,
-            err_msg=f"Mismatch at τ_l/τ_0^PB = {ratio}",
+            cur[sig], base[sig], rtol=1e-3, atol=0.0,
+            err_msg=f"Mismatch at τ_l/τ_0^PB = {ratio} (signal bins)",
+        )
+        assert np.all(cur[~sig] < 10.0 * _SIG_FLOOR), (
+            f"spurious deep-tail population at τ_l/τ_0^PB = {ratio}"
         )
 
 

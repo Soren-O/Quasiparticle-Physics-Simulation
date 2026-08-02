@@ -264,11 +264,33 @@ def coupled_newton_solve(
             float(np.max(qp_ratio)), float(np.max(ph_ratio)),
         )
 
-        return R_f, R_ph, balance_ratio
+        # Significant-bin balance ratio: the same backward error restricted to
+        # bins whose rate scale is within 1e-8 of the dominant one. Deep-tail
+        # bins carry subnormal rates that can never cancel to relative
+        # precision, so the all-bin max above saturates at O(1) even at a
+        # perfect root; the collapse discriminator is the DOMINANT bins,
+        # which cancel to ulps at a genuine root but sit at ratio ≈ 1 on the
+        # trivial f ≈ 0 branch (residual = gain there). Used only by the
+        # absolute-floor acceptance below.
+        balance_sig = 0.0
+        qp_max = float(np.max(qp_scale)) if qp_scale.size else 0.0
+        ph_max = float(np.max(ph_scale)) if ph_scale.size else 0.0
+        if qp_max > 0.0:
+            balance_sig = max(
+                balance_sig,
+                float(np.max(qp_ratio[qp_scale > 1e-8 * qp_max])),
+            )
+        if ph_max > 0.0:
+            balance_sig = max(
+                balance_sig,
+                float(np.max(ph_ratio[ph_scale > 1e-8 * ph_max])),
+            )
+
+        return R_f, R_ph, balance_ratio, balance_sig
 
     last_norm = np.inf
     for iteration in range(max_iter):
-        R_f, R_ph, balance_ratio = residual(f, n_ph)
+        R_f, R_ph, balance_ratio, balance_sig = residual(f, n_ph)
         norm = max(float(np.max(np.abs(R_f))), float(np.max(np.abs(R_ph))))
         last_norm = norm
         # Absolute-residual early exit (legacy). Disabled when step_rtol>0:
@@ -338,7 +360,7 @@ def coupled_newton_solve(
             for k in range(N_omega):
                 n_ph_pert = n_ph.copy()
                 n_ph_pert[k] += h_n[k]
-                R_f_pert, _, _ = residual(f, n_ph_pert)
+                R_f_pert, _, _, _ = residual(f, n_ph_pert)
                 J_fn[:, k] = (R_f_pert - R_f) / h_n[k]
 
             h_f = np.maximum(fd_step * np.abs(f), fd_floor)
@@ -360,7 +382,7 @@ def coupled_newton_solve(
                 if signed_step == 0.0:
                     signed_step = min(h_f[j], 1.0 - f[j])
                 f_pert[j] += signed_step
-                _, R_ph_pert, _ = residual(f_pert, n_ph)
+                _, R_ph_pert, _, _ = residual(f_pert, n_ph)
                 J_nf[:, j] = (R_ph_pert - R_ph) / signed_step
 
         J = np.block([[J_ff, J_fn], [J_nf, J_nn]])
@@ -384,7 +406,7 @@ def coupled_newton_solve(
         for _ in range(20):
             f_trial = np.clip(f + alpha * delta_f, 0.0, 1.0)
             n_trial = np.maximum(n_ph + alpha * delta_n, 0.0)
-            R_f_t, R_ph_t, balance_ratio_t = residual(f_trial, n_trial)
+            R_f_t, R_ph_t, balance_ratio_t, _ = residual(f_trial, n_trial)
             norm_t = max(
                 float(np.max(np.abs(R_f_t))), float(np.max(np.abs(R_ph_t)))
             )
@@ -404,7 +426,20 @@ def coupled_newton_solve(
             alpha *= 0.5
 
         if not accepted:
-            if norm < tol:
+            # Absolute-floor acceptance on line-search failure. With
+            # step_rtol > 0 this additionally requires the dimensionless
+            # balance certificate to actually certify a root: at the trivial
+            # collapsed branch (f ≈ 0 under real drive) every rate is tiny, so
+            # norm sits far below any absolute tol while the residual EQUALS
+            # the gain scale (balance_ratio = 1); at a genuine root the
+            # opposing terms cancel (balance_ratio ≪ 1). The 0.5 margin
+            # separates the two regimes. Judged on the significant-bin ratio
+            # (see ``balance_sig`` in ``residual``): subnormal deep-tail bins
+            # legitimately never cancel relatively and must not veto a
+            # converged state. Found via the Fischer Fig. 3 τ_l/τ_0^PB = 10
+            # collapse (AUDIT-2026-08-01-fanout.md F2a); the legacy
+            # step_rtol = 0 path is bit-for-bit untouched.
+            if norm < tol and (step_rtol <= 0.0 or balance_sig < 0.5):
                 return f, n_ph
             # Scale-invariant fallback: when the line search cannot reduce the
             # residual further, require both a negligible Newton step and a
