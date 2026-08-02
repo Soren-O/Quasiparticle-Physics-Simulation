@@ -25,6 +25,7 @@ with the numba acceleration path dropped. Provides:
 
 from __future__ import annotations
 
+import weakref
 from enum import Enum
 
 import numpy as np
@@ -406,7 +407,54 @@ def compute_phonon_source_sink(
     return a_ph, b_ph
 
 
+_PB_QUAD_CORR_CACHE: dict[tuple, tuple] = {}
+_PB_QUAD_CORR_CACHE_MAX = 4
+
+
 def _pair_breaking_quadrature_correction(
+    ctx: SpectralContext,
+    K_r0_phonon_side: np.ndarray,
+    omega_idx_sum: np.ndarray,
+    n_omega: int,
+) -> np.ndarray:
+    """Memoized front end for :func:`_pair_breaking_quadrature_correction_impl`.
+
+    The correction depends only on the spectral context and the (fixed)
+    phonon-side kernel — not on the evolving ``(f, n_ph)`` state — yet the
+    Picard loop historically recomputed it every iteration (~21% of a
+    fig5-class solve: an NE² median, an NE² allclose, and a scalar
+    ``kaplan_S_plus`` loop per call). Cache the result per
+    ``(ctx, kernel)`` identity; entries are invalidated when the context
+    is rebuilt at a new gap (the gap is part of the key), when either
+    object dies (weakref / fingerprint guards), or by FIFO eviction.
+
+    The returned array is marked read-only; callers only multiply by it.
+    """
+    K = np.asarray(K_r0_phonon_side, dtype=float)
+    fingerprint = (
+        float(K.flat[0]), float(K.flat[-1]), float(K.flat[K.size // 2]),
+    ) if K.size else ()
+    key = (
+        id(ctx), id(K_r0_phonon_side), id(omega_idx_sum), n_omega,
+        float(ctx.gap), float(ctx.dynes_gamma), K.shape, fingerprint,
+    )
+    hit = _PB_QUAD_CORR_CACHE.get(key)
+    if hit is not None:
+        ctx_ref, correction = hit
+        if ctx_ref() is ctx:
+            return correction
+        del _PB_QUAD_CORR_CACHE[key]
+    correction = _pair_breaking_quadrature_correction_impl(
+        ctx, K, omega_idx_sum, n_omega,
+    )
+    correction.flags.writeable = False
+    while len(_PB_QUAD_CORR_CACHE) >= _PB_QUAD_CORR_CACHE_MAX:
+        _PB_QUAD_CORR_CACHE.pop(next(iter(_PB_QUAD_CORR_CACHE)))
+    _PB_QUAD_CORR_CACHE[key] = (weakref.ref(ctx), correction)
+    return correction
+
+
+def _pair_breaking_quadrature_correction_impl(
     ctx: SpectralContext,
     K_r0_phonon_side: np.ndarray,
     omega_idx_sum: np.ndarray,
@@ -588,6 +636,9 @@ def phonon_collision_rates(
     N_p_override: np.ndarray | None = None,
     N_emit_override: np.ndarray | None = None,
     N_abs_override: np.ndarray | None = None,
+    K_s_eff_override: np.ndarray | None = None,
+    K_r_emit_override: np.ndarray | None = None,
+    K_r_abs_override: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute ``(gain, loss_rate)`` for the e–phonon collision integral.
 
@@ -599,6 +650,15 @@ def phonon_collision_rates(
     Bose-Einstein factors that would otherwise be computed from ``T_bath``.
     Used by the dynamic-phonon backend when ``n_ph`` is evolved
     self-consistently.
+
+    ``K_s_eff_override`` / ``K_r_emit_override`` / ``K_r_abs_override`` let a
+    caller that evaluates this integral repeatedly at frozen phonon
+    occupations (the Newton inner solve: residuals, line-search trials, and
+    the Jacobian all within one Picard step) supply the elementwise products
+    ``K_s0·N_p`` / ``K_r0·N_emit`` / ``K_r0·N_abs`` precomputed once, instead
+    of rebuilding these NE² temporaries on every call. They must equal
+    exactly those products for the same kernels and occupations; results are
+    bit-identical to the unassisted path.
     """
     E = ctx.E
     rho = ctx.rho
@@ -609,12 +669,15 @@ def phonon_collision_rates(
     loss_rate = np.zeros_like(f)
 
     if enable_scattering and K_s0 is not None:
-        N_p = (
-            N_p_override
-            if N_p_override is not None
-            else _thermal_phonon_scattering_occupation(E, T_bath)
-        )
-        K_s_eff = K_s0 * N_p
+        if K_s_eff_override is not None:
+            K_s_eff = K_s_eff_override
+        else:
+            N_p = (
+                N_p_override
+                if N_p_override is not None
+                else _thermal_phonon_scattering_occupation(E, T_bath)
+            )
+            K_s_eff = K_s0 * N_p
         # DISCRETE-MEASURE INCONSISTENCY (finding G1, docs/AUDIT-2026-07-13-
         # gpt-reconciliation.md): the collision integrals here contract with the
         # midpoint measure ρ·dE, whereas the observables (observables/density.py)
@@ -632,10 +695,15 @@ def phonon_collision_rates(
         loss_rate += K_s_eff @ (rho * one_minus_f * dE)
 
     if enable_recombination and K_r0 is not None:
-        if N_emit_override is not None and N_abs_override is not None:
-            N_emit, N_abs = N_emit_override, N_abs_override
+        if K_r_emit_override is not None and K_r_abs_override is not None:
+            K_r_emit, K_r_abs = K_r_emit_override, K_r_abs_override
         else:
-            N_emit, N_abs = _thermal_phonon_recombination_occupations(E, T_bath)
+            if N_emit_override is not None and N_abs_override is not None:
+                N_emit, N_abs = N_emit_override, N_abs_override
+            else:
+                N_emit, N_abs = _thermal_phonon_recombination_occupations(E, T_bath)
+            K_r_emit = K_r0 * N_emit
+            K_r_abs = K_r0 * N_abs
         partner = rho * one_minus_f
         # Kaplan Eq. (8) normalization: the per-QP recombination loss is
         # 1/τ_r(E) = Σ_j K_r0[i,j] N_emit ρ_j f_j dE_j — no leading 2.
@@ -646,8 +714,8 @@ def phonon_collision_rates(
         # envelope; it cancelled out of detailed balance and of
         # thermal-dominated steady states, which is why figure-level
         # validations never caught it.)
-        loss_rate += (K_r0 * N_emit) @ (rho * f * dE)
-        gain += one_minus_f * ((K_r0 * N_abs) @ (partner * dE))
+        loss_rate += K_r_emit @ (rho * f * dE)
+        gain += one_minus_f * (K_r_abs @ (partner * dE))
 
     return gain, loss_rate
 

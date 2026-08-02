@@ -20,6 +20,7 @@ import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy.linalg import LinAlgWarning, lu_factor, lu_solve
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
@@ -30,6 +31,11 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.physics.spectral import SpectralContext
+
+# Consecutive chord (reused-LU) Newton steps before a mandatory fresh
+# Jacobian rebuild. Refreshing is also triggered immediately whenever a
+# chord step fails its line search, so this cap only bounds slow creep.
+_CHORD_MAX_STEPS = 8
 
 if TYPE_CHECKING:
     # Type-annotation-only import. A runtime import of qpsim.devices.external_flux
@@ -57,8 +63,20 @@ def newton_solve_f(
     external_flux: ExternalFlux | None = None,
     tol: float = 1e-14,
     max_iter: int = 200,
+    jacobian_cache: dict | None = None,
 ) -> np.ndarray:
     """Newton-solve ``f(E)`` against the collision residual.
+
+    ``jacobian_cache`` (opt-in) enables chord-Newton reuse of the LU-factored
+    Jacobian *across calls*: pass the same (initially empty) dict for every
+    inner solve of a Picard loop and each iteration first tries the cached
+    factorization; a fresh Jacobian is built only when the chord step fails
+    to reduce the residual (or after ``_CHORD_MAX_STEPS`` consecutive chord
+    steps). Within a single call the same policy applies between iterations.
+    Convergence is still certified by the exact residual at the same ``tol``,
+    so the returned ``f`` satisfies the identical criterion as the
+    fresh-Jacobian path; only the (cheaper) iteration path differs. All
+    failure/fallback semantics below fire only after a fresh-Jacobian retry.
 
     Parameters
     ----------
@@ -141,6 +159,24 @@ def newton_solve_f(
     if N_emit is None and K_r0 is not None:
         N_emit, N_abs = _thermal_phonon_recombination_occupations(ctx.E, T_bath)
 
+    # The phonon occupations are frozen for the duration of this call, so the
+    # elementwise kernel·occupation products are loop invariants; every
+    # residual, line-search trial, and Jacobian below reuses these instead of
+    # rebuilding NE² temporaries per evaluation (bit-identical results).
+    eff_kernels = (
+        K_s0 * N_p if K_s0 is not None and N_p is not None else None,
+        K_r0 * N_emit if K_r0 is not None and N_emit is not None else None,
+        K_r0 * N_abs if K_r0 is not None and N_abs is not None else None,
+    )
+
+    if jacobian_cache is None:
+        # No caller-owned cache: still reuse the factorization between the
+        # iterations of this call (the dict simply dies with the call).
+        jacobian_cache = {}
+    # The chord counter lives in the cache so the refresh cap spans calls:
+    # a Picard loop of 1-iteration inner solves must still rebuild at least
+    # every _CHORD_MAX_STEPS steps, not never.
+
     max_residual = np.inf
     rate_scale = 0.0
     for iteration in range(max_iter):
@@ -149,6 +185,7 @@ def newton_solve_f(
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
             external_flux,
+            eff_kernels,
         )
         R = gain - loss_rate * f_cur
 
@@ -172,40 +209,74 @@ def newton_solve_f(
             # before their residual is evaluated, so no post-hoc clip is needed.
             return f_cur.copy()
 
-        J = _jacobian_analytical(
-            f_cur, ctx, K_s0, K_r0,
-            photon_params, pb_photon_params,
-            N_p, N_emit, N_abs,
-            external_flux,
-        )
-        J_act = J[np.ix_(active, active)]
         R_act = R[active]
 
-        try:
-            delta_f_act = np.linalg.solve(J_act, -R_act)
-        except np.linalg.LinAlgError as err:
-            raise RuntimeError(
-                f"Singular Jacobian at Newton iteration {iteration}"
-            ) from err
-
-        delta_f = np.zeros(NE)
-        delta_f[active] = delta_f_act
-
-        # Simple backtracking line search.
-        alpha = 1.0
-        accepted = False
-        for _ in range(20):
-            f_trial = np.clip(f_cur + alpha * delta_f, 0.0, 1.0)
-            R_trial = _residual(
-                f_trial, ctx, K_s0, K_r0, T_bath,
+        def _fresh_delta() -> np.ndarray:
+            """Build + factor a fresh Jacobian, cache the LU, return the step."""
+            J = _jacobian_analytical(
+                f_cur, ctx, K_s0, K_r0,
                 photon_params, pb_photon_params,
                 N_p, N_emit, N_abs,
                 external_flux,
+                eff_kernels,
             )
-            if np.max(np.abs(R_trial[active])) < max_residual:
-                accepted = True
-                break
-            alpha *= 0.5
+            J_act = J[np.ix_(active, active)]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", LinAlgWarning)
+                lu_piv = lu_factor(J_act, check_finite=False)
+            if np.any(np.diag(lu_piv[0]) == 0.0):
+                raise RuntimeError(
+                    f"Singular Jacobian at Newton iteration {iteration}"
+                )
+            jacobian_cache["lu"] = lu_piv
+            jacobian_cache["n_active"] = n_active
+            jacobian_cache["chord_steps"] = 0
+            return lu_solve(lu_piv, -R_act, check_finite=False)
+
+        def _line_search(delta_f_act: np.ndarray) -> tuple[np.ndarray, float, bool]:
+            """Backtracking line search; returns (delta_f, alpha, accepted)."""
+            delta_f = np.zeros(NE)
+            delta_f[active] = delta_f_act
+            alpha = 1.0
+            for _ in range(20):
+                f_trial = np.clip(f_cur + alpha * delta_f, 0.0, 1.0)
+                R_trial = _residual(
+                    f_trial, ctx, K_s0, K_r0, T_bath,
+                    photon_params, pb_photon_params,
+                    N_p, N_emit, N_abs,
+                    external_flux,
+                    eff_kernels,
+                )
+                if np.max(np.abs(R_trial[active])) < max_residual:
+                    return delta_f, alpha, True
+                alpha *= 0.5
+            return delta_f, alpha, False
+
+        # Chord step first: reuse the cached LU while it keeps making
+        # progress; any failure below falls back to a fresh Jacobian.
+        used_chord = False
+        cached_lu = jacobian_cache.get("lu")
+        if (
+            cached_lu is not None
+            and jacobian_cache.get("n_active") == n_active
+            and jacobian_cache.get("chord_steps", 0) < _CHORD_MAX_STEPS
+        ):
+            delta_f_act = lu_solve(cached_lu, -R_act, check_finite=False)
+            used_chord = bool(np.all(np.isfinite(delta_f_act)))
+        if not used_chord:
+            delta_f_act = _fresh_delta()
+        else:
+            jacobian_cache["chord_steps"] = jacobian_cache.get("chord_steps", 0) + 1
+
+        delta_f, alpha, accepted = _line_search(delta_f_act)
+
+        if not accepted and used_chord:
+            # The stale-Jacobian step stalled; this is a refresh trigger, not
+            # a Newton failure. Retry the same iteration with a fresh
+            # Jacobian before any of the failure handling below.
+            delta_f_act = _fresh_delta()
+            used_chord = False
+            delta_f, alpha, accepted = _line_search(delta_f_act)
 
         if not accepted:
             # Line-search failure near the roundoff floor just means the Newton
@@ -260,13 +331,24 @@ def _gain_loss_sum(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Total (gain, loss_rate) from all enabled collision channels."""
+    """Total (gain, loss_rate) from all enabled collision channels.
+
+    ``eff_kernels``, when given, is ``(K_s0·N_p, K_r0·N_emit, K_r0·N_abs)``
+    precomputed once per Newton call (the phonon occupations are frozen for
+    its duration), sparing an NE² product per channel per evaluation.
+    """
+    K_s_eff, K_r_emit, K_r_abs = eff_kernels if eff_kernels else (None, None, None)
     gain, loss_rate = phonon_collision_rates(
         f, ctx, K_s0, K_r0, T_bath,
         N_p_override=N_p,
         N_emit_override=N_emit,
         N_abs_override=N_abs,
+        K_s_eff_override=K_s_eff,
+        K_r_emit_override=K_r_emit,
+        K_r_abs_override=K_r_abs,
     )
 
     if photon_params is not None:
@@ -308,6 +390,8 @@ def _residual(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> np.ndarray:
     """``df/dt = gain − loss_rate · f`` at the supplied ``f``."""
     gain, loss_rate = _gain_loss_sum(
@@ -315,6 +399,7 @@ def _residual(
         photon_params, pb_photon_params,
         N_p, N_emit, N_abs,
         external_flux,
+        eff_kernels,
     )
     return gain - loss_rate * f
 
@@ -330,6 +415,8 @@ def _jacobian_analytical(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> np.ndarray:
     """Analytical Jacobian ``∂R_i/∂f_j`` of the collision residual.
 
@@ -344,12 +431,15 @@ def _jacobian_analytical(
     w = rho * dE
     omf = np.maximum(1.0 - f, 0.0)
     diag_idx = np.arange(NE)
+    K_s_eff_pre, K_r_emit_pre, K_r_abs_pre = (
+        eff_kernels if eff_kernels else (None, None, None)
+    )
 
     J = np.zeros((NE, NE))
 
     # Scattering
     if K_s0 is not None and N_p is not None:
-        K_s_eff = K_s0 * N_p
+        K_s_eff = K_s_eff_pre if K_s_eff_pre is not None else K_s0 * N_p
         # Off-diagonal: ∂R_i/∂f_j = (1 − f_i) K_s[j, i] w_j + f_i K_s[i, j] w_j
         J += (omf[:, None] * K_s_eff.T + f[:, None] * K_s_eff) * w[None, :]
         # Diagonal correction: subtract the bulk in/out rates at i.
@@ -362,8 +452,10 @@ def _jacobian_analytical(
     if K_r0 is not None and N_emit is not None and N_abs is not None:
         mixed = omf[:, None] * N_abs + f[:, None] * N_emit
         J -= K_r0 * mixed * w[None, :]
-        C = (K_r0 * N_abs) @ (rho * omf * dE)
-        D = (K_r0 * N_emit) @ (rho * f * dE)
+        K_r_abs = K_r_abs_pre if K_r_abs_pre is not None else K_r0 * N_abs
+        K_r_emit = K_r_emit_pre if K_r_emit_pre is not None else K_r0 * N_emit
+        C = K_r_abs @ (rho * omf * dE)
+        D = K_r_emit @ (rho * f * dE)
         J[diag_idx, diag_idx] -= C + D
 
     # Sub-gap photon (K+, partners at i ± m)
@@ -375,21 +467,25 @@ def _jacobian_analytical(
             ctx.E, dE, "Sub-gap photon analytical Jacobian"
         )
         m = round(omega_0 / dE_scalar)
-        if m > 0:
+        if m > 0 and m < NE:
             K_plus = ctx.K_plus
             gap = ctx.gap
-            for i in range(NE):
-                j_up = i + m
-                if j_up < NE:
-                    U = rho[j_up] * K_plus[i, j_up]
-                    J[i, i] -= c_phot * U * (f[j_up] + n_bar)
-                    J[i, j_up] += c_phot * U * (n_bar + 1.0 - f[i])
+            # Banded ±m structure, vectorized over the bin index i; the
+            # per-element operations and their order match the former
+            # scalar loop exactly (bit-identical assembly).
+            i_up = np.arange(NE - m)
+            j_up = i_up + m
+            U_up = rho[j_up] * K_plus[i_up, j_up]
+            J[i_up, i_up] -= c_phot * U_up * (f[j_up] + n_bar)
+            J[i_up, j_up] += c_phot * U_up * (n_bar + 1.0 - f[i_up])
 
-                j_dn = i - m
-                if j_dn >= 0 and ctx.E[j_dn] >= gap:
-                    U = rho[j_dn] * K_plus[i, j_dn]
-                    J[i, i] -= c_phot * U * (n_bar + 1.0 - f[j_dn])
-                    J[i, j_dn] += c_phot * U * (n_bar + f[i])
+            i_dn = np.arange(m, NE)
+            j_dn = i_dn - m
+            keep = ctx.E[j_dn] >= gap
+            i_dn, j_dn = i_dn[keep], j_dn[keep]
+            U_dn = rho[j_dn] * K_plus[i_dn, j_dn]
+            J[i_dn, i_dn] -= c_phot * U_dn * (n_bar + 1.0 - f[j_dn])
+            J[i_dn, j_dn] += c_phot * U_dn * (n_bar + f[i_dn])
 
     # Pair-breaking photon (K+ scattering + K- gen/rec)
     if pb_photon_params is not None:
@@ -406,33 +502,35 @@ def _jacobian_analytical(
         gap = ctx.gap
         E = ctx.E
 
-        for i in range(NE):
-            if m_pb > 0:
-                j_up = i + m_pb
-                if j_up < NE:
-                    U = rho[j_up] * K_plus[i, j_up]
-                    J[i, i] -= c_pb * U * (f[j_up] + n_bar_pb)
-                    J[i, j_up] += c_pb * U * (n_bar_pb + 1.0 - f[i])
+        # Vectorized over the bin index i; per-element operations and their
+        # order match the former scalar loop exactly (bit-identical assembly).
+        if m_pb > 0:
+            i_up = np.arange(NE - m_pb)
+            j_up = i_up + m_pb
+            U_up = rho[j_up] * K_plus[i_up, j_up]
+            J[i_up, i_up] -= c_pb * U_up * (f[j_up] + n_bar_pb)
+            J[i_up, j_up] += c_pb * U_up * (n_bar_pb + 1.0 - f[i_up])
 
-                j_dn = i - m_pb
-                if j_dn >= 0 and E[j_dn] >= gap:
-                    U = rho[j_dn] * K_plus[i, j_dn]
-                    J[i, i] -= c_pb * U * (n_bar_pb + 1.0 - f[j_dn])
-                    J[i, j_dn] += c_pb * U * (n_bar_pb + f[i])
+            i_dn = np.arange(m_pb, NE)
+            j_dn = i_dn - m_pb
+            keep = E[j_dn] >= gap
+            i_dn, j_dn = i_dn[keep], j_dn[keep]
+            U_dn = rho[j_dn] * K_plus[i_dn, j_dn]
+            J[i_dn, i_dn] -= c_pb * U_dn * (n_bar_pb + 1.0 - f[j_dn])
+            J[i_dn, j_dn] += c_pb * U_dn * (n_bar_pb + f[i_dn])
 
-            E_partner = omega_PB_snapped - E[i]
-            if E_partner < gap:
-                continue
-            j_r = round((E_partner - E[0]) / dE_scalar)
-            if j_r < 0 or j_r >= NE:
-                continue
-            U_m = rho[j_r] * K_minus[i, j_r]
-            # Generation: R_gen_i = c · U⁻ · n_bar · (1 − f_i)(1 − f_j)
-            # Recombination: R_rec_i = −c · U⁻ · (1 + n_bar) · f_j · f_i
-            # ∂R_i/∂f_i = −c · U⁻ · (n_bar + f_j)
-            # ∂R_i/∂f_j = −c · U⁻ · (n_bar + f_i)
-            J[i, i] -= c_pb * U_m * (n_bar_pb + f[j_r])
-            J[i, j_r] -= c_pb * U_m * (n_bar_pb + f[i])
+        E_partner = omega_PB_snapped - E
+        j_r = np.rint((E_partner - E[0]) / dE_scalar).astype(np.int64)
+        pair = (E_partner >= gap) & (j_r >= 0) & (j_r < NE)
+        i_r = np.flatnonzero(pair)
+        j_r = j_r[pair]
+        U_m = rho[j_r] * K_minus[i_r, j_r]
+        # Generation: R_gen_i = c · U⁻ · n_bar · (1 − f_i)(1 − f_j)
+        # Recombination: R_rec_i = −c · U⁻ · (1 + n_bar) · f_j · f_i
+        # ∂R_i/∂f_i = −c · U⁻ · (n_bar + f_j)
+        # ∂R_i/∂f_j = −c · U⁻ · (n_bar + f_i)
+        J[i_r, i_r] -= c_pb * U_m * (n_bar_pb + f[j_r])
+        J[i_r, j_r] -= c_pb * U_m * (n_bar_pb + f[i_r])
 
     # ExternalFlux contributes -loss_rate to the diagonal (gain is f-
     # independent so contributes zero; the linear -loss_rate*f term has

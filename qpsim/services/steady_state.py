@@ -257,6 +257,10 @@ def solve_steady_state(
     f_physical: np.ndarray | None = None
 
     convergence_ratio = float("inf")
+    # Chord-Newton cache shared across the Picard iterations: n_ph (and so
+    # the Jacobian) moves little between steps near convergence, so the
+    # inner solves reuse the LU factorization until a step underperforms.
+    jacobian_cache: dict = {}
     for _ in range(max_picard_iter):
         # Step 1: N_p, N_emit, N_abs from current n_ph.
         N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
@@ -271,6 +275,7 @@ def solve_steady_state(
             photon_params=photon_params, pb_photon_params=pb_photon_params,
             external_flux=external_flux,
             tol=tol, max_iter=max_iter,
+            jacobian_cache=jacobian_cache,
         )
 
         # Step 3: n_ph steady state from converged f.
