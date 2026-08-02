@@ -978,6 +978,8 @@ class T3DiffusionBackend:
         self,
         state: T3DiffusionState,
         dt: float,
+        *,
+        gap_dead_band: float | None = None,
     ) -> T3DiffusionState:
         r"""Advance ``Delta`` and remap BCS cell mass at frozen ``xi``.
 
@@ -994,6 +996,18 @@ class T3DiffusionBackend:
         The grid cells must cover the new gap edge.  A finite upper energy
         boundary may truncate rising-gap characteristics; material loss at
         that boundary is diagnosed rather than silently discarded.
+
+        ``gap_dead_band`` (μeV) suppresses remaps for gap moves below the
+        threshold. ``None`` (default) ties it to :func:`solve_gap`'s own
+        brentq root resolution (``1e-6 · Δ_eq`` ≈ 2e-4 μeV for Al): moves
+        below that scale are indistinguishable from root-finder noise, and
+        during slow-relaxation phases each noise-scale remap irreversibly
+        smears occupation across the gap-edge cells while conserving mass
+        (~1e-3 absolute per thousand events, AUDIT-2026-08-01-fanout.md F4.1).
+        Suppression accumulates: the state's gap is left untouched, so a
+        genuine slow drift keeps growing against the threshold and fires one
+        clean remap when it exceeds it. Pass ``0.0`` to restore the legacy
+        fire-on-any-move behavior (a 1e-14 float-noise floor still applies).
         """
         gap_scale = max(abs(float(state.gap)), abs(float(state.spectral.gap)), 1.0)
         if not np.isclose(
@@ -1035,7 +1049,15 @@ class T3DiffusionBackend:
                 f"({new_gap}); normal-state moving-gap dynamics are not "
                 "implemented."
             )
-        if abs(new_gap - state.gap) < 1e-14:
+        if gap_dead_band is None:
+            # Match solve_gap's default brentq xtol (1e-6 · Δ_eq): below the
+            # root finder's own resolution a "move" is noise, not physics.
+            gap_dead_band = 1e-6 * float(calibration.delta_eq)
+        elif not np.isfinite(gap_dead_band) or gap_dead_band < 0.0:
+            raise ValueError(
+                f"gap_dead_band must be non-negative and finite; got {gap_dead_band}."
+            )
+        if abs(new_gap - state.gap) < max(gap_dead_band, 1e-14):
             return state
         if state.spectral.dynes_gamma > 0.0:
             raise ValueError(
