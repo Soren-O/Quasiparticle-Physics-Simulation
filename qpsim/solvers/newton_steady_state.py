@@ -937,6 +937,16 @@ def newton_solve_f(
     if N_emit is None and K_r0 is not None:
         N_emit, N_abs = _thermal_phonon_recombination_occupations(ctx.E, T_bath)
 
+    # The phonon occupations are frozen for the duration of this call, so the
+    # elementwise kernel·occupation products are loop invariants; every
+    # residual, line-search trial, and Jacobian below reuses these instead of
+    # rebuilding NE² temporaries per evaluation (bit-identical results).
+    eff_kernels = (
+        K_s0 * N_p if K_s0 is not None and N_p is not None else None,
+        K_r0 * N_emit if K_r0 is not None and N_emit is not None else None,
+        K_r0 * N_abs if K_r0 is not None and N_abs is not None else None,
+    )
+
     if certify_total_number:
         # Loss-only pair systems have an exact absorbing endpoint at f=0.
         # Newton's multiplicative pair loss approaches that boundary only
@@ -981,6 +991,7 @@ def newton_solve_f(
                 N_emit,
                 N_abs,
                 external_flux,
+                eff_kernels,
             )
             if np.all(vacuum_residual[active] == 0.0):
                 return vacuum
@@ -995,6 +1006,7 @@ def newton_solve_f(
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
             external_flux,
+            eff_kernels,
         )
         # Internal (collision/photon-channel) turnover for CERTIFICATION:
         # a large but exactly balanced external-flux exchange must not
@@ -1008,6 +1020,7 @@ def newton_solve_f(
                 photon_params, pb_photon_params,
                 N_p, N_emit, N_abs,
                 None,
+                eff_kernels,
             )
             if not (
                 np.any(gain_int[active] != 0.0)
@@ -1173,6 +1186,7 @@ def newton_solve_f(
             photon_params, pb_photon_params,
             N_p, N_emit, N_abs,
             external_flux,
+            eff_kernels,
         )
         J_act = J[np.ix_(active, active)]
         R_act = R[active]
@@ -1244,6 +1258,7 @@ def newton_solve_f(
                     photon_params, pb_photon_params,
                     N_p, N_emit, N_abs,
                     external_flux,
+                    eff_kernels,
                 )
                 R_trial = gain_trial - loss_trial * f_trial
                 trial_max_residual = float(np.max(np.abs(R_trial[active])))
@@ -1279,6 +1294,7 @@ def newton_solve_f(
                             N_emit,
                             N_abs,
                             None,
+                            eff_kernels,
                         )
                         if not (
                             np.any(gain_trial_scale[active] != 0.0)
@@ -1575,13 +1591,25 @@ def _gain_loss_sum(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Total (gain, loss_rate) from all enabled collision channels."""
+    """Total (gain, loss_rate) from all enabled collision channels.
+
+    ``eff_kernels``, when given, is ``(K_s0·N_p, K_r0·N_emit, K_r0·N_abs)``
+    precomputed once per Newton call (the phonon occupations are frozen for
+    its duration), sparing an NE² product per channel per evaluation.
+    Bit-identical to the unassisted path.
+    """
+    K_s_eff, K_r_emit, K_r_abs = eff_kernels if eff_kernels else (None, None, None)
     gain, loss_rate = phonon_collision_rates(
         f, ctx, K_s0, K_r0, T_bath,
         N_p_override=N_p,
         N_emit_override=N_emit,
         N_abs_override=N_abs,
+        K_s_eff_override=K_s_eff,
+        K_r_emit_override=K_r_emit,
+        K_r_abs_override=K_r_abs,
     )
 
     if photon_params is not None:
@@ -1631,6 +1659,8 @@ def _residual(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> np.ndarray:
     """``df/dt = gain − loss_rate · f`` at the supplied ``f``."""
     gain, loss_rate = _gain_loss_sum(
@@ -1638,6 +1668,7 @@ def _residual(
         photon_params, pb_photon_params,
         N_p, N_emit, N_abs,
         external_flux,
+        eff_kernels,
     )
     return gain - loss_rate * f
 
@@ -1653,6 +1684,8 @@ def _jacobian_analytical(
     N_emit: np.ndarray | None,
     N_abs: np.ndarray | None,
     external_flux: ExternalFlux | None = None,
+    eff_kernels: tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]
+    | None = None,
 ) -> np.ndarray:
     """Analytical Jacobian ``∂R_i/∂f_j`` of the collision residual.
 
@@ -1668,12 +1701,15 @@ def _jacobian_analytical(
     supported = ctx.active_mask
     omf = np.maximum(1.0 - f, 0.0)
     diag_idx = np.arange(NE)
+    K_s_eff_pre, K_r_emit_pre, K_r_abs_pre = (
+        eff_kernels if eff_kernels else (None, None, None)
+    )
 
     J = np.zeros((NE, NE))
 
     # Scattering
     if K_s0 is not None and N_p is not None:
-        K_s_eff = K_s0 * N_p
+        K_s_eff = K_s_eff_pre if K_s_eff_pre is not None else K_s0 * N_p
         # Off-diagonal: ∂R_i/∂f_j = (1 − f_i) K_s[j, i] w_j + f_i K_s[i, j] w_j
         J += (omf[:, None] * K_s_eff.T + f[:, None] * K_s_eff) * w[None, :]
         # Diagonal correction: subtract the bulk in/out rates at i.
@@ -1686,8 +1722,10 @@ def _jacobian_analytical(
     if K_r0 is not None and N_emit is not None and N_abs is not None:
         mixed = omf[:, None] * N_abs + f[:, None] * N_emit
         J -= K_r0 * mixed * w[None, :]
-        C = (K_r0 * N_abs) @ (w * omf)
-        D = (K_r0 * N_emit) @ (w * f)
+        K_r_abs = K_r_abs_pre if K_r_abs_pre is not None else K_r0 * N_abs
+        K_r_emit = K_r_emit_pre if K_r_emit_pre is not None else K_r0 * N_emit
+        C = K_r_abs @ (w * omf)
+        D = K_r_emit @ (w * f)
         J[diag_idx, diag_idx] -= C + D
 
     # Sub-gap photon (K+, partners at i ± m)
@@ -1701,22 +1739,26 @@ def _jacobian_analytical(
             ctx.E, dE, "Sub-gap photon analytical Jacobian"
         )
         m = round(omega_0 / dE_scalar)
-        if m > 0:
+        if m > 0 and m < NE:
             K_plus = ctx.K_plus
-            for i in range(NE):
-                if not supported[i]:
-                    continue
-                j_up = i + m
-                if j_up < NE and supported[j_up]:
-                    U = rho_bar[j_up] * K_plus[i, j_up]
-                    J[i, i] -= c_phot * U * (f[j_up] + n_bar)
-                    J[i, j_up] += c_phot * U * (n_bar + 1.0 - f[i])
+            # Banded ±m structure, vectorized over the bin index i; the
+            # per-element operations, their order, and the support masks
+            # match the former scalar loop exactly (bit-identical assembly).
+            i_up = np.arange(NE - m)
+            j_up = i_up + m
+            keep_up = supported[i_up] & supported[j_up]
+            i_up, j_up = i_up[keep_up], j_up[keep_up]
+            U_up = rho_bar[j_up] * K_plus[i_up, j_up]
+            J[i_up, i_up] -= c_phot * U_up * (f[j_up] + n_bar)
+            J[i_up, j_up] += c_phot * U_up * (n_bar + 1.0 - f[i_up])
 
-                j_dn = i - m
-                if j_dn >= 0 and supported[j_dn]:
-                    U = rho_bar[j_dn] * K_plus[i, j_dn]
-                    J[i, i] -= c_phot * U * (n_bar + 1.0 - f[j_dn])
-                    J[i, j_dn] += c_phot * U * (n_bar + f[i])
+            i_dn = np.arange(m, NE)
+            j_dn = i_dn - m
+            keep_dn = supported[i_dn] & supported[j_dn]
+            i_dn, j_dn = i_dn[keep_dn], j_dn[keep_dn]
+            U_dn = rho_bar[j_dn] * K_plus[i_dn, j_dn]
+            J[i_dn, i_dn] -= c_phot * U_dn * (n_bar + 1.0 - f[j_dn])
+            J[i_dn, j_dn] += c_phot * U_dn * (n_bar + f[i_dn])
 
     # Pair-breaking photon (K+ scattering + K- gen/rec)
     if pb_photon_params is not None and (
@@ -1735,40 +1777,46 @@ def _jacobian_analytical(
         K_minus = ctx.K_minus
         E = ctx.E
 
-        for i in range(NE):
-            if not supported[i]:
-                continue
-            if m_pb > 0:
-                j_up = i + m_pb
-                if j_up < NE and supported[j_up]:
-                    U = rho_bar[j_up] * K_plus[i, j_up]
-                    J[i, i] -= c_pb * U * (f[j_up] + n_bar_pb)
-                    J[i, j_up] += c_pb * U * (n_bar_pb + 1.0 - f[i])
+        # Vectorized over the bin index i; per-element operations, their
+        # order, and the support masks match the former scalar loop exactly
+        # (bit-identical assembly).
+        if m_pb > 0 and m_pb < NE:
+            i_up = np.arange(NE - m_pb)
+            j_up = i_up + m_pb
+            keep_up = supported[i_up] & supported[j_up]
+            i_up, j_up = i_up[keep_up], j_up[keep_up]
+            U_up = rho_bar[j_up] * K_plus[i_up, j_up]
+            J[i_up, i_up] -= c_pb * U_up * (f[j_up] + n_bar_pb)
+            J[i_up, j_up] += c_pb * U_up * (n_bar_pb + 1.0 - f[i_up])
 
-                j_dn = i - m_pb
-                if j_dn >= 0 and supported[j_dn]:
-                    U = rho_bar[j_dn] * K_plus[i, j_dn]
-                    J[i, i] -= c_pb * U * (n_bar_pb + 1.0 - f[j_dn])
-                    J[i, j_dn] += c_pb * U * (n_bar_pb + f[i])
+            i_dn = np.arange(m_pb, NE)
+            j_dn = i_dn - m_pb
+            keep_dn = supported[i_dn] & supported[j_dn]
+            i_dn, j_dn = i_dn[keep_dn], j_dn[keep_dn]
+            U_dn = rho_bar[j_dn] * K_plus[i_dn, j_dn]
+            J[i_dn, i_dn] -= c_pb * U_dn * (n_bar_pb + 1.0 - f[j_dn])
+            J[i_dn, j_dn] += c_pb * U_dn * (n_bar_pb + f[i_dn])
 
-            # Hard 2Δ pair threshold — the SAME gate the rate function
-            # applies (2026-07-20 round-4 review: leaving these
-            # derivatives in while the rates zero them gave a 0.74%
-            # Jacobian-vs-FD mismatch on gap-cut grids, feeding coupled
-            # Newton a wrong Jacobian).
-            if not _pair_channel_open(omega_PB_snapped, ctx.gap):
-                continue
-            E_partner = omega_PB_snapped - E[i]
-            j_r = round((E_partner - E[0]) / dE_scalar)
-            if j_r < 0 or j_r >= NE or not supported[j_r]:
-                continue
-            U_m = rho_bar[j_r] * K_minus[i, j_r]
+        # Hard 2Δ pair threshold — the SAME gate the rate function applies
+        # (2026-07-20 round-4 review: leaving these derivatives in while
+        # the rates zero them gave a 0.74% Jacobian-vs-FD mismatch on
+        # gap-cut grids, feeding coupled Newton a wrong Jacobian). The
+        # gate is bin-independent, so it hoists out of the pair sweep.
+        if _pair_channel_open(omega_PB_snapped, ctx.gap):
+            E_partner = omega_PB_snapped - E
+            j_r = np.rint((E_partner - E[0]) / dE_scalar).astype(np.int64)
+            in_range = (j_r >= 0) & (j_r < NE)
+            j_r_safe = np.clip(j_r, 0, NE - 1)
+            pair = supported & in_range & supported[j_r_safe]
+            i_r = np.flatnonzero(pair)
+            j_r = j_r_safe[pair]
+            U_m = rho_bar[j_r] * K_minus[i_r, j_r]
             # Generation: R_gen_i = c · U⁻ · n_bar · (1 − f_i)(1 − f_j)
             # Recombination: R_rec_i = −c · U⁻ · (1 + n_bar) · f_j · f_i
             # ∂R_i/∂f_i = −c · U⁻ · (n_bar + f_j)
             # ∂R_i/∂f_j = −c · U⁻ · (n_bar + f_i)
-            J[i, i] -= c_pb * U_m * (n_bar_pb + f[j_r])
-            J[i, j_r] -= c_pb * U_m * (n_bar_pb + f[i])
+            J[i_r, i_r] -= c_pb * U_m * (n_bar_pb + f[j_r])
+            J[i_r, j_r] -= c_pb * U_m * (n_bar_pb + f[i_r])
 
     # ExternalFlux contributes -loss_rate to the diagonal (gain is f-
     # independent so contributes zero; the linear -loss_rate*f term has
