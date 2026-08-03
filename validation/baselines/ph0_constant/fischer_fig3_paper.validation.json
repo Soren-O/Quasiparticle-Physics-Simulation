@@ -1,11 +1,11 @@
 {
   "artifacts": {
     "csv": {
-      "sha256": "2264f6c09f2917d5863d274a5edbaf0e8484e9ec86e51018720cf868a4378616",
+      "sha256": "497b6aaccdb2996990e7ef3ccbba6ee59cd3ae1072339c667eb1811a749891a7",
       "size_bytes": 234302
     },
     "pdf": {
-      "sha256": "1f3c762a461a83d999dc9013ecd1f167c2c2f6963b2208ef518e211833e20e43",
+      "sha256": "afc22e5e9e1166a2d1962fc0770f8fd942ce493fbd1932775da18928592963a3",
       "size_bytes": 24852
     },
     "readback": {
@@ -37,7 +37,7 @@
         "num_bins": 1620,
         "omega_0": 20.0,
         "pinned_on": "win32",
-        "producer_solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+        "producer_solve_contract_digest": "f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594",
         "ratios": [
           0.0,
           0.1,
@@ -49,7 +49,7 @@
         "target_backward_error_limit": 1e-05,
         "tau_0": 438.0,
         "tau_0_pb_ns": 0.2546462020857182,
-        "validated_solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89"
+        "validated_solve_contract_digest": "f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594"
       },
       "strict_read_passed": true
     }
@@ -147,120 +147,9 @@
       "cache": {
         "array_payload_sha256": "78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45",
         "cache_enabled": true,
-        "cache_key": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
-        "cache_provenance": {
-          "array_payload_sha256": "78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45",
-          "created_utc": "2026-07-28T06:20:39.158854+00:00",
-          "extra_source": "b85f7cc31c65c3d603ef6d58b966a89d517f527246f8471c14e25f0bfe79863a",
-          "figure": "fischer_2023/fig3",
-          "fingerprint": {
-            "c_phot": 1e-09,
-            "delta_0": 180.0,
-            "e_max_factor": 10.0,
-            "e_min_factor": 1.0,
-            "high_ratio_fallback_mixing": 0.05,
-            "high_ratio_picard_mixing": 0.15,
-            "inner_qp_backward_error_limit": 1e-10,
-            "inner_qp_number_polish_shape_limit": 1e-08,
-            "n_bar": 10000000.0,
-            "num_bins": 1620,
-            "omega_0": 20.0,
-            "paper_tau_0_pb_ps": 255.0,
-            "picard_anderson_depth": 3,
-            "t_bath": 0.1,
-            "tau_0": 438.0
-          },
-          "key": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
-          "kwargs": {
-            "continuation_ratios": [
-              0.1,
-              0.3,
-              0.5,
-              1.0,
-              2.0,
-              3.0,
-              4.0,
-              5.0,
-              6.0,
-              7.0,
-              8.0,
-              9.0,
-              10.0
-            ],
-            "num_bins": 1620,
-            "paper_ratios": [
-              0.0,
-              0.1,
-              1.0,
-              10.0
-            ]
-          },
-          "numeric_runtime": {
-            "blas": {
-              "name": "scipy-openblas",
-              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
-              "version": "0.3.33.112.0"
-            },
-            "lapack": {
-              "name": "scipy-openblas",
-              "openblas configuration": "OpenBLAS 0.3.33.112.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=24",
-              "version": "0.3.33.112.0"
-            },
-            "logical_cpu_count": 32,
-            "machine": "amd64",
-            "os_family": "win32",
-            "python_implementation": "cpython",
-            "runtime_cpu_features": [
-              "AVX",
-              "AVX2",
-              "BMI",
-              "BMI2",
-              "CX16",
-              "F16C",
-              "FMA3",
-              "LAHF",
-              "LZCNT",
-              "MMX",
-              "MOVBE",
-              "POPCNT",
-              "SSE",
-              "SSE2",
-              "SSE3",
-              "SSE41",
-              "SSE42",
-              "SSSE3",
-              "X86_V2",
-              "X86_V3"
-            ],
-            "simd": {
-              "baseline": [
-                "X86_V2"
-              ],
-              "found": [
-                "X86_V3"
-              ]
-            },
-            "thread_controls": {
-              "BLIS_NUM_THREADS": "1",
-              "MKL_CBWR": null,
-              "MKL_DYNAMIC": null,
-              "MKL_NUM_THREADS": "1",
-              "NUMEXPR_NUM_THREADS": "1",
-              "OMP_DYNAMIC": null,
-              "OMP_NUM_THREADS": "1",
-              "OPENBLAS_CORETYPE": null,
-              "OPENBLAS_NUM_THREADS": "1",
-              "VECLIB_MAXIMUM_THREADS": null
-            }
-          },
-          "solve_source": "e4d0c7f699278332c413141371b1034786d6a4748e3617c20e5c598a7e7c8a4f",
-          "versions": {
-            "numpy": "2.5.1",
-            "python": "3.14.3",
-            "scipy": "1.18.0"
-          }
-        },
-        "execution_mode": "authenticated_cache_hit",
+        "cache_entry_stored": true,
+        "cache_key": "5914ea7602c8a5455a0f2ba791e0e406cdd9e95ff455588ab2993f67841d41da",
+        "execution_mode": "solver_invoked",
         "producer_identity": {
           "extra_source": "b85f7cc31c65c3d603ef6d58b966a89d517f527246f8471c14e25f0bfe79863a",
           "figure": "fischer_2023/fig3",
@@ -352,11 +241,11 @@
               ]
             },
             "thread_controls": {
-              "BLIS_NUM_THREADS": "1",
+              "BLIS_NUM_THREADS": null,
               "MKL_CBWR": null,
               "MKL_DYNAMIC": null,
               "MKL_NUM_THREADS": "1",
-              "NUMEXPR_NUM_THREADS": "1",
+              "NUMEXPR_NUM_THREADS": null,
               "OMP_DYNAMIC": null,
               "OMP_NUM_THREADS": "1",
               "OPENBLAS_CORETYPE": null,
@@ -364,7 +253,7 @@
               "VECLIB_MAXIMUM_THREADS": null
             }
           },
-          "solve_source": "e4d0c7f699278332c413141371b1034786d6a4748e3617c20e5c598a7e7c8a4f",
+          "solve_source": "66c49c2c3edaa40820a80921ffde8e02e5c33b016e6e301dd7a2cc37a102ce50",
           "versions": {
             "numpy": "2.5.1",
             "python": "3.14.3",
@@ -397,9 +286,9 @@
             10.0
           ]
         },
-        "checkpoint_existed_before": true,
-        "checkpoint_identity": "c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c",
-        "checkpoint_path": "C:\\tmp\\qpsim-round7-fixes\\validation\\.sweep_cache\\fischer_2023__fig3_restart\\c5d449eb225b2574fef9ca332f030478b99b118e59b4745e77d8749d9859b63c.npz",
+        "checkpoint_existed_before": false,
+        "checkpoint_identity": "5914ea7602c8a5455a0f2ba791e0e406cdd9e95ff455588ab2993f67841d41da",
+        "checkpoint_path": "C:\\tmp\\qpsim-round7-fixes\\validation\\.sweep_cache\\fischer_2023__fig3_restart\\5914ea7602c8a5455a0f2ba791e0e406cdd9e95ff455588ab2993f67841d41da.npz",
         "qualification": "A solver invocation may replay a content-bound restart; an authenticated final-result cache hit invokes no solver."
       }
     },
@@ -411,7 +300,7 @@
       },
       "matplotlib": {
         "backend": "Agg",
-        "version": "3.11.1"
+        "version": "3.11.0"
       },
       "numeric_runtime_identity": {
         "blas": {
@@ -459,11 +348,11 @@
           ]
         },
         "thread_controls": {
-          "BLIS_NUM_THREADS": "1",
+          "BLIS_NUM_THREADS": null,
           "MKL_CBWR": null,
           "MKL_DYNAMIC": null,
           "MKL_NUM_THREADS": "1",
-          "NUMEXPR_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": null,
           "OMP_DYNAMIC": null,
           "OMP_NUM_THREADS": "1",
           "OPENBLAS_CORETYPE": null,
@@ -482,7 +371,7 @@
       }
     },
     "source_identity": {
-      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solve_contract_digest": "f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594",
       "solver_fingerprint": {
         "c_phot": 1e-09,
         "delta_0": 180.0,
@@ -507,10 +396,10 @@
         "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
         "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
         "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
-        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_uniform_grid.py": "1a56c51f4c95639626613ec2ca03905d74084964308b2c8b4ce5fc145f1997fc",
         "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
         "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
-        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/phonon.py": "ec071921ce832a8ff819bcf9d1661a6091c331d9c6cecb6bd5a63f8fc2569330",
         "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
         "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
         "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
@@ -561,7 +450,7 @@
         "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
         "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
         "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
-        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/newton_steady_state.py": "9873fedafee523ad1e2d969c8e2867f35c512acf9c3ab2ca2fa5cbe0ab5ce8cf",
         "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
         "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
         "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
@@ -600,7 +489,7 @@
       },
       "matplotlib": {
         "backend": "Agg",
-        "version": "3.11.1"
+        "version": "3.11.0"
       },
       "numeric_runtime_identity": {
         "blas": {
@@ -648,11 +537,11 @@
           ]
         },
         "thread_controls": {
-          "BLIS_NUM_THREADS": "1",
+          "BLIS_NUM_THREADS": null,
           "MKL_CBWR": null,
           "MKL_DYNAMIC": null,
           "MKL_NUM_THREADS": "1",
-          "NUMEXPR_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": null,
           "OMP_DYNAMIC": null,
           "OMP_NUM_THREADS": "1",
           "OPENBLAS_CORETYPE": null,
@@ -678,7 +567,7 @@
       },
       "matplotlib": {
         "backend": "Agg",
-        "version": "3.11.1"
+        "version": "3.11.0"
       },
       "numeric_runtime_identity": {
         "blas": {
@@ -726,11 +615,11 @@
           ]
         },
         "thread_controls": {
-          "BLIS_NUM_THREADS": "1",
+          "BLIS_NUM_THREADS": null,
           "MKL_CBWR": null,
           "MKL_DYNAMIC": null,
           "MKL_NUM_THREADS": "1",
-          "NUMEXPR_NUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": null,
           "OMP_DYNAMIC": null,
           "OMP_NUM_THREADS": "1",
           "OPENBLAS_CORETYPE": null,
@@ -750,7 +639,7 @@
     },
     "runtime_unchanged": true,
     "source_identity_after": {
-      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solve_contract_digest": "f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594",
       "solver_fingerprint": {
         "c_phot": 1e-09,
         "delta_0": 180.0,
@@ -775,10 +664,10 @@
         "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
         "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
         "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
-        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_uniform_grid.py": "1a56c51f4c95639626613ec2ca03905d74084964308b2c8b4ce5fc145f1997fc",
         "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
         "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
-        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/phonon.py": "ec071921ce832a8ff819bcf9d1661a6091c331d9c6cecb6bd5a63f8fc2569330",
         "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
         "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
         "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
@@ -829,7 +718,7 @@
         "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
         "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
         "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
-        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/newton_steady_state.py": "9873fedafee523ad1e2d969c8e2867f35c512acf9c3ab2ca2fa5cbe0ab5ce8cf",
         "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
         "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
         "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",
@@ -857,7 +746,7 @@
       }
     },
     "source_identity_before": {
-      "solve_contract_digest": "45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89",
+      "solve_contract_digest": "f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594",
       "solver_fingerprint": {
         "c_phot": 1e-09,
         "delta_0": 180.0,
@@ -882,10 +771,10 @@
         "qpsim/backends/t3_diffusion.py": "878699bc8abb1a883094c5b02a8183a254c6410b2d90184d8a69a7f9c29109eb",
         "qpsim/backends/t3_spatial_1d.py": "05c2d1cde79c0bdc2638a3e9f65c81538fe9c8ea303047fa382ac3cd6f4c1897",
         "qpsim/collisions/__init__.py": "d9c15f47ef72d234987cca69e3b9e1ae8d7f73a445bfa9c75159a25e8687d221",
-        "qpsim/collisions/_uniform_grid.py": "43b9c59d0595e83d0ba4350f98cc59c7a9fa98350c93eeb4c0de186aeabe6985",
+        "qpsim/collisions/_uniform_grid.py": "1a56c51f4c95639626613ec2ca03905d74084964308b2c8b4ce5fc145f1997fc",
         "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
         "qpsim/collisions/pair_breaking_photon.py": "4b2149bd21a9d8e71c88c912cd40380950c06cc219991a2adf47832166905ae0",
-        "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+        "qpsim/collisions/phonon.py": "ec071921ce832a8ff819bcf9d1661a6091c331d9c6cecb6bd5a63f8fc2569330",
         "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
         "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
         "qpsim/devices/__init__.py": "91ac916fc3510afe03dd74c970ec1b0e1f4b50ae68cc1f35eb3d8a35a446ebec",
@@ -936,7 +825,7 @@
         "qpsim/solvers/coupled_newton.py": "a42d2c072fa009104d48805065c27c1aa7a0130800a39144442752d7b7da2c32",
         "qpsim/solvers/crank_nicolson.py": "3224539b770fc95974b2f8d09bcf577f82dc734cdd0cf9e48a97ac0c32fae50d",
         "qpsim/solvers/etd.py": "010a5bb08915ce046eedf4c4f1f94426fbc900596e79a94e86bdd541dc4d8f4d",
-        "qpsim/solvers/newton_steady_state.py": "326fdcfcb5180014689c96a54c8fa5e9d9a218d09eb8118ef2e765a23dcb2b08",
+        "qpsim/solvers/newton_steady_state.py": "9873fedafee523ad1e2d969c8e2867f35c512acf9c3ab2ca2fa5cbe0ab5ce8cf",
         "qpsim/solvers/picard.py": "c01405c9b76f11025ec41f49755bf96988d08d560f709592e4d5632b5252f280",
         "qpsim/solvers/spectral_flow_tvd.py": "fab073e4b880fdf1ac22ca26f9e034012f92830a17bf15aa9adaca0d668616a1",
         "qpsim/solvers/ssprk.py": "f40ed5da64874f37ae07af411e739e0016bc34df3e548da08723207b915c0919",

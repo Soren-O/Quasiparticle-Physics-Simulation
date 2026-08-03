@@ -3,8 +3,8 @@
 # Delta_0=180.0 tau_0=438.0 T_bath=0.1 omega_0=20.0 n_bar=10000000.0 c_phot=1e-09
 # Grid: NE=1620 E_min=1.0*Delta E_max=10.0*Delta
 "# tau_0_pb_ns=0.2546462020857182 ratios=[0.0, 0.1, 1.0, 10.0]"
-# producer_solve_contract_digest=45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89
-# validated_solve_contract_digest=45b3216dee8c02284625433da432253840deeebe0aeca7078617cb0cec3a3d89
+# producer_solve_contract_digest=f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594
+# validated_solve_contract_digest=f7f0a297a4a80352fc87110b0e058fba8d871f1325eb91c4bfa183f6d9786594
 # raw_payload_sha256=78c2e181fab5d3a25d5936e2bb5b76cbfb84fc3fcee7ba1066af65a3a2aa7a45
 # certificate_metric_version='qp-l1-v1_qp-number-v1_ph0-nearest-binary64-v1' target_backward_error_limit=1e-05
 # certificate_maxima qp_residual_inf=1.00284895924091416e-19 qp_backward_error=8.36288255072661841e-11 phonon_residual_inf=1.40609231835661144e-13 phonon_raw_backward_error=2.53619061877520076e-06 phonon_backward_error=1.31594991392681887e-06 qp_number_backward_error=1.30984221624200698e-10
