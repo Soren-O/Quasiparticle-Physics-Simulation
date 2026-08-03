@@ -162,12 +162,12 @@
     }
   },
   "raw_bundle": {
-    "manifest_sha256": "b7d44d5da1115853d86f6badbd2c2b87893078e41cae484cfe96c2e0c875ce4e",
+    "manifest_sha256": "ef0c6e29158becdf893f4eb5acdba6548ea4b3af9ec9a77456583e70ed94ac7a",
     "schema": "qpsim.fischer2023.fig6-author-c3-grid-bundle.v1"
   },
   "schema": "qpsim.fischer2023.fig6-author-c3-grid-score.v1",
   "sources": {
-    "qpsim/collisions/phonon.py": "5e23fc09b5992b987e43f509bc71ae58a77c0c572da9de29afed977c6634c660",
+    "qpsim/collisions/phonon.py": "ec071921ce832a8ff819bcf9d1661a6091c331d9c6cecb6bd5a63f8fc2569330",
     "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
     "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
     "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",

@@ -176,10 +176,10 @@ _THREAD_ENVIRONMENT = {
     "OPENBLAS_NUM_THREADS": "1",
 }
 _EXPECTED_RAW_MANIFEST_SHA256 = (
-    "f2959310deb53140528dfde47f4e6dcd1a13f935fe4c7485beccb789e0bbf0fc"
+    "c7906801bee1adb716fed1c2425f9d2104c63acef7bd95b40f44470cae74e73a"
 )
 _EXPECTED_EVIDENCE_DIGEST = (
-    "bbf3b0cb97d8714ce8dfbd30e1d1a9e5f62430d377552968d8b57137dc0ac60b"
+    "0a4843fe7d20a58c427cc018cdec06662b685bdbf32a04b748991a802f16b105"
 )
 _EXPECTED_CANONICAL_METRICS: dict[str, float] = {
     "frozen_phonon_assembly_symmetric_relative_l1": float.fromhex(

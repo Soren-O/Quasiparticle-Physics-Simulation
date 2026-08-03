@@ -175,10 +175,10 @@ _THREAD_ENVIRONMENT = {
     "OPENBLAS_NUM_THREADS": "1",
 }
 _EXPECTED_RAW_MANIFEST_SHA256 = (
-    "8d22c8eda0f893c12a8e3ed1f628af85ea8481df9d749663de9775c89c4c35ff"
+    "bdc9df873663eab74828aaca14de98a99fceb0313cc0898ed0e2f0d256fd9a95"
 )
 _EXPECTED_EVIDENCE_DIGEST = (
-    "5ada427c7031d19e2cfc1944ad1fb8c7b77d51b7a6dd0c3e7f4a637cf4ae5e29"
+    "0ef1cf22d0c327176fa15f007279403340ff7452635f1fe170f15afccefb4124"
 )
 _EXPECTED_CANONICAL_METRICS: dict[str, float] = {
     "c6spe0_residual_symmetric_relative_l1": float.fromhex(
