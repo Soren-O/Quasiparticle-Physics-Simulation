@@ -23,6 +23,27 @@ spelled ``phonon_escape_time=None`` in
 module. Passing the float ``0.0`` here therefore means the opposite of
 passing ``None`` upstream.
 
+Grid trap (review 2026-08-03, unfixed): the ω grid built by
+:func:`qpsim.collisions.phonon.build_phonon_frequency_map` is the union
+of the pair-difference lattice ``{k·dE}`` and the pair-sum lattice
+``{2·E[0] + m·dE}``. On a uniform energy grid the two coincide only when
+``2·E_min/dE`` is an integer; otherwise they are *disjoint* — every ω bin
+then receives exactly one of the two channels, and this solver integrates
+two decoupled phonon fields: difference bins driven by scattering and
+escape only, sum bins by recombination/pair-breaking and escape only.
+Difference-only bins above 2Δ therefore carry no Kaplan pair-breaking
+sink at all, so substrate escape rather than pair breaking sets their
+lifetime, and the coupled ``(f, n_ph)`` solution has two accumulation
+points under grid refinement. Nothing here or upstream tests the
+condition, and the affine balance below is satisfied to roundoff either
+way, so it is silent. The promoted paper grids happen to satisfy it, as
+does any ``E_min = 0`` grid (ratio 0); ``E_min = Δ`` with NE = 400 out to
+10Δ (ratio 88.9), NE = 101 out to 5Δ (50.5) and NE = 64 out to 4Δ (42.7)
+does not. Check ``2·E_min/dE`` before trusting a dynamic-phonon run,
+and prefer a refinement ladder that holds it integral. The bath-pinned path
+(``phonon_escape_time=None`` upstream) never reaches this module and is
+unaffected.
+
 Moved here from the private ``_phonon_steady_state`` helper that
 previously lived in :mod:`qpsim.services.steady_state` (Gate 2
 task 11).
@@ -361,7 +382,10 @@ def phonon_steady_state(
         the corresponding channel.
     omega_bins, omega_idx_diff, omega_idx_sum, diff_sign
         Outputs of :func:`qpsim.collisions.phonon.build_phonon_frequency_map`
-        for ``ctx.E``.
+        for ``ctx.E``. Unvalidated precondition: the two index sets are
+        disjoint unless ``2·E_min/dE`` is an integer, which silently removes
+        the pair-breaking channel above 2Δ — see the module docstring's grid
+        trap.
     T_bath
         Substrate bath temperature (K), used to compute the thermal
         ``n_th(ω)``.

@@ -112,9 +112,25 @@ class M25PhysicalParameters:
         L, R<, R> sub-bands. Zero for thermal-only drive.
     Gamma_ph_00_Hz, Gamma_ph_01_Hz, Gamma_ph_10_Hz, Gamma_ph_11_Hz
         Photon-assisted parity-changing qubit transition rates (Hz).
-        At M25 Fig 3 parameters: ``Γ^{ph}_{00} = Γ^{ph}_{11} ≈
-        300`` Hz with the relaxation/excitation entries exp-
-        suppressed by the transmon matrix-element ratio.
+        The diagonal entries carry ``c_ii²`` (SI Eq. S27), the
+        relaxation/excitation entries the *power-law* element
+        ``s_10² = √(E_C/(8 E_J))`` (SI Eq. S25); the exp-suppressed
+        matrix elements are ``s_ii`` (S26) and ``c_10`` (S28), and
+        neither appears in these four rates. At the M25 Fig 3a set
+        (``Δ_L/h = 49.5``, ``Δ_R/h = 49``, ``ω_ν/h = 119`` GHz,
+        ``E_J/h = 14.5`` GHz, ``E_C/h = 290`` MHz) the Note V builder
+        gives ``Γ^{ph}_{00} = 300`` Hz (the calibration target) and
+        ``Γ^{ph}_{11} = 267.8`` Hz — equality of the two diagonal
+        entries holds only at leading order, since the S27 correction
+        is ``i``-dependent — while ``Γ^{ph}_{01} = 85.7`` Hz and
+        ``Γ^{ph}_{10} = 90.3`` Hz, i.e. ≈ 0.29–0.30 × ``Γ^{ph}_{00}``:
+        ``s_10² = 0.050`` is largely offset by the spectral-density
+        ratio ``S⁺/S⁻ = 5.57`` at ``x = ω_ν/Δ_L = 2.404``. Leaving
+        the 01/10 entries at their 0.0 default therefore drops ~30% of
+        the photon-assisted parity rate and collapses the SI Eq. S73
+        seed onto the ``ee`` Boltzmann factor alone;
+        :func:`coefficients_from_physical_parameters_with_photon_drive`
+        evaluates all four from the drive instead.
     Gamma_ee_10_Hz
         Parity-preserving relaxation rate. Detailed balance at
         temperature ``T`` fixes
@@ -900,6 +916,14 @@ def _S_ph_Rlt(x: float, z: float, sign: int) -> float:
 #  Note V: builder for photon-assisted rates from primitive drive
 # ─────────────────────────────────────────────────────────────────────
 
+# Unit window for ν_0 (J⁻¹ m⁻³). Elemental superconductors land at
+# 1e46–1e48 (Al 1.09e47, Nb 3.4e47), so three decades of slack either
+# side still rejects the one silent mistake available here: pasting the
+# eV⁻¹ m⁻³ sibling ``Material.rho_F`` (~1e28) into this field, which
+# shrinks ``N_CP`` — and inflates every Γ̄ = Γ̃/N_CP — by 6.24e18.
+_NU_0_SI_MIN = 1.0e44
+_NU_0_SI_MAX = 1.0e50
+
 
 @dataclass(frozen=True)
 class M25PhotonDrive:
@@ -922,6 +946,10 @@ class M25PhotonDrive:
     nu_0_per_J_per_m3
         Normal-state single-spin density of states at the Fermi
         level (J⁻¹ m⁻³). At M25 Fig 3 parameters: ``0.73 × 10⁴⁷``.
+        This is *not* :attr:`qpsim.materials.Material.rho_F`, which
+        carries the same quantity in eV⁻¹ m⁻³ (Al: ``1.74 × 10²⁸``);
+        the two differ by the ``1.602176634 × 10⁻¹⁹`` J/eV conversion
+        and a magnitude guard below rejects the swap.
     volume_m3
         Electrode volume ``V_L = V_R = V`` (m³). At M25 Fig 3:
         ``506 × 240 × 0.028 μm³ = 3400 μm³ = 3.4 × 10⁻¹⁵`` m³.
@@ -929,7 +957,10 @@ class M25PhotonDrive:
     Raises
     ------
     ValueError
-        If any value is nonpositive.
+        If any value is nonpositive, or if ``nu_0_per_J_per_m3`` lies
+        outside the physical J⁻¹ m⁻³ window (an eV⁻¹ m⁻³ value pasted
+        into this field is silent otherwise, and rescales every
+        per-quasiparticle rate through ``N_CP`` by 6.24 × 10¹⁸).
     """
 
     omega_nu_kelvin: float
@@ -944,6 +975,16 @@ class M25PhotonDrive:
                 raise ValueError(f"{name} must be finite; got {val}")
             if val <= 0.0:
                 raise ValueError(f"{name} must be positive; got {val}")
+        nu_0 = float(self.nu_0_per_J_per_m3)
+        if not (_NU_0_SI_MIN <= nu_0 <= _NU_0_SI_MAX):
+            raise ValueError(
+                f"nu_0_per_J_per_m3={nu_0:g} is outside the physical window "
+                f"[{_NU_0_SI_MIN:g}, {_NU_0_SI_MAX:g}] J^-1 m^-3 for a "
+                "volumetric electronic DOS (elemental superconductors land "
+                "at 1e46-1e48; M25 Fig 3 uses 0.73e47). An eV^-1 m^-3 value "
+                "such as Material.rho_F must be divided by 1.602176634e-19 "
+                "J/eV first (for Al: 1.74e28 -> 1.09e47)."
+            )
 
 
 def _cooper_pair_number(
@@ -1096,12 +1137,17 @@ def coefficients_from_physical_parameters_with_photon_drive(
         r_Rgt=base.r_Rgt,
         r_Rlt=base.r_Rlt,
         r_cross=base.r_cross,
-        # Scalar g_α carries thermal-phonon contribution only
-        # (subtract any scalar g_ph_* that coefficients_from_physical_parameters
-        # may have folded in from params).
-        g_L=base.g_L - params.g_ph_L_Hz,
-        g_Rgt=base.g_Rgt - params.g_ph_Rgt_Hz,
-        g_Rlt=base.g_Rlt - params.g_ph_Rlt_Hz,
+        # Scalar g_α carries thermal-phonon contribution only. Evaluate
+        # the closed forms directly instead of subtracting back off the
+        # scalar g_ph_* that coefficients_from_physical_parameters folded
+        # in: that round trip cancels catastrophically, because g^{pn} is
+        # 1e-40–1e-9 Hz against a user-supplied g_ph_* that can be O(1) Hz
+        # or larger, and returned exactly 0.0 for the thermal source.
+        # Identical to the subtraction whenever g_ph_* = 0.0 (every
+        # shipped caller), which is why no promoted number moves.
+        g_L=_g_pn_L(params),
+        g_Rgt=_g_pn_Rgt(params),
+        g_Rlt=_g_pn_Rlt(params),
         tau_R_inv=base.tau_R_inv,
         tau_E_inv=base.tau_E_inv,
         xi=base.xi,

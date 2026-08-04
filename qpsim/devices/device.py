@@ -48,7 +48,8 @@ class Device:
     ----------
     regions
         Mapping from region name to :class:`Region`. Names must match
-        the region_a / region_b strings on every Junction.
+        the region_a / region_b strings on every Junction, and each key
+        must equal its own ``Region.name``.
     junctions
         List of :class:`Junction` instances. Each Junction's
         ``region_a`` / ``region_b`` must reference keys in ``regions``.
@@ -61,7 +62,8 @@ class Device:
     Raises
     ------
     ValueError
-        At construction, if any Junction references an unknown region.
+        At construction, if any Junction references an unknown region,
+        or if a ``regions`` key disagrees with its ``Region.name``.
     """
 
     regions: dict[str, Region]
@@ -72,6 +74,24 @@ class Device:
         names = set(self.regions.keys())
         if not names:
             raise ValueError("Device must contain at least one region.")
+
+        # The mapping key is the ONLY identity this layer resolves by: region
+        # state, junction endpoints, capacity weights and the conserved-number
+        # certificate are all keyed, and ``Region.name`` is read nowhere. A key
+        # that contradicts its own Region.name is therefore a user-side
+        # transposition that would otherwise bind silently to the key, so
+        # reject it here rather than honour a topology the caller did not mean.
+        mismatched = sorted(
+            (key, region.name)
+            for key, region in self.regions.items()
+            if region.name != key
+        )
+        if mismatched:
+            raise ValueError(
+                "Device regions keys must equal their Region.name; "
+                f"mismatched (key, Region.name) pairs: {mismatched}."
+            )
+
         junctions_by_region: dict[str, list[Junction]] = {
             name: [] for name in names
         }

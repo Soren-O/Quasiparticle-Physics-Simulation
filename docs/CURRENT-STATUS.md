@@ -1,5 +1,53 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-08-02/03 perf port and whole-tree digest recertification
+> (`8fdc289` → `c269af2`):** the hot-path port (`8fdc289`: pair-breaking
+> quadrature memoization, uniform-grid validation cache, effective-kernel
+> products, photon-Jacobian vectorization) is bit-identical by construction
+> and showed zero physics-test regressions, but every artifact/evidence
+> certificate is keyed on a digest of the **entire** `qpsim/` tree
+> (`validation/source_provenance.py:31-69`,
+> `validation/sweep_cache.py:134-163`), so ~66 authentication tests went red
+> purely from that key advancing. The over-invalidation is the safety
+> property, not a bug: do **not** narrow the manifest to a per-figure import
+> closure (both module docstrings say so, and the
+> `CODE-REVIEW-FALSE-POSITIVES.md` entry "sweep_cache Fig. 7 solve-source
+> digest omits downstream observables" fixes the boundary — every dependency
+> used directly by a cache or publisher must stay enumerated in that layer's
+> source manifest). Recertification is complete as of `c269af2`, and the direction
+> differs per family — this asymmetry is load-bearing:
+>
+> - `3980c48` **rebound** the pinned non-ladder families (fischer_2024 ×4,
+>   photon-kick, marchegiani_2025 ×5, fig5/6/7 CSV + promotion,
+>   staged-resolve pilot) onto untouched rows, per the recorded precedent
+>   `dacd69f`: a regen on a drifted environment would replace certified rows
+>   with env-drifted ones. 307/0 on those families' own tests.
+> - `b3cd161` **regenerated** the fig3 triple instead (its validation record
+>   embeds cache-identity producer evidence a hand rebind would forge); all
+>   1620×6 rows reproduce the pin bitwise. A first attempt on the wrong
+>   environment (numpy 2.4.6, default BLAS threads) drifted tail bins by
+>   2.7e-2 and was discarded — the recorded generator-env stamps are
+>   load-bearing.
+> - `c269af2` **regenerated** the fig6 C3–C7 ladder receipts on the pinned
+>   ladder environment (numpy 2.5.1 venv, MKL/OMP/OPENBLAS threads=1) rather
+>   than rebinding them, so each stage's source closure records the tree that
+>   produced it; rebuilt scores differ from the committed ones only in
+>   provenance fields, with the C7 attribution ordinates
+>   (`0.12090908988993258` / `0.14542377851441587` / `0.07767766591390296`)
+>   bit-identical. 103/0 on the fig6 evidence suite.
+>
+> So: **rebind, do not regen** the pinned non-ladder rows; **regen, do not
+> rebind** the fig6 evidence receipts. Note also that `solve_source_digest`
+> excludes `qpsim/observables/` — an `observable_contract_digest` that still
+> matches after a solver edit shows the observable layer was untouched, it
+> does not show the artifact is current. **Any commit that edits a file under
+> `qpsim/` re-advances the same key and re-invalidates every certificate**,
+> including the in-flight `fix/review-2026-08-03` review branch; repeat the
+> discipline above before reading a red authentication test as a regression.
+> The chord-Newton LU-reuse item from the 2026-08-01 perf work is deliberately
+> still NOT ported — it needs a dedicated pass against the scaled/raw
+> dual-solve and certificate re-entry flow.
+
 > **2026-07-31 author-replay + reconciliation addendum:** the recovered
 > author archive was located byte-exactly (SHA-256 `31d76c92…81bc1`) in
 > the local Google Drive cache and staged at

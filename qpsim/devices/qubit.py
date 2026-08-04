@@ -43,16 +43,20 @@ class Qubit:
         Junction tunneling event flips parity, so this is needed for
         any QP-coupled qubit. When False, drops the parity axis.
     omega_kelvin
-        Per-level energies (length ``n_levels``) in Kelvin. Used for
-        the transition-frequency labeling and detailed-balance
-        relations between channels. The level-0 entry is conventionally
-        zero (ground reference).
+        Per-level energies (length ``n_levels``) in Kelvin. The level-0
+        entry is conventionally zero (ground reference). Inert
+        annotation: validated here, but read by nothing in the solver.
+        The splitting that actually sets the rates and the only
+        detailed-balance relation in the code is
+        ``M25PhysicalParameters.omega_10_kelvin``, carried by the
+        junction; nothing cross-checks the two, so a value set here
+        does not move any population.
     E_J_kelvin, E_C_kelvin
-        Transmon Josephson and charging energies (Kelvin). Optional
-        metadata; the master-equation evolver does not use them
-        directly. Carried so a ``JunctionQubitCoupling`` (which
-        derives its matrix elements from the transmon parameters)
-        can pull them off the Qubit.
+        Transmon Josephson and charging energies (Kelvin). Inert
+        annotation as above: the master-equation evolver does not use
+        them, and no shipped ``JunctionQubitCoupling`` pulls them off
+        the Qubit -- the M25 matrix elements come from
+        ``M25PhysicalParameters.E_J_kelvin``/``E_C_kelvin``.
 
     Raises
     ------

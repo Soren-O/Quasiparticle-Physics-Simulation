@@ -50,7 +50,11 @@ companion driver services. The canonical reference remains
   service below.
 - `anderson.py` — Type-II Anderson (least-squares on residual
   differences; "bad Broyden"), regularized with `rcond=1e-10`. Returns
-  `None` on `m < 2` so Picard falls back to a plain mixed step.
+  `None` when `depth == 0` (acceleration disabled, including the
+  branch-collapse reset) or when the history is empty
+  (`m = min(depth, len(X_hist)) < 1`), so Picard falls back to a plain mixed
+  step. A single history pair already gives a one-column secant update:
+  exactly one plain mixed step precedes the first extrapolation.
 
 ## Time integrators
 
@@ -123,10 +127,16 @@ companion driver services. The canonical reference remains
   certify future convergence of a non-autonomous drive.
   The final substep is truncated so `total_time` is honored exactly.
 - `rate_equation.py` — M25 4-unknown closed-form solver. Uses
-  `scipy.optimize.root(method='hybr')` for determinism;
-  `accept_lm_convergence=True` exempts only the `is_no_progress_stall`
-  case (cancellation-floor regime ~1e-5 Hz, hard-capped at 1.0 Hz)
-  from the residual check. `solve_rate_equation_steady_state_multi_seed`
+  `scipy.optimize.root(method='hybr')` for determinism. Every returned
+  state passes a row-wise residual gate,
+  `|R_i| ≤ max(1e-14 Hz, residual_tol_relative·source_i + 64 eps Σ_j|term_ij|)`:
+  a floor with no ceiling, so each row is held to ~`residual_tol_relative`
+  of its own physical drive plus that row's float64 cancellation
+  granularity. `accept_lm_convergence=True` relaxes only the MINPACK
+  "iteration is not making good progress" solver status (`hybrd` info 4/5);
+  it never bypasses the residual gate, and every other failure (`maxfev`,
+  "no further improvement possible") raises.
+  `solve_rate_equation_steady_state_multi_seed`
   brackets the multi-stable branch space and defaults to the minimum-residual
   fixed point. The historical max-`x_L` picker is deprecated.
 - `rate_equation_coefficients.py` — SI Notes III/IV/V coefficient
@@ -143,8 +153,10 @@ companion driver services. The canonical reference remains
 - Photon collision kernels reject nonuniform energy grids at entry.
 - Moving- and self-consistent-gap backend paths require represented lower-edge
   support and fail before extrapolated gap-edge occupation can certify a state.
-- M25 residual bypass requires both the cancellation-floor status
-  marker and the user-supplied flag, and is hard-capped at 1.0 Hz.
+- M25 has no residual bypass. `accept_lm_convergence` relaxes the MINPACK
+  stall status only; the row-wise residual gate (floored at 1e-14 Hz,
+  otherwise scaled by each row's own source term) applies to every returned
+  state, on the single-seed and multi-seed paths alike.
 
 ## See also
 

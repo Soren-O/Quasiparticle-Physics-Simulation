@@ -195,3 +195,48 @@ def test_runner_phonon_equation_uses_phonon_side_kernels(
         assert kwargs.get("K_r0_phonon_side") is runner.K_r0_phonon_side
     assert runner.K_s0_phonon_side is not None
     assert runner.K_r0_phonon_side is not None
+
+
+def test_runner_phonon_side_kernels_carry_phonon_side_normalisation() -> None:
+    """Second half of the audit H1 guard: the identity assertions above pin the
+    CALL SITE only, so the constructor could still bind the wrong ARRAYS and
+    stay green — aliasing ``K_s0``, or handing the builders ``tau_0`` (438 ns
+    for Al) where ``tau_0_pb_ns`` (0.255 ns) is required, which the builders
+    accept because they validate only finite-and-positive. Pin the phonon-side
+    normalisation itself against F&C 2023 Eq. 12/13."""
+    from qpsim.collisions.phonon import (
+        build_recombination_kernel_phonon_side,
+        build_scattering_kernel_phonon_side,
+    )
+
+    state = _build_state(NE=18, NX=3)
+    runner = finite_phonon.FinitePhononSpatialRunner(state, tau_l_ns=1.0)
+    tau_0_pb_ns = state.material.tau_0_pb_ns
+
+    np.testing.assert_array_equal(
+        runner.K_s0_phonon_side,
+        build_scattering_kernel_phonon_side(state.spectral, tau_0_pb_ns),
+    )
+    np.testing.assert_array_equal(
+        runner.K_r0_phonon_side,
+        build_recombination_kernel_phonon_side(state.spectral, tau_0_pb_ns),
+    )
+
+    # Closed-form prefactor anchors so builder and test cannot drift together:
+    # K_s = 2 K⁻/(π Δ τ₀^PB) and K_r = K⁺/(π Δ τ₀^PB) (F&C 2023 Eq. 12/13).
+    denom = np.pi * state.spectral.gap * tau_0_pb_ns
+    np.testing.assert_allclose(
+        runner.K_s0_phonon_side,
+        (2.0 / denom) * state.spectral.K_minus,
+        rtol=1e-14,
+    )
+    np.testing.assert_allclose(
+        runner.K_r0_phonon_side,
+        (1.0 / denom) * state.spectral.K_plus,
+        rtol=1e-14,
+    )
+
+    # The QP-side kernels carry ω²/(τ₀ T_c³) instead; reusing them in the
+    # phonon equation is exactly the 2026-07-19 audit H1 defect.
+    assert not np.allclose(runner.K_s0_phonon_side, runner.K_s0)
+    assert not np.allclose(runner.K_r0_phonon_side, runner.K_r0)

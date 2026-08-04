@@ -129,14 +129,13 @@ def _n1_columns(
     )
 
 
-def _suppressed_gap(
+def _raw_suppressed_gap(
     f_heavy: np.ndarray,
     E: np.ndarray,
     gap_profile: np.ndarray,
     gap0: float,
-    floor_factor: float = GAP_FLOOR_FACTOR,
 ) -> np.ndarray:
-    """One per-cell direct gap update ``Delta_j = Delta_0 exp(-I[f(., x_j)])``.
+    """One *unfloored* per-cell direct gap update, the raw map image.
 
     The spectral weight inside ``I`` is evaluated at the supplied local gap
     (Picard form). Unlike a general kinetic state, this benchmark deliberately
@@ -145,8 +144,6 @@ def _suppressed_gap(
     controlled center profile onto fixed edge nodes before iterating; changing
     the reconstruction stencil whenever a cell gains support would make the
     discrete gap map jump at cell faces and can eliminate its fixed point.
-    The suppression is floored at ``floor_factor * gap0`` as a safety net (the
-    benchmark operates far above it).
     """
     out = np.empty_like(gap_profile)
     for j, g in enumerate(gap_profile):
@@ -158,7 +155,27 @@ def _suppressed_gap(
             delta0=gap0,
             samples="edges",
         )
-    return np.maximum(out, floor_factor * gap0)
+    return out
+
+
+def _suppressed_gap(
+    f_heavy: np.ndarray,
+    E: np.ndarray,
+    gap_profile: np.ndarray,
+    gap0: float,
+    floor_factor: float = GAP_FLOOR_FACTOR,
+) -> np.ndarray:
+    """One per-cell direct gap update ``Delta_j = Delta_0 exp(-I[f(., x_j)])``.
+
+    The raw map image is floored at ``floor_factor * gap0`` so the trial gap
+    handed to the next sweep stays inside the interval the energy grid and the
+    closure represent (the benchmark operates far above the floor).
+    :func:`dig_well` measures its convergence on the *unfloored* image and
+    raises if the floor would bind, so the clamp never certifies itself.
+    """
+    return np.maximum(
+        _raw_suppressed_gap(f_heavy, E, gap_profile, gap0), floor_factor * gap0
+    )
 
 
 def dig_well(
@@ -191,8 +208,22 @@ def dig_well(
                 f"interval [{GAP_FLOOR_FACTOR}*gap0, gap0]."
             )
     residual = float("inf")
+    floor = GAP_FLOOR_FACTOR * gap0
     for _ in range(max_iterations):
-        updated = _suppressed_gap(f_heavy, E, gap_profile, gap0)
+        # Certify the raw map, not the floored one: a cell pinned at the floor
+        # reproduces itself and would report residual 0 forever.
+        updated = _raw_suppressed_gap(f_heavy, E, gap_profile, gap0)
+        below = np.flatnonzero(updated < floor)
+        if below.size:
+            worst = int(below[np.argmin(updated[below])])
+            raise RuntimeError(
+                "Self-consistent diffusion-benchmark gap map left the "
+                f"represented interval at {below.size} cell(s): cell {worst} "
+                f"maps to {updated[worst] / gap0:.6e}*gap0, below the "
+                f"{GAP_FLOOR_FACTOR}*gap0 floor of the energy grid and the "
+                "closure. The supplied occupation demands a gap this "
+                "benchmark cannot represent; no iteration count fixes it."
+            )
         residual = float(np.max(np.abs(updated - gap_profile)))
         if residual <= GAP_FIXED_POINT_RTOL * gap0:
             return updated

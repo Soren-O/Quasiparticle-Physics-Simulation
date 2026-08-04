@@ -5,7 +5,17 @@ name: TiN
 Delta_0: 700.0       # μeV (typical for ~40 nm films)
 T_c: 4.5             # K
 tau_0: 0.5           # ns (varies with film quality)
-D_0: 10.0            # μm²/ns (highly disordered; low diffusion)
+# D_0 provenance (2026-08-03 review — flagged, NOT corrected): the stored
+# 10.0 μm²/ns is a starter value, not a measured one, and it does not describe
+# the disordered film class this file's rho_F cites. Via the Einstein relation
+# σ = e² N(0) D with N(0) = 2·rho_F it implies ρ = 0.82 μΩ·cm, a 30 nm mean
+# free path inside a 40 nm film, and a dirty-limit ξ = √(ħD/Δ) = 97 nm. TiN
+# KID films of the cited Gao/Leduc class are ρ ≈ 30-200 μΩ·cm, i.e.
+# D ≈ 0.27-0.04 μm²/ns and ξ ≈ 16-6 nm — roughly 100× smaller than stored.
+# Correcting the number is a physics change (it shortens every spatial TiN
+# diffusion length √(Dτ) by ~11×) and needs a physicist sign-off, so the
+# shipped value is left alone and the inconsistency recorded here.
+D_0: 10.0            # μm²/ns (normal-state; see the provenance note above)
 v_F: 1.0e6           # m/s
 # Film-dependent: rounded from the 3.9e10 eV^-1 um^-3 single-spin value
 # derived from TiN pulse response by Gao et al., APL 101, 142602 (2012).

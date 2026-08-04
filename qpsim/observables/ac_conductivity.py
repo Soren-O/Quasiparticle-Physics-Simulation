@@ -5,8 +5,19 @@ normal-state ``σ_N`` cancels out of the ``Q_i`` and ``δω/ω``
 observables that build on these integrals.
 
 Ported from ``qpsim/numerics/observables.py`` at Gate 2. The super-gap
-``σ₁`` integral uses the analytic pure-BCS DOS measure in each cell so the
-integrable gap-edge singularity is not under-sampled. The sub-gap ``σ₂``
+``σ₁`` integral pairs the analytic pure-BCS DOS measure of each cell with the
+remaining regular factor sampled at that cell's center — the finite-volume
+convention of ``qpsim.physics.bcs_quadrature``. The measure is exact, but the
+pairing is not: a gap-edge cell's measure is concentrated near its lower edge
+while ``f``, ``ρ(E+ω₀)`` and ``K⁺`` all fall steeply away from that edge, so
+``σ₁`` is one-signed LOW and converges only as ``O(dE^{3/2})``. Against
+adaptive quadrature of the same integrand (Δ = 182.4 μeV, ω₀ = 20.7 μeV,
+thermal ``f``) the deficit is −12.4 % at 40 bins on ``[Δ, 5Δ]`` and T = 0.5 K,
+−26.7 % there at T = 0.2 K, and −3.7 % at 405 bins on ``[Δ, 10Δ]`` at
+T = 0.2 K; a nonequilibrium ``f`` peaked inside the first cell is worse
+(−63 % at 28 bins on ``[Δ, 5Δ]`` for a 10 μeV edge decay). ``Q_i ∝ 1/σ₁``
+is correspondingly overstated on coarse grids, so resolve ``σ₁`` in ``dE``
+before quoting one. The sub-gap ``σ₂``
 integral uses a sine-squared coordinate that removes both square-root endpoint
 singularities before applying a midpoint rule. Pure-BCS spectral functions
 only; Dynes-broadened contexts are rejected (the Mattis–Bardeen integrands
@@ -132,8 +143,12 @@ def compute_ac_conductivity(
     K_plus_partner = 1.0 + gap ** 2 / np.maximum(E * E_partner, 1e-30)
 
     U_plus = rho_partner * K_plus_partner
-    # Integrate the singular leading DOS analytically over every cell. The
-    # remaining factor is regular at E=Δ for a sub-gap probe (E+ω₀>Δ).
+    # Integrate the singular leading DOS analytically over every cell and
+    # sample the remaining factor at the cell center. That factor is finite at
+    # E=Δ for a sub-gap probe (E+ω₀>Δ) but steep there, while the cell measure
+    # is concentrated at the cell's lower edge, so this cell-constant pairing
+    # is one-signed low and only O(dE^{3/2}) accurate — see the module
+    # docstring for the measured deficit at production grid sizes.
     dos_weights = bcs_dos_cell_weights(E, dE, gap)
     integrand_1_regular = (f - f_partner) * U_plus
     sigma_1_norm = (2.0 / omega_0) * float(
@@ -158,6 +173,18 @@ def compute_ac_conductivity(
         E_sub = gap - span * cos_theta**2
 
         E_sub_partner = E_sub + omega_0
+        # KNOWN CONVENTION MISMATCH (2026-08-03 review, fix deferred): this
+        # reconstructs f from ALL centers. On a sub-gap-extended grid (first
+        # cell edge below Δ) the centers below the gap carry zero spectral
+        # capacity and stay frozen at whatever seed the caller supplied, yet
+        # the low-θ nodes here sit just above Δ and blend that placeholder
+        # into f. gap_suppression.edge_samples_from_centers masks exactly
+        # those nodes for exactly this reason; restricting the interpolation
+        # to ctx.active_mask would move σ₂ (and hence δω/ω) on such grids, so
+        # it needs the physics sign-off this review deferred. σ₁ above is
+        # structurally immune: sub-gap cells carry zero DOS weight there, and
+        # every weighted cell's partner E_i+ω₀ lies above the first active
+        # center, so no frozen center ever enters its interpolation bracket.
         f_sub_partner = np.interp(E_sub_partner, E, f, right=0.0)
         rho_sub_partner = bcs_density_of_states(E_sub_partner, gap)
         K_plus_sub = 1.0 + gap ** 2 / np.maximum(E_sub * E_sub_partner, 1e-30)

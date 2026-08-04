@@ -203,7 +203,13 @@ def coupled_newton_solve(
     tol
         Absolute infinity-norm tolerance on the combined residual
         ``max(|R_f|, |R_ph|)``. Used as the early-exit test only when
-        ``step_rtol == 0`` (legacy opt-out), and for diagnostics otherwise.
+        ``step_rtol == 0`` (legacy opt-out). With ``step_rtol > 0`` it is
+        validated and then read by nothing: it gates no exit, appears in no
+        message or returned diagnostic, and bounds nothing about the accepted
+        state, whose only certificates are the relative Newton step and the
+        two scale-invariant L1 backward errors below. A caller passing a
+        ``tol`` alongside a positive ``step_rtol`` must not read the returned
+        state as satisfying ``max(|R_f|, |R_ph|) < tol``.
     step_rtol
         Scale-invariant convergence tolerance on the relative Newton step
         ``max(‖Δf‖∞/‖f‖∞, ‖Δn‖∞/‖n‖∞)``. The default ``1e-8`` pairs this with a

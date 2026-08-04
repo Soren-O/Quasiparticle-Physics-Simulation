@@ -85,7 +85,7 @@ Required to evaluate every coefficient:
 | `g_T_siemens`      | Junction normal-state conductance (SI units)           | (derived from I_c; see §4) |
 | `b_L_per_J3_s`     | Electron-phonon spectral density prefactor, left elec. | from r^L (§6)          |
 | `b_R_per_J3_s`     | Electron-phonon spectral density prefactor, right el.  | from r^{R<} (§6)       |
-| `Gamma_PB_Hz`      | Pair-breaking photon absorption rate per Cooper pair   | from Γ^{ph}_{00} (§5)  |
+| `Gamma_nu_scale_Hz`| Photon-drive amplitude `Γ_ν` (on `M25PhotonDrive`)      | back-solved from Γ^{ph}_{00} (§5) |
 | `Gamma_ee_10_Hz`   | Parity-preserving relaxation rate (detailed balance sets `Γ^{ee}_{01}`) | 100 kHz |
 
 ---
@@ -198,16 +198,49 @@ The total pair-breaking rate from photons is:
 with individual `Γ^ph_{ij}` obtained by plugging (S55, S57) into (S10).
 
 **Generation from pair-breaking photons** (explicit in thesis Appendix A.2,
-Eq. 122):
+Eq. 122). The absorbed photon breaks a pair *across* the junction — one
+quasiparticle in each electrode — so the partner DoS and the upper limit
+carry the *opposite* electrode index ᾱ (ᾱ = R for α = L; ᾱ = L for both R
+sub-bands):
 
 ```
-g^ph_α = Γ_PB · n̄_PB · ∫_{Δ_α}^{ω_ν - Δ_α} χ_α(E) ρ_α(E) ρ_α(ω_ν - E) K⁻(E, ω_ν - E) dE
+g^ph_α = Γ_PB · n̄_PB · ∫_{Δ_α}^{ω_ν - Δ_ᾱ} χ_α(E) ρ_α(E) ρ_ᾱ(ω_ν - E) K⁻(E, ω_ν - E) dE
 ```
 
 where `χ_α(E)` is the indicator function for the α sub-band:
 * χ_L(E) = θ(E − Δ_L)
 * χ_{R<}(E) = θ(Δ_L − E) · θ(E − Δ_R)
 * χ_{R>}(E) = θ(E − Δ_L)
+
+**Transcription fix (2026-08-03):** an earlier revision of this file carried
+the same index α on both DoS factors and on the upper limit
+(`ρ_α(ω_ν − E)`, `∫^{ω_ν − Δ_α}`), i.e. a pair broken *within* one electrode
+with threshold ω_ν > 2Δ_α. That contradicts the χ's listed directly above,
+which reproduce the shipped thresholds only under the cross-electrode
+reading: α = L and α = R< both open at ω_ν > Δ_L + Δ_R, and α = R> at
+ω_ν > 2Δ_L.
+
+**What the code evaluates.** `coefficients_from_physical_parameters_with_photon_drive`
+does not quadrature this integral. It evaluates the main-text identity
+
+```
+g^ph_R = Γ^ph / N_CP(R) = Γ^ph / (2 ν₀ Δ_R V),      g^ph_L = δ · g^ph_R
+```
+
+per qubit state, resolving R< from R> with the *per-channel* spectral-density
+fraction `S^{<,±}_ph(x_{ij}; z) / S^±_ph(x_{ij}; z)`. Its support is therefore
+the support of `S^±_ph`: identically zero for ω_ν ≤ Δ_L + Δ_R on every
+channel, and additionally zero on the R> branch for ω_ν ≤ 2Δ_L. On a strongly
+asymmetric junction the two thresholds separate visibly — Δ_L/h = 60 GHz,
+Δ_R/h = 49 GHz, ω_ν/h = 105 GHz clears 2Δ_R = 98 GHz but not
+Δ_L + Δ_R = 109 GHz, so the shipped `g^ph` is exactly zero and
+`calibrate_Gamma_nu_scale_Hz_from_Gamma_ph_00` raises. That is a model-scope
+boundary, not a numerical bug. At the Fig 3 set the two coincide to within
+0.5 GHz, so the distinction is invisible there.
+
+`Γ_PB`, `n̄_PB` and `K⁻` are thesis symbols only; they are not qpsim inputs
+and appear nowhere in the code — the drive enters through `Γ_ν`
+(`Gamma_nu_scale_Hz`) and the `Γ^ph_{ij}`.
 
 In the Fig 3 parameter set, `Γ^ph_{00} = 300 Hz` is the caption input;
 this fixes `Γ_ν` (and hence `Γ_PB n̄_PB`) for the configured ω_ν, E_J, E_C.

@@ -12,6 +12,7 @@ from qpsim.observables.gap_suppression import (
     compute_gap_suppression,
     compute_gap_suppression_direct,
     delta_suppression_from_distribution_direct,
+    edge_samples_from_centers,
     fermi_dirac_distribution,
     gap_from_distribution_direct,
     gap_integral_from_distribution_direct,
@@ -373,6 +374,88 @@ class TestDirectGapSuppression:
             rel=2e-13,
             abs=1e-15,
         )
+
+    def test_center_samples_match_longhand_edge_reconstruction(self) -> None:
+        # The centers branch is the convention the Fig. 6 ladder attributes
+        # the rising-branch discrepancy to, so it needs an oracle of its own:
+        # every other non-constant-f test either passes samples="edges" or
+        # compares the centers path against itself.
+        gap = 180.0
+        h = 1.0
+        E = np.array([180.5, 181.5, 182.5])
+        f = np.array([1.0e-3, 3.0e-3, 5.0e-3])
+
+        actual = gap_integral_from_distribution_direct(
+            f,
+            E,
+            gap=gap,
+            samples="centers",
+        )
+
+        # Interior left-edge nodes are the midpoint average of the two
+        # neighbouring centers; the first node is the half-bin linear
+        # extrapolation below the first positive-capacity center, and it is
+        # the occupation multiplying the square-root-singular first interval.
+        left_edges = E - 0.5 * h
+        vals = np.array([0.0, 2.0e-3, 4.0e-3])
+        expected = 0.0
+        for j in range(E.size):
+            edge_lo = left_edges[j]
+            edge_hi = edge_lo + h
+            acosh_span = np.arccosh(edge_hi / gap) - np.arccosh(
+                max(edge_lo, gap) / gap
+            )
+            expected += 2.0 * vals[j] * acosh_span
+            if j == E.size - 1:
+                # The final interval is held constant.
+                continue
+            affine_slope = (vals[j + 1] - vals[j]) / h
+            expected += 2.0 * affine_slope * (
+                np.sqrt(edge_hi**2 - gap**2)
+                - np.sqrt(max(edge_lo, gap) ** 2 - gap**2)
+                - edge_lo * acosh_span
+            )
+
+        assert actual == pytest.approx(expected, rel=2e-12, abs=1e-18)
+
+    def test_center_samples_agree_with_shared_edge_mapping(self) -> None:
+        # ``edge_samples_from_centers`` is a second copy of the same
+        # reconstruction. On a gap-aligned grid, where every cell carries
+        # positive capacity, the two must agree exactly -- this is what fails
+        # if the centers branch is silently reverted to the author's raw
+        # left-edge reading.
+        gap = 180.0
+        E, _ = build_energy_grid(
+            gap=gap,
+            energy_min_factor=1.0,
+            energy_max_factor=10.0,
+            num_energy_bins=180,
+        )
+        f = fermi_dirac_distribution(E, 0.2)
+
+        centers = gap_integral_from_distribution_direct(
+            f,
+            E,
+            gap=gap,
+            samples="centers",
+        )
+        via_edge_map = gap_integral_from_distribution_direct(
+            edge_samples_from_centers(f, E),
+            E,
+            gap=gap,
+            samples="edges",
+        )
+        raw_edges = gap_integral_from_distribution_direct(
+            f,
+            E,
+            gap=gap,
+            samples="edges",
+        )
+
+        assert centers == via_edge_map
+        # The two conventions are genuinely distinct on a non-constant f, so
+        # a convention swap cannot hide inside the pinned artifacts.
+        assert centers / raw_edges == pytest.approx(1.2677486, rel=1e-6)
 
     def test_constant_distribution_matches_analytic_integral(self) -> None:
         gap = 180.0

@@ -276,13 +276,20 @@ class T3Spatial1DState:
     ``gap_profile`` (optional, shape ``(NX,)``) gives a spatially-varying
     gap so the DOS ``N_1(E, x)`` -- and hence the transport dressing -- is
     evaluated per cell; ``None`` means a uniform scalar gap. With a
-    ``gap_profile`` and a finite ``interface_conductance`` ``G_N``, the
+    ``gap_profile`` and a finite ``interface_conductance``, the
     profile must contain exactly one piecewise-constant step. That face
     becomes a Kupriyanov-Lukichev interface
     carrying the energy-channel current
-    ``F = G_N (N_1^L N_1^R - N_2^L N_2^R) (f_L - f_R)`` -- the
+    ``F = g_N (N_1^L N_1^R - N_2^L N_2^R) (f_L - f_R)`` -- the
     coherence-factor (Maki-Griffin) weight, regular at matched gaps --
-    instead of a bulk diffusive flux. Local collision kernels are built from
+    instead of a bulk diffusive flux. ``interface_conductance`` is that
+    ``g_N``: the interface conductance in diffusion units, i.e. an interface
+    velocity in microns per nanosecond, dimensionally ``D_0/length``. It is
+    not the paper's conductance density ``G_N`` (S/m^2); the two are bridged
+    by ``g_N = G_N / (2 e^2 N_0)`` (paper eq:KL_normalization_bridge), and
+    the benchmark value is ``g_N = 0.1 um/ns``.
+
+    Local collision kernels are built from
     the same per-cell gap profile, so transport and collisions share one
     spectral support. Each exact gap requires three dense energy matrices. A
     two-entry LRU serves repeated gaps; profiles with more than two distinct
@@ -298,7 +305,7 @@ class T3Spatial1DState:
     T_bath: float
     diffusion_model: DiffusionModel = DEFAULT_DIFFUSION_MODEL
     gap_profile: np.ndarray | None = None
-    interface_conductance: float | None = None
+    interface_conductance: float | None = None  # g_N (um/ns), see docstring
 
     @property
     def dx(self) -> float:
@@ -520,25 +527,9 @@ class T3Spatial1DBackend:
         D0 = float(state.spectral.diffusion_coefficient)
         dx = state.dx
         inv_dx2 = 1.0 / (dx * dx)
-        N1 = self._n1_per_cell(state)
-        support_fraction = self._support_fraction_per_cell(state)
-        interface_faces = self._interface_faces(state)
-        G_N = state.interface_conductance
-        g_interface = (
-            float(G_N) if (interface_faces and G_N is not None) else 0.0
-        )
-        interface_weights: dict[int, np.ndarray] = {}
-        if interface_faces:
-            if state.gap_profile is None:  # pragma: no cover - validated state
-                raise RuntimeError("Interface faces require a gap profile.")
-            for face in interface_faces:
-                interface_weights[face] = _kl_interface_cell_average(
-                    state.spectral.E,
-                    state.spectral.dE,
-                    float(state.gap_profile[face]),
-                    float(state.gap_profile[face + 1]),
-                )
-
+        # The lookup precedes every per-cell spectral evaluation: the key
+        # already fingerprints everything the arrays below derive from, so
+        # building them first would discard the whole cost on each hit.
         key = (
             _NX,
             float(dx),
@@ -551,6 +542,25 @@ class T3Spatial1DBackend:
         cached = self._transport_cn_cache.get(key)
         if cached is not None:
             return cached
+
+        N1 = self._n1_per_cell(state)
+        support_fraction = self._support_fraction_per_cell(state)
+        interface_faces = self._interface_faces(state)
+        g_N = state.interface_conductance
+        g_interface = (
+            float(g_N) if (interface_faces and g_N is not None) else 0.0
+        )
+        interface_weights: dict[int, np.ndarray] = {}
+        if interface_faces:
+            if state.gap_profile is None:  # pragma: no cover - validated state
+                raise RuntimeError("Interface faces require a gap profile.")
+            for face in interface_faces:
+                interface_weights[face] = _kl_interface_cell_average(
+                    state.spectral.E,
+                    state.spectral.dE,
+                    float(state.gap_profile[face]),
+                    float(state.gap_profile[face + 1]),
+                )
 
         ops: list[_EnergyOp | None] = []
         for i in range(NE):
@@ -574,13 +584,20 @@ class T3Spatial1DBackend:
                 # finite-volume average is the supported fraction of a cut
                 # cell, not one merely because the cell has some capacity.
                 w_cell = D0 * support_fraction[i, idx]
+            # Face weights are the harmonic mean of those cell averages.
+            # That is exact wherever the two neighbours share a gap.  On a
+            # face whose neighbours have different gaps the exact energy-cell
+            # average of the face coefficient is min(s_L, s_R) instead, so the
+            # one bin cut by the larger gap is over-weighted (up to 2x in that
+            # bin); the bias is first order in dx and vanishes under energy
+            # refinement.  Documented limitation, not yet corrected.
             g_face = _harmonic_face_weights(w_cell) * inv_dx2
             if interface_faces:
                 for m in range(na - 1):
                     if int(idx[m]) in interface_faces:
                         # Kupriyanov-Lukichev finite interface conductance,
                         # energy channel:
-                        # F = G_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R),
+                        # F = g_N (N_1^L N_1^R - N_2^L N_2^R)(f_L - f_R),
                         # dx-independent (the 1/dx is the flux-divergence
                         # factor). The coherence-factor weight equals
                         # (E^2 - D_L D_R)/(Omega_L Omega_R) > 0 above both
@@ -620,32 +637,44 @@ class T3Spatial1DBackend:
         the spectral context's cell-average DOS broadcast across the mesh.
         With a ``gap_profile`` the exact singular capacity is integrated for
         each local gap.  This makes the default A1 conserved density identical
-        to the collision/remap/observable finite-volume capacity.
+        to the collision/remap/observable finite-volume capacity.  Cells are
+        grouped by exact gap first (as :meth:`_collision_layout` does), so a
+        piecewise-constant profile costs one integration per distinct gap
+        rather than one per cell.
         """
         _NE, NX = state.f.shape
         if state.gap_profile is None:
             return np.repeat(state.spectral.cell_density[:, None], NX, axis=1)
         E = state.spectral.E
         dE = state.spectral.dE
+        distinct_gaps, group_index = np.unique(
+            state.gap_profile, return_inverse=True
+        )
         columns = [
             _represented_bcs_weights(E, dE, float(g)) / dE
-            for g in state.gap_profile
+            for g in distinct_gaps
         ]
-        return np.column_stack(columns)
+        return np.column_stack(columns)[:, group_index]
 
     def _support_fraction_per_cell(self, state: T3Spatial1DState) -> np.ndarray:
-        """Above-gap geometric fraction for every energy/spatial cell."""
+        """Above-gap geometric fraction for every energy/spatial cell.
+
+        Grouped by exact gap like :meth:`_n1_per_cell`.
+        """
         _NE, NX = state.f.shape
         E = state.spectral.E
         dE = state.spectral.dE
         if state.gap_profile is None:
             fraction = _bcs_support_fraction(E, dE, state.spectral.gap)
             return np.repeat(fraction[:, None], NX, axis=1)
+        distinct_gaps, group_index = np.unique(
+            state.gap_profile, return_inverse=True
+        )
         columns = [
             _bcs_support_fraction(E, dE, float(g))
-            for g in state.gap_profile
+            for g in distinct_gaps
         ]
-        return np.column_stack(columns)
+        return np.column_stack(columns)[:, group_index]
 
     def _n2_per_cell(self, state: T3Spatial1DState) -> np.ndarray:
         """BCS anomalous weight ``N_2(E_i, x_j)``, shape ``(NE, NX)``.
@@ -1317,7 +1346,11 @@ def _flux_laplacian_from_conductances(
     cell ``j+1``). Row and column sums vanish -- zero-flux ends -- so the
     Crank-Nicolson update conserves ``sum_x u`` exactly. Bulk diffusion uses
     ``g_face = W_face / dx**2``; a Kupriyanov-Lukichev interface overrides
-    its face with ``G_N (N_1^L N_1^R - N_2^L N_2^R) / dx``. With constant
+    its face with ``g_N (N_1^L N_1^R - N_2^L N_2^R) / dx`` (``g_N`` in
+    um/ns, see :class:`T3Spatial1DState`). The override is the bare
+    interface conductance, not its series combination with the two adjoining
+    half-cells of bulk, so the face is first-order accurate in ``dx`` and
+    does not cap at the bulk face as ``g_N`` grows. With constant
     ``g_face`` this is the standard reflective Laplacian.
     """
     off = np.asarray(g_face, dtype=float)

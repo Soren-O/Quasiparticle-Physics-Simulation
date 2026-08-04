@@ -1,7 +1,9 @@
 """Generic Picard fixed-point iteration with optional Anderson acceleration.
 
-Iterates ``x_{k+1} = (1 − α) x_k + α G(x_k)`` until the relative
-fixed-point residual falls below ``tol``. When ``anderson_depth > 0``, uses Anderson
+Iterates ``x_{k+1} = (1 − α) x_k + α G(x_k)`` until the normalized
+fixed-point residual falls below ``tol`` — normalized, not relative: see the
+``tol`` parameter for the exact criterion and the magnitude range over which
+it is genuinely relative. When ``anderson_depth > 0``, uses Anderson
 extrapolation (see ``qpsim.solvers.anderson``) on the mixed iterate.
 
 The specialized steady-state solver in ``qpsim.services.steady_state``
@@ -96,8 +98,19 @@ def picard_iterate(
         History window for Anderson acceleration. 0 (default) disables
         acceleration and runs plain mixed Picard. Typical values 5-10.
     tol
-        Relative-L∞ tolerance on the fixed-point residual, evaluated before
-        under-relaxation.
+        L∞ tolerance on the normalized fixed-point residual (see
+        :class:`PicardInfo`), evaluated before under-relaxation. The
+        ``+ tol`` regularizer in the denominator — which is what keeps the
+        ``x = G(x) = 0`` case from dividing by zero — makes the test mixed
+        rather than purely relative: it is exactly equivalent to
+        ``|G(x) − x| < tol·max(|x|, |G(x)|) + tol²``, so the effective
+        relative tolerance is ``tol·max(1, tol/|x|)``. It is relative with
+        tolerance ``tol`` only for components of magnitude ≳ ``tol``, and
+        degrades to an absolute floor of ``tol²`` well below that, so the
+        verdict is not invariant under a rescaling of the unknown. For
+        states whose components sit orders of magnitude below ``tol``, use
+        the explicit two-tolerance (``atol``/``rtol``) test plus normwise
+        guard in ``qpsim.services.steady_state`` instead.
     max_iter
         Hard cap on iterations.
     clip_non_negative

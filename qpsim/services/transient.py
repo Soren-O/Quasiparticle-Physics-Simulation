@@ -27,6 +27,7 @@ Use cases
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
@@ -110,8 +111,14 @@ def run_time_dependent(
         Time between saved snapshots (ns). Defaults to
         ``total_time / 50``. When a substep crosses one or more interval
         boundaries, snapshots are linearly interpolated between its ETD2
-        endpoints. This preserves the requested cadence without changing the
-        integration step, including when ``dt`` exceeds the interval.
+        endpoints, which preserves the requested cadence without changing the
+        integration step. Only the step endpoints ``t = k·dt`` carry the
+        integrator's accuracy: the underlying relaxation is exponential, so an
+        interpolated ``f`` (and every observable derived from it) is faithful
+        only while a step relaxes ``f`` by much less than itself, and its error
+        grows to O(1) once a step spans a relaxation time. A cadence finer than
+        ``dt`` therefore warns — shorten ``dt`` to the resolution you want,
+        which the internal rate subcycling makes nearly free.
     observables
         Optional dict ``{name: fn(state) → float}``. Each snapshot's
         ``observables`` dict is populated with the current values —
@@ -125,8 +132,10 @@ def run_time_dependent(
         problem, so ``external_flux`` must be ``None`` or a constant
         :class:`ExternalFlux`, not a callable. Custom backends can provide an
         exact certificate via
-        ``apply_collisions_with_diagnostics``; otherwise a conservative finite-
-        difference fallback is used.
+        ``apply_collisions_with_diagnostics``; otherwise a finite-difference
+        fallback is used, which refuses to certify a step that saturated at a
+        bound (``f`` at 1, or ``f`` driven down onto 0) but does accept a
+        legitimately tiny occupation.
         ``None`` disables early stopping.
     backend
         T3 backend instance. Defaults to a fresh
@@ -176,6 +185,22 @@ def run_time_dependent(
         backend = T3DiffusionBackend()
     if snapshot_interval is None:
         snapshot_interval = total_time / 50.0
+    if snapshot_interval < dt:
+        # Interior snapshots are linear dense output between ETD2 endpoints,
+        # which is only first-order consistent with exponential relaxation.
+        # Endpoints stay exact, so a coarse dt looks free on the final state
+        # while every interpolated point drifts — say so instead of shipping
+        # a piecewise-linear curve that reports the step size as a lifetime.
+        warnings.warn(
+            f"snapshot_interval={snapshot_interval:g} ns is finer than "
+            f"dt={dt:g} ns: interior snapshots are linearly interpolated "
+            "between integration endpoints and their f(E) — plus every "
+            "observable computed from it — is accurate only while a step "
+            "relaxes f by much less than itself. Set dt ≤ snapshot_interval "
+            "to resolve the requested cadence.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     def _snapshot(t: float, s: T3DiffusionState) -> TransientSnapshot:
         obs = (
@@ -251,6 +276,12 @@ def run_time_dependent(
         # Emit every crossed cadence boundary. Linear dense output between
         # second-order step endpoints avoids dropping intervals when dt is
         # larger than snapshot_interval without changing the integration grid.
+        # It is only first-order consistent with the exponential relaxation
+        # the ETD steps solve, so an interior point is trustworthy only for
+        # dt well inside the local relaxation time (the constructor warns
+        # otherwise). Only ``f`` is interpolated; the remaining fields carry
+        # their end-of-step values, which is exact while v1 holds n_ph and Δ
+        # frozen and must be revisited when either becomes dynamic.
         time_tol = 16.0 * np.finfo(float).eps * max(
             1.0, abs(t), abs(next_snap),
         )
@@ -283,12 +314,18 @@ def run_time_dependent(
                 # A custom backend has no public raw-RHS contract.  Retain the
                 # finite-difference fallback only for interior states; at a
                 # clipped bound it cannot certify complementarity and must not
-                # claim convergence.
+                # claim convergence.  "At a bound" means the step actually
+                # saturated there.  f → 1 always disqualifies: the blocked gain
+                # G·(1−f) it hides is unbounded.  A merely tiny f does not — a
+                # thermal tail is legitimately far below 32·eps in most bins of
+                # a mK grid, and a low clip can only hide loss·f, i.e. ≲1e-14/ns
+                # at physical rates, orders below any usable stop_tol.  Testing
+                # smallness instead of saturation pinned the fallback at ``inf``
+                # for every cold state and disabled early stopping outright.
                 rate = float(np.max(np.abs(current.f - prev_f)) / step_dt)
                 bound_tol = 32.0 * np.finfo(float).eps
-                if np.any(
-                    (current.f <= bound_tol) | (current.f >= 1.0 - bound_tol)
-                ):
+                clipped_low = (prev_f > 0.0) & (current.f <= 0.0)
+                if np.any(current.f >= 1.0 - bound_tol) or np.any(clipped_low):
                     rate = np.inf
             if rate < stop_tol:
                 converged = True

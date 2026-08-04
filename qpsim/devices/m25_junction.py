@@ -384,8 +384,17 @@ class M25GapAsymmetricJJ(Junction):
         # documents them to be in sync — check both, since downstream
         # physics (DOS, kinetic kernels) reads `state.gap` while the
         # M25 moment normalization reads `spectral.gap`.
-        # Tolerance: 0.1% — well below any physically meaningful gap
-        # asymmetry but above float round-trip noise.
+        # Tolerances: the quantity at risk is not Δ but the asymmetry
+        # ω_LR = Δ_L − Δ_R, which the whole sub-band structure is built on and
+        # which is ~1/99 of Δ at the Fig. 3a point. A 0.1% per-gap slack there
+        # admits ~20% of ω_LR — ≈9% in the emitted f_{R<} (the R< band measure
+        # is √(Δ_L²−Δ_R²)) and ≈17% in the moments the cached coefficients
+        # carry, i.e. more drift than the class's own acceptance pin. So hold
+        # both gaps to round-trip noise instead: state.gap vs spectral.gap at
+        # the Device-level invariant, spectral.gap vs m25_params at a few ULP
+        # of the Kelvin→μeV conversion, and ω_LR itself explicitly. Every
+        # supported caller builds both sides from the same
+        # ``Δ_kelvin · KB_UEV_PER_K`` expression, so this is exact today.
         Delta_L_param_uev = self.m25_params.Delta_L_kelvin * KB_UEV_PER_K
         Delta_R_param_uev = self.m25_params.Delta_R_kelvin * KB_UEV_PER_K
         for region_name, region_state in (
@@ -409,7 +418,13 @@ class M25GapAsymmetricJJ(Junction):
             ("R", self.region_b, state_b, Delta_R_uev, Delta_R_param_uev, "Delta_R_kelvin"),
         ):
             state_gap_uev = float(state.gap)
-            if not np.isclose(state_gap_uev, spectral_gap_uev, rtol=1e-3):
+            gap_scale = max(abs(state_gap_uev), abs(spectral_gap_uev), 1.0)
+            if not np.isclose(
+                state_gap_uev,
+                spectral_gap_uev,
+                rtol=1e-12,
+                atol=1e-12 * gap_scale,
+            ):
                 raise ValueError(
                     f"Region {region_name!r} state.gap "
                     f"{state_gap_uev / KB_UEV_PER_K:.6g} K disagrees with "
@@ -417,7 +432,9 @@ class M25GapAsymmetricJJ(Junction):
                     f"{spectral_gap_uev / KB_UEV_PER_K:.6g} K — "
                     "T3DiffusionState invariants violated."
                 )
-            if not np.isclose(spectral_gap_uev, param_gap_uev, rtol=1e-3):
+            if not np.isclose(
+                spectral_gap_uev, param_gap_uev, rtol=1e-9, atol=0.0,
+            ):
                 raise ValueError(
                     f"Region {region_name!r} ({region_label}) gap "
                     f"{spectral_gap_uev / KB_UEV_PER_K:.6g} K does not match "
@@ -425,6 +442,20 @@ class M25GapAsymmetricJJ(Junction):
                     f"{getattr(self.m25_params, param_field):.6g} K. "
                     "Coefficients and moments must be built from the same gaps."
                 )
+
+        # Pin the asymmetry directly: the R< band the coefficients' x_{R<}
+        # is spread over is (Δ_R, Δ_L) taken from the states, while x_{R<}
+        # itself comes from m25_params, so ω_LR is what has to agree.
+        omega_LR_uev = Delta_L_uev - Delta_R_uev
+        omega_LR_param_uev = Delta_L_param_uev - Delta_R_param_uev
+        if not np.isclose(omega_LR_uev, omega_LR_param_uev, rtol=1e-6, atol=0.0):
+            raise ValueError(
+                f"Region gap asymmetry ω_LR = Δ_L − Δ_R = "
+                f"{omega_LR_uev / KB_UEV_PER_K:.6g} K disagrees with the "
+                f"m25_params asymmetry {omega_LR_param_uev / KB_UEV_PER_K:.6g} K. "
+                "The M25 sub-band structure lives entirely in ω_LR; rebuild "
+                "the coefficients and the region states from one gap pair."
+            )
 
         # ── L-electrode active band: positive DOS support above Δ_L.
         #    A boundary-only grid (max(E) == Δ_L) would pass a bin-

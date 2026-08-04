@@ -132,6 +132,34 @@ def file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _newline_only_mismatch_hint(path: Path, expected_sha: str) -> str:
+    """Explain a digest mismatch that is only the checkout's line endings.
+
+    Every recorded digest pins the committed (LF) blob, and this module
+    authenticates the raw working-tree bytes on purpose — a canonicalizing
+    hash would accept a CRLF-mangled or mixed-newline file as identical.  A
+    checkout with ``core.autocrlf=true`` therefore fails authentication on a
+    file whose logical content is untouched, so name the real cause instead
+    of leaving the reader to conclude the manifest digest is stale (fixing it
+    by rebinding the manifest to the CRLF digest would break every LF
+    checkout, CI included).
+    """
+
+    try:
+        raw = path.read_bytes()
+    except OSError:  # pragma: no cover - the caller already read this file
+        return ""
+    canonical = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    if canonical == raw or hashlib.sha256(canonical).hexdigest() != expected_sha:
+        return ""
+    return (
+        f" {path.name} differs from the manifest only in line endings: this"
+        " checkout holds CRLF where the manifest pins the committed LF bytes."
+        " Re-normalize the working tree (git add --renormalize .) rather than"
+        " rebinding the manifest digest."
+    )
+
+
 def _require_mapping(value: object, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise PaperParityError(f"{label} must be a JSON object.")
@@ -486,7 +514,10 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
     if not script_path.is_file():
         raise PaperParityError(f"Digitizer source is missing: {script_path}")
     if file_sha256(script_path) != expected_script_sha:
-        raise PaperParityError("Digitizer source does not match manifest.extraction.script_sha256.")
+        raise PaperParityError(
+            "Digitizer source does not match manifest.extraction.script_sha256."
+            + _newline_only_mismatch_hint(script_path, expected_script_sha)
+        )
     sample_values = extraction.get("sample_x_values")
     if (
         not isinstance(sample_values, list)
@@ -825,6 +856,7 @@ def load_digitized_points(manifest_path: Path) -> tuple[dict[str, Any], list[Dig
             raise PaperParityError(
                 f"Paper-data points changed after manifest authentication: "
                 f"expected {expected_sha}, got {actual_sha}."
+                + _newline_only_mismatch_hint(data_path, expected_sha)
             )
         text = payload.decode("utf-8")
         with io.StringIO(text, newline="") as stream:

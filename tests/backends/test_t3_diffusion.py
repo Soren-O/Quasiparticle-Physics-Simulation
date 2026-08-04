@@ -192,7 +192,10 @@ class TestT3DiffusionBackendSteadyState:
         state = _build_state(T_bath=0.3)
         backend = T3DiffusionBackend()
         new_state = backend.steady_state(state)
-        np.testing.assert_allclose(new_state.f, state.f, atol=1e-6)
+        # Relative, not absolute: f_FD spans 15 decades on this grid, so the
+        # former atol=1e-6 left 24 of 30 bins unconstrained. The solve
+        # reproduces the fixed point bitwise.
+        np.testing.assert_allclose(new_state.f, state.f, rtol=1e-12, atol=0.0)
 
     def test_perturbed_initial_converges_back_to_thermal(self) -> None:
         # Perturb the initial f smoothly; steady state should return to
@@ -207,7 +210,12 @@ class TestT3DiffusionBackendSteadyState:
         state.f = perturbed_f  # type: ignore[misc]
         backend = T3DiffusionBackend()
         new_state = backend.steady_state(state)
-        np.testing.assert_allclose(new_state.f, f_FD, atol=1e-4)
+        # Relative, not absolute: max|perturbation| is only 1.35e-4 here and
+        # shrinks with num_energy (6.0e-5 at 12 bins), so the former atol=1e-4
+        # accepted a solve that left three quarters of the distortion in
+        # place, and would have been vacuous on the 12-bin fixture. The solve
+        # returns f_FD*(1 + 8.3e-8), a residual amplitude mode.
+        np.testing.assert_allclose(new_state.f, f_FD, rtol=1e-6, atol=0.0)
 
     def test_returns_new_state_with_updated_f_and_phonon(self) -> None:
         state = _build_state(T_bath=0.3)

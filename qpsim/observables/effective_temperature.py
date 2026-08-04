@@ -1,17 +1,30 @@
-r"""Effective phonon temperature ``T_*`` via a weighted Bose-Einstein fit.
+r"""Effective phonon temperature via a weighted Bose-Einstein shape fit.
 
-Fischer 2023 Eq. 36 defines ``T_*`` as the temperature at which the
-ratio ``n_ph(ω) / n_BE(ω, T)`` is approximately constant across the
-pair-breaking band (``ω ≥ 2Δ``). In general the driven steady-state
-phonon distribution is not exactly proportional to a single
-Bose-Einstein — low-``ω`` modes stay near the bath while
-recombination-heated modes above ``2Δ`` float up — so the extracted
-``T_*`` is a best-fit characterization, not an exact inversion.
+This is a qpsim diagnostic, not a Fischer 2023 construct, and it is **not**
+the ``T_*`` of that paper. Fischer 2023 fixes ``T_*`` in closed form as the
+quasiparticle-distribution width scale ``k_B T_* = (A n̄)^{1/6}`` (the Fig.
+5/6 abscissa, implemented separately as ``_kBTstar_eq35`` in
+``validation/fischer_2023/fig5_paper.py``) and never assigns
+the driven phonon distribution a temperature at all — it decomposes it into
+the bath Bose-Einstein plus explicit nonequilibrium terms. The quantity
+returned here is instead the temperature whose Bose-Einstein *shape* best
+matches ``n_ph(ω)`` across the pair-breaking band (``ω ≥ 2Δ``), so it must
+not be normalized as ``k_B T / Δ`` and compared against the Fig. 5/6 axis.
+
+In general the driven steady-state phonon distribution is not exactly
+proportional to a single Bose-Einstein — low-``ω`` modes stay near the
+bath while recombination-heated modes above ``2Δ`` float up — so the
+extracted temperature is a best-fit characterization, not an exact
+inversion.
 
 The fit minimizes the weighted variance of the log-ratio
 ``log(n_ph / n_BE)`` over ``ω ≥ 2Δ``, with weights proportional to
 ``n_ph`` itself so the fit tracks the most-occupied pair-breaking
-modes rather than the thermally-suppressed high-``ω`` tail.
+modes rather than the thermally-suppressed high-``ω`` tail. Both the
+weights and the objective are invariant under multiplying the whole
+spectrum by a positive constant, so this measures shape only: a
+pair-breaking band occupied at ``10 ×`` the bath Bose-Einstein level is
+reported as unheated (``T_bath``), not as a hotter phonon system.
 
 Port of the legacy ``extract_T_star_phonon`` from the old
 ``reproduce_fischer_fig5.py`` script.
@@ -63,7 +76,9 @@ def effective_phonon_temperature(
     T_bath: float,
     T_max: float | None = None,
 ) -> float:
-    r"""Fit ``n_ph(ω ≥ 2Δ)`` to a Bose-Einstein profile and return ``T_*``.
+    r"""Fit the ``n_ph(ω ≥ 2Δ)`` shape to a Bose-Einstein profile.
+
+    Not the Fischer 2023 ``T_*`` — see the module docstring.
 
     Parameters
     ----------
@@ -75,9 +90,9 @@ def effective_phonon_temperature(
         Superconducting gap Δ in μeV (sets the ``ω ≥ 2Δ`` pair-
         breaking threshold).
     T_bath
-        Bath temperature in K. Used as the lower bound on ``T_*``
-        (the fit returns ``T_bath`` when no pair-breaking modes have
-        any occupation).
+        Bath temperature in K. Used as the lower bound on the fitted
+        temperature (the fit returns ``T_bath`` when no pair-breaking
+        modes have any occupation).
     T_max
         Optional upper bound on the fit range in K. Defaults to
         ``100 × T_bath`` — wide enough to admit driven steady states
@@ -192,7 +207,8 @@ def effective_phonon_temperature(
         upper = T_max
     # Lower bound is T_bath itself: the bath always populates the
     # pair-breaking modes at at least the BE(T_bath) level, so any
-    # ``T_* < T_bath`` would be a fitting artifact, not physics.
+    # fitted temperature below ``T_bath`` would be a fitting artifact, not
+    # physics.
     from scipy.optimize import minimize_scalar
 
     log_lower = float(np.log(T_bath))
@@ -213,12 +229,13 @@ def effective_phonon_temperature(
     _, best_log_T = min(candidates, key=lambda item: item[0])
     # exp(log(bound)) can round one ulp outside the original interval.
     # Preserve the documented hard bounds in the returned representation.
-    T_star = min(max(float(np.exp(best_log_T)), T_bath), upper)
+    T_eff = min(max(float(np.exp(best_log_T)), T_bath), upper)
     # A bounded optimizer parks the solution on the upper bound when the true
-    # T_* exceeds the fit window; the returned value is then a clamp, not a
-    # fit, and must not be read as a measured temperature. (The lower bound at
-    # T_bath is deliberate physics — n_ph ≥ BE(T_bath) — so it is not flagged.)
-    if T_star >= upper * (1.0 - 1e-3):
+    # shape temperature exceeds the fit window; the returned value is then a
+    # clamp, not a fit, and must not be read as a measured temperature. (The
+    # lower bound at T_bath is deliberate physics — n_ph ≥ BE(T_bath) — so it
+    # is not flagged.)
+    if T_eff >= upper * (1.0 - 1e-3):
         warnings.warn(
             f"effective_phonon_temperature pinned to the upper fit bound "
             f"{upper:g} K; the true effective temperature likely exceeds the fit "
@@ -226,4 +243,4 @@ def effective_phonon_temperature(
             RuntimeWarning,
             stacklevel=2,
         )
-    return T_star
+    return T_eff

@@ -78,17 +78,23 @@ class TestSubGapPhotonDetailedBalance:
             f, ctx, omega_0=omega_0, n_bar=n_bar_thermal, c_phot=1.0,
         )
         residual = gain - loss * f
-        scale = np.maximum(np.abs(gain) + np.abs(loss * f), 1e-30)
-        rel = np.abs(residual / scale)
+        active = ctx.active_mask
 
-        # Photon partners at bins i ± m only populate an ~m-bin interior.
-        # The boundary bins can't balance because their partners lie off-grid,
-        # so we only assert detailed balance on the bulk.
-        m = round(omega_0 / float(ctx.dE[0]))
-        bulk = np.zeros_like(ctx.E, dtype=bool)
-        bulk[m + 1 : -m - 1] = True
-        bulk &= ctx.active_mask
-        assert float(np.max(rel[bulk])) < 1e-8
+        # Each i ↔ i ± m partner term obeys detailed balance on its own at
+        # thermal, so a partner that lies off-grid contributes zero to *both*
+        # directions and cannot unbalance its bin — in the up-partner block
+        # that coupling comes from ctx.cell_density being exactly zero wherever
+        # active_mask is False, not from the guard shape.  The former
+        # bulk[m+1:-m-1] window therefore discarded 2m+2 bins of coverage,
+        # including the gap edge, for no reason.  Exercise all active bins.
+        scale = np.abs(gain) + np.abs(loss * f)
+        nonzero = active & (scale > np.finfo(float).tiny)
+        assert np.any(nonzero)
+        rel = np.abs(residual[nonzero]) / scale[nonzero]
+        max_rel = float(np.max(rel))
+        assert max_rel < 1e-10, (
+            f"sub-gap detailed balance failed: max relative residual = {max_rel:.2e}"
+        )
 
     def test_fails_when_photon_is_hotter_than_bath(self) -> None:
         # Sanity: the test really is testing something — putting the photon

@@ -14,6 +14,7 @@ directory for user-defined materials.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -24,10 +25,16 @@ import yaml
 from qpsim.materials.substrate import Substrate
 
 _LEGACY_RHO_F_MAX = 1.0e25
+# Smallest value treated as a per-joule (SI) entry. Shipped materials sit
+# at 1.7e28-5.4e28 eV^-1 m^-3, so 1e32 leaves three decades of slack while
+# staying fifteen below the J^-1 m^-3 form of the same DOS (~1.09e47 for
+# Al). The mistake is silent otherwise: rho_F cancels out of every
+# dimensionless observable, so only the absolute n_qp report moves.
+_SI_RHO_F_MIN = 1.0e32
 
 
 def validate_rho_F_eV(rho_F: float, *, allow_zero: bool) -> float:
-    """Validate the eV-based DOS contract and catch legacy micro-eV values."""
+    """Validate the eV-based DOS contract and catch legacy micro-eV or SI values."""
     value = float(rho_F)
     if not isfinite(value) or value < 0.0 or (value == 0.0 and not allow_zero):
         qualifier = "non-negative" if allow_zero else "positive"
@@ -41,6 +48,14 @@ def validate_rho_F_eV(rho_F: float, *, allow_zero: bool) -> float:
             "micro-eV or per-micrometre^3 units. Convert to eV^-1 m^-3 "
             "(for legacy Al: 1.74e22 -> 1.74e28)."
         )
+    if value > _SI_RHO_F_MIN:
+        raise ValueError(
+            f"rho_F={value:g} eV^-1 m^-3 is implausibly large for a "
+            "volumetric electronic DOS and likely carries SI per-joule "
+            "units (J^-1 m^-3, ~1.09e47 for Al — the convention of the "
+            "M25 drive field nu_0_per_J_per_m3). Multiply by "
+            "1.602176634e-19 J/eV (for SI Al: 1.09e47 -> 1.74e28)."
+        )
     return value
 
 
@@ -51,9 +66,11 @@ class Material:
     Required: ``name``, ``Delta_0``, ``T_c``, ``tau_0``. All other
     fields default to zero (or ``None`` for derived/optional values)
     so a minimal YAML works. ``tau_s`` and ``tau_r`` default to
-    ``tau_0`` after construction via ``__post_init__``; the Debye
-    sound velocity ``sound_velocity_debye`` is derived from the
-    longitudinal + transverse pair when not supplied explicitly.
+    ``tau_0`` after construction via ``__post_init__`` and are
+    accepted but *ignored* — no solver reads them (see their field
+    comments); the Debye sound velocity ``sound_velocity_debye`` is
+    derived from the longitudinal + transverse pair when not supplied
+    explicitly.
     """
 
     name: str
@@ -64,6 +81,15 @@ class Material:
 
     # Electron-phonon timescales (all ns).
     tau_0: float                # characteristic e-ph time
+    # Accepted but currently IGNORED: every backend hands ``tau_0`` to
+    # both build_scattering_kernel_base and build_recombination_kernel_base
+    # (t3_diffusion.py, t3_spatial_1d.py, devices/device.py), so a YAML
+    # that sets these changes no solve. They are not independent material
+    # inputs either — Kaplan 1976 normalizes both channels by the one
+    # ``tau_0``, and the phonon-side pair-breaking kernel (``tau_0_pb_ns``)
+    # is matched to the QP side, so scaling one channel alone would break
+    # QP↔phonon energy consistency in the dynamic-Ph0 backends.
+    # ``__post_init__`` warns when a supplied value differs from ``tau_0``.
     tau_s: float | None = None  # scattering time (defaults to tau_0)
     tau_r: float | None = None  # recombination time (defaults to tau_0)
     # Phonon-side characteristic time (Kaplan 1976 Eq. 30; Table II
@@ -111,6 +137,20 @@ class Material:
             value = getattr(self, field_name)
             if value is not None:
                 setattr(self, field_name, float(value))
+
+        # A supplied tau_s/tau_r that differs from tau_0 is silently
+        # inert (no kernel reads either field), so say so rather than
+        # let the value look load-bearing.
+        for field_name in ("tau_s", "tau_r"):
+            value = getattr(self, field_name)
+            if value is not None and value != self.tau_0:
+                warnings.warn(
+                    f"Material {self.name!r}: {field_name}={value} is ignored; "
+                    f"every scattering and recombination kernel uses "
+                    f"tau_0={self.tau_0}. Set tau_0 instead, or drop the field.",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
         if self.tau_s is None:
             self.tau_s = self.tau_0

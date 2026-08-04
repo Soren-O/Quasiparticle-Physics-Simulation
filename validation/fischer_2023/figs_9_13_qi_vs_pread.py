@@ -3,25 +3,57 @@
 Sweeps drive power ``P_read`` log-spaced from -100 dBm to -60 dBm at
 fixed ``T_B = 0.1 K`` and records ``Q_i``, ``Q_tot``, and the
 converged ``n̄`` per point. The sweep warm-starts each successive
-drive power from the previous converged ``n̄`` to keep iteration
-counts low — crucial for the high-power end where the map stiffens
-as ``Q_i`` drops and ``Q_tot → Q_i``.
+drive power from the previous converged ``n̄``.
 
 This is a logarithmic-in-P_read characterization sweep at fixed
 ``T_B`` built on :func:`qpsim.services.nbar_loop.solve_nbar_loop`.
 (The paper-track :mod:`fig7_paper` does NOT use the n̄ loop — it runs
 fixed Table-III ``T*/Δ`` drive values while sweeping ``T_B``.)
 
-Parameters (Fischer 2023 Table I / default ``qi_vs_pread``):
+Regime
+------
 
-    Δ₀       = 180 μeV
-    τ_0      = 438 ns
-    ω_0      = Δ₀/9 = 20 μeV
-    α_KI     = 0.5
-    c_phot   = 1e-9 ns⁻¹
-    Q_c      = 1e5
-    T_B      = 0.1 K
+``ω_0 = Δ₀/9`` is far sub-gap, so the drive cannot break pairs; it only
+scatters existing quasiparticles away from the gap edge, and ``Q_i``
+*rises* monotonically with ``P_read`` (about one order of magnitude across
+the sweep). ``Q_i ≫ Q_c`` by 5-6 orders at every point, so ``Q_tot`` equals
+``Q_c`` to within a few parts in 10⁶ and the outer map degenerates to
+the closed form ``n̄ = 2ħ Q_c P_read / ω_0²``. The map is therefore not
+stiff at any power and this configuration does not exercise the
+self-consistent branch. In particular the warm start is not what keeps
+iteration counts low: a cold start (the ``Q_i → ∞`` closed form) converges
+in one iteration at every point, whereas warm-starting from the previous
+2-dBm-lower point begins a factor ``10^0.2`` low and costs a second pass
+at every point but the first. For the same reason the ``n̄`` column and
+its fixed-point certificate carry almost no information about ``Q_i`` — a
+10× error in ``Q_i`` would move ``n̄`` by under 1e-5 relative. ``Q_i`` is
+certified separately, by the L1 gain/loss backward error.
+
+Parameters
+----------
+
+Material and drive are Fischer 2023 Table I; the two resonator constants
+are development defaults with no paper source (Table I lists neither α
+nor Q_c):
+
+    Δ₀       = 180 μeV        Table I
+    τ_0      = 438 ns         Table I
+    ω_0      = Δ₀/9 = 20 μeV  Table I
+    c_phot   = 1e-9 ns⁻¹      Table I (1 Hz)
+    T_B      = 0.1 K          Table I
+    α_KI     = 0.5            development default, NOT a paper value
+    Q_c      = 1e5            development default, NOT a paper value
     P_read   ∈ [-100, -60] dBm, 21 log-spaced points
+
+The paper's own α = 0.13 (Table II / App. F fit) and Q_c = 20100 (Table II,
+taken from its Ref. [13]) belong to the Table II/III device (Δ₀ = 189 μeV,
+τ_0 = 63 ns) that :mod:`fig7_paper` transcribes; they must not be mixed
+into this Table-I material. ``Q_i`` is inversely proportional to α at fixed
+distribution, so this sweep is a characterization, not paper parity.
+
+``figs_9_13`` is a legacy artifact identifier only: Fischer & Catelani 2023
+ends at Fig. 8 and contains no Figs. 9-13. Its Sec. V readout-power results
+are Fig. 7 and Table III.
 
 Grid: 405 bins (ω_0/dE = 5 integer). If an independently refined artifact is
 eventually promoted, its nominal tolerance tier per NFP §6.4.1 is 1e-4
@@ -32,7 +64,9 @@ Artifact policy
 ---------------
 
 The historical canonical CSV predates versioned solver certificates and is
-deliberately quarantined by :func:`read_baseline`. The command below writes
+deliberately quarantined by :func:`read_baseline`. :func:`write_baseline` and
+:func:`write_plot` refuse the canonical CSV/PDF paths outright, so the
+quarantine does not rest on the on-disk bytes alone. The command below writes
 distinct ``*.development.{csv,pdf}`` files; it does not replace the historical
 canonical path. Development output must not be promoted until an independent
 energy-grid refinement study supports it.
@@ -75,12 +109,14 @@ from qpsim.services.nbar_loop import dbm_to_uev_per_ns, solve_nbar_loop
 
 from validation.source_provenance import canonical_source_bytes
 
-# ── Fischer 2023 Table I parameters ──────────────────────────────────
+# ── Material and drive (Fischer 2023 Table I) ────────────────────────
 
 DELTA_0 = 180.0
 TAU_0 = 438.0
 T_C = DELTA_0 / (1.764 * KB_UEV_PER_K)
 OMEGA_0 = DELTA_0 / 9.0  # 20 μeV — drive and probe
+# Table I lists no kinetic-inductance fraction; 0.5 is a development
+# default, not a paper value (the paper's device has α = 0.13, Table II).
 ALPHA_KI = 0.5
 C_PHOT = 1e-9
 
@@ -288,6 +324,7 @@ def _nbar_fixed_point_residual(
 # ── Sweep parameters ─────────────────────────────────────────────────
 
 T_BATH = 0.1  # K
+# Development default, not a paper value (the paper's device has Q_c = 20100).
 Q_C = 1.0e5
 NUM_POINTS = 21  # 21 log-spaced points across -100…-60 dBm
 P_READ_DBM_MIN = -100.0
@@ -545,8 +582,12 @@ def _validated_result(result: Figs913Result) -> dict[str, float]:
 
 def write_baseline(result: Figs913Result, path: Path | None = None) -> Path:
     """Atomically write a versioned, source-bound, certified artifact."""
-    if path is None:
-        path = baseline_path()
+    if path is None or path.resolve() == baseline_path().resolve():
+        raise RuntimeError(
+            "Direct writes to the quarantined canonical Figs. 9-13 CSV are "
+            "forbidden; pass an explicit development path (see "
+            "development_baseline_path()) or use generate_baseline()."
+        )
     maxima = _validated_result(result)
     with _atomic_text_file(path) as fp:
         writer = csv.writer(fp)
@@ -703,13 +744,18 @@ def read_baseline(path: Path | None = None) -> Figs913Result:
 
 
 def write_plot(result: Figs913Result, path: Path | None = None) -> Path:
+    if path is None or path.resolve() == plot_path().resolve():
+        raise RuntimeError(
+            "Direct writes to the quarantined canonical Figs. 9-13 PDF are "
+            "forbidden; pass an explicit development path (see "
+            "development_plot_path()) or use generate_baseline()."
+        )
+
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    if path is None:
-        path = plot_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, (ax_q, ax_n) = plt.subplots(
@@ -735,7 +781,7 @@ def write_plot(result: Figs913Result, path: Path | None = None) -> Path:
     ax_q.grid(True, which="both", ls=":", alpha=0.3)
     ax_q.legend(loc="best", fontsize=10)
     ax_q.set_title(
-        "Fischer 2023 Figs 9-13 — $Q_i(P_\\mathrm{read})$ via n̄ loop\n"
+        "Fischer 2023 Sec. V (development) — $Q_i(P_\\mathrm{read})$ via n̄ loop\n"
         rf"$\Delta_0={DELTA_0:.0f}$ μeV, $\omega_0=\Delta_0/9$, "
         rf"$\alpha={ALPHA_KI}$, $Q_c={Q_C:g}$, $T_B={T_BATH}$ K",
         fontsize=10,

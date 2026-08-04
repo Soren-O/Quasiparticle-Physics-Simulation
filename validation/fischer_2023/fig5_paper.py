@@ -11,7 +11,9 @@ escape ratio.
 * **Lower panel.** Sweep $T_B$ at three fixed $T_*/\\Delta$ values.
 
 Solid: numerical kinetic-equation solutions (T3 backend, finite-$\\tau_\\ell$
-Picard with Anderson). Dashed: analytical density balance from
+damped Picard at mixing 0.30 with acceleration off, ``anderson_depth=0``;
+the knobs live in :data:`fig5_solve.SOLVER_KWARGS` and are stamped into the
+artifact config). Dashed: analytical density balance from
 :func:`_xqp_analytic_eq47` --- generalized Rothwarf-Taylor (Eq. 47) with
 Appendix-E recombination corrections (Eq. E2).
 

@@ -25,6 +25,16 @@ from qpsim.collisions._validation import validated_occupation
 from qpsim.physics.spectral import SpectralContext
 
 _COMMENSURATE_TOL = 0.01
+# The reflection lattice is grid geometry, not a user-chosen frequency: the
+# K⁻ block below solves E_i + E_j = 2·E[0] + round(partner_steps)·dE for
+# EVERY i, so any offset is a uniform shift away from ω_PB that no
+# re-labelling of the photon energy can absorb — the K⁺ block of the same
+# call still runs at exactly m·dE. A thermal pair channel then violates
+# detailed balance by expm1(offset·dE/kT) (2026-08-03 review: 6.5% at 50 mK
+# for a 0.01-bin offset on a dE = 30 μeV grid, with no diagnostic). Aligned
+# grids land within ~1e-12 bins, so this is held at roundoff rather than at
+# the 1%-of-a-bin frequency-snap tolerance.
+_PARTNER_LATTICE_TOL = 1e-9
 
 
 def pair_channel_open(omega_uev: float, gap_uev: float) -> bool:
@@ -115,14 +125,16 @@ def validate_pair_breaking_photon_grid(
 
     partner_steps = (omega_PB_snapped - 2.0 * E_arr[0]) / dE_scalar
     partner_err = abs(partner_steps - round(partner_steps))
-    if pair_channel_open(omega_PB_snapped, gap) and partner_err > _COMMENSURATE_TOL:
+    if pair_channel_open(omega_PB_snapped, gap) and partner_err > _PARTNER_LATTICE_TOL:
         raise ValueError(
             f"PB reflection partners are not grid-aligned: omega_PB_snapped"
             f" - 2*E[0] = {omega_PB_snapped - 2.0 * E_arr[0]:.6g} μeV is "
-            f"{partner_err:.4f} bins away from the lattice "
-            f"(tol={_COMMENSURATE_TOL}). Generation/recombination terms "
-            f"would violate detailed balance; shift the grid origin so "
-            f"(omega_PB - 2*E_min)/dE is an integer."
+            f"{partner_err:.4g} bins away from the lattice "
+            f"(tol={_PARTNER_LATTICE_TOL:g}). Every generation/recombination "
+            f"pair would then solve E_i + E_j = "
+            f"{2.0 * E_arr[0] + round(partner_steps) * dE_scalar:.6g} μeV "
+            f"instead of ω_PB and violate detailed balance; shift the grid "
+            f"origin so (omega_PB - 2*E_min)/dE is an integer."
         )
 
     if supported is None:

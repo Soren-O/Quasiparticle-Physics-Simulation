@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import numpy as np
 
-# Successful validations, keyed by array identity plus O(1) content guards.
-# Grid arrays are built once per solve and never mutated, but hot loops
-# (residual/Jacobian evaluations) re-validate them thousands of times per
-# solve; remembering recent successes makes revalidation O(1). A changed
-# endpoint or spacing (or a recycled id with different content) misses the
-# guards and falls through to the full check. Failures are never cached.
-_VALIDATED_GRIDS: dict[tuple, float] = {}
+# Successful validations, keyed by exact grid content. Grid arrays are built
+# once per solve and never mutated, but hot loops (residual/Jacobian
+# evaluations) re-validate them thousands of times per solve; remembering
+# recent successes replaces the diff/allclose scan with a hash lookup.
+# Identity (``id``) is not safe as a key — the same discipline as
+# T3Spatial1DBackend._spectral_cache_key: SpectralContext.E/.dE mint a fresh
+# read-only view per access, so those ids are freed and recycled, and neither
+# an id nor the endpoints constrain the interior spacings this guard checks.
+# Keying on content makes a stale hit impossible: a changed interior, a
+# changed endpoint, or an in-place mutation is a different key and falls
+# through to the full check. Failures are never cached.
+_VALIDATED_GRIDS: dict[tuple[bytes, bytes], float] = {}
 _VALIDATED_GRIDS_MAX = 16
+
+
+def _clear_validated_grids() -> None:
+    """Forget every remembered validation (test/diagnostic hook)."""
+    _VALIDATED_GRIDS.clear()
 
 
 def uniform_grid_spacing(E: np.ndarray, dE: np.ndarray, channel: str) -> float:
@@ -19,11 +29,7 @@ def uniform_grid_spacing(E: np.ndarray, dE: np.ndarray, channel: str) -> float:
     E_arr = np.asarray(E, dtype=float).reshape(-1)
     dE_arr = np.asarray(dE, dtype=float).reshape(-1)
     if E_arr.size and dE_arr.size:
-        cache_key = (
-            id(E), id(dE), E_arr.size, dE_arr.size,
-            float(E_arr[0]), float(E_arr[-1]),
-            float(dE_arr[0]), float(dE_arr[-1]),
-        )
+        cache_key = (E_arr.tobytes(), dE_arr.tobytes())
         cached = _VALIDATED_GRIDS.get(cache_key)
         if cached is not None:
             return cached

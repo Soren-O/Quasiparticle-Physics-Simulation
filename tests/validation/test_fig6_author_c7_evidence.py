@@ -31,20 +31,19 @@ _BUNDLE_KWARGS = {
 }
 
 
-def _require_checked() -> None:
+def _require_external_c7() -> None:
     required = (
         *(path / "manifest.json" for path in _BUNDLE_KWARGS.values()),
         C7_BUNDLE / "manifest.json",
-        c7_score.DEFAULT_SCORE,
-        c7_score.DEFAULT_RECEIPT,
     )
     if not all(path.is_file() for path in required):
-        pytest.skip("Checked C7 evidence or its external raw parents are unavailable.")
+        pytest.skip("Canonical external C7 raw bundle or a raw parent is unavailable.")
 
 
 @pytest.fixture(scope="module")
 def checked_score() -> dict[str, Any]:
-    _require_checked()
+    # Checked artifacts are repository evidence. Once committed, absence or
+    # rejection is a hard failure rather than an optional external-data skip.
     return c7_score.load_c7_score()
 
 
@@ -70,14 +69,14 @@ def test_checked_score_and_receipt_load_strictly(
 
 
 def test_external_raw_rebuilds_complete_checked_score() -> None:
-    _require_checked()
+    _require_external_c7()
     rebuilt = c7_score.build_c7_score(C7_BUNDLE, **_BUNDLE_KWARGS)
     committed = c7_score.DEFAULT_SCORE.read_bytes()
     assert c7_score.canonical_score_bytes(rebuilt) == committed
 
 
 def test_receipt_rebuild_binds_complete_score_raw_and_parent() -> None:
-    _require_checked()
+    _require_external_c7()
     rebuilt = c7_score.build_c7_receipt(
         c7_bundle_dir=C7_BUNDLE,
         **_BUNDLE_KWARGS,
@@ -86,9 +85,19 @@ def test_receipt_rebuild_binds_complete_score_raw_and_parent() -> None:
     assert _canonical_json(rebuilt) == committed
 
 
+def test_checked_source_closure_adds_only_the_score_module(
+    checked_score: dict[str, Any],
+) -> None:
+    # Committed-bytes half of the closure check: runs without the raw bundle.
+    score_sources = set(checked_score["sources"])
+    assert "validation/fischer_2023/fig6_author_c7_bundle.py" in score_sources
+    assert "validation/fischer_2023/fig6_author_c7_score.py" in score_sources
+
+
 def test_raw_source_closure_is_complete_and_acyclic(
     checked_score: dict[str, Any],
 ) -> None:
+    _require_external_c7()
     metadata, _arrays, _sha = c7_score.load_c7_raw_bundle(C7_BUNDLE)
     raw_sources = set(metadata["sources"])
     assert "validation/fischer_2023/fig6_author_c7_bundle.py" in raw_sources
@@ -114,7 +123,6 @@ def test_scope_excludes_curve_parity_and_iteration_equivalence(
 
 
 def test_score_metric_forgery_breaks_the_pins(tmp_path: Path) -> None:
-    _require_checked()
     score = json.loads(c7_score.DEFAULT_SCORE.read_text(encoding="utf-8"))
     record = score["observable"]["producer"]["root_ordinate_authors"]
     forged = 0.5 * record["value"]
@@ -127,7 +135,6 @@ def test_score_metric_forgery_breaks_the_pins(tmp_path: Path) -> None:
 
 
 def test_receipt_mutations_cannot_rebind_raw_or_parent(tmp_path: Path) -> None:
-    _require_checked()
     receipt = json.loads(c7_score.DEFAULT_RECEIPT.read_text(encoding="utf-8"))
     receipt["raw_bundle"]["manifest_sha256"] = "0" * 64
     mutated = tmp_path / "mutated-receipt.json"
@@ -137,7 +144,7 @@ def test_receipt_mutations_cannot_rebind_raw_or_parent(tmp_path: Path) -> None:
 
 
 def test_raw_loader_rejects_missing_or_extra_files(tmp_path: Path) -> None:
-    _require_checked()
+    _require_external_c7()
     clone = tmp_path / "c7-clone"
     shutil.copytree(C7_BUNDLE, clone)
     (clone / "qpsim_root_f.npy").unlink()
@@ -151,7 +158,7 @@ def test_raw_loader_rejects_missing_or_extra_files(tmp_path: Path) -> None:
 
 
 def test_c7_refuses_wrong_raw_parent_chain() -> None:
-    _require_checked()
+    _require_external_c7()
     with pytest.raises(ValueError):
         c7_score.build_c7_score(
             C7_BUNDLE,

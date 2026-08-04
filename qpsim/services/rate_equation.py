@@ -79,8 +79,15 @@ def crossover_temperature_kelvin(
         M25 Fig. 3 caption gives ``r^L = r^{R<} = 6.25 MHz``.
     g_photon_R_rate_Hz
         Photon-assisted pair-breaking generation rate on R in Hz.
-        At the M25 Fig. 3 parameter set this is set by
-        ``Γ_{01}^{ph} = 300 Hz`` plus Cooper-pair-count normalization.
+        This is the population-weighted total over final states,
+        ``g^ph_R = Σ_i p_i Σ_j Γ^{ph}_{ij} / N_CP(R)`` (SI Eq. S58),
+        not a single matrix element. At the M25 Fig. 3 parameter set
+        the caption fixes ``Γ^{ph}_{00} = 300 Hz``, which calibrates
+        all four ``Γ^{ph}_{ij}``; the resulting Eq. 8 input is
+        ``≈ 385.7 Hz / 1.61e10 ≈ 2.4e-8 Hz``. The
+        :func:`rate_equation_coefficients.coefficients_from_physical_parameters_with_photon_drive`
+        builder returns exactly this as
+        ``g_ph_Rlt_per_state + g_ph_Rgt_per_state``.
 
     Returns
     -------
@@ -538,6 +545,19 @@ def _source_scaled_residual_tolerances(
     tied to the actual arithmetic in that row. It admits float64 cancellation
     granularity in a large qubit flux without loosening any density row enough
     to admit a slope pseudo-root.
+
+    The ``1e-14`` term is an absolute Hz floor inside an otherwise scale-free
+    criterion, so the gate is a *relative* certificate only while each row's
+    un-floored tolerance stays above it — for a density row at the default
+    ``residual_tol_relative = 1e-3``, while that row's aggregate generation
+    exceeds ~1e-11 Hz.  Measured headroom at the shipped M25 Fig. 3 operating
+    points: the smallest un-floored density tolerance is 2.4e-12 Hz (Fig 3a)
+    and 1.0e-11 Hz (Fig 3b), i.e. 240x-1000x the floor, so the floor is
+    inactive there.  Below that crossing the density rows degrade to an
+    absolute gate and no longer certify a relative accuracy.  The multi-seed
+    picker (which scores candidates by residual) still recovers the root, but
+    a direct single-seed solve on a near-zero-drive bundle can be accepted
+    while carrying an order-unity relative density error.
     """
     if not (
         np.isfinite(residual_tol_relative)
@@ -856,8 +876,16 @@ def analytic_low_T_seed(
             + e^{-ω_10/T}/(1+e^{-ω_10/T})`` (SI Eq. S73 with
     ``Γ̃^L_{01} x_L = Γ̃^{R>}_{01} x_{R>} = 0`` at zeroth iteration —
     valid for T ≪ ω_10 − ω_LR; the caption to Fig. S3 confirms this is
-    the form used in the SI's analytic plots). The temperature
-    ``T_kelvin`` enters only through this Boltzmann factor.
+    the form used in the SI's analytic plots). The Boltzmann factor
+    ``e^{-ω_10/T}`` is recovered from the supplied bundle's ee
+    detailed-balance ratio ``gamma_ee[0,1]/gamma_ee[1,0]`` rather than
+    from ``T_kelvin``: :class:`M25Coefficients` carries no ``ω_10``,
+    so the factor cannot be formed from the arguments, and taking it
+    from the bundle keeps every seed component at one temperature.
+    When ``Γ̃^{ee}_{10} = 0`` no ``ω_10`` is recoverable at all and
+    the S73 expression is dropped (``p_1`` falls back to the 1e-12
+    clip); when only ``Γ̃^{ee}_{01}`` underflows to zero the factor is
+    correctly 0, its T → 0 limit.
 
     Parameters
     ----------
@@ -866,8 +894,11 @@ def analytic_low_T_seed(
         :func:`rate_equation_coefficients.coefficients_from_physical_parameters_with_photon_drive`
         builder is the typical caller.
     T_kelvin
-        Bath temperature ``T`` in Kelvin (used only in the
-        ``e^{-ω_10/T}`` thermal factor for ``p_1``).
+        Bath temperature ``T`` in Kelvin. Validated (finite,
+        positive) but not otherwise used — see above: the thermal
+        factor for ``p_1`` comes from ``coefs.gamma_ee``, so the seed
+        is evaluated at the temperature ``coefs`` was built at, not at
+        this argument.
     case
         ``"large_asymmetry"`` for the M25 Fig 3b regime
         (``ω_LR/2π ≳ 1 GHz``) or ``"small_asymmetry"`` for Fig 3a.
@@ -1930,7 +1961,20 @@ def _default_seed_grid() -> list[np.ndarray]:
     * ``x_{R>}/x_L = 0.4`` — matches the M25 tunneling-balance ratio
       ``T_L/T_{R>}`` at typical Fig 3a coefficients (replaces the
       legacy 0.5 ratio that biased seeds away from the paper branch).
-    * ``x_{R<}/x_L = 0.02`` — matches paper's measured ratio at low T.
+    * ``x_{R<}/x_L = 0.02`` — a deliberately low anchor, **not** the
+      converged ratio. The shipped roots give ``≈ 0.6`` at Fig 3a
+      (SI Eq. S66 ``x_R< = √(g^R/r^R<) − x_R>``, i.e.
+      ``x_R</x_L ≈ 1 − x_R>/x_L``) and ``≈ 4–13`` at Fig 3b (SI
+      Eq. S69, ordering ``x_R< ≫ x_L ≫ x_R>``); the 0.02 was
+      calibrated in d05a3b8 against roots predating the
+      single-quasiparticle normalization ``Γ̄ = Γ̃ / N_CP(R)`` and was
+      never re-tuned. At the shipped Fig 3 parameters the grid still
+      reaches both roots — it spans 8 decades in ``x_L`` and the
+      picker gates on the residual — but a large-asymmetry-ordered
+      root is approached only from a badly scaled direction.
+      :func:`analytic_low_T_seed` reproduces both SI orderings
+      directly and is what :func:`solve_rate_equation_branch` seeds
+      with.
     """
     seeds: list[np.ndarray] = []
     for p_1 in (1e-4, 3e-4, 1e-3):

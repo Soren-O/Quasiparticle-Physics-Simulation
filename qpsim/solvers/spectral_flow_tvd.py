@@ -9,6 +9,23 @@ numerical fluxes at cell interfaces, and an SSPRK(2,2) time step
 
 Ported from ``qpsim/numerics/advection.py`` at Gate 2; the SSPRK
 stepper was split out as a generic primitive.
+
+SUPERSEDED for the production moving-gap update, which is
+``_remap_bcs_frozen_xi_cell_mass`` (``qpsim/backends/t3_diffusion.py``,
+called from ``_remap_gap_state_once``); this module and
+:mod:`qpsim.solvers.ssprk` have had no engine callers since that
+replacement.  The reason is the choice of variable, not the limiter: this
+operator advances the point sample ``u = ρ(E_i)·f_i``, whereas the
+conserved finite-volume variable is the *cell integral* of ``ρ f``.  Near
+the divergent BCS edge the point sample carries an O(1),
+grid-alignment-dependent midpoint error that no limiter can remove, so the
+frozen-ξ cell-mass remap — exact along ideal-BCS characteristics — replaced
+it there.  Away from the gap edge this scheme is second-order accurate and
+in fact more accurate than that first-order projection, so it remains the
+right starting point for a spectral flow with no closed-form characteristic
+(e.g. a Dynes DOS, which the frozen-ξ remap rejects).  Note that the
+accuracy figures quoted in ``docs/AUDIT-2026-07-13-reaudit.md`` predate the
+2026-07-15 N11 fix to the non-uniform reconstruction below.
 """
 
 from __future__ import annotations

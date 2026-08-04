@@ -38,6 +38,56 @@ def _setup(T_bath: float = 0.3, T_c: float = 1.2, num: int = 30):
     return ctx, K_s0, K_r0, T_bath
 
 
+# (E[0], dE, NE, gap, omega_PB, omega_0) for the pair-breaking Jacobian gate.
+# The cut-cell grid used by the sub-gap test cannot be reused: on it
+# (omega_PB - 2*E[0])/dE is never integral, so validate_pair_breaking_photon_grid
+# raises before any comparison happens. Each case below is lattice-aligned by
+# construction.
+_PB_JACOBIAN_GRIDS = [
+    pytest.param(1.0, 0.5, 13, 1.0, 2.5, 1.0, id="covered"),
+    pytest.param(0.9, 0.45, 11, 1.0, 2.25, 0.9, id="gap-cut"),
+    pytest.param(0.9, 0.45, 11, 1.0, 1.8, 0.9, id="pair-gate-closed"),
+    pytest.param(0.5, 0.5, 12, 1.0, 2.5, 1.0, id="unsupported-bin"),
+]
+
+
+def _analytic_and_fd_jacobian(
+    f: np.ndarray,
+    ctx: SpectralContext,
+    *,
+    K_s0: np.ndarray | None = None,
+    K_r0: np.ndarray | None = None,
+    photon: dict[str, float] | None = None,
+    pb_photon: dict[str, float] | None = None,
+    N_p: np.ndarray | None = None,
+    N_emit: np.ndarray | None = None,
+    N_abs: np.ndarray | None = None,
+    external_flux: ExternalFlux | None = None,
+    T_bath: float = 0.3,
+    h: float = 1e-6,
+) -> tuple[np.ndarray, np.ndarray]:
+    """``_jacobian_analytical`` and its central-difference counterpart."""
+    analytical = _jacobian_analytical(
+        f, ctx, K_s0, K_r0, photon, pb_photon, N_p, N_emit, N_abs, external_flux,
+    )
+    finite_difference = np.empty_like(analytical)
+    for j in range(f.size):
+        up = f.copy()
+        down = f.copy()
+        up[j] += h
+        down[j] -= h
+        r_up = _residual(
+            up, ctx, K_s0, K_r0, T_bath, photon, pb_photon,
+            N_p, N_emit, N_abs, external_flux,
+        )
+        r_down = _residual(
+            down, ctx, K_s0, K_r0, T_bath, photon, pb_photon,
+            N_p, N_emit, N_abs, external_flux,
+        )
+        finite_difference[:, j] = (r_up - r_down) / (2.0 * h)
+    return analytical, finite_difference
+
+
 class TestNewtonSolveF:
     @pytest.mark.parametrize(
         "control",
@@ -200,6 +250,90 @@ class TestNewtonSolveF:
         np.testing.assert_allclose(
             analytical, finite_difference, rtol=2e-6, atol=2e-9,
         )
+
+    @pytest.mark.parametrize("all_channels", [False, True])
+    @pytest.mark.parametrize(
+        "E0, dE_scalar, NE, gap, omega_PB, omega_0", _PB_JACOBIAN_GRIDS
+    )
+    def test_pair_breaking_jacobian_matches_finite_difference(
+        self,
+        E0: float,
+        dE_scalar: float,
+        NE: int,
+        gap: float,
+        omega_PB: float,
+        omega_0: float,
+        all_channels: bool,
+    ) -> None:
+        # The pair-breaking block of _jacobian_analytical had no gate at all:
+        # every _jacobian_analytical call reachable from the fast suite ran
+        # with c_phot_PB == 0, so the K+ scattering sweep and the K- pair
+        # generation/recombination sub-block were never executed there.  A
+        # deleted or sign-flipped pair sub-block — the 2026-07-20 round-4
+        # regression the comment at newton_steady_state.py:1800 records —
+        # passed green.  The grids cover the reflection-partner cases that
+        # differ: full support, a gap-cut first cell, the closed 2Δ gate, and
+        # a zero-capacity sub-gap bin.
+        E = E0 + dE_scalar * np.arange(NE)
+        dE = np.full(NE, dE_scalar)
+        ctx = SpectralContext(E, dE, gap=gap)
+        # Aperiodic occupations: any f whose period divides the ±m_pb shift
+        # hides an i/j index slip in the banded sweeps.
+        f = np.random.default_rng(20260803).uniform(0.02, 0.20, NE)
+        pb_photon = {"omega_PB": omega_PB, "n_bar_PB": 1.7, "c_phot_PB": 0.6}
+
+        K_s0: np.ndarray | None = None
+        K_r0: np.ndarray | None = None
+        photon: dict[str, float] | None = None
+        N_p: np.ndarray | None = None
+        N_emit: np.ndarray | None = None
+        N_abs: np.ndarray | None = None
+        flux: ExternalFlux | None = None
+        if all_channels:
+            K_s0 = build_scattering_kernel_base(ctx, tau_0=1.0, T_c=1.2)
+            K_r0 = build_recombination_kernel_base(ctx, tau_0=1.0, T_c=1.2)
+            photon = {"omega_0": omega_0, "n_bar": 2.3, "c_phot": 0.7}
+            N_p = _thermal_phonon_scattering_occupation(E, 0.3)
+            N_emit, N_abs = _thermal_phonon_recombination_occupations(E, 0.3)
+            flux = ExternalFlux(
+                gain=np.full(NE, 0.02), loss_rate=np.linspace(0.1, 0.4, NE)
+            )
+
+        analytical, finite_difference = _analytic_and_fd_jacobian(
+            f, ctx,
+            K_s0=K_s0, K_r0=K_r0, photon=photon, pb_photon=pb_photon,
+            N_p=N_p, N_emit=N_emit, N_abs=N_abs, external_flux=flux,
+        )
+
+        assert np.any(analytical != 0.0)
+        np.testing.assert_allclose(
+            analytical, finite_difference, rtol=2e-6, atol=2e-9,
+        )
+
+    def test_external_flux_jacobian_diagonal_matches_finite_difference(self) -> None:
+        # The ExternalFlux -loss_rate diagonal is only incidentally gated
+        # (solver tests notice deletion or over-scaling, not a 50% slip).
+        E = np.arange(0.9, 3.0, 0.4)
+        dE = np.full(E.size, 0.4)
+        ctx = SpectralContext(E, dE, gap=1.0)
+        f = np.array([0.08, 0.12, 0.03, 0.20, 0.01, 0.15])
+        flux = ExternalFlux(
+            gain=np.linspace(0.05, 0.3, E.size),
+            loss_rate=np.linspace(0.2, 1.1, E.size),
+        )
+
+        analytical, finite_difference = _analytic_and_fd_jacobian(
+            f, ctx, external_flux=flux,
+        )
+
+        np.testing.assert_allclose(
+            analytical, finite_difference, rtol=2e-6, atol=2e-9,
+        )
+        # The flux contributes exactly -loss_rate on the supported diagonal.
+        expected = np.zeros_like(analytical)
+        idx = np.flatnonzero(ctx.active_mask)
+        expected[idx, idx] = -flux.loss_rate[idx]
+        np.testing.assert_allclose(analytical, expected, rtol=0.0, atol=0.0)
 
     def test_near_gap_supported_bin_cannot_hide_nonzero_residual(self) -> None:
         E = np.array([1.01, 1.5])

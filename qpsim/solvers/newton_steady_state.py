@@ -22,6 +22,7 @@ import numpy as np
 from scipy.optimize import brentq
 
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
+from qpsim.collisions._validation import validated_rate_matrix
 from qpsim.collisions.pair_breaking_photon import (
     pair_breaking_photon_collision_components,
     pair_breaking_photon_collision_rates,
@@ -97,6 +98,36 @@ def _resolve_number_polish_shape_tol(
     return resolved
 
 
+def _validated_occupation_matrix(
+    matrix: np.ndarray | None,
+    expected_shape: tuple[int, int],
+    name: str,
+) -> np.ndarray | None:
+    """Return a finite non-negative occupation matrix with exact shape.
+
+    Mirrors the phonon-occupation override contract of
+    ``qpsim.collisions.phonon.phonon_collision_rates``.  ``newton_solve_f``
+    needs it one step earlier: it forms the elementwise kernel·occupation
+    products itself, before any call into the collision layer.
+    """
+    if matrix is None:
+        return None
+    # As in the collision layer, fail before a float cast can erase an
+    # invalid imaginary part.
+    if np.iscomplexobj(matrix):
+        raise ValueError(f"{name} must be real-valued.")
+    result = np.asarray(matrix, dtype=float)
+    if result.shape != expected_shape:
+        raise ValueError(
+            f"{name} must have shape {expected_shape}; got {result.shape}."
+        )
+    if np.any(~np.isfinite(result)) or np.any(result < 0.0):
+        raise ValueError(
+            f"{name} must contain only finite non-negative occupations."
+        )
+    return result
+
+
 def thermal_collision_gain_loss(
     f: np.ndarray,
     ctx: SpectralContext,
@@ -109,10 +140,22 @@ def thermal_collision_gain_loss(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Internal (collision/photon) ``(gain, loss_rate)`` at thermal phonons.
 
-    Public wrapper for certification callers (the device outer loop's
-    global slow-mode certificate) that need the internal turnover with
+    Public wrapper for callers that need the full internal turnover with
     NO external flux, matching exactly the assembly ``newton_solve_f``
-    certifies against.
+    certifies its aggregate gain/loss backward error against.  Which
+    channels are included is caller-selected: e-ph scattering enters with
+    ``K_s0``, sub-gap photon scattering with ``photon_params``.
+
+    NOT a total-QP-number denominator.  The device outer loop's global
+    slow-mode certificate uses :func:`number_changing_gain_loss`, which
+    deliberately excludes the number-conserving scattering channels; this
+    wrapper served that certificate before the 2026-07-25 repair and no
+    longer does.  Number-conserving roundoff placed in a pair-number
+    denominator dilutes it by many orders at 20--50 mK, so an O(1)
+    pair-number imbalance certifies as converged (see
+    ``docs/CODE-REVIEW-FALSE-POSITIVES.md`` section 3 item 5 and the
+    comment above the ``number_changing_gain_loss`` import in
+    ``qpsim/devices/device.py``).
     """
     N_p = (
         _thermal_phonon_scattering_occupation(ctx.E, T_bath)
@@ -766,6 +809,10 @@ def newton_solve_f(
         Non-equilibrium phonon occupation matrices. Overrides the
         thermal Bose-Einstein values computed from ``T_bath``. Used by
         the Picard outer loop (see ``services.steady_state``).
+        ``N_emit_override`` and ``N_abs_override`` describe one pair bath
+        (``N_emit = 1 + n_B``, ``N_abs = n_B``); the solver does not derive
+        either from the other, so they must be supplied together or both
+        omitted.
     photon_params
         ``{"omega_0", "n_bar", "c_phot"}`` for the sub-gap channel, or
         ``None`` to disable.
@@ -805,11 +852,24 @@ def newton_solve_f(
     np.ndarray
         Converged occupation clipped to ``[0, 1]``. Shape ``(NE,)``.
 
+        "Converged" is an aggregate statement. All three return certificates
+        -- the dimensional ``tol`` on ``max |R|``, the L1 normwise gain/loss
+        backward error, and the cell-weighted total-number backward error --
+        are absolute-max or L1 measures over the active set; none has a
+        per-bin relative component. No relative accuracy is therefore claimed
+        for a bin whose turnover is far below the largest turnover on the
+        grid, and none at all for any bin once every dimensional rate on the
+        grid is below ``tol``. A seed satisfying all three is returned
+        unchanged, in zero Newton iterations.
+
     Raises
     ------
     ValueError
         If the initial occupation is not a finite one-dimensional array on the
-        spectral grid or contains values outside ``[0, 1]``.
+        spectral grid or contains values outside ``[0, 1]``, or if a kernel or
+        phonon-occupation override violates the collision-layer contract
+        (real-valued, shape ``(NE, NE)``, finite, non-negative, and the
+        ``N_emit_override``/``N_abs_override`` pairing).
     RuntimeError
         If the Jacobian is singular, the line search fails above ``tol``,
         or Newton doesn't converge within ``max_iter``.
@@ -926,6 +986,41 @@ def newton_solve_f(
             f"{preview}{suffix}) and cannot be number-certified"
         )
     certify_total_number = True
+
+    # The pair emission/absorption matrices are one degree of freedom
+    # (``N_emit = 1 + n_B``, ``N_abs = n_B``), so a caller can reasonably
+    # expect one to be derived from the other.  It is not: the thermal
+    # default below keys on ``N_emit`` alone and would overwrite a lone
+    # ``N_abs_override`` with the thermal matrix, answering a different
+    # well-posed question than the caller asked and hiding the discarded
+    # array from every downstream shape/finiteness check.  Mirror the
+    # collision layer's contract (``phonon_collision_rates``) instead.
+    if (N_emit_override is None) != (N_abs_override is None):
+        raise ValueError(
+            "N_emit_override and N_abs_override must be supplied together or "
+            "both omitted."
+        )
+
+    # Normalize the kernels and occupation overrides before the effective
+    # kernel products below.  The collision layer widens them to float64 and
+    # checks shape/finiteness/non-negativity before multiplying; building the
+    # loop invariants from the raw arguments instead would report a mis-shaped
+    # kernel as a bare numpy broadcast failure, pre-empt the named contract
+    # errors with a float64 ``invalid`` flag, and carry a caller's
+    # reduced-precision dtype into products the unassisted path evaluates in
+    # float64.
+    matrix_shape = (NE, NE)
+    K_s0 = validated_rate_matrix(K_s0, matrix_shape, "K_s0")
+    K_r0 = validated_rate_matrix(K_r0, matrix_shape, "K_r0")
+    N_p_override = _validated_occupation_matrix(
+        N_p_override, matrix_shape, "N_p_override"
+    )
+    N_emit_override = _validated_occupation_matrix(
+        N_emit_override, matrix_shape, "N_emit_override"
+    )
+    N_abs_override = _validated_occupation_matrix(
+        N_abs_override, matrix_shape, "N_abs_override"
+    )
 
     # Default to thermal occupations when no overrides given and the
     # corresponding kernel is in play.
@@ -1401,28 +1496,42 @@ def newton_solve_f(
         accepted = False
         alpha = 0.0
         accepted_delta = np.empty(0)
-        solve_error: np.linalg.LinAlgError | None = None
+        solve_error: np.linalg.LinAlgError | RuntimeError | None = None
         had_direction = False
+        scaled_system: tuple[np.ndarray, np.ndarray] | None = None
         try:
-            J_solve, R_solve = _row_scaled_newton_system(
+            scaled_system = _row_scaled_newton_system(
                 J_act,
                 R_act,
                 gain[active],
                 loss_rate[active] * f_cur[active],
             )
-            scaled_delta = np.linalg.solve(J_solve, -R_solve)
-            had_direction = True
-            accepted, alpha = try_direction(
-                scaled_delta,
-                f_cur,
-                max_residual,
-                backward_error,
-                number_error,
-            )
-            if accepted:
-                accepted_delta = scaled_delta
-        except np.linalg.LinAlgError as err:
+        except RuntimeError as err:
+            # A row whose physical turnover has decayed into the subnormal
+            # band cannot be normalized inside the float64 range, and the
+            # finiteness check discards the whole scaled system when any one
+            # row does.  Below ~28 mK on a 10 Delta grid that is an ordinary
+            # cold iterate, not a broken one, so degrade to the raw system —
+            # rejecting a recoverable state here is exactly what the comment
+            # above says the fallback exists to prevent.  Only the scaling
+            # call is guarded: ``try_direction`` re-assembles physics whose
+            # own RuntimeErrors are genuine contract violations.
             solve_error = err
+        if scaled_system is not None:
+            try:
+                scaled_delta = np.linalg.solve(scaled_system[0], -scaled_system[1])
+                had_direction = True
+                accepted, alpha = try_direction(
+                    scaled_delta,
+                    f_cur,
+                    max_residual,
+                    backward_error,
+                    number_error,
+                )
+                if accepted:
+                    accepted_delta = scaled_delta
+            except np.linalg.LinAlgError as err:
+                solve_error = err
 
         if not accepted:
             try:
@@ -1804,9 +1913,16 @@ def _jacobian_analytical(
         # gate is bin-independent, so it hoists out of the pair sweep.
         if _pair_channel_open(omega_PB_snapped, ctx.gap):
             E_partner = omega_PB_snapped - E
-            j_r = np.rint((E_partner - E[0]) / dE_scalar).astype(np.int64)
-            in_range = (j_r >= 0) & (j_r < NE)
-            j_r_safe = np.clip(j_r, 0, NE - 1)
+            # Range-test the rounded quotient as a float and neutralize the
+            # off-grid entries before the int64 cast.  A partner index beyond
+            # the int64 range is simply off grid — the former scalar
+            # ``round()`` returned an arbitrary-precision int the range test
+            # rejected silently — but casting it first raises the FP-invalid
+            # flag, which a caller running under ``errstate(invalid="raise")``
+            # or ``-W error`` sees as a hard failure. Values are unchanged.
+            j_r_float = np.rint((E_partner - E[0]) / dE_scalar)
+            in_range = (j_r_float >= 0.0) & (j_r_float < NE)
+            j_r_safe = np.where(in_range, j_r_float, 0.0).astype(np.int64)
             pair = supported & in_range & supported[j_r_safe]
             i_r = np.flatnonzero(pair)
             j_r = j_r_safe[pair]

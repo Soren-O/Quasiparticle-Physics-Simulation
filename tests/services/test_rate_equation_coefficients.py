@@ -15,6 +15,9 @@ from qpsim.services.rate_equation_coefficients import (
     M25PhysicalParameters,
     _branching_fraction,
     _c_ii_squared,
+    _g_pn_L,
+    _g_pn_Rgt,
+    _g_pn_Rlt,
     _gamma_L_01,
     _gamma_L_10,
     _gamma_L_ii,
@@ -342,14 +345,22 @@ class TestDetailedBalance:
         series = _tau_R_inverse_series_s50(params)
         assert series / exact == pytest.approx(0.203, abs=0.02)
 
+    # NOTE (2026-08-03 review): these guards must call the ``_g_pn_*``
+    # helpers directly and pass ``abs=0.0``. Reconstructing the thermal term
+    # as ``coefs.g_α − params.g_ph_α_Hz`` loses it entirely to float64
+    # cancellation here (the true values are 1e-29–1e-20 Hz against the
+    # fixture's 1.0 / 100.0 / 0.1 Hz photon offsets, so the subtraction is
+    # exactly 0.0), and ``pytest.approx``'s default ``abs=1e-12`` floor then
+    # accepts 0.0 for every expected value — including the erf² bug these
+    # tests advertise as catching.
+
     def test_thermal_generation_scales_with_boltzmann(self) -> None:
         # g^{pn}_L ∝ T × e^{-2Δ_L/T} — rises rapidly with T.
-        coefs_cold = coefficients_from_physical_parameters(_fig3a_params(T_kelvin=0.020))
-        coefs_hot = coefficients_from_physical_parameters(_fig3a_params(T_kelvin=0.100))
-        g_L_cold_pn = coefs_cold.g_L - 1.0   # subtract photon contribution
-        g_L_hot_pn = coefs_hot.g_L - 1.0
-        # At T = 20 mK with Δ_L = 2.38 K: e^{-2Δ/T} = e^{-238} → underflow → ≈ 0.
-        # At T = 100 mK: e^{-47.6} ≈ 2e-21. Still tiny but nonzero.
+        g_L_cold_pn = _g_pn_L(_fig3a_params(T_kelvin=0.020))
+        g_L_hot_pn = _g_pn_L(_fig3a_params(T_kelvin=0.100))
+        # At T = 20 mK with Δ_L = 2.38 K: e^{-2Δ/T} = e^{-238} ≈ 7e-104, so
+        # g^{pn}_L ≈ 2e-98 Hz. At T = 100 mK: e^{-47.6} ≈ 2e-21 → 4e-15 Hz.
+        # Both are representable; only the g_ph subtraction destroyed them.
         assert g_L_cold_pn < g_L_hot_pn
 
     def test_generation_equals_recombination_at_thermal_eq_L(self) -> None:
@@ -358,9 +369,8 @@ class TestDetailedBalance:
         coefs = coefficients_from_physical_parameters(params)
         T, Delta_L = params.T_kelvin, params.Delta_L_kelvin
         x_L_eq_sq = (2.0 * np.pi * T / Delta_L) * np.exp(-2.0 * Delta_L / T)
-        g_pn_L = coefs.g_L - params.g_ph_L_Hz
         expected = coefs.r_L * x_L_eq_sq
-        assert g_pn_L == pytest.approx(expected, rel=1e-12)
+        assert _g_pn_L(params) == pytest.approx(expected, rel=1e-12, abs=0.0)
 
     def test_R_generation_branching_is_linear_in_erf_erfc(self) -> None:
         # Pair-breaking creates two independent QPs; each partitions
@@ -375,10 +385,13 @@ class TestDetailedBalance:
         prefactor = coefs.r_Rlt * (2.0 * np.pi * T / Delta_R) * np.exp(-2.0 * Delta_R / T)
         erf_z = erf(np.sqrt(omega_LR / T))
         erfc_z = erfc(np.sqrt(omega_LR / T))
-        g_pn_Rlt = coefs.g_Rlt - params.g_ph_Rlt_Hz
-        g_pn_Rgt = coefs.g_Rgt - params.g_ph_Rgt_Hz
-        assert g_pn_Rlt == pytest.approx(prefactor * erf_z, rel=1e-12)
-        assert g_pn_Rgt == pytest.approx(prefactor * erfc_z, rel=1e-12)
+        assert _g_pn_Rlt(params) == pytest.approx(prefactor * erf_z, rel=1e-12, abs=0.0)
+        assert _g_pn_Rgt(params) == pytest.approx(prefactor * erfc_z, rel=1e-12, abs=0.0)
+        # Negative control: the historical erf²/erfc² draft (docs/
+        # M25_coefficient_integrals.md §7) sits 37% / 63% below the correct
+        # values at this point, so the assertions above must reject it.
+        assert _g_pn_Rlt(params) != pytest.approx(prefactor * erf_z**2, rel=1e-12, abs=0.0)
+        assert _g_pn_Rgt(params) != pytest.approx(prefactor * erfc_z**2, rel=1e-12, abs=0.0)
 
     def test_R_generation_sum_matches_Eq8_prefactor(self) -> None:
         # Branching-invariant check: g_R< + g_R> must equal
@@ -388,12 +401,25 @@ class TestDetailedBalance:
         params = _fig3a_params(T_kelvin=0.080)
         coefs = coefficients_from_physical_parameters(params)
         T, Delta_R = params.T_kelvin, params.Delta_R_kelvin
-        g_pn_total = (
-            (coefs.g_Rlt - params.g_ph_Rlt_Hz)
-            + (coefs.g_Rgt - params.g_ph_Rgt_Hz)
-        )
+        g_pn_total = _g_pn_Rlt(params) + _g_pn_Rgt(params)
         expected_total = coefs.r_Rlt * (2.0 * np.pi * T / Delta_R) * np.exp(-2.0 * Delta_R / T)
-        assert g_pn_total == pytest.approx(expected_total, rel=1e-12)
+        assert g_pn_total == pytest.approx(expected_total, rel=1e-12, abs=0.0)
+
+    def test_scalar_g_alpha_carries_the_thermal_term_when_no_photon_offset(
+        self,
+    ) -> None:
+        # Wiring gate for the g_α assembly: with the scalar photon offsets
+        # at their 0.0 defaults (the configuration every shipped M25
+        # producer uses) the bundled g_α must equal _g_pn_α exactly. This
+        # is the only construction in which the round trip is lossless, so
+        # it is the only one that can gate the assembly bit-for-bit.
+        params = _fig3a_params(
+            T_kelvin=0.060, g_ph_L_Hz=0.0, g_ph_Rlt_Hz=0.0, g_ph_Rgt_Hz=0.0
+        )
+        coefs = coefficients_from_physical_parameters(params)
+        assert coefs.g_L == _g_pn_L(params)
+        assert coefs.g_Rlt == _g_pn_Rlt(params)
+        assert coefs.g_Rgt == _g_pn_Rgt(params)
 
     def test_tau_E_over_tau_R_equals_erfc_over_erf(self) -> None:
         # Detailed balance at µ=0 requires τ_E⁻¹ x_R<^eq = τ_R⁻¹ x_R>^eq,

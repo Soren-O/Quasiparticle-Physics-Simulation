@@ -904,10 +904,14 @@ class TestM25NoDoubleCounting:
             f_L, spec_L, gap_alpha_uev=spec_L.gap,
         )
         # Thermal floor exp(-Δ_L/T) ≈ 1e-52. Phase 5b lifts x_L to
-        # the photon-driven M25 fixed point, ~5e-18 at Fig 3a inputs
-        # (cross-tunneling cycle quiescent). 1e-30 is comfortably
-        # above thermal and below the M25 floor — proves the e-ph
-        # kernel is not crushing x_L back to thermal.
+        # the photon-driven M25 fixed point, ~5.3e-08 at Fig 3a inputs
+        # (the value test_fig3a_quantitative_match pins as 5.313e-08;
+        # cross-tunneling cycle quiescent). 1e-30 is deliberately loose
+        # — comfortably above thermal and far below the M25 fixed point
+        # — so it survives the multi-decade moves the fixed point makes
+        # under legitimate re-normalizations while still proving the
+        # e-ph kernel is not crushing x_L back to thermal. The tight
+        # pin is test_fig3a_quantitative_match, not this sentinel.
         assert x_L > 1e-30, (
             f"x_L = {x_L:.3e} is at or below the thermal floor — "
             "e-ph kernel may be running inside the inner solve."

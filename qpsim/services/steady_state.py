@@ -56,24 +56,36 @@ def _picard_convergence_ratio(
     ``|n_new - n| <= atol + rtol * max(|n|, |n_new|)``.
 
     ``atol`` is an explicit tolerance on dimensionless phonon occupation:
-    changes at that absolute noise floor cannot pin the outer Picard loop,
-    while every larger change is still measured against the bin's *own*
-    occupation. It is deliberately independent of the inner Newton collision-
-    residual tolerance. A global floor based on the peak phonon occupation can
-    hide tiny above-gap pair-breaking bins that are dynamically decisive even
-    though a large low-energy bin exists elsewhere (Fischer Fig. 5).
+    changes at that absolute noise floor cannot pin the outer Picard loop. It
+    is deliberately independent of the inner Newton collision-residual
+    tolerance, and it is deliberately not scaled by the peak phonon occupation,
+    which would let a large low-energy bin set the floor for the tiny above-gap
+    pair-breaking bins (Fischer Fig. 5).
 
-    The per-bin test alone is unsafe when *every* occupation is below the
+    It is, however, still an *absolute* floor: any bin with
+    ``n < atol / rtol`` is tested absolutely, not against its own occupation.
+    At the shipped defaults that threshold is 0.1, i.e. essentially every
+    phonon bin of a driven Fischer solve, so this test on its own gives the
+    ω ≥ 2Δ pair-breaking bins no relative control — measured on a finite-τ_l
+    Fig. 5 solve it first certifies at an iterate whose per-bin relative change
+    there is still ~1e-1.
+
+    The per-bin test is in particular unsafe when every occupation is below the
     absolute floor: a globally unresolved update can then pass merely because
     each component is smaller than ``atol``.  A second, normwise relative
     fixed-point guard therefore requires
 
     ``sum(|n_new - n|) / sum(|n| + |n_new|) <= rtol``.
 
-    This guard is insensitive to the overall occupation amplitude, while the
-    local test still prevents a large low-energy bin from hiding a dynamically
-    important small bin.  The returned value is the larger of the two ratios
-    and is converged at ``<= 1``. Identical all-zero iterates return zero.
+    That guard is insensitive to the overall occupation amplitude, but it is an
+    L1 test dominated by the largest bins and does not constrain a sub-floor
+    block either.  Per-bin physical control of the above-gap bins comes from
+    the Ph0 balance certificate (``picard_balance_tol``), which is what
+    actually binds such a solve; callers that want the change test itself to
+    resolve that block override the default downward — ``picard_atol=0.0``
+    (fig3), 1e-12 (fig5), 1e-13 (fig7), 1e-14 (fig6).  The returned value is
+    the larger of the two ratios and is converged at ``<= 1``. Identical
+    all-zero iterates return zero.
     """
     if not np.isfinite(rtol) or rtol <= 0.0:
         raise ValueError(f"rtol must be positive; got {rtol}.")

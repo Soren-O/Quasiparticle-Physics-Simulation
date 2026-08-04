@@ -1994,7 +1994,7 @@ def test_matches_pinned_baseline() -> None:
         err_msg="T_*/Δ axis drift (Eq. 35)",
     )
 
-    # Numerical observables — 1e-6 abs (NFP §6.4.1 iterative-mode tol).
+    # Gap observables — 1e-6 abs (NFP §6.4.1 iterative-mode tol).
     np.testing.assert_allclose(
         result.delta_eq, baseline.delta_eq, rtol=0.0, atol=1e-6,
         err_msg="Δ_eq(T_B) drift",
@@ -2007,6 +2007,18 @@ def test_matches_pinned_baseline() -> None:
         result.x_qp_num, baseline.x_qp_num, rtol=1e-3, atol=1e-14,
         err_msg="numerical x_qp drift",
     )
+    # (δΔ_T - δΔ)/δΔ_T divides by δΔ_T = Δ_0 - Δ_eq(T_B), which is only
+    # 8.3215e-8 μeV at T_B = 0.10 K (1.0737e-4 at 0.15 K, 4.0196e-3 at 0.20 K).
+    # This atol is therefore NOT the gap atol above carried through: 1 μeV of
+    # Δ_driven drift lands here amplified by up to 1.2017e7, so the 1e-6
+    # headroom granted to Δ_driven is unreachable in practice and this line is
+    # the binding constraint of the whole comparison. Against pinned |values|
+    # reaching 2.3043e6 an absolute 1e-6 is ~4e-13 relative (≈2 ULP), i.e. it
+    # implicitly demands ~8.3e-14 μeV gap reproducibility. Left as-is
+    # deliberately: restating it per row against its own suppression scale is
+    # blocked on N37 (docs/AUDIT-2026-07-15-numerical-software.md:157), which
+    # holds that the 66-point production sweep certifies the solver contract
+    # and not this ratio.
     np.testing.assert_allclose(
         result.paper_observable_num, baseline.paper_observable_num,
         rtol=0.0, atol=1e-6,
@@ -2019,9 +2031,13 @@ def test_matches_pinned_baseline() -> None:
         err_msg="Eq. 47 analytic x_qp drift",
     )
     # Dashed overlay is Eq. 53 evaluated at (x_qp_eq47, T_*/Δ) and combined
-    # with the numerical Δ_eq(T_B). It inherits the Δ_eq tolerance (1e-6 abs
-    # in μeV) via composition; the closed-form Eq. 47 + Eq. 53 part itself
-    # is float64-exact.
+    # with the numerical Δ_eq(T_B). The closed-form Eq. 47 + Eq. 53 part is
+    # float64-exact, but this gate does NOT inherit the Δ_eq tolerance via
+    # composition: obs_eq53 = 1 - ΔΔ_drive/δΔ_T, so
+    # ∂obs_eq53/∂Δ_eq = ΔΔ_drive/δΔ_T² ≈ 3.98e13 per μeV at T_B = 0.10 K
+    # (ΔΔ_drive = 0.2759 μeV, δΔ_T = 8.3215e-8 μeV). A 1e-6 μeV Δ_eq drift
+    # moves it by ~4e7, not by 1e-6. Same standing constraint as
+    # paper_observable_num above (N37).
     np.testing.assert_allclose(
         result.paper_observable_eq53, baseline.paper_observable_eq53,
         rtol=0.0, atol=1e-6,

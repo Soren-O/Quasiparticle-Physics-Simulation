@@ -253,6 +253,35 @@ def build_phonon_frequency_map(
     * ``diff_sign``: ``(NE, NE)`` int8, ``sign(E_i − E_j)``. Used to
       distinguish emission (+) from absorption (−) in the dynamic-n_ph
       projection.
+
+    Grid commensurability (documented limitation, NOT guarded here).
+    ``omega_bins`` is the union of the difference lattice ``k·dE`` and the sum
+    lattice ``2·E_face + m·dE`` (``E_face = E[0] − dE/2``, the lowest cell
+    face). On a cell-centred grid the two families share a bin only when
+    ``2·E_face/dE`` is an integer. When it is not — the shipped web-UI default
+    ``EnergyGrid(1.0, 10.0, 400)`` gives 88.889, and ``(1.0, 4.0, 64)`` gives
+    42.667 — every ω bin carries either the F&C 2023 Eq. 12 first (scattering)
+    integral or the second (pair) integral but never both. Eq. 12 shares one
+    ``n(ω)`` between them, and nothing downstream re-couples the bins
+    (:func:`compute_phonon_source_sink` bincounts scattering on
+    ``omega_idx_diff`` and pairs on ``omega_idx_sum``;
+    :func:`phonon_occupation_matrices_from_state` reads them back the same
+    way; :func:`qpsim.phonon_models.ph0_local.phonon_steady_state` solves each
+    bin independently), so on an incommensurate grid the two integrals live on
+    disjoint, dynamically decoupled sublattices: scattering-emitted phonons
+    above 2Δ cannot break pairs, and recombination phonons cannot be
+    reabsorbed by scattering. The discretization is then inconsistent rather
+    than merely coarse — each grid parity converges under refinement to a
+    different limit (a factor ~180 in the QP pair-breaking gain on a
+    high-energy-injected Al state, NE=100 vs 101 over [Δ, 5Δ]). Detailed
+    balance holds on each sublattice separately, so equilibrium tests cannot
+    see it, and every published artifact happens to be commensurate (1620 over
+    [Δ, 10Δ] → 360; the prelim 28 over [Δ, 5Δ] → 14). Choose
+    ``num_energy_bins`` so ``2·E_face/dE`` is an integer whenever ``n_ph`` is a
+    live dynamical variable. The proper fix — a rate-preserving redistribution
+    of pair events onto one common ω lattice — reopens the union-grid decision
+    D3 in ``docs/Phonon_Model_Decisions.md`` and is a physics change, not a
+    patch.
     """
     E = np.asarray(E_bins, dtype=float)
     if E.ndim != 1:
@@ -467,37 +496,90 @@ def _pair_breaking_quadrature_correction(
 ) -> np.ndarray:
     """Memoized front end for :func:`_pair_breaking_quadrature_correction_impl`.
 
-    The correction depends only on the spectral context and the (fixed)
-    phonon-side kernel — not on the evolving ``(f, n_ph)`` state — yet the
-    Picard loop historically recomputed it every iteration (~21% of a
-    fig5-class solve: an NE² median, an NE² allclose, and a scalar
-    ``kaplan_S_plus`` loop per call). Cache the result per ``(ctx, kernel)``
-    identity; entries are invalidated when the context is rebuilt at a new
-    gap (the gap is part of the key), when either object dies (weakref /
-    fingerprint guards), or by FIFO eviction. The returned array is marked
-    read-only; callers only multiply by it.
+    The correction depends only on the spectral context, the (fixed)
+    phonon-side kernel and the ω binning — not on the evolving ``(f, n_ph)``
+    state — yet the Picard loop historically recomputed it every iteration
+    (~21% of a fig5-class solve: an NE² median, an NE² allclose, and a scalar
+    ``kaplan_S_plus`` loop per call).
+
+    Key and guards. All three objects are keyed by ``id`` **and** re-verified
+    through a weakref on every hit, because ``id`` alone is not identity: the
+    cache owns none of them, and CPython hands a freed array's address to the
+    next same-shape allocation (measured: the very next kernel in a
+    build/drop/rebuild sequence), so a plain ``id`` match can serve a
+    different array's correction. Content is fingerprinted on top of that —
+    the kernel by shape, three sampled entries and its total, the ω map by
+    shape and its total — so an in-place edit between calls misses instead of
+    silently reusing a rescale computed for the previous contents, which would
+    bypass the round-5 supported-pairs canonicity detector in the impl below
+    (up to ~56% on the bins near 2Δ). The fingerprints are content checks over
+    every entry, not liveness guards; the weakrefs are the liveness guards.
+    Entries also die when the context is rebuilt at a new gap (the gap is part
+    of the key) and by FIFO eviction. Inputs that are not ndarrays (a list,
+    say) are computed without caching. The returned array is marked read-only;
+    callers only multiply by it.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
+    if not (
+        isinstance(K_r0_phonon_side, np.ndarray)
+        and isinstance(omega_idx_sum, np.ndarray)
+    ):
+        return _pair_breaking_quadrature_correction_impl(
+            ctx, K, omega_idx_sum, n_omega,
+        )
+    # O(1) key only.  Identity is established by the three weakrefs checked on
+    # the hit path below, not by these values: a weakref that still resolves to
+    # the caller's object *is* proof of identity, and it is exactly what a bare
+    # `id()` cannot give (a recycled address passes an id check, but the dead
+    # object's weakref returns None).  The sampled entries stay as a cheap
+    # tripwire for a rebuilt-in-place kernel that lands on the same address.
+    #
+    # Deliberately NOT hashing the full arrays: K is NE**2 (2.6e6 doubles at the
+    # NE=1620 production grid), so an O(NE**2) reduction per call costs ~10 ms
+    # and would erase the whole point of the memo (0.010 ms/hit measured; this
+    # helper is ~21% of a fig5-class solve when recomputed).  The residual gap
+    # is in-place mutation of a still-live kernel or omega map between calls;
+    # no shipped caller does that, and every ctx-derived array is a read-only
+    # view.  Re-open if a caller ever mutates a kernel in place.
     fingerprint = (
         float(K.flat[0]), float(K.flat[-1]), float(K.flat[K.size // 2]),
     ) if K.size else ()
     key = (
         id(ctx), id(K_r0_phonon_side), id(omega_idx_sum), n_omega,
         float(ctx.gap), float(ctx.dynes_gamma), K.shape, fingerprint,
+        omega_idx_sum.shape,
     )
     hit = _PB_QUAD_CORR_CACHE.get(key)
     if hit is not None:
-        ctx_ref, correction = hit
-        if ctx_ref() is ctx:
+        ctx_ref, kernel_ref, idx_ref, correction = hit
+        if (
+            ctx_ref() is ctx
+            and kernel_ref() is K_r0_phonon_side
+            and idx_ref() is omega_idx_sum
+        ):
             return correction
-        del _PB_QUAD_CORR_CACHE[key]
+        _PB_QUAD_CORR_CACHE.pop(key, None)
     correction = _pair_breaking_quadrature_correction_impl(
         ctx, K, omega_idx_sum, n_omega,
     )
     correction.flags.writeable = False
+    # Read-then-pop on an unsynchronized module-global dict: losing an
+    # eviction race is harmless (the entry is immutable and rebuildable),
+    # raising KeyError / "dictionary changed size during iteration" out of a
+    # numerics helper is not.  The webui dispatches its sync handlers on a
+    # thread pool, so concurrent callers are reachable in principle.
     while len(_PB_QUAD_CORR_CACHE) >= _PB_QUAD_CORR_CACHE_MAX:
-        _PB_QUAD_CORR_CACHE.pop(next(iter(_PB_QUAD_CORR_CACHE)))
-    _PB_QUAD_CORR_CACHE[key] = (weakref.ref(ctx), correction)
+        try:
+            stale = next(iter(_PB_QUAD_CORR_CACHE))
+        except (RuntimeError, StopIteration):
+            break
+        _PB_QUAD_CORR_CACHE.pop(stale, None)
+    _PB_QUAD_CORR_CACHE[key] = (
+        weakref.ref(ctx),
+        weakref.ref(K_r0_phonon_side),
+        weakref.ref(omega_idx_sum),
+        correction,
+    )
     return correction
 
 
@@ -509,15 +591,28 @@ def _pair_breaking_quadrature_correction_impl(
 ) -> np.ndarray:
     """Scale phonon-side pair-breaking bins to the Kaplan S_+ total weight.
 
-    A midpoint sum of the BCS endpoint singularity underestimates the
-    pair-breaking sink at and immediately above ``2Δ`` by ``2/π``. At exact
-    threshold the integration interval collapses onto the singular endpoints,
-    whose ideal-BCS ``K⁺`` right-limit remains finite. The standalone Fischer
-    reproduction avoids that artifact with the analytic Kaplan ``S_+(ω/Δ)``
-    total. Apply the same per-ω correction only for callers that opted into
-    the phonon-side ``K⁺/(π Δ τ_0^PB)`` kernel; legacy QP-side behavior
-    remains unchanged. Electromagnetic photon pair generation uses ``K⁻``
-    and retains its separate, strictly-above-``2Δ`` threshold contract.
+    At and immediately above ``2Δ`` the continuum pair interval ``[Δ, ω−Δ]``
+    collapses onto its two singular endpoints, whose ideal-BCS ``K⁺``
+    right-limit remains finite: the exact threshold weight is
+    ``Δ·S_+(2) = πΔ`` while the discrete sum still carries a full ``dE`` of
+    measure. The resulting O(1) error does not shrink under refinement, and
+    its SIGN depends on where ``Δ`` falls inside the lowest represented cell.
+    The sum corrected here is a finite-volume one — ``ctx.cell_density`` and
+    ``ctx.K_plus`` are exact cell averages, not point samples — so with ``Δ``
+    on that cell's lower face it gives ``4Δ``: the correction tends to
+    ``π/4 ≈ 0.785`` at threshold and is ``≤ 1`` in every bin. That is the
+    ``energy_min_factor = 1.0`` production family (measured min 0.78576 at
+    NE=1620 over [Δ, 10Δ], no bin above 1). With ``Δ`` at the cell CENTRE the
+    sum gives ``2Δ`` instead and the correction is ``π/2 ≈ 1.571`` — the
+    value a point-sampled midpoint rule would need everywhere, and the case
+    pinned by ``test_exact_threshold_bin_uses_finite_kaplan_right_limit``. For
+    a nearly-empty gap-cut cell the factor grows without bound as the
+    supported sliver vanishes. The standalone Fischer reproduction avoids the
+    threshold artifact with the analytic Kaplan ``S_+(ω/Δ)`` total. Apply the
+    same per-ω correction only for callers that opted into the phonon-side
+    ``K⁺/(π Δ τ_0^PB)`` kernel; legacy QP-side behavior remains unchanged.
+    Electromagnetic photon pair generation uses ``K⁻`` and retains its
+    separate, strictly-above-``2Δ`` threshold contract.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
     # Kaplan S_+ is the analytic integral of the *pure-BCS K_plus* kernel.
@@ -713,7 +808,10 @@ def phonon_collision_rates(
     of rebuilding these NE² temporaries per evaluation. They are a trusted
     internal fast path: they must equal exactly those products for the same
     kernels and (already validated) occupations, and results are
-    bit-identical to the unassisted path.
+    bit-identical to the unassisted path. Only their shape (and the
+    emit/abs pairing) is checked — an O(1) contract that keeps the fast path
+    fast; their VALUES are trusted, and a stale or wrongly scaled override
+    silently wins over the ``N_*_override`` supplied alongside it.
 
     When ``N_*_override`` arguments are supplied, they replace the thermal
     Bose-Einstein factors that would otherwise be computed from ``T_bath``.
@@ -761,6 +859,27 @@ def phonon_collision_rates(
             N_emit_override = override_arr
         else:
             N_abs_override = override_arr
+    if (K_r_emit_override is None) != (K_r_abs_override is None):
+        raise ValueError(
+            "K_r_emit_override and K_r_abs_override must be supplied together "
+            "or both omitted."
+        )
+    # Shape only: these are the trusted precomputed products, and an NE²
+    # isfinite/non-negative sweep would cost what the fast path buys. A 1-D
+    # (NE,) array is the dangerous case — it broadcasts through both
+    # contractions below and returns a silently wrong rate.
+    for name, eff_override in (
+        ("K_s_eff_override", K_s_eff_override),
+        ("K_r_emit_override", K_r_emit_override),
+        ("K_r_abs_override", K_r_abs_override),
+    ):
+        if eff_override is None:
+            continue
+        if np.shape(eff_override) != matrix_shape:
+            raise ValueError(
+                f"{name} must have shape {matrix_shape}; got "
+                f"{np.shape(eff_override)}."
+            )
     w = ctx.cell_weights
     one_minus_f = np.maximum(1.0 - f, 0.0)
 

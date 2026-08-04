@@ -290,7 +290,9 @@ def _remap_bcs_frozen_xi_cell_mass(
     cell-constant therefore turns the exact characteristic update into a
     conservative overlap of the old and new ``xi`` cells. The returned array
     is the quasiparticle mass in each new energy cell; the scalar is old mass
-    whose characteristic exits through the finite ``E_max`` boundary.
+    whose characteristic exits through the finite ``E_max`` boundary.  A new
+    gap below the grid's first cell face would strand mass at the gap edge
+    instead; that case is rejected rather than reported as an ``E_max`` tail.
     """
     occupations = np.asarray(f_old, dtype=float)
     energies = np.asarray(E, dtype=float)
@@ -316,6 +318,33 @@ def _remap_bcs_frozen_xi_cell_mass(
 
     scale = max(float(old_xi[-1]), float(new_xi[-1]), 1.0)
     tolerance = 128.0 * np.finfo(float).eps * scale
+
+    # Old mass below the new partition's first face is never visited by the
+    # sweep, and it leaves through the gap edge, not through ``E_max``.  It
+    # arises only when the first cell face sits above ``new_gap``, i.e. inside
+    # ``bcs_dos_cell_weights``' roundoff-sized coverage window (a wider miss is
+    # already rejected there).  Refuse it instead of folding it into
+    # ``escaped_mass``, which would relocate gap-edge quasiparticles to the
+    # highest represented cell and blame the opposite boundary.
+    gap_edge_lo = float(old_xi[0])
+    gap_edge_hi = float(new_xi[0])
+    if gap_edge_hi > gap_edge_lo + tolerance:
+        stranded = float(
+            occupations
+            @ (
+                np.clip(old_xi[1:], gap_edge_lo, gap_edge_hi)
+                - np.clip(old_xi[:-1], gap_edge_lo, gap_edge_hi)
+            )
+        )
+        if stranded > 0.0:
+            raise ValueError(
+                "The energy grid does not cover the updated BCS gap edge: "
+                f"first cell edge {float(cell_edges[0]):.17g} > new gap "
+                f"{float(new_gap):.17g} strands {stranded:g} of gap-edge "
+                "quasiparticle mass. Extend E_min below every gap reached by "
+                "the trajectory."
+            )
+
     old_index = 0
     new_index = 0
     n_cells = occupations.size
@@ -1338,36 +1367,6 @@ class T3DiffusionBackend:
         if not isinstance(substeps, int) or substeps < 1:
             raise RuntimeError("Collision diagnostics returned an invalid step count.")
         return updated, raw_rate, substeps
-
-    def apply_collisions_with_residual(
-        self,
-        state: T3DiffusionState,
-        dt: float,
-        *,
-        photon_params: dict[str, float] | None = None,
-        pb_photon_params: dict[str, float] | None = None,
-        external_flux: ExternalFlux | None = None,
-    ) -> tuple[T3DiffusionState, np.ndarray]:
-        """Advance once and return the raw endpoint collision residual.
-
-        This is the diagnostics protocol used by the transient service when
-        ``stop_tol`` is enabled.  The residual is evaluated with the exact
-        same frozen operator and external-flux sample as the ETD2 step.
-        Custom backends may implement the same method to provide a trustworthy
-        stopping certificate; otherwise the service uses a conservative
-        finite-difference fallback.
-        """
-        updated, raw_rate, _substeps = self.apply_collisions_with_diagnostics(
-            state,
-            dt,
-            photon_params=photon_params,
-            pb_photon_params=pb_photon_params,
-            external_flux=external_flux,
-            evaluate_residual=True,
-        )
-        if raw_rate is None:
-            raise RuntimeError("Collision diagnostics did not return a raw residual.")
-        return updated, raw_rate
 
     def apply_transport(
         self,

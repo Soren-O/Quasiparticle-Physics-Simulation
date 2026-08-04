@@ -69,12 +69,24 @@ def run(
     D0: float = D0_DEFAULT,
     dt: float = 2.0,
     conservation_steps: int = 30,
+    energy_min_factor: float = 1.02,
 ) -> PacketResult:
-    """Measure ``D_eff(E)/D_N`` per model and the ``n_qp`` drift."""
+    """Measure ``D_eff(E)/D_N`` per model and the ``n_qp`` drift.
+
+    ``energy_min_factor`` places the grid floor at ``energy_min_factor·Δ``.
+    The default ``1.02`` leaves every cell fully above the gap. A floor below
+    one makes the first cell gap-cut, which is the only configuration that
+    separates the ``q = 0`` dirty-limit face weight ``D_N·support_fraction``
+    from the uncut ``D_N``; keep it high enough that the cut cell still holds
+    a represented (positive-capacity) sliver.
+    """
     if gap is None:
         gap = float(load_material("Al").Delta_0)
     E, _ = build_energy_grid(
-        gap=gap, energy_min_factor=1.02, energy_max_factor=4.0, num_energy_bins=NE
+        gap=gap,
+        energy_min_factor=energy_min_factor,
+        energy_max_factor=4.0,
+        num_energy_bins=NE,
     )
     dE = integration_widths_from_centers(E)
     spectral = SpectralContext(

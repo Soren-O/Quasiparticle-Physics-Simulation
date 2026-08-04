@@ -909,11 +909,36 @@ class TestStep:
     def test_thermal_is_near_fixed_point(self) -> None:
         # A coupled moving-gap step on the thermal distribution should barely
         # move it (f_FD is the fixed point of the collision integral, and
-        # Δ_eq(T_bath) is the fixed point of the gap equation).
+        # Δ_eq(T_bath) is the fixed point of the gap equation) — but the
+        # fixture seeds Δ_0 = 180 μeV, not Δ_eq(0.01 K) = 179.345 μeV, so the
+        # first step also has to relax that algebraic start-up layer.
+        #
+        # Gate on the state's own scale: at 10 mK the occupations peak at
+        # ~1e-80, so the historical atol=1e-4 stood 76 orders of magnitude
+        # above the data and certified nothing — f ≡ 0 (total annihilation),
+        # a uniform 1e-5 population and the energy-reversed array all passed.
         state = _state_on_physics_grid(T_bath=0.01)
         backend = T3DiffusionBackend()
-        new_state = backend.step(state, dt=0.01)
-        np.testing.assert_allclose(new_state.f, state.f, atol=1e-4)
+        scale = float(np.max(state.f))
+        started = backend.step(state, dt=0.01)
+        np.testing.assert_allclose(started.f, state.f, rtol=0.0, atol=0.2 * scale)
+
+        # With the start-up layer removed the same way the order-2 test above
+        # removes it, the state is a genuine fixed point: every bin holds to a
+        # few percent and the gap does not move at all. One coupled step lands
+        # on that same relaxed gap.
+        equilibrated = backend.apply_gap_update(state, dt=1.0)
+        assert started.gap == pytest.approx(equilibrated.gap, rel=1e-12)
+        stepped = backend.step(equilibrated, dt=0.01)
+        np.testing.assert_allclose(stepped.f, equilibrated.f, rtol=5e-2, atol=0.0)
+        assert stepped.gap == pytest.approx(equilibrated.gap, rel=1e-12)
+
+        # The DOS-weighted mass rides the gap move to roundoff; annihilation
+        # and a uniform warm population both break it.
+        mass = float(equilibrated.spectral.cell_weights @ equilibrated.f)
+        assert float(
+            stepped.spectral.cell_weights @ stepped.f
+        ) == pytest.approx(mass, rel=1e-12)
 
     def test_multiple_steps_remain_bounded(self) -> None:
         state = _state_on_physics_grid(T_bath=0.3)

@@ -310,7 +310,19 @@ def test_archived_legacy_artifact_is_explicitly_rejected() -> None:
         / "fischer_2024_pre_strict_v2"
         / target.baseline_path().name
     )
-    with pytest.raises(ArtifactValidationError, match=r"legacy|wrong schema"):
+    # The reader embeds the path in its "Cannot read artifact at ..." message,
+    # and that path contains "legacy", so a text match on ArtifactValidationError
+    # is also satisfied by a missing (or unreadable) fixture. Pin the archived
+    # file itself and the LegacyArtifactError classification that actually
+    # encodes "this predates the strict schema".
+    assert legacy_path.is_file(), f"Archived pre-strict-v2 artifact is missing at {legacy_path}."
+    assert legacy_path.stat().st_size > 0, f"Archived pre-strict-v2 artifact is empty at {legacy_path}."
+    with legacy_path.open(encoding="utf-8") as fp:
+        first_line = fp.readline()
+    assert first_line.startswith("# Fischer & Catelani 2024 Fig. 8"), (
+        f"Archived pre-strict-v2 artifact no longer carries its legacy header: {first_line!r}."
+    )
+    with pytest.raises(LegacyArtifactError, match=r"is legacy or has the wrong schema"):
         _read_summary(legacy_path)
 
 

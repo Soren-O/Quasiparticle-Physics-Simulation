@@ -60,6 +60,15 @@ class PhononState:
     and ``N_spatial = 1``. The singleton axes are retained so that
     extending to multi-branch (v3) or spatially-resolved (Ph1/Ph2) is
     an additive change.
+
+    Note that the Gate-0 ban on mixing a dynamic ``n_ph`` with a
+    Rothwarf–Taylor ζ-renormalized τ₀ is *not* enforced here, contrary to
+    Phonon_Escape_Time.md §6 and Phonon_Model_Decisions.md: ζ exists
+    nowhere in the package, and the τ₀ it would renormalize lives on the
+    material (``tau_0_pb_ns``), so the forbidden configuration is global
+    and not even representable in this state. Should ζ ever be
+    implemented, the guard belongs where both sectors are visible
+    (:mod:`qpsim.devices.device`), not in this data class.
     """
 
     n_ph: np.ndarray

@@ -83,6 +83,21 @@ def compute_gap_suppression(
     every physically possible driven gap.  A distribution that can collapse
     to the normal state therefore needs support down to zero; missing low-edge
     occupation data is rejected rather than extrapolated.
+
+    Quadrature caveat: the two gaps are *not* computed by the same rule.  The
+    reference comes from :func:`calibrate_gap` (an ``E = Δ cosh(u)`` trapezoid
+    that is essentially exact for this integrand) while ``Δ_final`` comes from
+    :func:`solve_gap` (cell-constant finite volume on the caller's cells), so
+    the discretizations do not cancel in the difference: an exactly thermal
+    ``f`` returns a small non-zero suppression whose sign is set by where
+    ``Δ_eq`` falls inside its cell, and :func:`solve_gap`'s coarse-cell warning
+    stays silent throughout.  Measured for Al at ``energy_min_factor=0.9`` with
+    thermal ``f``, as a fraction of the thermal suppression
+    ``Δ_0,BCS − Δ_eq(T_bath)``: below 1% on a 400-bin grid over
+    ``T_bath = 0.15…0.5 K``, but 5–50% on a 64-bin grid.  Prefer the
+    cancellation-free :func:`compute_gap_suppression_direct` family (used by
+    the Fischer Fig. 6 path) whenever the driven signal is not large compared
+    with that bias.
     """
     from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 
@@ -120,7 +135,15 @@ def left_edges_from_centers(E_bins: np.ndarray) -> np.ndarray:
 
 
 def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
-    """Map center-grid occupations to the left-edge nodes used by Fischer Fig. 6."""
+    """Map center-grid occupations to the left-edge nodes used by Fischer Fig. 6.
+
+    Every node but the first interpolates in-range centers and is bounded by
+    them.  The first node is the linear extrapolation ``1.5*f[0] - 0.5*f[1]``,
+    which leaves ``[0, 1]`` for a sharply structured, strongly occupied ``f``
+    even though the input itself is physical; the returned array is only
+    clamped from below.  :func:`gap_integral_from_distribution_direct` rejects
+    a super-unity gap-edge sample in both of its sampling modes.
+    """
     E = _finite_real_array("E_bins", E_bins).reshape(-1)
     f_arr = _finite_real_array("f", f).reshape(-1)
     if f_arr.shape != E.shape:
@@ -212,6 +235,25 @@ def gap_integral_from_distribution_direct(
             edges[below_first_active] - E_active[0]
         )
         vals = np.maximum(vals, 0.0)
+        # Exactly one extrapolated node carries weight: the transformed bounds
+        # of every cell below the first active one are both clamped to zero
+        # below, so its endpoint weight and its linear weight vanish
+        # identically and its node value is irrelevant.  The surviving node
+        # is 1.5*f[k] - 0.5*f[k+1], which leaves the [0, 1] occupation domain
+        # this function demands of its input once f[k] > (2 + f[k+1]) / 3, and
+        # it then multiplies the BCS square-root endpoint weight in the most
+        # singular cell and over-reports I[f].  The sibling samples="edges"
+        # branch rejects an array carrying such a value, so reject it here
+        # rather than integrate an unphysical occupation silently.
+        first_active = int(np.flatnonzero(active)[0])
+        if vals[first_active] > 1.0 + 64.0 * np.finfo(float).eps:
+            raise ValueError(
+                "Center-sampled gap-edge reconstruction leaves the physical "
+                "occupation domain: extrapolated f="
+                f"{float(vals[first_active]):.6g} at the first positive-capacity "
+                "cell edge. Pass left-edge samples with samples='edges', or "
+                "refine the grid so f varies smoothly across the gap edge."
+            )
     elif mode in {"edge", "edges", "authors"}:
         # The final interval is held constant, matching the bundled author code.
         vals = np.maximum(f_arr, 0.0)

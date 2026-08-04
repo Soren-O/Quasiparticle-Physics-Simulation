@@ -50,6 +50,19 @@ from validation.source_provenance import source_manifest
 QP_CERTIFICATE_METRIC_VERSION = (
     "qp-gain-loss-l1-maxabs-pair-number-thermal-pb-v2"
 )
+# Repo-wide acceptance limits. They are deliberately module constants and
+# not caller-parameterizable (unlike ``residual_inf_limit``): they are
+# written into the artifact metadata and re-checked on read, so a promoted
+# artifact advertises one acceptance gate that a later reader cannot
+# loosen. A driver must therefore buy its headroom on the *producer* side,
+# by setting its own NEWTON_BACKWARD_ERROR_TOL at or below 0.1x these
+# limits — otherwise the solve stops on the first iterate under the gate,
+# one Newton step short of the tight root, and the acceptance check adds
+# no independent evidence. fig5_paper.py does this (1e-7, after the
+# 2026-07-28 hosted-Linux branch incident); fig8_paper.py still sits at
+# 1e-6 with a promoted maximum at 73% of the limit and is pending
+# re-promotion. fig8_xqp_pb.py and figs_5_7_fe_pb.py are unaffected —
+# their promoted maxima are 1.2e-11 and 4.5e-13, so their gate never binds.
 TARGET_QP_BACKWARD_ERROR_LIMIT = 1.0e-6
 TARGET_QP_NUMBER_BACKWARD_ERROR_LIMIT = 1.0e-6
 TARGET_QP_RESIDUAL_INF_LIMIT = 1.0e-10

@@ -451,6 +451,15 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
         # The UI exposes one pair of Newton controls. The backend's monolithic
         # path deliberately has distinct keyword names, so map the displayed
         # values rather than silently falling back to its 1e-10 / 50 defaults.
+        # NOT mapped: ``coupled_newton_analytic_cross``. SolverOptions has no
+        # field for it, so this route takes the backend default (False) and
+        # builds the cross blocks by finite differences — (NE + N_ω) residual
+        # evaluations per Newton iteration instead of two assemblies (the
+        # 2026-08-03 review measured 0.38 s vs 34 s per iteration at the
+        # shipped 400-bin default). Every in-tree driver passes
+        # analytic_cross=True. Exposing it is a 2026-08-03 review item held
+        # for recertification (it selects a different Jacobian, not a
+        # different root).
         kwargs["coupled_newton_tol"] = s.newton_tol
         kwargs["coupled_newton_max_iter"] = s.newton_max_iter
     kwargs["picard_tol"] = s.picard_tol

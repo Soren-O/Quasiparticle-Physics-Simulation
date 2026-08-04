@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from qpsim.collisions._uniform_grid import uniform_grid_spacing
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -142,6 +143,66 @@ class TestShapesAndNullCases:
                 np.zeros(ctx.E.size), dynes, omega_0=3.0 * ctx.dE[0],
                 n_bar=1.0, c_phot=1.0,
             )
+
+
+class TestUniformGridGuardMemo:
+    """The memoized uniformity guard must stay content-sensitive.
+
+    `test_rejects_nonuniform_grid` above cannot cover this: a grid can only
+    be remembered after it passes, so every remembered grid has
+    `dE[0] == dE[-1]`, while that test's endpoints differ by ~12x. Nothing
+    else in the tree exercises a nonuniform interior behind cacheable
+    endpoints, which is the only input class where a memo can differ from
+    the pristine check.
+    """
+
+    def test_nonuniform_interior_behind_cacheable_endpoints_is_rejected(
+        self,
+    ) -> None:
+        spacing = 3.0
+        E_uniform = 181.0 + spacing * np.arange(33, dtype=float)
+        E_nonuniform = E_uniform.copy()
+        E_nonuniform[16] += 0.5 * spacing
+        dE_nonuniform = integration_widths_from_centers(E_nonuniform)
+        # Same size and same E/dE endpoints as the uniform grid: only the
+        # interior spacings differ.
+        assert float(E_nonuniform[0]) == float(E_uniform[0])
+        assert float(E_nonuniform[-1]) == float(E_uniform[-1])
+        np.testing.assert_array_equal(
+            dE_nonuniform[[0, -1]],
+            integration_widths_from_centers(E_uniform)[[0, -1]],
+        )
+        f = np.zeros(E_uniform.size)
+        uniform_ctx = SpectralContext(
+            E_bins=E_uniform,
+            dE_bins=integration_widths_from_centers(E_uniform),
+            gap=180.0,
+        )
+        sub_gap_photon_collision_rates(
+            f, uniform_ctx, omega_0=spacing, n_bar=1.0, c_phot=1.0,
+        )
+        nonuniform_ctx = SpectralContext(
+            E_bins=E_nonuniform, dE_bins=dE_nonuniform, gap=180.0,
+        )
+        with pytest.raises(ValueError, match="uniform energy grid"):
+            sub_gap_photon_collision_rates(
+                f, nonuniform_ctx, omega_0=spacing, n_bar=1.0, c_phot=1.0,
+            )
+
+    def test_remembered_success_is_not_reused_after_an_in_place_edit(
+        self,
+    ) -> None:
+        # Deterministic form of the same hazard: identical array objects,
+        # identical endpoints, mutated interior. An identity- or
+        # endpoint-keyed memo returns its remembered spacing here; a
+        # content-keyed one falls through to the full check.
+        spacing = 3.0
+        E = 181.0 + spacing * np.arange(33, dtype=float)
+        dE = integration_widths_from_centers(E)
+        assert uniform_grid_spacing(E, dE, "memo_probe") == spacing
+        E[16] += 0.5 * spacing
+        with pytest.raises(ValueError, match="uniform energy grid"):
+            uniform_grid_spacing(E, dE, "memo_probe")
 
 
 class TestCommensurateGrid:

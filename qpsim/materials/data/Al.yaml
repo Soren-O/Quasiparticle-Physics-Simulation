@@ -6,6 +6,13 @@ T_c: 1.18            # K
 tau_0: 438.0         # ns (Kaplan 1976 for Al; QP characteristic time)
 tau_0_phonon: 0.242  # ns (Kaplan 1976 Table II; phonon τ_0^ph for Al)
 tau_0_pb_ns: 0.255   # ns (F&C 2023 Table I parameters → τ_0^PB ≈ 255 ps for Al)
+# τ_0^ph and τ_0^PB above are the SAME physical constant (the pair-breaking
+# lifetime of a 2Δ phonon) from two determinations, not two quantities:
+# Kaplan Table II measures it from α²F, F&C Eq. 13 re-evaluates it in the
+# Debye-ω_D model. They differ by 5.4% here (242 vs 255 ps) and by ~30% for
+# Nb, so never substitute one for the other. The 0.255 value is what the
+# author's Fig. 6 program used and is pinned for Fig. 3/5/6 replay fidelity;
+# F&C's own text quotes ≈240 ps.
 D_0: 60.0            # μm²/ns (normal-state; depends on resistivity)
 v_F: 1.36e6          # m/s (Fermi velocity in Al)
 rho_F: 1.74e28       # eV⁻¹ m⁻³ (single-spin DOS at Fermi level)

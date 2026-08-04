@@ -13,6 +13,22 @@ so the drift is controlled by ``q``: the dirty-limit operator A1
 a narrow packet at every energy in a
 fixed gap ramp (no collisions) and read each energy's center-of-mass drift.
 
+Oracle measure (open item, 2026-08-03 review)
+---------------------------------------------
+Both the tracked moment and the analytic velocity below are built from the
+*point-sampled* BCS DOS, whereas ``T3Spatial1DBackend`` conserves the
+represented cell-average measure ``bcs_dos_cell_weights(E, dE, g) / dE``
+(the sibling helper ``self_consistent_feedback._n1_columns``; see the
+July-2026 validation-oracle correction in ``docs/Diffusion_Operators.md``,
+which repaired the other three benchmarks but not this one). Along the ramp
+the two weights differ by a spatially varying factor, so the A1 (``q = 0``)
+residual reported here is a weighting artifact of the diagnostic, not
+transport: measured on this branch it is -2.6e-3 um/ns at ``NE = 12`` and
+-4.9e-4 um/ns at the published ``NE = 40``, against ~1e-8 um/ns when the
+same evolved state is read with the cell-average measure. Switching the
+oracle moves published CSV and figure numbers, so it is held for the
+recertification pass rather than applied here.
+
 Run ``python -m validation.diffusion_operators.gap_gradient_drift`` to write
 the CSV + figure under ``outputs/diffusion_operators/``.
 """
@@ -123,7 +139,11 @@ def run(
 def _center_of_mass(
     f: np.ndarray, N1: np.ndarray, p: int, x: np.ndarray
 ) -> np.ndarray:
-    """Per-energy first moment of the conserved density ``u = N_1^p f``."""
+    """Per-energy first moment of ``u = N_1^p f`` for the supplied ``N_1``.
+
+    ``run`` supplies the point-sampled BCS DOS, which is *not* the backend's
+    conserved cell-average measure -- see the module docstring's oracle note.
+    """
     u = np.power(N1, p) * f
     weight = np.sum(u, axis=1)
     moment = np.sum(x[None, :] * u, axis=1)

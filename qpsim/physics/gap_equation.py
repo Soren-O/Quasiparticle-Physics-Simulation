@@ -338,7 +338,21 @@ def calibrate_gap(
             return _gap_integral_cosh(delta, T_bath, omega_D, n_quadrature) - inv_lambda
 
         xtol_brentq = 1e-6 * kBTc if xtol is None else xtol
-        delta_eq = brentq(residual, 0.0, delta_0_bcs, xtol=xtol_brentq)
+        # At Δ = Δ0_bcs the vacuum part of the integral is acosh(ω_D/Δ0_bcs)
+        # = 1/λ analytically, so the residual there is *only* the thermal
+        # correction −2∫f du.  For T_bath ≪ T_c that correction underflows
+        # far below one ULP of 1/λ and the trapezoid sum decides the sign by
+        # roundoff alone (exactly 0.0 for the shipped defaults, but e.g.
+        # +8.9e-16 at n_quadrature=16 or omega_D_over_Tc=1000), which brentq
+        # rejects as an invalid bracket.  A non-negative endpoint residual
+        # means the thermal suppression is below representable precision,
+        # i.e. Δ_eq = Δ0_bcs to machine accuracy; brentq itself returns the
+        # endpoint in the exactly-zero case, so this only replaces the
+        # spurious bracket error.
+        if residual(delta_0_bcs) >= 0.0:
+            delta_eq = delta_0_bcs
+        else:
+            delta_eq = brentq(residual, 0.0, delta_0_bcs, xtol=xtol_brentq)
 
     return GapCalibration(
         delta_eq=float(delta_eq),
@@ -496,16 +510,27 @@ def solve_gap(
             stacklevel=2,
         )
 
-    # Resolution guard (2026-07-19 audit): the solved gap inherits a
-    # cell-constant discretization error ~O(dE/Δ_ref) that the flattening
-    # residual slope near T_c amplifies dramatically (measured ~175x
-    # amplification between T/T_c = 0.25 and 0.95: a dE ≈ 0.31·Δ_eq grid
-    # gave a silent +4.7% gap error at T/T_c = 0.95). This is distinct
+    # Resolution guard (2026-07-19 audit): the solved gap inherits the
+    # error of treating f as cell-constant over the gap-edge cell. Since
+    # _gap_integral_f_from_edges integrates 1/√(E² − Δ²) analytically
+    # within each cell, only f is discretized and that error scales as
+    # O((dE/Δ_ref)^{3/2}) (measured convergence order 1.2–1.4), times a
+    # temperature amplification from the flattening residual slope near
+    # T_c (measured ~170x between T/T_c = 0.25 and 0.95: a dE ≈ 0.31·Δ_eq
+    # grid gave a silent +4.7% gap error at T/T_c = 0.95). This is distinct
     # from the below-gap-support warning: the grid can cover the full
     # support and still be too coarse for the relevant gap scale. Warn on
     # coarse-relative-to-Δ_ref cells; for a thermally normal calibration,
     # Δ_ref is the finite zero-temperature BCS scale used to search for a
     # nonequilibrium root. Shipped grids (dE ≲ 0.03·Δ_ref) never trigger.
+    #
+    # The threshold is a coarse-grid tripwire, NOT a bound on the gap
+    # error: the temperature amplification spans ~1e-16 (T/T_c = 0.08) to
+    # O(1) (T/T_c = 0.99) at fixed dE/Δ_ref, so no fixed width ratio bounds
+    # it. Measured just below the trigger (dE = 0.225·Δ_ref, thermal f):
+    # +2.4e-4 at T/T_c = 0.25, +2.4e-2 at 0.83, +4.0e-2 at 0.95 — silent.
+    # Near T_c, refine well below the trigger and check dE-convergence of
+    # the solved gap directly.
     edge_idx = min(int(np.searchsorted(E, gap_scale)), widths.size - 1)
     edge_width = float(widths[edge_idx])
     if edge_width > 0.25 * gap_scale:
@@ -514,10 +539,12 @@ def solve_gap(
             f"(dE={edge_width:.6g} μeV) is {edge_width / gap_scale:.0%} of the "
             f"reference gap scale Δ_ref={gap_scale:.6g} μeV "
             f"(T_bath/T_c={calibration.T_bath / calibration.T_c:.2f}). The "
-            "solved gap carries a cell-constant discretization error of this "
-            "relative order, and the flattening residual slope near T_c "
-            "amplifies it to percent level. Refine the energy grid near the "
-            "gap edge before trusting the solved gap.",
+            "solved gap carries a gap-edge discretization error scaling as "
+            "(dE/Δ_ref)^(3/2), amplified by the flattening residual slope "
+            "near T_c to percent level above T_bath/T_c ≈ 0.8; this width "
+            "ratio is a coarse-grid tripwire, not an error estimate. Refine "
+            "the energy grid near the gap edge before trusting the solved "
+            "gap.",
             RuntimeWarning,
             stacklevel=2,
         )

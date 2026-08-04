@@ -20,6 +20,38 @@ The ordinate is the paper's normalized form $(\\delta\\Delta_T - \\delta\\Delta)
 which goes negative on the strong-drive side; the 1640-bin grid resolves
 the sign change cleanly.
 
+Thermal-reference convention (OPEN, 2026-08-03 review)
+------------------------------------------------------
+
+In this promoted (non-``--direct-gap``) path the numerator mixes two
+discretizations. $\\Delta_\\mathrm{driven}$ comes from
+:func:`qpsim.physics.gap_equation.solve_gap`, a finite-volume sum holding
+$f$ constant on each 1 $\\mu$eV cell; $\\Delta_\\mathrm{eq}(T_B)$ and
+$\\delta\\Delta_T$ come from :func:`qpsim.physics.gap_equation.calibrate_gap`,
+a continuum $E = \\Delta\\cosh u$ trapezoid over the exact $f_\\mathrm{FD}$.
+Both are anchored to the same $1/\\lambda$, so the cell-constant
+representation error of the quasiparticle part does NOT cancel — it lands
+on the ordinate. Feeding the exactly thermal $f_\\mathrm{FD}(E)$ through the
+driven operator therefore returns $+8.6192\\times 10^{-3}$ ($T_B = 0.10$ K),
+$+4.5428\\times 10^{-3}$ (0.15 K) and $+2.1883\\times 10^{-3}$ (0.20 K)
+where the $\\bar n \\to 0$ physics requires exactly 0. The bias is a constant
+additive offset per $T_B$, so it is largest where the ordinate is smallest
+(up to ~23 % of the weakest promoted row, ~2-7 % at the anchor).
+``--direct-gap`` does not carry it: that mode is a different model
+(fixed-gap kinetics) whose thermal and driven integrals share the
+``samples="centers"`` discretization.
+
+The mixed convention is currently baked into the promoted baseline AND its
+validator — ``fig6_paper._validate_result_and_reassemble_certificates``
+re-derives ``delta_eq`` from a fresh continuum ``calibrate_gap`` and
+``_require_close``s the stored column against it, so a grid-consistent
+producer would be *rejected*. Adopting the grid-consistent reference is
+provenance-breaking for every promoted row (and needs the validator and
+``test_fig6_paper`` re-pinned with it), so it is deferred to the next
+regeneration. Until then the three offsets above are pinned by
+``tests/review_2026_08_03/test_P14.py`` so the convention is an explicit
+choice rather than an incidental one.
+
 $\\tau_\\ell$ model
 ------------------
 
