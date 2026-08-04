@@ -103,11 +103,11 @@
     "policy": "Native arrays remain authoritative; the near-invariant author-semantics control and the material native-center carrier effect are both reported separately and are never hidden in a solver tolerance."
   },
   "parent_bindings": {
-    "c2_raw_manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "c2_raw_manifest_sha256": "ae6e06934e2f9d6b2d53cfe759a48449b37b1f204b3f33f117f3901f6cf6607d",
     "c2_receipt_path": "validation/paper_data/fischer_2023/fig6/c2-raw-manifest-receipt.json",
-    "c2_receipt_sha256": "38de791083f5889ae7a2bab8bbb26e37f68a3bc58dc5dc6733541e13b1d75876",
+    "c2_receipt_sha256": "20a997f407dca3775325a00dba1a8cbd92bd52775c46cffffa1b60e24f4b3269",
     "c2_score_path": "validation/paper_data/fischer_2023/fig6/c2-parameter-score.json",
-    "c2_score_sha256": "239bdfcfba727ab29e9b725f58b7dbdfc518967f93112063472d1a8ec878ffb1",
+    "c2_score_sha256": "47e3bbba271ee82f80118e7a37e8f54eae9489403babde6b10469f0c32b19cdb",
     "c2b5_step_id": "C2b5-finite-cutoff-critical-temperature"
   },
   "projection": {
@@ -162,17 +162,17 @@
     }
   },
   "raw_bundle": {
-    "manifest_sha256": "ef0c6e29158becdf893f4eb5acdba6548ea4b3af9ec9a77456583e70ed94ac7a",
+    "manifest_sha256": "80b5f82addb5487e2eaea695c7014e1622277dacc2339701dd2ed91843ec13b8",
     "schema": "qpsim.fischer2023.fig6-author-c3-grid-bundle.v1"
   },
   "schema": "qpsim.fischer2023.fig6-author-c3-grid-score.v1",
   "sources": {
-    "qpsim/collisions/phonon.py": "ec071921ce832a8ff819bcf9d1661a6091c331d9c6cecb6bd5a63f8fc2569330",
+    "qpsim/collisions/phonon.py": "be7b17bb447457cc1af19da602961ec31d00a1403cc9d033ec4fd4af7a332fa0",
     "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
     "qpsim/grid/energy_grid.py": "236eb3548ed4a45dd53574c945af5e1bef43d152d3a8b060f067441bd3066986",
-    "qpsim/observables/gap_suppression.py": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc",
+    "qpsim/observables/gap_suppression.py": "90d591b936d1390efedaa16d0b0ebdffd49faad689b5279b720ba94d938244dc",
     "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",
-    "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+    "qpsim/physics/gap_equation.py": "a7d9a037c3ea7f0cb1df9ad7ac4bc6eaee6ef8c88e5649a5d3ac3919ae91f585",
     "qpsim/physics/spectral.py": "11c16c76592ef40f3d694872342f5ee7be4156175783bc93388fd52dc4dee44f",
     "validation/fischer_2023/fig6_author_c0_summary.py": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d",
     "validation/fischer_2023/fig6_author_c2_bundle.py": "53b5f7aaa13ef6bb2481c0ba0d2d78f2fec86e2c68fdd62845ec3cec51b45396",
@@ -180,7 +180,7 @@
     "validation/fischer_2023/fig6_author_c2_score.py": "adff99c7f117cf20b12cf810ea500d55d219ef6f9b277682c1bb77cf7eb5be77",
     "validation/fischer_2023/fig6_author_c3_bundle.py": "49994751fb81fe6b79fe3e5580a46fd6ffbfd8ee1c92359559dc51e6e7fa4fd3",
     "validation/fischer_2023/fig6_author_c3_score.py": "0cd5cf35f3577210f1bce2cb20cd92bfa3404d02f235a434aa2ab64d57798659",
-    "validation/fischer_2023/fig6_solve.py": "3656127354eee97b5d7e141484e4685995a676dd35e54396079b37173d0e0750",
+    "validation/fischer_2023/fig6_solve.py": "5a289a8977b7d61f719a00133c82ee4c7d9bdf45a5d2feee232bd7dc7b5fb757",
     "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
     "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
   },

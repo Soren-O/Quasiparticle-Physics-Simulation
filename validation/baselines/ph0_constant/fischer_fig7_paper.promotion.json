@@ -2,7 +2,7 @@
   "artifacts": {
     "csv": {
       "name": "fischer_fig7_paper.csv",
-      "sha256": "4c4fa0ea35fc783e88d0a7bfc92b89669ca8d9de7db62c79613391f3dee47fbe",
+      "sha256": "a39ed31c02994dee5add580eab7b389d2edea5c4946ace8e0860565babf4b311",
       "size_bytes": 15078
     },
     "pdf": {
@@ -29,7 +29,7 @@
   },
   "certificate_scope": "producer-asserted-summary-only; solved-f-and-n_ph-state-omitted",
   "created_utc": "2026-07-28T05:18:46.323690+00:00",
-  "observable_contract_digest": "8f5d6ffde4f0e6080482ec418aeb38f511d17355c3237745542d5489517dfc51",
+  "observable_contract_digest": "480d9d151f4ac76cb1290f699009c0658a3544f87605875c14909d5936c7a1ab",
   "point_hashes": [
     {
       "power_dbm": -100.0,
@@ -492,5 +492,5 @@
   "runner_path": "scripts/regenerate_fischer_fig7_parallel.py",
   "runner_sha256": "31e0ed99a14b485b47dba551dfb14626b9ec25a7cbd73a614ff9a4ca94dfdc5c",
   "schema": "qpsim-fischer-2023-fig7-promotion-v2",
-  "solve_contract_digest": "c118992a5bb19641c09d5cc5a4fc70bdf6bb6c75e00480d6e6bd9f861ac3873a"
+  "solve_contract_digest": "a04c2057e1953a941684d61c7db15ec35710a3bf151f275893338a0d7b22dc4a"
 }

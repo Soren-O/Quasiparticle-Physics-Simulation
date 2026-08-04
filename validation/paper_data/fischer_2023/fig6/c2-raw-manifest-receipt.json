@@ -1,11 +1,11 @@
 {
   "checked_score": {
-    "file_sha256": "239bdfcfba727ab29e9b725f58b7dbdfc518967f93112063472d1a8ec878ffb1",
+    "file_sha256": "47e3bbba271ee82f80118e7a37e8f54eae9489403babde6b10469f0c32b19cdb",
     "schema": "qpsim.fischer2023.fig6-author-c2-parameter-score.v1"
   },
   "qualification": "Repository trust anchor for the externally retained C2 raw manifest and the complete canonical checked-score bytes; it does not contain or replace the raw arrays.",
   "raw_bundle": {
-    "manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "manifest_sha256": "ae6e06934e2f9d6b2d53cfe759a48449b37b1f204b3f33f117f3901f6cf6607d",
     "schema": "qpsim.fischer2023.fig6-author-c2-frozen-bundle.v1"
   },
   "schema": "qpsim.fischer2023.fig6-author-c2-raw-manifest-receipt.v1"

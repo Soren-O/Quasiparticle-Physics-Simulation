@@ -1466,3 +1466,44 @@ new failure outside the authentication class. Two are worth knowing about:
 
 If any of these proves too tight in use, the guard — not the caller — is what
 should change.
+
+---
+
+## Addendum 2 — reverted during recertification: the paper-parity line-ending diagnostic
+
+`a47bad3` added `_newline_only_mismatch_hint()` to `validation/paper_parity.py`, turning an
+opaque "Digitizer source does not match manifest.extraction.script_sha256" into a message
+naming line endings as the cause. It was **reverted during recertification**, for two
+reasons.
+
+**1. It broke a certificate that cannot be re-issued.** `paper_parity.py` is inside the
+source closure of `validation/paper_data/fischer_2023/fig6/author-output-score.json`, so
+editing it invalidated that score. Regenerating it with its own producer
+(`fig6_author_output_parity.write_score()`) is impossible here: the producer loads the
+paper manifest, which fails on the very digitizer digest mismatch the hint describes. A
+change that invalidates a certificate and blocks its own re-issue cannot ship.
+
+**2. Its remedy is wrong, and the premise behind it is wrong.** The hint says the manifest
+pins "the committed LF bytes" and advises `git add --renormalize .`. Measured on this tree:
+
+- `git show HEAD:validation/fischer_2023/extract_fig6_paper_data.py | od -c` contains
+  **713 CR bytes** — the *committed blob* is CRLF.
+- `.gitattributes` pins `eol=lf` only for `validation/baselines/**` and
+  `validation/paper_data/**` CSV/JSON. It says nothing about `.py`.
+
+So the manifest pins LF while the repository *stores* CRLF. This is not a Windows-checkout
+artifact: a Linux/CI checkout receives the same CRLF blob and fails identically. And
+`git add --renormalize .` would not "fix the checkout" — it would rewrite committed content
+across the tree.
+
+That makes this one defect, not two, and it is already on record as a confirmed
+high-severity finding (raw-byte oracle digests vs. the stored line endings, filed against
+`extract_fig6_paper_data.py`). It accounts for the bulk of the 26 pre-existing failures.
+
+**The real fix is a decision, not a patch**, and belongs with the other held-back items:
+either commit the digitizer sources as LF and add `*.py text eol=lf` to `.gitattributes`
+(changing committed bytes, so every raw-byte pin binding them must be re-derived), or move
+the oracle chain from raw-byte digests to canonicalized ones (weaker authentication — it
+would accept a CRLF-mangled file as identical, which is exactly what the current design
+refuses). Re-add the diagnostic together with whichever is chosen, with its remedy
+sentence corrected.

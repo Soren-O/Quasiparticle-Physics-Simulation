@@ -530,20 +530,20 @@
     }
   },
   "parent_bindings": {
-    "c2_raw_manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "c2_raw_manifest_sha256": "ae6e06934e2f9d6b2d53cfe759a48449b37b1f204b3f33f117f3901f6cf6607d",
     "c3_operator_stage_id": "c3c_native_cell_density",
-    "c3_raw_manifest_sha256": "ef0c6e29158becdf893f4eb5acdba6548ea4b3af9ec9a77456583e70ed94ac7a",
+    "c3_raw_manifest_sha256": "80b5f82addb5487e2eaea695c7014e1622277dacc2339701dd2ed91843ec13b8",
     "c3_raw_schema": "qpsim.fischer2023.fig6-author-c3-grid-bundle.v1",
     "c3_receipt_path": "validation/paper_data/fischer_2023/fig6/c3-raw-manifest-receipt.json",
     "c3_receipt_schema": "qpsim.fischer2023.fig6-author-c3-raw-manifest-receipt.v1",
-    "c3_receipt_sha256": "edcd0c5814e45ba0a5b7f19e9537ad63407f93b9381fe2e7d375802bcc430b42",
+    "c3_receipt_sha256": "51aff6780c23dc88ac9b5e7eeaf0d3cca6e69b695160109239097e90aa9752f5",
     "c3_score_path": "validation/paper_data/fischer_2023/fig6/c3-grid-score.json",
     "c3_score_schema": "qpsim.fischer2023.fig6-author-c3-grid-score.v1",
-    "c3_score_sha256": "24cd0a8dac086a36a2270e5a4be6e45f071438a7891c55f72d782e8ecb61b9a9",
+    "c3_score_sha256": "ade997a41577e2bb8d5e9066bbff9bf912fde96ae6a07c80125bfd284cfe3881",
     "c3_stage_id": "C3"
   },
   "raw_bundle": {
-    "manifest_sha256": "8419f92518e5c51deac40367581eb7f2d69192aa54b4b2c5506e0ea3899da983",
+    "manifest_sha256": "f81b392f8ea3292a32fb6cef365e698430f6790e0c3fff310ff3d56267a7101e",
     "schema": "qpsim.fischer2023.fig6-author-c4-photon-bundle.v1"
   },
   "schema": "qpsim.fischer2023.fig6-author-c4-photon-score.v1",
@@ -552,7 +552,7 @@
     "scope": "independent C4 verifier, exact C3/C2 parent replay, and all raw/public photon source dependencies"
   },
   "sources": {
-    "qpsim/collisions/_uniform_grid.py": "1a56c51f4c95639626613ec2ca03905d74084964308b2c8b4ce5fc145f1997fc",
+    "qpsim/collisions/_uniform_grid.py": "51eddeeffd10947cc812d2bf9c5e851a31b10f4bbb9d2cc670582467440f753a",
     "qpsim/collisions/_validation.py": "bd20218550ea1de555a989f79c7a4637398fe5e58c61af1ee973c8de57476f87",
     "qpsim/collisions/sub_gap_photon.py": "640092960fe5bca704234ee30359bb84e78daf070894c2d1afec34874364f8a0",
     "qpsim/physics/bcs_quadrature.py": "86b5ad03c9a604037fd1dffe609988efc2f28f90025a6f558094b014912a59c9",

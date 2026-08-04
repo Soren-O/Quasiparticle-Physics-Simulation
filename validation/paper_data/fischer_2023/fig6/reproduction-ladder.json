@@ -210,7 +210,7 @@
           "hash_kind": "file_bytes",
           "path": "validation/paper_data/fischer_2023/fig6/c1-observable-score.json",
           "role": "C1 provenance-bound comparison result",
-          "sha256": "e8da05fc34395f8bb7298dfa6bdfe7fc4881d51563b094c68253a15fd6e043bb"
+          "sha256": "e695d2d976158f19a3dd8ac9106313d55d2d38f43a4ee5599642c08bb17773fc"
         }
       ],
       "evidence_class": "hybrid_component_substitution",
@@ -257,13 +257,13 @@
           "hash_kind": "file_bytes",
           "path": "validation/paper_data/fischer_2023/fig6/c2-raw-manifest-receipt.json",
           "role": "C2 external raw-manifest receipt",
-          "sha256": "38de791083f5889ae7a2bab8bbb26e37f68a3bc58dc5dc6733541e13b1d75876"
+          "sha256": "20a997f407dca3775325a00dba1a8cbd92bd52775c46cffffa1b60e24f4b3269"
         },
         {
           "hash_kind": "file_bytes",
           "path": "validation/paper_data/fischer_2023/fig6/c2-parameter-score.json",
           "role": "C2 provenance-bound frozen-channel comparison score",
-          "sha256": "239bdfcfba727ab29e9b725f58b7dbdfc518967f93112063472d1a8ec878ffb1"
+          "sha256": "47e3bbba271ee82f80118e7a37e8f54eae9489403babde6b10469f0c32b19cdb"
         }
       ],
       "evidence_class": "hybrid_component_substitution",

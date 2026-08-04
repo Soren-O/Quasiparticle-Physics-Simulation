@@ -137,22 +137,22 @@
     "c0_summary_path": "validation/paper_data/fischer_2023/fig6/c0-author-equivalent-score.json",
     "c0_summary_sha256": "b5a7d300746ec88c9ee45eefb59dc2ae908eb756f373991e9ca2b906ad2e9bbb",
     "c1_score_path": "validation/paper_data/fischer_2023/fig6/c1-observable-score.json",
-    "c1_score_sha256": "e8da05fc34395f8bb7298dfa6bdfe7fc4881d51563b094c68253a15fd6e043bb"
+    "c1_score_sha256": "e695d2d976158f19a3dd8ac9106313d55d2d38f43a4ee5599642c08bb17773fc"
   },
   "raw_bundle": {
-    "manifest_sha256": "929935afcc433664f3d2fb107053880c00f07e7cff1fc950de4cba242a2ad93d",
+    "manifest_sha256": "ae6e06934e2f9d6b2d53cfe759a48449b37b1f204b3f33f117f3901f6cf6607d",
     "schema": "qpsim.fischer2023.fig6-author-c2-frozen-bundle.v1"
   },
   "schema": "qpsim.fischer2023.fig6-author-c2-parameter-score.v1",
   "sources": {
     "qpsim/constants.py": "4c27cfa2d54371ad97f3d6a7ff61136cb35d4d1190e83ae2b1484e2c86beddf9",
-    "qpsim/physics/gap_equation.py": "05ce7333d11b00b07bea5f992cf0ca277634e439a0f0172d6526e3052b49cd41",
+    "qpsim/physics/gap_equation.py": "a7d9a037c3ea7f0cb1df9ad7ac4bc6eaee6ef8c88e5649a5d3ac3919ae91f585",
     "validation/fischer_2023/fig6_author_c0_summary.py": "77ba75e0e7f38b635fc2c396259a465843ef1a51d1ce0ea84eaef7dd4533a30d",
     "validation/fischer_2023/fig6_author_c1_score.py": "c250d697fb77ce99149aee18b5fef00fed8771fe790cc45905c9c3c2bf029497",
     "validation/fischer_2023/fig6_author_c2_bundle.py": "53b5f7aaa13ef6bb2481c0ba0d2d78f2fec86e2c68fdd62845ec3cec51b45396",
     "validation/fischer_2023/fig6_author_c2_parameters.py": "8a13fb15718883f22048f4b2413d940c84887e8bed2b0f2ab0539dac9ea2fc55",
     "validation/fischer_2023/fig6_author_c2_score.py": "adff99c7f117cf20b12cf810ea500d55d219ef6f9b277682c1bb77cf7eb5be77",
-    "validation/fischer_2023/fig6_solve.py": "3656127354eee97b5d7e141484e4685995a676dd35e54396079b37173d0e0750",
+    "validation/fischer_2023/fig6_solve.py": "5a289a8977b7d61f719a00133c82ee4c7d9bdf45a5d2feee232bd7dc7b5fb757",
     "validation/reference_models/fischer_2023/fig6_author_c0.py": "bff6405e5e7610d3bc3cd99ac7e43fa4248d471f8eeaf60baf60170540abedbd",
     "validation/source_provenance.py": "3ac32a0ed7eb85c79a7a2167549bd2a812c89de4153daeb6aed315901e162fd0"
   },

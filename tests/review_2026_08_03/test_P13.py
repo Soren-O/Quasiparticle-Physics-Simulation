@@ -1,8 +1,8 @@
+# ruff: noqa: N999  (file name is the review packet id, fixed by the workflow)
 """Regression tests for the 2026-08-03 review, packet P13."""
 
 from __future__ import annotations
 
-import hashlib
 import warnings
 
 import numpy as np
@@ -14,7 +14,6 @@ from qpsim.collisions.pair_breaking_photon import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.physics.spectral import SpectralContext
-from validation.paper_parity import _newline_only_mismatch_hint
 
 GAP = 180.0
 
@@ -63,13 +62,11 @@ def test_aligned_pb_grid_keeps_thermal_pair_detailed_balance() -> None:
     residual = np.max(np.abs(gain_pair - loss_pair * f)) / np.max(np.abs(gain_pair))
     assert residual < 1e-12, residual
 
-
-def test_newline_only_digest_hint_names_the_checkout(tmp_path) -> None:
-    path = tmp_path / "extract.py"
-    path.write_bytes(b"a = 1\r\nb = 2\r\n")
-    lf_sha = hashlib.sha256(b"a = 1\nb = 2\n").hexdigest()
-    assert "line endings" in _newline_only_mismatch_hint(path, lf_sha)
-    # A genuine content change must not be excused as a newline artifact.
-    assert _newline_only_mismatch_hint(path, hashlib.sha256(b"other").hexdigest()) == ""
-    path.write_bytes(b"a = 1\nb = 2\n")
-    assert _newline_only_mismatch_hint(path, lf_sha) == ""
+# NOTE: test_newline_only_digest_hint_names_the_checkout was removed together with
+# validation.paper_parity._newline_only_mismatch_hint, which was reverted during the
+# 2026-08-03 recertification: editing paper_parity.py invalidated the fig6
+# author-output score, whose producer cannot re-issue it (it fails on the very
+# digitizer digest mismatch the hint describes). See docs/REVIEW-2026-08-03-HELD-BACK.md
+# "Addendum 2" -- the hint should return with whichever line-ending fix is chosen, and
+# with its remedy sentence corrected (the committed blob is CRLF, so the mismatch is not
+# a Windows-checkout artifact and `git add --renormalize .` is not the fix).
