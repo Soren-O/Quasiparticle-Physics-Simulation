@@ -1422,3 +1422,47 @@ Recorded so a future review does not re-file them without new evidence.
   *P08* — Rejected on the verifier's reasoning, which I confirmed by reading the code: both constants are written into the artifact metadata (_artifact.py:924-927 and 1062-1065) and re-checked on read (1061-1071) precisely so a promoted artifact advertises one repo-wide acceptance limit a later reader cannot silently loosen. Parameterizing them would let a driver widen its own acceptance gate — the opposite
 - **`validation/test_canonical_baselines_exist.py:96`** — Strengthen test_quarantined_archive_is_preserved from existence-only to a content assertion (pytest.raises(Leg  
   *P06* — File is not in packet P06 - another agent owns it. The verifier recommended this as the second half of the figs_9_13 hardening (it converts an out-of-band clobber by ANY route, not just write_baseline, into an immediate fast-suite failure, and closes the prior audit's un-filed near-miss at audit-2026-07-19-findings.json:1702). I covered the same invariant from inside my own packet instead: tests/r
+
+---
+
+## Addendum — newly added fail-closed guards (contract changes, applied)
+
+Recorded after an independent whole-diff review of `a47bad3` observed that six
+packets independently added or tightened guards while the commit described
+itself as "behaviour-neutral", and the ledger recorded none of them. The
+numerical claim in that commit stands — 35 engine surfaces bit-identical,
+including four full Newton solves — but "behaviour-neutral" is precise only
+about *computed values*. These **13 guards change the error contract**: input
+that previously computed a number now raises.
+
+| file | guard |
+|---|---|
+| `qpsim/solvers/newton_steady_state.py` | 4 — effective-kernel/occupation override shape, dtype, finiteness, pairing |
+| `qpsim/collisions/phonon.py` | 2 — `K_*_eff_override` shape and emit/abs pairing |
+| `qpsim/backends/t3_diffusion.py` | 1 — stranded gap-edge mass on remap |
+| `qpsim/devices/device.py` | 1 — regions-key validation |
+| `qpsim/devices/m25_junction.py` | 1 — gap/ω_LR consistency |
+| `qpsim/materials/database.py` | 1 — `rho_F` magnitude window |
+| `qpsim/observables/density.py` | 1 — Dynes sub-gap grid coverage |
+| `qpsim/observables/gap_suppression.py` | 1 — super-unity extrapolated gap-edge sample (`samples="centers"`) |
+| `qpsim/services/rate_equation_coefficients.py` | 1 — `nu_0` J⁻¹m⁻³ window |
+
+Each was checked against every shipped caller, material YAML, validation
+driver, script and webui path before being applied, and the full suite shows no
+new failure outside the authentication class. Two are worth knowing about:
+
+- **`gap_suppression.py` `samples="centers"`** now rejects an input that
+  satisfies the function's *documented* contract (`f ∈ [0, 1]`) when the
+  first-cell extrapolation `1.5·f[k] − 0.5·f[k+1]` leaves `[0, 1]`, i.e. once
+  `f[k] > (2 + f[k+1])/3 ≈ 0.67`. It is unreachable in the Fischer/M25 regimes
+  (gap-edge occupations there are `≪ 1`), and it makes the `centers` branch
+  consistent with `edges`, which already rejected such an array. Retained
+  deliberately, but it is a contract change, not a neutral repair.
+- **`materials/database.py` and `rate_equation_coefficients.py`** impose
+  numeric windows on physical constants. Every value in the repo was
+  enumerated against them, but a *user-supplied* material outside the window
+  is now refused rather than silently mis-scaled. Widen the window rather than
+  delete the guard if a legitimate material is ever rejected.
+
+If any of these proves too tight in use, the guard — not the caller — is what
+should change.

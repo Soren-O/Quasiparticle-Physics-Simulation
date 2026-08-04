@@ -507,17 +507,28 @@ def _pair_breaking_quadrature_correction(
     cache owns none of them, and CPython hands a freed array's address to the
     next same-shape allocation (measured: the very next kernel in a
     build/drop/rebuild sequence), so a plain ``id`` match can serve a
-    different array's correction. Content is fingerprinted on top of that —
-    the kernel by shape, three sampled entries and its total, the ω map by
-    shape and its total — so an in-place edit between calls misses instead of
-    silently reusing a rescale computed for the previous contents, which would
-    bypass the round-5 supported-pairs canonicity detector in the impl below
-    (up to ~56% on the bins near 2Δ). The fingerprints are content checks over
-    every entry, not liveness guards; the weakrefs are the liveness guards.
-    Entries also die when the context is rebuilt at a new gap (the gap is part
-    of the key) and by FIFO eviction. Inputs that are not ndarrays (a list,
-    say) are computed without caching. The returned array is marked read-only;
-    callers only multiply by it.
+    different array's correction. **The weakrefs are the whole identity
+    guard** — a reference that still resolves to the caller's object proves it
+    is that object, which is exactly what a bare ``id`` cannot do. Entries also
+    die when the context is rebuilt at a new gap (the gap is part of the key)
+    and by FIFO eviction. Inputs that are not ndarrays (a list, say) are
+    computed without caching. The returned array is marked read-only; callers
+    only multiply by it.
+
+    The key is deliberately O(1). Beyond shape, only three sampled kernel
+    entries are compared — a cheap tripwire for a rebuilt-in-place kernel, not
+    a content check. Hashing the full kernel *would* additionally catch an
+    in-place edit of a still-live array, but K is NE² (2.6e6 doubles on the
+    NE=1620 production grid): an O(NE²) reduction per call costs ~10 ms
+    against a 0.006 ms hit and would erase the memo this function exists for.
+    So an in-place edit of a live kernel or ω map between calls **is** served
+    from cache, and the round-5 supported-pairs canonicity detector in the
+    impl below does not re-run for it (that detector is worth up to ~56% on
+    the bins near 2Δ). No shipped caller mutates either array in place, and
+    every ctx-derived array is a read-only view, so this is unreachable in the
+    tree as it stands; ``tests/review_2026_08_03/test_P01.py`` pins the
+    limitation so it stays visible. Re-open if a caller ever mutates a kernel
+    in place.
     """
     K = np.asarray(K_r0_phonon_side, dtype=float)
     if not (
