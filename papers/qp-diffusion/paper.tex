@@ -384,14 +384,12 @@ distribution, not just its equilibrium part.
 From this point one can specialize to either the clean or the dirty
 limit. The distinction modifies the \(\vF\,\hat{\bp}\cdot\bnabla_{\br}(\DOS\,\fT)\) term of
 \cref{eq:beta_twomode_L}---the ``spatial current.''
-Both routes are organized around the \emph{angular
-harmonics} of the distribution amplitudes, their dependence on the
+Both routes are organized around the angular
+harmonics of the distribution amplitudes, i.e.\ their dependence on the
 trajectory direction \(\hat{\bp}\) over the Fermi surface. Explicitly,
 at fixed \((\br,E,t)\) each amplitude is a function on the unit sphere
 of trajectory directions and can be expanded in spherical harmonics
-\(Y_{\ell m}(\hat{\bp})\). The three \(\ell=1\) harmonics span the
-components of \(\hat{\bp}\) itself, so for a generic amplitude \(X\)
-the expansion through the dipole reads
+\(Y_{\ell m}(\hat{\bp})\): 
 \begin{equation}
   X(E,\hat{\bp},\br,t)
   =
@@ -406,37 +404,21 @@ the expansion through the dipole reads
   \avg{X}_{\hat{\bp}},
   \label{eq:beta_harmonic_expansion}
 \end{equation}
-with the Cartesian vector \(\mathbf{X}_{1}\) collecting the three
-dipole coefficients and the ellipsis standing for the \(\ell\ge2\)
-harmonics. The isotropic
-part (\(\ell=0\)) of \(\fL\) carries the energy distribution and sources
-the \(s\)-wave gap; the dipole (\(\ell=1\)) of \(\fT\) carries the
-spatial current. This is why the
-current flows through the transverse amplitude \(\fT\) (the
-\(\bnabla_{\br}(\DOS\,\fT)\) term, not \(\fL\) directly):
-\cref{eq:beta_twomode_T} slaves the anisotropic (dipole) harmonic of
-\(\fT\) to \(\bnabla_{\br}\fL\), and the dirty route isotropizes this
-slaved structure into diffusion. A finer classification, by parity of the
-harmonic under the inversion \(\hat{\bp}\to-\hat{\bp}\) (even vs.\ odd),
-will matter once we relabel the branches below; because we truncate the
-dirty-limit expansion at the dipole (\cref{sec:sc_angular_averaging}), the
-two cuts coincide there, with the isotropic mode even and the
-current-carrying dipole odd. We carry this even/odd distinction explicitly
-from here on. The clean route instead recombines the two
-modes without eliminating any angular harmonic and may retain
-\(\mathcal{R}[\fL]\) at augmented-clean
-quasiclassical order; retaining the force is legitimate while
-\(|\Delta|\) and any supercurrent are nearly uniform. It is finally
-dropped at standard Eilenberger order (next subsection).
+for a generic amplitude \(X\). The isotropic
+part (\(\ell=0\)) of \(\fL\) is the energy distribution in amplitude
+form. Meanwhile, the dipole (\(\ell=1\)) of \(\fT\)
+carries the spatial current. Note that in neither \cref{eq:beta_twomode_L} nor \cref{eq:beta_twomode_T} does a dynamic term \( \partial_t \fT \) appear: in \cref{eq:beta_twomode_T}, \(\fT\) enters only through the collision functional \( J_T \). 
+Its anisotropic (dipole) part is therefore ``slaved'' to
+\(\bnabla_{\br}\fL\), fixed at each instant by the balance of streaming
+against collisions rather than evolved (similar to the derivation of
+Fick's law from the normal-metal Boltzmann equation). 
+A further classification of the harmonics, by parity under the inversion \(\hat{\bp}\to-\hat{\bp}\) (even vs.\ odd),
+will be useful below.
 
 
 \subsection{Quasiparticle Boltzmann-Like Equations}
-The coupled two-mode pair \cref{eq:beta_twomode_L,eq:beta_twomode_T} is
-not the only way to carry this content. We now recast it as a
-\emph{single} scalar Boltzmann-like equation for the occupation of
-positive-energy quasiparticles via an exact change of basis. The two
-amplitudes \(\fL\) and \(\fT\) are repackaged as the two parity components
-of one branch occupation. 
+By an exact change of basis we can recast the coupled two-mode pair \cref{eq:beta_twomode_L,eq:beta_twomode_T} into a \emph{single} scalar Boltzmann-like equation for the occupation of
+positive-energy quasiparticles. 
 Concretely, we change variables from the mode \textit{amplitudes},
 \(\fL \text{ and }\fT\), to the \textit{occupations} of the two quasiparticle
 branches (the electron-like (\(\xi_{\bk}>0\)) and hole-like
