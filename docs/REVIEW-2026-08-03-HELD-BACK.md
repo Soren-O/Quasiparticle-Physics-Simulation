@@ -1340,7 +1340,20 @@ If M25 Fig. 3 instead shows a diagonal, use a dimensionless one -- e.g. Delta_mu
 
 ---
 
-## Findings judged wrong, stale, or already fixed (39)
+## Not-applied findings (39) — MIXED BUCKET, see the warning
+
+> **Corrected 2026-08-05.** This section was originally headed "Findings judged wrong,
+> stale, or already fixed", and both `a47bad3` and `a9ead85` describe it that way, adding
+> "so they are not re-filed without new evidence". **That framing is wrong and actively
+> harmful**, and an independent audit of this branch flagged it: roughly two-thirds of
+> these entries say some variant of *"not in my packet"*. Those are **correct, live,
+> unowned findings** deferred for ownership — not adjudicated as wrong. Filing them under
+> a do-not-re-file heading would bury real defects.
+>
+> Read each entry's stated reason before trusting the heading. Only entries that
+> explicitly argue the finding is incorrect, already fixed, or no longer applicable are
+> genuinely closed. Anything reading "not in my packet", "another packet owns this", or
+> "outside my files" is **open work that still needs an owner.**
 
 Recorded so a future review does not re-file them without new evidence.
 
@@ -1469,41 +1482,156 @@ should change.
 
 ---
 
-## Addendum 2 — reverted during recertification: the paper-parity line-ending diagnostic
+## Addendum 2 (CORRECTED 2026-08-05) — the reverted paper-parity diagnostic
 
-`a47bad3` added `_newline_only_mismatch_hint()` to `validation/paper_parity.py`, turning an
-opaque "Digitizer source does not match manifest.extraction.script_sha256" into a message
-naming line endings as the cause. It was **reverted during recertification**, for two
-reasons.
+> **Retraction.** The original text of this addendum was WRONG on its central factual
+> claim, and commit `a9ead85` repeats the error in its message. Both are corrected here.
+> The measurement below supersedes them.
 
-**1. It broke a certificate that cannot be re-issued.** `paper_parity.py` is inside the
-source closure of `validation/paper_data/fischer_2023/fig6/author-output-score.json`, so
-editing it invalidated that score. Regenerating it with its own producer
-(`fig6_author_output_parity.write_score()`) is impossible here: the producer loads the
-paper manifest, which fails on the very digitizer digest mismatch the hint describes. A
-change that invalidates a certificate and blocks its own re-issue cannot ship.
+### What was actually measured (2026-08-05, corrected)
 
-**2. Its remedy is wrong, and the premise behind it is wrong.** The hint says the manifest
-pins "the committed LF bytes" and advises `git add --renormalize .`. Measured on this tree:
+```
+validation/fischer_2023/extract_fig6_paper_data.py
+  COMMITTED blob : 21676 bytes, 0 CR bytes            -> pure LF
+  WORKTREE (here): 22169 bytes, 493 CRLF pairs        -> CRLF
+```
 
-- `git show HEAD:validation/fischer_2023/extract_fig6_paper_data.py | od -c` contains
-  **713 CR bytes** — the *committed blob* is CRLF.
-- `.gitattributes` pins `eol=lf` only for `validation/baselines/**` and
-  `validation/paper_data/**` CSV/JSON. It says nothing about `.py`.
+The repository stores **LF**. This box checks out CRLF because `core.autocrlf=true`.
+The raw-byte pin therefore matches on a Linux/CI checkout and fails only on a
+CRLF checkout.
 
-So the manifest pins LF while the repository *stores* CRLF. This is not a Windows-checkout
-artifact: a Linux/CI checkout receives the same CRLF blob and fails identically. And
-`git add --renormalize .` would not "fix the checkout" — it would rewrite committed content
-across the tree.
+### What the original addendum claimed, and why it was wrong
 
-That makes this one defect, not two, and it is already on record as a confirmed
-high-severity finding (raw-byte oracle digests vs. the stored line endings, filed against
-`extract_fig6_paper_data.py`). It accounts for the bulk of the 26 pre-existing failures.
+It asserted the committed blob held "713 CR bytes" and concluded the repo *stores*
+CRLF, that the failure therefore reproduces on Linux/CI, and that
+`git add --renormalize .` would rewrite committed content rather than fix a checkout.
+**All three conclusions are false.** The "713" came from
+`git show … | od -c | grep -c '
+'`, which counts od *output lines* matching a
+backslash-escape, not CR bytes in the blob. A single bad measurement was then reasoned
+from at length.
 
-**The real fix is a decision, not a patch**, and belongs with the other held-back items:
-either commit the digitizer sources as LF and add `*.py text eol=lf` to `.gitattributes`
-(changing committed bytes, so every raw-byte pin binding them must be re-derived), or move
-the oracle chain from raw-byte digests to canonicalized ones (weaker authentication — it
-would accept a CRLF-mangled file as identical, which is exactly what the current design
-refuses). Re-add the diagnostic together with whichever is chosen, with its remedy
-sentence corrected.
+**Consequently the diagnostic that `a47bad3` added to `validation/paper_parity.py` was
+right, including its remedy.** This is a Windows-checkout artifact, and re-normalizing
+the working tree is the correct fix — not rebinding the manifest, which would break
+every LF checkout exactly as the hint said.
+
+### Why the revert still stands
+
+One of the two original reasons survives, and it is sufficient on its own:
+`paper_parity.py` sits inside the source closure of
+`validation/paper_data/fischer_2023/fig6/author-output-score.json`, so editing it
+invalidated that score — and its producer (`fig6_author_output_parity.write_score()`)
+cannot re-issue it on this box, because the producer itself dies on the CRLF digest
+mismatch. A change that invalidates a certificate and blocks its own re-issue could not
+ship in the recertification commit. That reasoning is unaffected by the measurement error.
+
+**Re-add the diagnostic** (its text is correct as written) on a checkout where the
+producer can run, or after the working tree is normalized, and regenerate
+`author-output-score.json` with its own producer in the same commit.
+
+### The actual remedy for the ~25 red paper-oracle gates
+
+Run `git add --renormalize .` (or check out with `core.autocrlf=false` / add
+`*.py text eol=lf` to `.gitattributes`) so the working tree matches the committed LF
+bytes, then re-run the gates. This was **not** attempted during the recertification
+because a tree-wide line-ending change immediately after a multi-hour certification
+would have invalidated what had just been certified; it deserves its own cycle. An
+independent audit also reports the outage has a narrower proximate cause — a mismatch
+between two call sites of the digest helper — which should be checked first, as it may
+fix the gates without touching line endings at all.
+
+### Lesson for the next session
+
+Two of the errors in this effort — this one and an earlier bogus "11 new failures" —
+came from trusting a shell one-liner's output instead of measuring in Python against the
+bytes. Prefer the explicit measurement; a wrong number reasoned from at length is worse
+than no number.
+
+---
+
+## Addendum 3 (2026-08-05) — required CI gates, and a known-red one
+
+`.github/workflows/ci.yml` requires `ruff check .`, `mypy qpsim`, `pytest`, and a slow
+`pytest -m "slow and not manual_slow"` step. During this work `ruff` and `pytest` were
+run repeatedly; **`mypy qpsim` was not run until after the branch was pushed.** That was
+an omission.
+
+Measured afterwards:
+
+```
+c269af2 (baseline)        : 2 errors  (_uniform_grid.py:13, phonon.py:458)
+fix/review-2026-08-03     : 1 error   (phonon.py:487)
+```
+
+So the gate was already red before this work, and this branch strictly improves it —
+the `_uniform_grid.py` error was fixed as a side effect of the content-addressed cache
+key. The remaining `dict[tuple, tuple]` annotation is **deliberately left**: `phonon.py`
+is inside the whole-tree source digest, so a one-line annotation change would advance it
+and invalidate the entire recertification (rebinds + a 2.5-hour fig3 resolve + the C1-C7
+chain). Fix it in the next commit that touches the engine for another reason.
+
+Also note CI installs an **unpinned** numpy while this certification is pinned to 2.5.1;
+the slow paper-validation step could therefore diverge from the certified environment.
+
+---
+
+## Addendum 4 (2026-08-05) — independent audit of this branch, and what it found
+
+After `fix/review-2026-08-03` was pushed, eight independent agents audited the three
+commits. 43 concerns raised, 21 confirmed, 22 refuted. The numbers held up; several
+**claims about** the numbers did not. Corrections already applied above:
+
+1. **Addendum 2's CRLF diagnosis was inverted** — see the retraction there. The committed
+   blob is pure LF; the "713 CR bytes" was a shell-quoting artifact. The original
+   `paper_parity.py` diagnostic and its remedy were correct.
+2. **Four reproduction-ladder bindings were invalidated by this work, not three.**
+   `qpsim/observables/gap_suppression.py` was valid at `c269af2`, invalidated by
+   `a47bad3`, correctly rebound inside `c1-observable-score.json`, but left stale in
+   `reproduction-ladder.json` and then attributed to predecessors in `a9ead85`'s message.
+   Now rebound. Pre-existing stale bindings: 15, not 16.
+3. **The 39 not-applied findings were mislabelled** as adjudicated — corrected above.
+4. **`mypy qpsim` was never run before pushing** — see Addendum 3.
+
+Confirmed and *not* fixed here, with reasons:
+
+- **`qpsim/services/transient.py:327`** — the early-stop finite-difference veto was
+  loosened, so `run_time_dependent` can return a different trajectory for the same public
+  call. That is a returned-result change, and it appears in none of the three ledgers.
+  It should have been held back. It is left in place because removing it now would advance
+  the source digest and invalidate the whole recertification; **flag it for the physicist
+  review together with the held-back items.**
+- **`tests/collisions/test_sub_gap_photon.py:159`** —
+  `test_nonuniform_interior_behind_cacheable_endpoints_is_rejected` is **vacuous**: it
+  passes against `c269af2`. Its sibling in the same class is not. Rewrite it so it fails
+  against the pre-fix cache, or delete it; a test that passes both sides is worse than none.
+- **`tests/review_2026_08_03/test_P11.py`** — the xfail is `strict=False` and `pyproject`
+  sets no `xfail_strict`, so it can never fail, including when the held-back coupled-Newton
+  fix lands. Make it strict so it forces its own deletion.
+- **`qpsim/collisions/pair_breaking_photon.py`** — a fail-closed tolerance was tightened by
+  seven orders of magnitude (`1e-2` → `1e-9`) and the Addendum-1 guard table omits both the
+  guard and the file. The table also omits fail-*open* changes by construction.
+
+### The structural blind spot
+
+The audit's most useful observation is about shape rather than any single defect. This
+effort reviewed the **engine** and the **evidence receipts** extremely hard and never
+looked at the repository's operational surface: `scripts/` (~9,700 lines, zero findings,
+zero edits), most of `qpsim/webui/`, the live time integrators (`solvers/etd.py`,
+`crank_nicolson.py`, `ssprk.py`, `spectral_flow_tvd.py`), and the entire CI/packaging
+layer — the deliverables contain no mention of `ci.yml`, `mypy`, or `pyproject`.
+
+Classes of defect structurally out of reach of a static-plus-probe review of this shape,
+and not attempted: **concurrency** (three of four shared module-level caches remain
+unsynchronized behind the webui thread pool), long-run drift and memory, cross-version
+numpy behaviour, and performance outside the two hot paths that happened to be measured.
+
+### Reproducibility limit of the fig6 leg — know this before relying on it
+
+The regenerated C1–C7 bundles live in exactly one gitignored directory belonging to a
+*foreign* checkout (`C:\tmp\qpsim-round7-fixes\tmp\author-runs`) that has never contained
+`a9ead85`. The branch's own checkout has no `tmp/author-runs`, so on a fresh clone the
+stage tests that would exercise the regenerated evidence **skip rather than fail**. The
+committed scores and receipts are correct and independently verified; the raw bundles
+behind them are not reproducible from the repository alone. Treat the fig6 leg as
+"verified here, not verifiable elsewhere" until the bundle store is given a durable home.

@@ -198,7 +198,7 @@
           "hash_kind": "source_canonical",
           "path": "qpsim/observables/gap_suppression.py",
           "role": "qpsim direct-gap observable implementation",
-          "sha256": "66cbd3b964b36898309ad1a032b49dd515ffbb0e9b59b693584359bb44fae6dc"
+          "sha256": "90d591b936d1390efedaa16d0b0ebdffd49faad689b5279b720ba94d938244dc"
         },
         {
           "hash_kind": "source_canonical",
