@@ -31,16 +31,41 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
+        id: install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,ui]"
+          # numpy is pinned to the version the committed baselines were
+          # certified on. `numpy>=2.0` in pyproject lets a fresh runner
+          # resolve whatever is newest, and a reduction-order change between
+          # releases moves roundoff-limited Newton/Picard results — the same
+          # class of drift that the single-thread BLAS env above pins out.
+          # The slow paper-validation gate is only meaningful against the
+          # certified numpy. Bump deliberately, alongside a baseline re-cert.
+          pip install -e ".[dev,ui]" "numpy==2.5.1"
+          python -c "import numpy; print('numpy', numpy.__version__)"
+      # Every gate below is independent, and each one still fails the job on
+      # its own. They are NOT allowed to abort each other: a red lint or type
+      # check must never be able to hide a physics regression by preventing
+      # the test gates from running. That is not hypothetical — between
+      # 8fdc289 and 0ae6db3 a single `dict[tuple, ...]` annotation kept mypy
+      # red, and because it is gate 2 of 5 with no `if:` guard, *neither*
+      # pytest step executed on the entire integration stack. The 180-minute
+      # paper-validation gate below had never run once on that work.
+      # `!cancelled()` rather than `always()` so a cancelled run does not go
+      # on to burn three hours of runner time, and each gate additionally
+      # requires a working install — there is nothing to learn from running
+      # a suite against a failed dependency resolve.
       - name: Lint (ruff)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ruff check .
       - name: Type check (mypy)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: mypy qpsim
       - name: Verify qp-diffusion symbolic identities
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: make -C papers/qp-diffusion verify PY=python
       - name: Test (pytest)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pytest
       # The default addopts deselect `slow`, so the paper regression / slow
       # validation tests would never run in CI otherwise. The full Fischer
@@ -48,5 +73,6 @@ jobs:
       # serial / ~2.11 h concurrent); its fast metadata and cache-wiring
       # guards remain in the default suite.
       - name: Test (slow / paper validation)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 180
         run: pytest -m "slow and not manual_slow"

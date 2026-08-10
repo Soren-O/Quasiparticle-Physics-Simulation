@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from qpsim.collisions._uniform_grid import uniform_grid_spacing
+from qpsim.collisions.pair_breaking_photon import validate_pair_breaking_photon_grid
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -146,48 +147,45 @@ class TestShapesAndNullCases:
 
 
 class TestUniformGridGuardMemo:
-    """The memoized uniformity guard must stay content-sensitive.
+    """The shared `_uniform_grid` memo must stay content-sensitive.
 
-    `test_rejects_nonuniform_grid` above cannot cover this: a grid can only
-    be remembered after it passes, so every remembered grid has
-    `dE[0] == dE[-1]`, while that test's endpoints differ by ~12x. Nothing
-    else in the tree exercises a nonuniform interior behind cacheable
-    endpoints, which is the only input class where a memo can differ from
-    the pristine check.
+    `test_rejects_nonuniform_grid` above cannot cover this: a grid is only
+    remembered after it passes, so provoking a stale hit needs an input that
+    *matches* a remembered success on whatever the memo keys while differing
+    in the interior spacings the guard actually checks. Both tests below
+    therefore hold the array identity, the size and the endpoints fixed and
+    edit only the interior — the one input class where a memo can diverge
+    from the pristine check.
+
+    Both fail against c269af2, whose memo was keyed on `id(E)`/`id(dE)` plus
+    the size and endpoints. An earlier version of the first test built two
+    separate live arrays; their ids could not collide, so it passed pre-fix
+    and proved nothing.
     """
 
-    def test_nonuniform_interior_behind_cacheable_endpoints_is_rejected(
+    def test_public_entry_rejects_a_grid_edited_behind_a_remembered_success(
         self,
     ) -> None:
+        # Production shape of the hazard, via a collision entry point that
+        # takes the raw grid arrays: `np.asarray` aliases the caller's buffer,
+        # so the id an identity-keyed memo records stays live and valid across
+        # both calls. Keeping omega_PB < 2*gap leaves the pair channel closed,
+        # so this exercises the grid guard and nothing downstream of it.
         spacing = 3.0
-        E_uniform = 181.0 + spacing * np.arange(33, dtype=float)
-        E_nonuniform = E_uniform.copy()
-        E_nonuniform[16] += 0.5 * spacing
-        dE_nonuniform = integration_widths_from_centers(E_nonuniform)
-        # Same size and same E/dE endpoints as the uniform grid: only the
-        # interior spacings differ.
-        assert float(E_nonuniform[0]) == float(E_uniform[0])
-        assert float(E_nonuniform[-1]) == float(E_uniform[-1])
-        np.testing.assert_array_equal(
-            dE_nonuniform[[0, -1]],
-            integration_widths_from_centers(E_uniform)[[0, -1]],
-        )
-        f = np.zeros(E_uniform.size)
-        uniform_ctx = SpectralContext(
-            E_bins=E_uniform,
-            dE_bins=integration_widths_from_centers(E_uniform),
-            gap=180.0,
-        )
-        sub_gap_photon_collision_rates(
-            f, uniform_ctx, omega_0=spacing, n_bar=1.0, c_phot=1.0,
-        )
-        nonuniform_ctx = SpectralContext(
-            E_bins=E_nonuniform, dE_bins=dE_nonuniform, gap=180.0,
-        )
+        E = 181.0 + spacing * np.arange(33, dtype=float)
+        dE = integration_widths_from_centers(E)
+        gap, omega_PB = 180.0, 4.0 * spacing
+        contract = validate_pair_breaking_photon_grid(E, dE, gap, omega_PB)
+        assert contract.spacing == spacing  # a real success is now remembered
+
+        E[16] += 0.5 * spacing
+        # Only the interior moved: identity, size and both endpoints — every
+        # component of the pre-fix key — are unchanged.
+        assert float(E[0]) == 181.0
+        assert float(E[-1]) == 181.0 + spacing * 32.0
+        assert dE[0] == dE[-1] == spacing
         with pytest.raises(ValueError, match="uniform energy grid"):
-            sub_gap_photon_collision_rates(
-                f, nonuniform_ctx, omega_0=spacing, n_bar=1.0, c_phot=1.0,
-            )
+            validate_pair_breaking_photon_grid(E, dE, gap, omega_PB)
 
     def test_remembered_success_is_not_reused_after_an_in_place_edit(
         self,

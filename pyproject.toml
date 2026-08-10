@@ -56,6 +56,12 @@ testpaths = ["tests", "validation"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = ["-ra", "--strict-markers", "-m", "not slow"]
 pythonpath = ["."]
+# A declarative xfail marks a defect we are holding, so an unexpected pass is
+# news: it means the defect is fixed and the marker is now lying. Default to
+# strict so that reports as a failure instead of a silent green. Imperative
+# `pytest.xfail(...)` calls (the quarantine/stale-artifact paths under
+# validation/) are unaffected — they can never XPASS.
+xfail_strict = true
 markers = [
     "slow: long-running validation tests (opt in with `pytest -m slow`)",
     "manual_slow: full-paper sweeps kept runnable but excluded from pull-request CI",
