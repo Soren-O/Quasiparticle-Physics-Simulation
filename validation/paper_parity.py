@@ -20,6 +20,8 @@ from typing import Any
 
 import numpy as np
 
+from validation.source_provenance import source_sha256
+
 PAPER_DATA_SCHEMA = "qpsim.paper-data.v1"
 POINT_COLUMNS = (
     "curve_id",
@@ -123,13 +125,36 @@ class CurveScore:
 
 
 def file_sha256(path: Path) -> str:
-    """Return the SHA-256 hex digest of ``path``."""
+    """Return the SHA-256 hex digest of ``path`` exactly as stored on disk.
+
+    Raw-byte identity, for artifacts whose checkout bytes are themselves
+    pinned: the author archive, and the JSON manifests held at ``eol=lf`` by
+    ``.gitattributes``.  Text whose digest was produced from logical content
+    must use :func:`lf_canonical_sha256` or
+    :func:`~validation.source_provenance.source_sha256` instead.
+    """
 
     h = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def lf_canonical_sha256(payload: bytes) -> str:
+    """Return the SHA-256 of ``payload`` with every newline represented as LF.
+
+    ``manifest.data.sha256`` is written by the extractor over the CSV it holds
+    in memory, which is LF, before that text is ever written to disk.  Hashing
+    the file back raw therefore compares against a digest of different bytes
+    the moment the working tree is CRLF, and authentication fails on a pin that
+    is correct.  That asymmetry is invisible on the Linux CI that produced the
+    pins and fires on every Windows checkout, so it reads as data corruption
+    when nothing is wrong.  Newline policy is a property of the checkout;
+    it must not decide provenance.
+    """
+
+    return hashlib.sha256(payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
 
 
 def _require_mapping(value: object, label: str) -> dict[str, Any]:
@@ -485,7 +510,12 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
     script_path = resolve_contained_path(repository_root, script_raw, "manifest.extraction.script")
     if not script_path.is_file():
         raise PaperParityError(f"Digitizer source is missing: {script_path}")
-    if file_sha256(script_path) != expected_script_sha:
+    # Verified with the same helper that writes the pin: the producer records
+    # `source_sha256(...)` (see fig6_author_output_parity._source_snapshot),
+    # and `tests/review_2026_08_03/test_P16.py` pins that agreement. Reading
+    # the file raw here compared two different digests of the same source and
+    # failed every Windows checkout.
+    if source_sha256(script_path) != expected_script_sha:
         raise PaperParityError("Digitizer source does not match manifest.extraction.script_sha256.")
     sample_values = extraction.get("sample_x_values")
     if (
@@ -742,7 +772,7 @@ def load_paper_manifest(path: Path) -> dict[str, Any]:
         data_bytes = data_path.read_bytes()
     except OSError as exc:
         raise PaperParityError(f"Cannot read paper-data points file {data_path}: {exc}") from exc
-    actual_data_sha = hashlib.sha256(data_bytes).hexdigest()
+    actual_data_sha = lf_canonical_sha256(data_bytes)
     if actual_data_sha != expected_data_sha:
         raise PaperParityError(
             f"Paper-data points SHA-256 mismatch: expected {expected_data_sha}, "
@@ -820,7 +850,9 @@ def load_digitized_points(manifest_path: Path) -> tuple[dict[str, Any], list[Dig
     try:
         payload = data_path.read_bytes()
         expected_sha = _require_sha256(data, "sha256", "manifest.data")
-        actual_sha = hashlib.sha256(payload).hexdigest()
+        # Same digest convention as the authentication above, so this
+        # re-read cannot disagree with it about an unchanged file.
+        actual_sha = lf_canonical_sha256(payload)
         if actual_sha != expected_sha:
             raise PaperParityError(
                 f"Paper-data points changed after manifest authentication: "

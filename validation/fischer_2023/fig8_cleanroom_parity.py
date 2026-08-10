@@ -25,6 +25,7 @@ from validation.paper_parity import (
     select_curve,
 )
 from validation.reference_models.fischer_2023 import fig8_analytic
+from validation.source_provenance import source_sha256
 
 SPEC_SCHEMA = "qpsim.fischer2023.fig8-comparison.v1"
 SCORE_SCHEMA = "qpsim.fischer2023.fig8-cleanroom-analytic-score.v1"
@@ -153,7 +154,12 @@ def _load_spec(path: Path) -> tuple[dict[str, Any], Path]:
     if (
         model_path != Path(fig8_analytic.__file__).resolve()
         or not model_path.is_file()
-        or file_sha256(model_path)
+        # Content-defined, matching the digest already recorded in the spec:
+        # `reference_sha256` is the canonical (LF) digest of the clean-room
+        # model, so reading it raw here rejected the correct source on any
+        # CRLF checkout. fig6_cleanroom_parity already hashes its sources
+        # this way; this call site was the outlier.
+        or source_sha256(model_path)
         != _sha(mapping, "reference_sha256", "comparison specification.mapping")
     ):
         raise PaperParityError("The Fig. 8 clean-room reference source is stale.")
