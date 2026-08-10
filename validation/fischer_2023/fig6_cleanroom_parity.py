@@ -21,6 +21,7 @@ import scipy
 from validation.paper_parity import (
     CurveScore,
     DigitizedPoint,
+    lf_canonical_sha256,
     load_digitized_points,
     parse_strict_json_bytes,
     resolve_contained_path,
@@ -293,9 +294,12 @@ def build_score() -> dict[str, Any]:
                 evidence_snapshot[ORACLE_PATH]
             ).hexdigest(),
             "points_path": points_path.relative_to(REPOSITORY_ROOT).as_posix(),
-            "points_sha256": hashlib.sha256(
-                evidence_snapshot[points_path]
-            ).hexdigest(),
+            # Content-defined, so this records the same identity the oracle
+            # manifest pins in `data.sha256` no matter which newline policy
+            # the producing checkout used. `.gitattributes` holds the oracle
+            # JSON at eol=lf but not this CSV, so hashing it raw would write
+            # a Windows-only digest into a certified artifact.
+            "points_sha256": lf_canonical_sha256(evidence_snapshot[points_path]),
         },
         "producer": {
             "runtime": _runtime_provenance(),

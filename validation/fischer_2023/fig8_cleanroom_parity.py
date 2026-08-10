@@ -18,6 +18,7 @@ from validation.paper_parity import (
     CurveScore,
     PaperParityError,
     file_sha256,
+    lf_canonical_sha256,
     load_digitized_points,
     load_strict_json,
     resolve_contained_path,
@@ -333,7 +334,9 @@ def build_score(spec_path: Path = DEFAULT_SPEC) -> dict[str, Any]:
             "manifest_path": oracle_path.relative_to(REPOSITORY_ROOT).as_posix(),
             "manifest_sha256": file_sha256(oracle_path),
             "points_path": points_path.relative_to(REPOSITORY_ROOT).as_posix(),
-            "points_sha256": file_sha256(points_path),
+            # Content-defined, matching the oracle manifest's own `data.sha256`.
+            # `.gitattributes` holds paper_data JSON at eol=lf but not the CSV.
+            "points_sha256": lf_canonical_sha256(points_path.read_bytes()),
         },
         "qualification": {
             "does_not_claim": [
@@ -347,11 +350,16 @@ def build_score(spec_path: Path = DEFAULT_SPEC) -> dict[str, Any]:
         },
         "schema": SCORE_SCHEMA,
         "scorer": {
+            # Both are Python sources, so they take the same content-defined
+            # identity the rest of the tree records for source provenance
+            # (fig6_cleanroom_parity's source snapshot, source_manifest, the
+            # spec's own reference_sha256). Hashing them raw pinned the scorer
+            # to a checkout's newline policy rather than to its code.
             "engine_path": ENGINE_SOURCE.relative_to(REPOSITORY_ROOT).as_posix(),
-            "engine_sha256": file_sha256(ENGINE_SOURCE),
+            "engine_sha256": source_sha256(ENGINE_SOURCE),
             "metric": "raster_digitization_normalized_mismatch",
             "runner_path": RUNNER_SOURCE.relative_to(REPOSITORY_ROOT).as_posix(),
-            "runner_sha256": file_sha256(RUNNER_SOURCE),
+            "runner_sha256": source_sha256(RUNNER_SOURCE),
         },
         "status": "accepted_clean_room_analytic",
     }

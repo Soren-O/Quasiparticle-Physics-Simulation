@@ -23,6 +23,7 @@ from validation.author_source import (
 )
 from validation.paper_parity import (
     DigitizedPoint,
+    lf_canonical_sha256,
     load_digitized_points,
     parse_strict_json_bytes,
     resolve_contained_path,
@@ -506,9 +507,13 @@ def build_score(archive_path: Path | None = None) -> dict[str, Any]:
             "points_path": paper_snapshot.points_path.relative_to(
                 REPOSITORY_ROOT
             ).as_posix(),
-            "points_sha256": hashlib.sha256(
+            # Content-defined: tests/validation/test_fig6_author_output_parity.py
+            # asserts this equals the oracle manifest's `data.sha256`, which is
+            # itself the LF digest, so hashing the CSV raw made that identity
+            # hold only on an LF checkout.
+            "points_sha256": lf_canonical_sha256(
                 paper_snapshot.files[paper_snapshot.points_path]
-            ).hexdigest(),
+            ),
         },
         "producer": {
             "runtime": _runtime_provenance(),
