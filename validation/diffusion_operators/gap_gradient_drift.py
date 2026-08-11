@@ -13,21 +13,29 @@ so the drift is controlled by ``q``: the dirty-limit operator A1
 a narrow packet at every energy in a
 fixed gap ramp (no collisions) and read each energy's center-of-mass drift.
 
-Oracle measure (open item, 2026-08-03 review)
----------------------------------------------
-Both the tracked moment and the analytic velocity below are built from the
-*point-sampled* BCS DOS, whereas ``T3Spatial1DBackend`` conserves the
-represented cell-average measure ``bcs_dos_cell_weights(E, dE, g) / dE``
-(the sibling helper ``self_consistent_feedback._n1_columns``; see the
-July-2026 validation-oracle correction in ``docs/Diffusion_Operators.md``,
-which repaired the other three benchmarks but not this one). Along the ramp
-the two weights differ by a spatially varying factor, so the A1 (``q = 0``)
-residual reported here is a weighting artifact of the diagnostic, not
-transport: measured on this branch it is -2.6e-3 um/ns at ``NE = 12`` and
--4.9e-4 um/ns at the published ``NE = 40``, against ~1e-8 um/ns when the
-same evolved state is read with the cell-average measure. Switching the
-oracle moves published CSV and figure numbers, so it is held for the
-recertification pass rather than applied here.
+Oracle measure (corrected 2026-08-11)
+-------------------------------------
+Both the tracked moment and the analytic velocity are built from the
+represented cell-average measure ``bcs_dos_cell_weights(E, dE, g) / dE``,
+which is what ``T3Spatial1DBackend`` conserves. The helper is imported from
+the sibling benchmark rather than re-derived so the two cannot diverge.
+
+This completes the July-2026 validation-oracle correction recorded in
+``docs/Diffusion_Operators.md``, which repaired the other three benchmarks
+and missed this one. Reading the state in the *point-sampled* DOS instead
+defines a different conserved density: along the ramp the two weights
+differ by a spatially varying factor (bin 0 ratio runs 0.9969 -> 0.9334
+across the ramp at ``NE = 12``, 0.9996 -> 0.9780 at ``NE = 40``, so the
+artifact is mesh-convergent rather than a fixed offset), which manufactured
+center-of-mass motion for the undressed ``q = 0`` flux. The A1 residual it
+reported was that weighting artifact, not transport: -2.6e-3 um/ns at
+``NE = 12`` and -4.9e-4 um/ns at the published ``NE = 40``, against
+~1.3e-8 um/ns -- Crank-Nicolson round-off -- in the correct measure.
+
+Because the artifact was negative while the A1P drift is positive, the old
+*relative* A1 gate also admitted a genuine positive leak of up to
++6.2e-3 um/ns on a quantity whose true value is ~1e-8. The gate is now
+absolute; see ``test_gap_gradient_drift.py``.
 
 Run ``python -m validation.diffusion_operators.gap_gradient_drift`` to write
 the CSV + figure under ``outputs/diffusion_operators/``.
@@ -41,7 +49,7 @@ import numpy as np
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
+from qpsim.physics.spectral import SpectralContext
 
 from validation.diffusion_operators import (
     BENCHMARK_MODELS,
@@ -49,6 +57,7 @@ from validation.diffusion_operators import (
     results_dir,
     write_csv,
 )
+from validation.diffusion_operators.self_consistent_feedback import _n1_columns
 
 
 @dataclass(frozen=True)
@@ -89,7 +98,14 @@ def run(
     x = np.linspace(0.0, length_um, NX)
 
     ramp = np.linspace(gap_lo_factor * base_gap, gap_max, NX)
-    N1 = np.column_stack([bcs_density_of_states(E, float(g)) for g in ramp])  # (NE, NX)
+    # The represented cell-average BCS measure that T3Spatial1DBackend actually
+    # conserves. Shared with benchmark 4 rather than re-derived, so the two
+    # benchmarks cannot drift into different measures. Both the tracked moment
+    # and the analytic velocity below are built from this one array: weighting
+    # the centre of mass by the cell average while leaving the analytic
+    # velocity on the point DOS is a mixed-measure comparison, and it degrades
+    # the A1P agreement from 0.025 to 0.104.
+    N1 = _n1_columns(E, dE, ramp)  # (NE, NX)
 
     center = NX // 2
     x0 = float(x[center])
