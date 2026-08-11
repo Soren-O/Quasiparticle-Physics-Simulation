@@ -933,3 +933,36 @@ findings that must be refuted.
     number-conserving scattering. *Lesson: compare like-for-like physical
     buckets, and apply conservation gates only to channels that conserve the
     measured quantity.*
+
+36. **`qpsim/services/transient.py:327` — the early-stop finite-difference
+    veto loosened by `a47bad3`** — flagged post-hoc as a change that
+    "should have been held back", and left in place only because reverting
+    it would advance the source digest. **Adjudicated 2026-08-11: keep the
+    change; do not revert.** The old veto tested *smallness* (any bin
+    `<= 32*eps` distrusts the finite difference), which has no physical
+    meaning for occupations — every cold thermal state has most of its tail
+    below that, so the fallback rate was pinned at `inf` on every step and
+    `stop_tol` could never fire. Measured on a 100 mK thermal state, NE=40:
+    35 of 40 bins sit at or below `32*eps` (min `f = 2.1e-54`), so the old
+    veto was permanently armed and the documented early-stop feature was
+    structurally dead for all mK states. The new veto tests *saturation*,
+    which is the correct complementarity condition: `f >= 1-32eps` always
+    disqualifies (hidden blocked gain `G(1-f)` is unbounded) and an active
+    low clip disqualifies, but an untouched `f=0` bin hides nothing, because
+    under the public contract the RHS at `f=0` is `gain >= 0` (`ExternalFlux`
+    hard-rejects negative gain). On a real FD-routed run (1e-6 above-gap
+    kick, `dt=100 ns`, `stop_tol=1e-10`) the new veto converges at
+    `t=6100 ns`/61 steps where the old logic never converged through the
+    full 20000 ns horizon, and the exact raw `max|df/dt|` at that stop,
+    evaluated independently through `apply_collisions_with_diagnostics`, is
+    `9.788e-11 /ns <= stop_tol`. The veto gates only the *stop decision*:
+    the old-veto trajectory truncated at the new stop time is bitwise
+    identical to the new stop state, and the default `T3DiffusionBackend`
+    (the exact-residual path every shipped caller uses) stops at the
+    identical step. Pinned by
+    `tests/review_2026_08_03/test_P15.py::TestFiniteDifferenceCertificate`.
+    *The legitimate residue is a process failure, not a code failure:
+    `a47bad3`'s message claimed behaviour-neutrality that this hunk does not
+    have — it is behaviour-changing on the custom-backend FD-fallback path.
+    Lesson: "behaviour-neutral" must be asserted per hunk against the
+    reachable call paths, not per commit.*
