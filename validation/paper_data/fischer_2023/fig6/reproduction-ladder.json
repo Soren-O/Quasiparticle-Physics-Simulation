@@ -46,7 +46,7 @@
           "hash_kind": "file_bytes",
           "path": "validation/paper_data/fischer_2023/fig6/author-replay-sweep.json",
           "role": "full-sweep author replay comparison record",
-          "sha256": "f4d4b868aae7a3bd8f42100ba6886d1b480c0712f90da9f2bbaafcc17ec48c88"
+          "sha256": "96a3cfda26a088363c7a72959fc5a428d2b35d3b74df36fb0346ff4262b8bf19"
         }
       ],
       "evidence_class": "author_supplied_reproduction_source",
