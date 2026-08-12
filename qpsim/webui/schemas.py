@@ -115,6 +115,24 @@ class PhononSector(StrictModel):
     use_phonon_side_kernel: bool = True
 
 
+class CollisionTerms(StrictModel):
+    """Which electron-phonon channels are present in the kinetic equation.
+
+    Both default to on, which is the physical model. Switching one off is a
+    deliberate *reduction*: it removes that term from the right-hand side so a
+    single mechanism can be studied on its own.
+
+    A reduction is not a physical state. With ``scattering=False`` the
+    quasiparticle energies cannot relax, and with ``recombination=False``
+    nothing sets the quasiparticle number, so a driven run has no steady state
+    at all. Neither reduced model has a thermal fixed point, so detailed
+    balance and the number-conservation certificate do not apply to it.
+    """
+
+    scattering: bool = True
+    recombination: bool = True
+
+
 class SubGapDrive(StrictModel):
     """Single-mode sub-gap photon drive (requires ω₀ < 2Δ)."""
 
@@ -173,6 +191,7 @@ class SteadyState0DSetup(StrictModel):
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1  # bath temperature (K)
     grid: EnergyGrid = EnergyGrid()
     phonons: PhononSector = PhononSector()
+    collisions: CollisionTerms = CollisionTerms()
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()
     solver: SolverOptions = SolverOptions()
@@ -190,6 +209,7 @@ class Transient0DSetup(StrictModel):
     material: MaterialParams = MaterialParams()
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1
     grid: EnergyGrid = EnergyGrid()
+    collisions: CollisionTerms = CollisionTerms()
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()
     dt: Annotated[float, Field(gt=0.0)] = 0.1  # ETD2 substep (ns)

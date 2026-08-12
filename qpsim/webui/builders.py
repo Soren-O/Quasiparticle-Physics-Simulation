@@ -436,6 +436,8 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "self_consistent_gap": s.self_consistent_gap,
         "use_phonon_side_kernel": setup.phonons.use_phonon_side_kernel,
+        "enable_scattering": setup.collisions.scattering,
+        "enable_recombination": setup.collisions.recombination,
         "newton_tol": s.newton_tol,
         "newton_max_iter": s.newton_max_iter,
     }

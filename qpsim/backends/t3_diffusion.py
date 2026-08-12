@@ -546,6 +546,8 @@ class T3DiffusionBackend:
         self_consistent_gap: bool = False,
         use_thermal_phonons: bool = False,
         external_dissipation_only: bool = False,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
         use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
@@ -809,6 +811,8 @@ class T3DiffusionBackend:
                 method=method,
                 use_thermal_phonons=use_thermal_phonons,
                 external_dissipation_only=external_dissipation_only,
+                enable_scattering=enable_scattering,
+                enable_recombination=enable_recombination,
                 use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
@@ -870,6 +874,8 @@ class T3DiffusionBackend:
                 current,
                 method=method,
                 use_thermal_phonons=use_thermal_phonons,
+                enable_scattering=enable_scattering,
+                enable_recombination=enable_recombination,
                 use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
@@ -991,6 +997,8 @@ class T3DiffusionBackend:
         method: str,
         use_thermal_phonons: bool,
         external_dissipation_only: bool = False,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
         use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
@@ -1026,15 +1034,27 @@ class T3DiffusionBackend:
             K_s0 = None
             K_r0 = None
         else:
-            K_s0 = build_scattering_kernel_base(
-                state.spectral,
-                tau_0=state.material.tau_0,
-                T_c=state.material.T_c,
+            # A term switched off is a kernel that is never built, exactly as
+            # for external_dissipation_only above. Every consumer already
+            # treats None as "this channel is absent", so with both flags at
+            # their defaults the executed arithmetic is unchanged.
+            K_s0 = (
+                build_scattering_kernel_base(
+                    state.spectral,
+                    tau_0=state.material.tau_0,
+                    T_c=state.material.T_c,
+                )
+                if enable_scattering
+                else None
             )
-            K_r0 = build_recombination_kernel_base(
-                state.spectral,
-                tau_0=state.material.tau_0,
-                T_c=state.material.T_c,
+            K_r0 = (
+                build_recombination_kernel_base(
+                    state.spectral,
+                    tau_0=state.material.tau_0,
+                    T_c=state.material.T_c,
+                )
+                if enable_recombination
+                else None
             )
             if use_phonon_side_kernel and not use_thermal_phonons:
                 # F&C 2023 Eq. 12 phonon-side kernel for the
@@ -1194,6 +1214,8 @@ class T3DiffusionBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
         _diagnostics: dict[str, object] | None = None,
     ) -> T3DiffusionState:
         """One ETD2 collision substep on ``f`` with ``n_ph`` frozen.
@@ -1246,15 +1268,25 @@ class T3DiffusionBackend:
             external_flux._validate_for_NE(int(state.spectral.E.size))
             external_flux._validate_gain_support(state.spectral.active_mask)
 
-        K_s0 = build_scattering_kernel_base(
-            state.spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
+        # An off term is an unbuilt kernel; phonon_collision_rates already
+        # treats None as an absent channel, so the default path is unchanged.
+        K_s0 = (
+            build_scattering_kernel_base(
+                state.spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            if enable_scattering
+            else None
         )
-        K_r0 = build_recombination_kernel_base(
-            state.spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
+        K_r0 = (
+            build_recombination_kernel_base(
+                state.spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            if enable_recombination
+            else None
         )
 
         _, idx_diff, idx_sum, diff_sign = build_phonon_frequency_map(state.spectral.E)
@@ -1339,6 +1371,8 @@ class T3DiffusionBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
         evaluate_residual: bool = False,
     ) -> tuple[T3DiffusionState, np.ndarray | None, int]:
         """Advance once and report raw residual plus internal ETD substeps.
@@ -1358,6 +1392,8 @@ class T3DiffusionBackend:
             photon_params=photon_params,
             pb_photon_params=pb_photon_params,
             external_flux=external_flux,
+            enable_scattering=enable_scattering,
+            enable_recombination=enable_recombination,
             _diagnostics=diagnostics,
         )
         raw_rate = diagnostics.get("raw_collision_rate")

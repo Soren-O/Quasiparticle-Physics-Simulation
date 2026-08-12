@@ -294,6 +294,8 @@ def run_transient_0d(
             snapshot_interval=setup.snapshot_interval,
             observables=obs,
             stop_tol=setup.stop_tol,
+            enable_scattering=setup.collisions.scattering,
+            enable_recombination=setup.collisions.recombination,
             progress_hook=_time_progress_hook(progress, is_cancelled),
         )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))

@@ -74,6 +74,8 @@ def run_time_dependent(
     snapshot_interval: float | None = None,
     observables: dict[str, Callable[[T3DiffusionState], float]] | None = None,
     stop_tol: float | None = None,
+    enable_scattering: bool = True,
+    enable_recombination: bool = True,
     backend: T3DiffusionBackend | None = None,
     progress_hook: Callable[[float, float], bool] | None = None,
 ) -> TransientResult:
@@ -239,6 +241,14 @@ def run_time_dependent(
         step_dt = min(dt, remaining)
         t_previous = t
         prev_f = current.f.copy()
+        # Pass a term flag only when it is off: a third-party backend that
+        # predates these kwargs must keep working at the defaults, and must
+        # fail loudly rather than silently ignore a term you switched off.
+        term_kwargs: dict[str, bool] = {}
+        if not enable_scattering:
+            term_kwargs["enable_scattering"] = False
+        if not enable_recombination:
+            term_kwargs["enable_recombination"] = False
         step_flux = _flux_at(t + 0.5 * step_dt)
         raw_rate: np.ndarray | None = None
         diagnostics_method = getattr(
@@ -259,6 +269,7 @@ def run_time_dependent(
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=step_flux,
+                **term_kwargs,
                 evaluate_residual=stop_tol is not None,
             )
         else:
@@ -267,6 +278,7 @@ def run_time_dependent(
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=step_flux,
+                **term_kwargs,
             )
             step_etd_substeps = 1
         t += step_dt
