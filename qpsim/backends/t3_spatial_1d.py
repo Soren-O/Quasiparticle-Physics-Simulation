@@ -74,11 +74,11 @@ _EnergyOp = tuple[Any, Any, np.ndarray, np.ndarray, int]
 #: Cached local collision data:
 #: ``(K_s*N_p, K_r*N_emit, K_r*N_abs, cell_weights, active_mask)``.
 _CollisionOp = tuple[
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
+    np.ndarray | None,   # K_s0 * N_p          -- None when scattering is off
+    np.ndarray | None,   # K_r0 * N_emit       -- None when recombination is off
+    np.ndarray | None,   # K_r0 * N_abs        -- None when recombination is off
+    np.ndarray,          # cell weights
+    np.ndarray,          # represented/physical mask
 ]
 
 
@@ -350,7 +350,17 @@ class SpatialTransientResult:
 class T3Spatial1DBackend:
     """Spatial diffusion + local collision time stepper for 1D Al strips."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
+    ) -> None:
+        """``enable_*`` remove an electron-phonon channel from the kinetic
+        equation. Both default to on, which is the physical model; switching
+        one off is a deliberate reduction with no thermal fixed point."""
+        self._enable_scattering = bool(enable_scattering)
+        self._enable_recombination = bool(enable_recombination)
         self._transport_cn_cache: dict[
             tuple[object, ...],
             list[_EnergyOp | None],
@@ -793,13 +803,21 @@ class T3Spatial1DBackend:
         K_s_eff, K_r_emit, K_r_abs, weights, physical = operator
         one_minus = np.maximum(1.0 - f_group, 0.0)
 
-        gain = one_minus * (K_s_eff.T @ (weights[:, None] * f_group))
-        loss = K_s_eff @ (weights[:, None] * one_minus)
+        # A None kernel is a channel that was switched off. With both live the
+        # expressions, their operands and the order they reach each accumulator
+        # are exactly as before, so the default path is bit-identical.
+        if K_s_eff is not None:
+            gain = one_minus * (K_s_eff.T @ (weights[:, None] * f_group))
+            loss = K_s_eff @ (weights[:, None] * one_minus)
+        else:
+            gain = np.zeros_like(f_group)
+            loss = np.zeros_like(f_group)
 
         # Kaplan Eq. (8) per-QP normalization -- see
         # qpsim.collisions.phonon.phonon_collision_rates.
-        loss += K_r_emit @ (weights[:, None] * f_group)
-        gain += one_minus * (K_r_abs @ (weights[:, None] * one_minus))
+        if K_r_emit is not None and K_r_abs is not None:
+            loss += K_r_emit @ (weights[:, None] * f_group)
+            gain += one_minus * (K_r_abs @ (weights[:, None] * one_minus))
 
         # A zero-capacity bin carries no represented state. A cell cut by the
         # gap remains physical through its exact finite-volume weight.
@@ -1028,25 +1046,35 @@ class T3Spatial1DBackend:
 
         spectral = self._local_spectral_context(state.spectral, local_gap)
 
-        K_s0 = build_scattering_kernel_base(
-            spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
-        )
-        K_r0 = build_recombination_kernel_base(
-            spectral,
-            tau_0=state.material.tau_0,
-            T_c=state.material.T_c,
-        )
-        N_p = _thermal_phonon_scattering_occupation(spectral.E, state.T_bath)
-        N_emit, N_abs = _thermal_phonon_recombination_occupations(
-            spectral.E,
-            state.T_bath,
-        )
+        K_s_eff: np.ndarray | None = None
+        if self._enable_scattering:
+            K_s0 = build_scattering_kernel_base(
+                spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            N_p = _thermal_phonon_scattering_occupation(spectral.E, state.T_bath)
+            K_s_eff = K_s0 * N_p
+
+        K_r_emit: np.ndarray | None = None
+        K_r_abs: np.ndarray | None = None
+        if self._enable_recombination:
+            K_r0 = build_recombination_kernel_base(
+                spectral,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+            )
+            N_emit, N_abs = _thermal_phonon_recombination_occupations(
+                spectral.E,
+                state.T_bath,
+            )
+            K_r_emit = K_r0 * N_emit
+            K_r_abs = K_r0 * N_abs
+
         cached = (
-            K_s0 * N_p,
-            K_r0 * N_emit,
-            K_r0 * N_abs,
+            K_s_eff,
+            K_r_emit,
+            K_r_abs,
             np.asarray(spectral.cell_weights),
             np.asarray(spectral.active_mask),
         )
@@ -1064,6 +1092,8 @@ class T3Spatial1DBackend:
             float(state.material.tau_0),
             float(state.material.T_c),
             float(state.T_bath),
+            self._enable_scattering,
+            self._enable_recombination,
         )
 
     @staticmethod

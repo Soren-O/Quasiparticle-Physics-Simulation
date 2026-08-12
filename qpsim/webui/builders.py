@@ -271,8 +271,16 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     elif isinstance(setup, Spatial1DSetup):
         _validate_drives_and_probe(report, setup)
-        if setup.material.D_0 <= 0.0:
-            report.errors.append("1D strip: the material needs a positive D₀ (μm²/ns).")
+        if setup.material.D_0 < 0.0:
+            report.errors.append("1D strip: D₀ (μm²/ns) cannot be negative.")
+        elif setup.material.D_0 == 0.0:
+            # Not an error: the flux coefficient is D_0*N_1**q, so zero gives an
+            # exactly zero transport operator and the strip becomes a set of
+            # independent 0-D cells. That is the way to isolate the other terms.
+            report.warnings.append(
+                "1D strip: D₀ = 0 switches spatial transport off entirely; each "
+                "cell evolves independently."
+            )
         # A large diffusion number is safe because the backend subcycles CN
         # below its non-negative-amplification stiffness bound, but it can make
         # one visible driver step substantially more expensive. Warn about the

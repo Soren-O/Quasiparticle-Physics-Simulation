@@ -16,16 +16,49 @@
     {
       "id": "single-term",
       "title": "Single term examples",
-      "blurb": "One term of the kinetic equations on its own. Five are reachable: the two collision channels, the two photon drives and the gap closure. Diffusion, injection and the phonon terms are not, for the reason each one gives.",
+      "blurb": "One term of the kinetic equations on its own. Seven are reachable: diffusion, injection, the two collision channels, the two photon drives and the gap closure. The three phonon terms are not, for the reason each one gives.",
       "items": [
         {
           "id": "diff",
           "title": "Diffusion",
           "sector": "qp",
-          "available": false,
-          "blurb": "Quasiparticles spread through the geometry and nothing else acts.",
-          "evidence": "tests/transport/test_diffusion_models.py, validation/analytic/test_minimal_models.py",
-          "why": "Diffusion exists only in the 1D strip mode, and that mode always carries scattering and recombination: its collision assembly is inlined in t3_spatial_1d._collision_group_rates and never reaches the flags in collisions/phonon.py. Switching diffusion off is separate and nearly free (D_0 = 0 already gives an exactly zero operator); it is isolating it that needs work."
+          "available": true,
+          "blurb": "Quasiparticles spread along the strip and nothing else acts.",
+          "cases": [
+            {
+              "id": "diff-only",
+              "title": "Diffusion alone",
+              "mode": "spatial_1d",
+              "summary": "Injection at the left end with both collision channels off. Transport is the only term that shapes the profile, and it nearly flattens it: left/right = 1.04.",
+              "overrides": {
+                "T_bath": 0.2,
+                "num_cells": 24,
+                "grid.num_bins": 96,
+                "max_time": 2000.0,
+                "diffusion_model": "A1",
+                "gap_profile.kind": "uniform",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "injection.enabled": true
+              }
+            },
+            {
+              "id": "diff-off",
+              "title": "The same strip with transport off",
+              "mode": "spatial_1d",
+              "summary": "D_0 = 0 makes the flux coefficient identically zero, so the cells stop talking to each other and the injected quasiparticles pile up: left/right = 544 instead of 1.06. Run it against the case above.",
+              "overrides": {
+                "T_bath": 0.2,
+                "num_cells": 24,
+                "grid.num_bins": 96,
+                "max_time": 2000.0,
+                "diffusion_model": "A1",
+                "gap_profile.kind": "uniform",
+                "material.D_0": 0.0,
+                "injection.enabled": true
+              }
+            }
+          ]
         },
         {
           "id": "scat",
@@ -131,10 +164,28 @@
           "id": "src",
           "title": "External injection",
           "sector": "qp",
-          "available": false,
+          "available": true,
           "blurb": "Quasiparticles fed in from outside the film at a rate you specify.",
-          "evidence": "tests/backends/test_t3_diffusion.py",
-          "why": "injection.enabled does switch it, but injection exists only in the 1D strip mode, which always carries diffusion and collisions for the same reason as above."
+          "cases": [
+            {
+              "id": "src-only",
+              "title": "Injection alone",
+              "mode": "spatial_1d",
+              "summary": "Transport off and both collision channels off, so nothing spreads or removes what is injected. It accumulates at the left end: left/right = 1031.",
+              "overrides": {
+                "T_bath": 0.2,
+                "num_cells": 24,
+                "grid.num_bins": 96,
+                "max_time": 2000.0,
+                "diffusion_model": "A1",
+                "gap_profile.kind": "uniform",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "material.D_0": 0.0,
+                "injection.enabled": true
+              }
+            }
+          ]
         },
         {
           "id": "psc",
@@ -271,7 +322,7 @@
           "available": false,
           "blurb": "Transport with energy relaxation but no number channel.",
           "evidence": "tests/transport/test_diffusion_models.py",
-          "why": "Needs recombination off."
+          "why": "Needs recombination off while scattering stays on in the strip, which is now possible; a case has not been pinned yet."
         },
         {
           "id": "recomb-prc",

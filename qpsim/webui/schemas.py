@@ -267,6 +267,10 @@ class Spatial1DSetup(StrictModel):
     length_um: Annotated[float, Field(gt=0.0)] = 100.0
     num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
+    # D_0 = 0 is the transport off-switch: the flux coefficient is D_0*N_1**q,
+    # so zero gives an identically zero operator for every member. There is no
+    # OFF member in diffusion_model because the enum value IS the (p, q) pair.
+    collisions: CollisionTerms = CollisionTerms()
     gap_profile: GapStepProfile = GapStepProfile()
     injection: InjectionConfig = InjectionConfig()
     dt: Annotated[float, Field(gt=0.0)] = 1.0  # split step (ns); D0*dt/dx^2~5 at defaults

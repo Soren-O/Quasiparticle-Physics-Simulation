@@ -399,7 +399,10 @@ def run_spatial_1d(
     gap = setup.material.Delta_0
     obs = _profile_observables(gap)
 
-    backend = T3Spatial1DBackend()
+    backend = T3Spatial1DBackend(
+        enable_scattering=setup.collisions.scattering,
+        enable_recombination=setup.collisions.recombination,
+    )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("once")
         result = backend.run_until_steady_state(
