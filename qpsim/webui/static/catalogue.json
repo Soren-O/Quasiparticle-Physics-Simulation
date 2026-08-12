@@ -24,8 +24,8 @@
           "sector": "qp",
           "available": false,
           "blurb": "Quasiparticles spread through the geometry and nothing else acts.",
-          "evidence": "tests/transport/test_diffusion_models.py",
-          "why": "Every diffusion_model member is a non-zero operator; there is no OFF member, and collisions cannot be switched off alongside."
+          "evidence": "tests/transport/test_diffusion_models.py, validation/analytic/test_minimal_models.py",
+          "why": "Diffusion exists only in the 1D strip mode, and that mode always carries scattering and recombination: its collision assembly is inlined in t3_spatial_1d._collision_group_rates and never reaches the flags in collisions/phonon.py. Switching diffusion off is separate and nearly free (D_0 = 0 already gives an exactly zero operator); it is isolating it that needs work."
         },
         {
           "id": "scat",
@@ -134,7 +134,7 @@
           "available": false,
           "blurb": "Quasiparticles fed in from outside the film at a rate you specify.",
           "evidence": "tests/backends/test_t3_diffusion.py",
-          "why": "injection.enabled exists in the 1D strip mode, but that mode always carries diffusion and collisions too."
+          "why": "injection.enabled does switch it, but injection exists only in the 1D strip mode, which always carries diffusion and collisions for the same reason as above."
         },
         {
           "id": "psc",
