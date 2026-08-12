@@ -230,7 +230,8 @@ const state = {
   detailRunId: null,
   lastRunsKey: null,    // change-detection: skip DOM rebuilds on identical polls
   lastDetailKey: null,
-  testsLoaded: false,   // the catalogue is static; fetch it once
+  catalogue: null,      // the catalogue is static; fetch it once
+  catId: null,
 };
 
 /* ---------- new-run view ---------- */
@@ -557,9 +558,9 @@ async function runCase(tc, btn) {
     if (unknown.length) {
       throw new Error(`unknown setup fields: ${unknown.join(", ")}`);
     }
-    const { resp, body } = await postJSON("/api/runs", { name: tc.title, setup });
-    if (!resp.ok) {
-      const problems = (body.errors || [String(resp.status)]).join("; ");
+    const { ok, status, body } = await postJSON("/api/runs", { name: tc.title, setup });
+    if (!ok) {
+      const problems = (body.errors || [String(status)]).join("; ");
       throw new Error(problems);
     }
     showView("runs");
@@ -571,50 +572,170 @@ async function runCase(tc, btn) {
   }
 }
 
-async function refreshTests() {
-  const host = $("#tests-list");
-  if (state.testsLoaded) return;
+/* ---------- catalogue: category -> item -> case ---------- */
+
+async function loadCatalogue() {
+  if (state.catalogue) return state.catalogue;
+  const resp = await fetch("/static/catalogue.json");
+  if (!resp.ok) throw new Error(`catalogue unavailable (${resp.status})`);
+  state.catalogue = await resp.json();
+  return state.catalogue;
+}
+
+async function renderHomeCategories() {
+  const host = $("#home-categories");
   let cat;
   try {
-    const resp = await fetch("/static/test-simulations.json");
-    if (!resp.ok) throw new Error(`catalogue unavailable (${resp.status})`);
-    cat = await resp.json();
+    cat = await loadCatalogue();
   } catch (exc) {
     host.innerHTML = `<div class="err">${esc(exc.message)}</div>`;
     return;
   }
   host.innerHTML = "";
-  for (const group of cat.groups || []) {
+  const sec = document.createElement("section");
+  sec.className = "group";
+  for (const c of cat.categories || []) {
+    const n = (c.items || []).reduce(
+      (acc, it) => acc + (it.cases || it.links || []).length, 0);
+    const b = document.createElement("button");
+    b.className = "action";
+    b.innerHTML =
+      `<span class="name">${esc(c.title)}</span>` +
+      `<span class="go">${n} ${n === 1 ? "entry" : "entries"}</span>` +
+      `<span class="desc">${esc(c.blurb)}</span>`;
+    b.addEventListener("click", () => {
+      if (document.body.classList.contains("editing")) return;
+      openCategory(c.id);
+    });
+    sec.appendChild(b);
+  }
+  host.appendChild(sec);
+}
+
+function crumbs(trail) {
+  const host = $("#crumbs");
+  host.innerHTML = "";
+  trail.forEach((step, i) => {
+    if (i) host.appendChild(document.createTextNode(" / "));
+    if (step.go) {
+      const a = document.createElement("button");
+      a.className = "crumb";
+      a.textContent = step.label;
+      a.addEventListener("click", step.go);
+      host.appendChild(a);
+    } else {
+      const s = document.createElement("span");
+      s.className = "crumb current";
+      s.textContent = step.label;
+      host.appendChild(s);
+    }
+  });
+}
+
+/* Level 2: the items of one category. */
+async function openCategory(catId) {
+  const cat = (await loadCatalogue()).categories.find((c) => c.id === catId);
+  if (!cat) return;
+  state.catId = catId;
+  crumbs([
+    { label: "Home", go: () => showView("home") },
+    { label: cat.title },
+  ]);
+  $("#cat-title").textContent = cat.title;
+  $("#cat-blurb").textContent = cat.blurb || "";
+
+  const host = $("#cat-body");
+  host.innerHTML = "";
+  const sec = document.createElement("section");
+  sec.className = "group";
+  for (const it of cat.items || []) {
+    const count = (it.cases || it.links || []).length;
+    const b = document.createElement("button");
+    b.className = "action" + (it.available === false ? " unavailable" : "");
+    b.innerHTML =
+      `<span class="name">${esc(it.title)}</span>` +
+      `<span class="go">${it.available === false ? "No setup" : count}</span>` +
+      `<span class="desc">${esc(it.blurb || "")}</span>`;
+    b.addEventListener("click", () => {
+      if (document.body.classList.contains("editing")) return;
+      openItem(catId, it.id);
+    });
+    sec.appendChild(b);
+  }
+  host.appendChild(sec);
+  showView("catalogue");
+  window.scrollTo(0, 0);
+}
+
+/* Level 3: the cases of one item. */
+async function openItem(catId, itemId) {
+  const cat = (await loadCatalogue()).categories.find((c) => c.id === catId);
+  const it = cat && (cat.items || []).find((x) => x.id === itemId);
+  if (!it) return;
+  crumbs([
+    { label: "Home", go: () => showView("home") },
+    { label: cat.title, go: () => openCategory(catId) },
+    { label: it.title },
+  ]);
+  $("#cat-title").textContent = it.title;
+  $("#cat-blurb").textContent = it.blurb || "";
+
+  const host = $("#cat-body");
+  host.innerHTML = "";
+
+  if (it.available === false) {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.innerHTML =
+      `<b>Not reachable from this interface.</b> ${esc(it.why || "")}` +
+      (it.evidence ? ` Covered by <code>${esc(it.evidence)}</code>.` : "");
+    host.appendChild(note);
+    return;
+  }
+
+  /* Plain navigation rows (the Miscellaneous "rest of the interface" item). */
+  if (it.links) {
     const sec = document.createElement("section");
-    sec.className = "test-group";
-    sec.innerHTML = `<h3>${esc(group.title)}</h3>` +
-      (group.hint ? `<p class="hint">${esc(group.hint)}</p>` : "");
-    for (const tc of group.cases || []) {
-      const card = document.createElement("article");
-      card.className = "test-case";
-      card.innerHTML =
-        `<div class="tc-head">
-           <span class="tc-title">${esc(tc.title)}</span>
-           <span class="tc-mode">${esc(state.modeLabels[tc.mode] || tc.mode)}</span>
-         </div>
-         <p class="tc-summary">${esc(tc.summary)}</p>
-         <p class="tc-expect"><b>Expect</b> ${esc(tc.expect)}</p>
-         <div class="tc-actions"></div>
-         <div id="case-msg-${esc(tc.id)}"></div>`;
-      const actions = card.querySelector(".tc-actions");
-      const open = document.createElement("button");
-      open.textContent = "Open in editor";
-      open.addEventListener("click", () => openCase(tc));
-      const run = document.createElement("button");
-      run.className = "primary";
-      run.textContent = "Run";
-      run.addEventListener("click", () => runCase(tc, run));
-      actions.append(open, run);
-      sec.appendChild(card);
+    sec.className = "group";
+    for (const l of it.links) {
+      const b = document.createElement("button");
+      b.className = "action";
+      b.innerHTML =
+        `<span class="name">${esc(l.title)}</span>` +
+        `<span class="go">Open</span>` +
+        `<span class="desc">${esc(l.desc || "")}</span>`;
+      b.addEventListener("click", () => {
+        if (document.body.classList.contains("editing")) return;
+        showView(l.go);
+      });
+      sec.appendChild(b);
     }
     host.appendChild(sec);
+    return;
   }
-  state.testsLoaded = true;
+
+  for (const tc of it.cases || []) {
+    const card = document.createElement("article");
+    card.className = "test-case";
+    card.innerHTML =
+      `<div class="tc-head">
+         <span class="tc-title">${esc(tc.title)}</span>
+         <span class="tc-mode">${esc(state.modeLabels[tc.mode] || tc.mode)}</span>
+       </div>
+       <p class="tc-summary">${esc(tc.summary)}</p>
+       <div class="tc-actions"></div>
+       <div id="case-msg-${esc(tc.id)}"></div>`;
+    const actions = card.querySelector(".tc-actions");
+    const open = document.createElement("button");
+    open.textContent = "Open in editor";
+    open.addEventListener("click", () => openCase(tc));
+    const run = document.createElement("button");
+    run.className = "primary";
+    run.textContent = "Run";
+    run.addEventListener("click", () => runCase(tc, run));
+    actions.append(open, run);
+    host.appendChild(card);
+  }
 }
 
 function showView(name) {
@@ -630,8 +751,8 @@ function showView(name) {
     refreshSetups();
   } else if (name === "materials") {
     refreshMaterials();
-  } else if (name === "tests") {
-    refreshTests();
+  } else if (name === "home") {
+    renderHomeCategories();
   }
 }
 
@@ -668,6 +789,9 @@ async function init() {
   $("#btn-run").addEventListener("click", doRun);
 
   await switchMode("steady_state_0d");
+  // Home is visible from the markup, so it is never routed through showView on
+  // first paint and has to be rendered explicitly.
+  await renderHomeCategories();
 }
 
 init();
@@ -696,8 +820,8 @@ const COPY_SELECTOR = [
   ".home h1", ".home .lede", ".eyebrow", ".group > h2",
   ".action .name", ".action .go", ".action .desc",
   ".workspace b", ".home .foot",
-  ".tests-lede", ".test-group h3", ".test-group .hint",
-  ".tc-title", ".tc-summary", ".tc-expect",
+  "#cat-title", "#cat-blurb",
+  ".tc-title", ".tc-summary",
   "header .subtitle", "nav button",
 ].join(",");
 
@@ -733,11 +857,17 @@ function applyCopyOverrides() {
   try {
     for (const el of document.querySelectorAll(COPY_SELECTOR)) {
       if (el.children.length > 0) continue;
-      if (!el.dataset.copyOrig) {
-        const t = el.textContent.trim();
-        if (!t) continue;
-        el.dataset.copyOrig = t;
-        el.dataset.copyKey = copyHash(t);
+      // Some nodes (#cat-title, #cat-blurb) are reused as the drill-down
+      // navigates, so a key cached on first sight would go stale. Re-key
+      // whenever the live text matches neither the remembered original nor
+      // the edit stored against it.
+      const seen = el.dataset.copyOrig;
+      const known = seen && copyState.edits[el.dataset.copyKey];
+      const live = el.textContent.trim();
+      if (!live) continue;
+      if (!seen || (live !== seen && (!known || live !== known.edited))) {
+        el.dataset.copyOrig = live;
+        el.dataset.copyKey = copyHash(live);
       }
       const edit = copyState.edits[el.dataset.copyKey];
       // Never rewrite the node being typed into: replacing textContent would

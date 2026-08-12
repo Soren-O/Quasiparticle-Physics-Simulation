@@ -1,0 +1,260 @@
+{
+  "_comment": [
+    "Catalogue for the landing page. Three levels: category -> item -> case.",
+    "A case starts from its mode's defaults (GET /api/defaults/{mode}) and applies",
+    "`overrides` on top, so it only states what it changes. Unknown override paths",
+    "are reported rather than silently ignored.",
+    "",
+    "An item with no cases and `available: false` is a reduction the engine tests",
+    "but the web API cannot express, because the term it isolates has no off",
+    "switch in the setup schema. `evidence` points at what does cover it.",
+    "",
+    "Served as a static asset and deliberately NOT part of the qpsim source",
+    "manifest, so editing this catalogue costs no recertification."
+  ],
+  "categories": [
+    {
+      "id": "single-term",
+      "title": "Single term examples",
+      "blurb": "One term of the kinetic equations on its own. None of these can be set up from this interface today: quasiparticle-phonon scattering and recombination have no off switch in the setup schema, so every run carries them. Each term below names the test that does cover its isolated behaviour.",
+      "items": [
+        {
+          "id": "diff", "title": "Diffusion", "sector": "qp", "available": false,
+          "blurb": "Quasiparticles spread through the geometry and nothing else acts.",
+          "evidence": "tests/transport/test_diffusion_models.py",
+          "why": "Every diffusion_model member is a non-zero operator; there is no OFF member, and collisions cannot be switched off alongside."
+        },
+        {
+          "id": "scat", "title": "Quasiparticle-phonon scattering", "sector": "qp", "available": false,
+          "blurb": "Quasiparticles move up and down in energy by emitting and absorbing phonons.",
+          "evidence": "validation/analytic/test_detailed_balance.py, tests/collisions/test_phonon.py",
+          "why": "The engine has an enable_scattering flag, but no setup field reaches it and the backend entry points do not take it."
+        },
+        {
+          "id": "recomb", "title": "Recombination and pair breaking", "sector": "qp", "available": false,
+          "blurb": "Two quasiparticles annihilate into a phonon above 2Δ, and that phonon breaks a pair. The only term that changes quasiparticle number.",
+          "evidence": "validation/analytic/test_minimal_models.py, tests/collisions/test_phonon.py",
+          "why": "Same as scattering. Worse: the loss and the reverse gain share one branch in the engine, so they cannot be separated even there."
+        },
+        {
+          "id": "photsg", "title": "Sub-gap photon drive", "sector": "qp", "available": false,
+          "blurb": "Photons below 2Δ shuffle quasiparticles in energy without creating any.",
+          "evidence": "tests/collisions/test_sub_gap_photon.py",
+          "why": "The drive itself switches off cleanly, but the collision integral underneath it cannot, so the drive is never alone."
+        },
+        {
+          "id": "photpb", "title": "Pair-breaking photon drive", "sector": "qp", "available": false,
+          "blurb": "Photons above 2Δ create new quasiparticles.",
+          "evidence": "tests/collisions/test_pair_breaking_photon.py",
+          "why": "As above: the drive is switchable, the collision integral beneath it is not."
+        },
+        {
+          "id": "src", "title": "External injection", "sector": "qp", "available": false,
+          "blurb": "Quasiparticles fed in from outside the film at a rate you specify.",
+          "evidence": "tests/backends/test_t3_diffusion.py",
+          "why": "injection.enabled exists in the 1D strip mode, but that mode always carries diffusion and collisions too."
+        },
+        {
+          "id": "psc", "title": "Phonon scattering source", "sector": "ph", "available": false,
+          "blurb": "Books the phonons emitted and absorbed when quasiparticles scatter.",
+          "evidence": "tests/phonon_models/test_ph0_local.py",
+          "why": "The two phonon source terms are removable only jointly, by replacing the whole phonon equation with a bath."
+        },
+        {
+          "id": "prc", "title": "Phonon recombination source", "sector": "ph", "available": false,
+          "blurb": "Books the 2Δ phonons recombination emits and pair breaking reabsorbs. This is what phonon trapping is made of.",
+          "evidence": "tests/phonon_models/test_ph0_local.py",
+          "why": "Removable only jointly with the scattering source, as above."
+        },
+        {
+          "id": "pesc", "title": "Phonon escape", "sector": "ph", "available": false,
+          "blurb": "Phonons leak out of the film toward the substrate on a timescale τ_esc.",
+          "evidence": "tests/physics/test_phonon_escape.py",
+          "why": "phonons.mode does switch it, but with no drive the result is bit-identical either way, and with a drive a closed phonon sector has no steady state."
+        },
+        {
+          "id": "gapeq", "title": "Self-consistent gap", "sector": "gap", "available": false,
+          "blurb": "Δ is re-solved from the occupation instead of being held fixed.",
+          "evidence": "validation/analytic/test_gap_equation_equilibrium.py, tests/physics/test_gap_equation.py",
+          "why": "solver.self_consistent_gap switches it cleanly, but it closes over an occupation that some other term has to produce."
+        }
+      ]
+    },
+    {
+      "id": "two-term",
+      "title": "Two term examples",
+      "blurb": "Two terms together. Only the first pair is reachable from this interface: scattering and recombination are the floor of every run, so any other pair would need a term switched off that has no switch.",
+      "items": [
+        {
+          "id": "scat-recomb", "title": "Scattering + recombination", "sector": "qp", "available": true,
+          "blurb": "The electron-phonon collision integral on its own, with the phonons pinned at the bath. This is the smallest model this interface can build.",
+          "cases": [
+            {
+              "id": "thermal-equilibrium", "title": "Thermal equilibrium", "mode": "steady_state_0d",
+              "summary": "The collision integral vanishes at the Fermi-Dirac distribution, so the solve should return it.",
+              "overrides": {
+                "T_bath": 0.2, "subgap_drive.enabled": false, "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath"
+              }
+            },
+            {
+              "id": "thermal-equilibrium-cold", "title": "Thermal equilibrium, cold", "mode": "steady_state_0d",
+              "summary": "The same fixed point at 0.1 K, where the pair channel is suppressed by e^(-2Δ/kT) and the number mode gets hard to resolve.",
+              "overrides": {
+                "T_bath": 0.1, "subgap_drive.enabled": false, "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath"
+              }
+            }
+          ]
+        },
+        {
+          "id": "scat-photsg", "title": "Scattering + sub-gap drive", "sector": "qp", "available": false,
+          "blurb": "Redistribution in energy with no number channel: nothing sets how many quasiparticles there are.",
+          "evidence": "validation/analytic/test_minimal_models.py",
+          "why": "Needs recombination off."
+        },
+        {
+          "id": "recomb-photpb", "title": "Recombination + pair-breaking drive", "sector": "qp", "available": false,
+          "blurb": "Creation balanced by annihilation, with no energy relaxation between them.",
+          "evidence": "validation/analytic/test_minimal_models.py",
+          "why": "Needs scattering off."
+        },
+        {
+          "id": "diff-scat", "title": "Diffusion + scattering", "sector": "qp", "available": false,
+          "blurb": "Transport with energy relaxation but no number channel.",
+          "evidence": "tests/transport/test_diffusion_models.py",
+          "why": "Needs recombination off."
+        },
+        {
+          "id": "recomb-prc", "title": "Recombination + its phonon source", "sector": "ph", "available": false,
+          "blurb": "The trapping loop closed on itself: recombination phonons breaking pairs again before they leave.",
+          "evidence": "tests/phonon_models/test_ph0_local.py",
+          "why": "Needs scattering off on both sides of the loop."
+        },
+        {
+          "id": "gapeq-recomb", "title": "Self-consistent gap + recombination", "sector": "gap", "available": false,
+          "blurb": "The gap responding to a population that only the pair channel controls.",
+          "evidence": "validation/analytic/test_gap_equation_equilibrium.py",
+          "why": "Needs scattering off."
+        }
+      ]
+    },
+    {
+      "id": "literature",
+      "title": "Literature reproductions",
+      "blurb": "The conditions of a published point, set up so you can vary them. These are not the certified figure reproductions: those are full sweeps with pinned baselines and provenance, and they live in the validation suite.",
+      "items": [
+        {
+          "id": "fischer-2023", "title": "Fischer & Catelani 2023", "sector": "qp", "available": true,
+          "blurb": "Table I aluminium under a sub-gap drive, with the phonons solved at finite escape time.",
+          "cases": [
+            {
+              "id": "fischer-2023-fig6-point", "title": "Fig. 6, one operating point", "mode": "steady_state_0d",
+              "summary": "The single point the 66-point Fig. 6 sweep is built from.",
+              "overrides": {
+                "T_bath": 0.2, "material.Delta_0": 180.0, "material.T_c": 1.184309192877208,
+                "material.tau_0": 438.0, "material.tau_0_pb_ns": 0.2546462020857182,
+                "grid.min_factor": 0.8888888888888888, "grid.max_factor": 10.0, "grid.num_bins": 410,
+                "subgap_drive.enabled": true, "subgap_drive.omega_0": 20.0,
+                "pb_drive.enabled": false, "phonons.mode": "dynamic_escape", "phonons.tau_l_ns": 0.255
+              }
+            }
+          ]
+        },
+        {
+          "id": "marchegiani-2025", "title": "Marchegiani 2025", "sector": "qp", "available": true,
+          "blurb": "The gap-asymmetric junction rate-equation layer at its shipped defaults.",
+          "cases": [
+            {
+              "id": "m25-junction", "title": "Parity switching", "mode": "m25_junction",
+              "summary": "Parity-switching rates against the junction parameters.",
+              "overrides": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "misc",
+      "title": "Miscellaneous",
+      "blurb": "Everything else, for now.",
+      "items": [
+        {
+          "id": "driven", "title": "Driven steady states", "sector": "qp", "available": true,
+          "blurb": "A drive balanced by recombination, which is what fixes the amplitude.",
+          "cases": [
+            {
+              "id": "subgap-driven", "title": "Sub-gap photon drive", "mode": "steady_state_0d",
+              "summary": "The drive reshapes the distribution near the gap edge; recombination sets how many quasiparticles there are.",
+              "overrides": {
+                "T_bath": 0.2, "subgap_drive.enabled": true, "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath", "grid.num_bins": 405, "subgap_drive.omega_0": 52.0
+              }
+            },
+            {
+              "id": "pair-breaking-driven", "title": "Pair-breaking photon drive", "mode": "steady_state_0d",
+              "summary": "An above-gap drive creates quasiparticles directly, with recombination the only sink.",
+              "overrides": {
+                "T_bath": 0.2, "subgap_drive.enabled": false, "pb_drive.enabled": true,
+                "phonons.mode": "thermal_bath", "grid.num_bins": 405, "pb_drive.omega_PB": 400.0
+              }
+            },
+            {
+              "id": "phonon-trapping", "title": "Phonon trapping", "mode": "steady_state_0d",
+              "summary": "The same drive with the phonons solved at finite escape time. Run it against the case above: the difference is the trapping.",
+              "overrides": {
+                "T_bath": 0.2, "subgap_drive.enabled": false, "pb_drive.enabled": true,
+                "phonons.mode": "dynamic_escape", "grid.num_bins": 405, "pb_drive.omega_PB": 400.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "time", "title": "Time dependence", "sector": "qp", "available": true,
+          "blurb": "The transient solver, with the phonons frozen at the bath.",
+          "cases": [
+            {
+              "id": "photon-kick", "title": "Photon kick", "mode": "transient_0d",
+              "summary": "Start thermal, switch the drive on at t = 0, and watch it climb to the steady state.",
+              "overrides": {
+                "T_bath": 0.1, "subgap_drive.enabled": false, "pb_drive.enabled": true,
+                "grid.num_bins": 405, "pb_drive.omega_PB": 400.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "spatial", "title": "Spatial transport", "sector": "qp", "available": true,
+          "blurb": "The 1D strip. A1 is the dirty-limit operator; the others are labelled diagnostics, not alternative physics.",
+          "cases": [
+            {
+              "id": "uniform-strip", "title": "Uniform strip, A1", "mode": "spatial_1d",
+              "summary": "A uniform gap, so every energy diffuses independently at D_0/N_1(E).",
+              "overrides": { "T_bath": 0.2, "diffusion_model": "A1", "gap_profile.kind": "uniform" }
+            },
+            {
+              "id": "operator-contrast", "title": "Same strip, legacy operator C", "mode": "spatial_1d",
+              "summary": "At a uniform gap C shares A1's rate and differs only in conserved density. The two separate once the gap varies.",
+              "overrides": { "T_bath": 0.2, "diffusion_model": "C", "gap_profile.kind": "uniform" }
+            },
+            {
+              "id": "step-interface", "title": "Step gap interface", "mode": "spatial_1d",
+              "summary": "Two regions of unequal gap joined at one face. Quasiparticles collect on the low-gap side.",
+              "overrides": { "T_bath": 0.2, "diffusion_model": "A1", "gap_profile.kind": "step" }
+            }
+          ]
+        },
+        {
+          "id": "app", "title": "The rest of the interface", "sector": "gap", "available": true,
+          "blurb": "Not simulations.",
+          "links": [
+            { "title": "Create new setup", "go": "new-run", "desc": "Build a run from a material and a drive." },
+            { "title": "Saved setups", "go": "setups", "desc": "Reopen and edit a setup from your workspace." },
+            { "title": "Your runs", "go": "runs", "desc": "Results, viewers and CSV or PNG export." },
+            { "title": "Materials", "go": "materials", "desc": "The shipped material records." }
+          ]
+        }
+      ]
+    }
+  ]
+}

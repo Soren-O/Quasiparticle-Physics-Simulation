@@ -159,14 +159,7 @@ pre.json {
   padding: 10px; overflow-x: auto; font-size: 12.5px;
 }
 
-/* ---- test simulations ---- */
-.tests-lede { color: var(--ink-2); max-width: 70ch; margin: 0 0 18px; }
-.test-group { margin-bottom: 26px; }
-.test-group h3 {
-  font-size: 12px; text-transform: uppercase; letter-spacing: .11em;
-  color: var(--muted); margin: 0 0 4px; font-weight: 700;
-}
-.test-group .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; max-width: 70ch; }
+/* ---- catalogue cases ---- */
 .test-case {
   background: var(--surface); border: 1px solid var(--grid); border-radius: 3px;
   padding: 13px 15px; margin-bottom: 8px;
@@ -361,3 +354,36 @@ body.editing [data-copy-key].edited { outline-color: var(--warning-ink); }
 
 body.editing .action { cursor: text; }
 body.editing .action:hover:not(:disabled) { background: none; }
+
+/* ---------------------------------------------------------------------
+   Catalogue drill-down
+   --------------------------------------------------------------------- */
+
+.crumbs {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px;
+  font-size: 12.5px; color: var(--muted);
+}
+.crumb {
+  background: none; border: 0; padding: 0; font: inherit;
+  color: var(--qp); cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.crumb.current { color: var(--muted); text-decoration: none; cursor: default; }
+
+/* An item whose reduction the setup schema cannot express. Muted, but still
+   openable: the page behind it says which test does cover it. */
+.action.unavailable .name { color: var(--ink-2); font-weight: 500; }
+.action.unavailable .go {
+  color: var(--muted); border: 1px dashed var(--baseline);
+  border-radius: 2px; padding: 1px 7px;
+}
+
+#cat-body .test-case:first-child { margin-top: 4px; }
+#cat-body .note code {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--page); padding: 1px 5px; border-radius: 2px;
+}
+.err {
+  background: #fbeaea; border: 1px solid var(--critical);
+  border-radius: 8px; padding: 8px 12px; margin: 6px 0; font-size: 13.5px;
+}
