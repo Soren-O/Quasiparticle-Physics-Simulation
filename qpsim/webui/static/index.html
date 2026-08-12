@@ -19,7 +19,16 @@
       <button data-view="materials">Materials</button>
     </nav>
     <div id="meta" class="meta"></div>
+    <button id="btn-edit-copy" class="edit-toggle" title="Edit the wording of this interface in place">Edit text</button>
   </header>
+
+  <div id="edit-bar" class="edit-bar hidden">
+    <span class="eb-state">Editing text &mdash; click any highlighted wording and type.</span>
+    <span class="eb-count" id="eb-count">no changes</span>
+    <button id="btn-copy-export" class="btn">Download edits</button>
+    <button id="btn-copy-revert" class="btn">Revert all</button>
+    <button id="btn-copy-done" class="btn">Done</button>
+  </div>
 
   <main>
     <section id="view-home" class="view">

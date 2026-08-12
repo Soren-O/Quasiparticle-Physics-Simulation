@@ -302,3 +302,62 @@ pre.json {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------------------------------------------------------------------
+   Copy edit mode
+   --------------------------------------------------------------------- */
+
+.edit-toggle {
+  margin-left: 14px;
+  background: none;
+  border: 1px solid var(--baseline);
+  border-radius: 6px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.edit-toggle:hover { border-color: var(--accent); color: var(--ink); }
+.edit-toggle.active {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 600;
+}
+
+.edit-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fdf4e0;
+  border-bottom: 1px solid #eda100;
+  color: var(--warning-ink);
+  padding: 8px 22px;
+  font-size: 13px;
+}
+.edit-bar .eb-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.edit-bar .btn { padding: 4px 12px; font-size: 12.5px; }
+
+body.editing [data-copy-key] {
+  outline: 1px dashed var(--baseline);
+  outline-offset: 2px;
+  border-radius: 2px;
+  cursor: text;
+}
+body.editing [data-copy-key]:hover { outline-color: var(--accent); }
+body.editing [data-copy-key]:focus {
+  outline: 2px solid var(--accent);
+  background: #fff;
+}
+/* An edited string stays marked so it can be found again on a long page. */
+body.editing [data-copy-key].edited { outline-color: var(--warning-ink); }
+
+body.editing .action { cursor: text; }
+body.editing .action:hover:not(:disabled) { background: none; }

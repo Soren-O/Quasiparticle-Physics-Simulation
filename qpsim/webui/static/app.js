@@ -658,6 +658,8 @@ async function init() {
   // data-go are the not-yet-built ones and stay inert.
   document.querySelectorAll(".action[data-go]").forEach((b) =>
     b.addEventListener("click", () => {
+      // While the wording is being edited, a row is a text field, not a link.
+      if (document.body.classList.contains("editing")) return;
       showView(b.dataset.go);
       window.scrollTo(0, 0);
     }));
@@ -669,3 +671,146 @@ async function init() {
 }
 
 init();
+
+/* =====================================================================
+   Copy edit mode
+   Lets the wording of this interface be edited in the browser, so text
+   can be judged in place instead of in a file.
+
+   Deliberately front-end only. Writing edits back to disk would need a
+   new route in server.py, which is a .py under qpsim/ and therefore
+   inside the source digest -- a convenience feature would cost a full
+   recertification. So edits live in localStorage and leave as a JSON
+   file that carries the ORIGINAL string alongside the new one, which is
+   what makes them applicable to the source afterwards.
+
+   Nodes are keyed by a hash of their original text rather than by a
+   markup attribute, so nothing has to be tagged and dynamically
+   rendered content is picked up for free. Two nodes with identical
+   original text share a key and therefore edit together; that is the
+   one known limitation.
+   ===================================================================== */
+
+const COPY_STORE_KEY = "qpsim.copyEdits.v1";
+const COPY_SELECTOR = [
+  ".home h1", ".home .lede", ".eyebrow", ".group > h2",
+  ".action .name", ".action .go", ".action .desc",
+  ".workspace b", ".home .foot",
+  ".tests-lede", ".test-group h3", ".test-group .hint",
+  ".tc-title", ".tc-summary", ".tc-expect",
+  "header .subtitle", "nav button",
+].join(",");
+
+const copyState = { edits: {}, on: false, applying: false };
+
+function copyHash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function loadCopyEdits() {
+  try {
+    copyState.edits = JSON.parse(localStorage.getItem(COPY_STORE_KEY) || "{}");
+  } catch {
+    copyState.edits = {};
+  }
+}
+
+function saveCopyEdits() {
+  localStorage.setItem(COPY_STORE_KEY, JSON.stringify(copyState.edits));
+  const n = Object.keys(copyState.edits).length;
+  const el = $("#eb-count");
+  if (el) el.textContent = n === 0 ? "no changes" : `${n} change${n === 1 ? "" : "s"}`;
+}
+
+/* Index every copy node we have not seen, then push any stored override
+   onto it. Only pure-text elements qualify: an element with element
+   children would need innerHTML editing, which is not worth the risk. */
+function applyCopyOverrides() {
+  if (copyState.applying) return;
+  copyState.applying = true;
+  try {
+    for (const el of document.querySelectorAll(COPY_SELECTOR)) {
+      if (el.children.length > 0) continue;
+      if (!el.dataset.copyOrig) {
+        const t = el.textContent.trim();
+        if (!t) continue;
+        el.dataset.copyOrig = t;
+        el.dataset.copyKey = copyHash(t);
+      }
+      const edit = copyState.edits[el.dataset.copyKey];
+      // Never rewrite the node being typed into: replacing textContent would
+      // collapse the selection and throw the caret to the start.
+      if (edit && el.textContent !== edit.edited && el !== document.activeElement) {
+        el.textContent = edit.edited;
+      }
+      el.classList.toggle("edited", Boolean(edit));
+      if (copyState.on) el.setAttribute("contenteditable", "plaintext-only");
+      else el.removeAttribute("contenteditable");
+    }
+  } finally {
+    copyState.applying = false;
+  }
+}
+
+function setCopyEditMode(on) {
+  copyState.on = on;
+  document.body.classList.toggle("editing", on);
+  $("#edit-bar").classList.toggle("hidden", !on);
+  $("#btn-edit-copy").classList.toggle("active", on);
+  applyCopyOverrides();
+  saveCopyEdits();
+}
+
+function exportCopyEdits() {
+  const rows = Object.entries(copyState.edits).map(([key, v]) => ({
+    key, original: v.original, edited: v.edited,
+  }));
+  const blob = new Blob([JSON.stringify({ edits: rows }, null, 2)],
+    { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "qpsim-ui-copy-edits.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function revertCopyEdits() {
+  for (const el of document.querySelectorAll("[data-copy-orig]")) {
+    el.textContent = el.dataset.copyOrig;
+  }
+  copyState.edits = {};
+  saveCopyEdits();
+}
+
+function initCopyEditing() {
+  loadCopyEdits();
+
+  document.addEventListener("input", (ev) => {
+    const el = ev.target;
+    if (!copyState.on || !el.dataset || !el.dataset.copyKey) return;
+    const original = el.dataset.copyOrig;
+    const edited = el.textContent.trim();
+    if (edited === original) delete copyState.edits[el.dataset.copyKey];
+    else copyState.edits[el.dataset.copyKey] = { original, edited };
+    el.classList.toggle("edited", edited !== original);
+    saveCopyEdits();
+  });
+
+  $("#btn-edit-copy").addEventListener("click", () => setCopyEditMode(!copyState.on));
+  $("#btn-copy-done").addEventListener("click", () => setCopyEditMode(false));
+  $("#btn-copy-export").addEventListener("click", exportCopyEdits);
+  $("#btn-copy-revert").addEventListener("click", () => {
+    if (confirm("Discard every text edit and restore the shipped wording?")) revertCopyEdits();
+  });
+
+  // Dynamically rendered views (runs, setups, test cases) replace whole
+  // subtrees, so re-index on any change rather than patching each renderer.
+  new MutationObserver(() => applyCopyOverrides())
+    .observe(document.querySelector("main"), { childList: true, subtree: true });
+
+  applyCopyOverrides();
+}
+
+initCopyEditing();
