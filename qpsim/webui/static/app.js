@@ -642,6 +642,7 @@ async function init() {
   state.modeLabels = meta.modes || {};
   state.materials = mats || [];
   $("#meta").textContent = `qpsim ${meta.qpsim_version} · workspace ${meta.workspace}`;
+  $("#home-workspace").textContent = meta.workspace;
 
   const row = $("#mode-row");
   for (const [mode, label] of Object.entries(state.modeLabels)) {
@@ -653,6 +654,13 @@ async function init() {
   }
   document.querySelectorAll("nav button").forEach((b) =>
     b.addEventListener("click", () => showView(b.dataset.view)));
+  // Home rows are shortcuts into the same views the nav reaches; rows with no
+  // data-go are the not-yet-built ones and stay inert.
+  document.querySelectorAll(".action[data-go]").forEach((b) =>
+    b.addEventListener("click", () => {
+      showView(b.dataset.go);
+      window.scrollTo(0, 0);
+    }));
   $("#btn-validate").addEventListener("click", doValidate);
   $("#btn-save-setup").addEventListener("click", doSaveSetup);
   $("#btn-run").addEventListener("click", doRun);
