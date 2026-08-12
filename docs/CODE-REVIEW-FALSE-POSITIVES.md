@@ -966,3 +966,34 @@ findings that must be refuted.
     have — it is behaviour-changing on the custom-backend FD-fallback path.
     Lesson: "behaviour-neutral" must be asserted per hunk against the
     reachable call paths, not per commit.*
+
+37. **"The recombination phonon source is 2× too large" — the sum-lattice
+    unordered-pair double count** — measured as exactly
+    `2.000000000000` (fifteen digits, three grid resolutions, two drive
+    amplitudes, so structural rather than discretisation) when the
+    quasiparticle energy-loss moment
+    `cell_weights @ (E * (gain - loss*f))` is compared against
+    `dE[0] * (omega @ a_ph)`, the phonon energy measure that balances
+    *exactly* for scattering. The mechanism is real and visible at
+    `qpsim/collisions/phonon.py:461-470`: the phonon source bincounts the
+    full `(i, j)` matrix. On the **difference** lattice used by scattering,
+    `(i, j)` and `(j, i)` are distinct events — an emission and an
+    absorption — so the plain sum is correct. On the **sum** lattice used by
+    recombination they are the *same* event, so the plain sum counts every
+    unordered pair twice. The engine is right; the naive measure is not.
+    With the factor of one half the ledger closes to `1.5e-15` on every
+    grid tested. Corroborating evidence that this is a measure convention
+    rather than a defect: the C6 evidence bundle compares this channel
+    against the author's own implementation and finds `9.2e-3` symmetric
+    relative L1, not a factor of two, and
+    `docs/REVIEW-2026-08-03-HELD-BACK.md` records the Kaplan S₊ ledger
+    closing to `3.2e-14` in exactly the uncorrected configuration that
+    produces the 2× under the naive measure. Both halves are now pinned in
+    `validation/analytic/test_minimal_models.py::TestClosedLoopEnergyLedger`
+    — the halving is asserted load-bearing for recombination *and* asserted
+    absent for scattering, so it cannot be dropped or copied onto the wrong
+    lattice. *Lesson: an exact small integer ratio in a heavily audited
+    kernel is far more likely to be a counting convention than a bug. Before
+    filing, check whether an existing author-comparison or ledger already
+    measures the same quantity and gets a different answer — if it does, the
+    disagreement is in the measure, not the code.*

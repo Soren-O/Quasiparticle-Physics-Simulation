@@ -51,6 +51,7 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_base,
     compute_phonon_source_sink,
     phonon_collision_rates,
+    phonon_occupation_matrices_from_state,
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -207,6 +208,81 @@ class TestDrivenPhononFixedPointMatchesClosedForm:
         # thermal at ANY escape rate, and "pinned to the bath" is not a
         # relative statement that survives out there.
         assert float(np.max(slow[live] / fast[live])) > 10.0
+
+
+class TestClosedLoopEnergyLedger:
+    """A mirrored channel and its partner conserve energy exactly.
+
+    ``I_sc`` with ``Σ_sc``, and ``I_r`` with ``Σ_r``, are the same events
+    counted from either side. With no escape the energy leaving the
+    quasiparticles must arrive in the phonons, exactly -- this is the
+    invariant the two-equation structure exists to preserve, and the one the
+    Kaplan S+ one-sidedness breaks, so it doubles as an acceptance gate for
+    that repair.
+
+    MEASURE TRAP, and the reason this is easy to get wrong. The phonon source
+    is assembled by bincounting the full ``(i, j)`` matrix. On the DIFFERENCE
+    lattice that scattering uses, ``(i, j)`` and ``(j, i)`` are distinct
+    events -- an emission and an absorption -- so the plain sum is correct.
+    On the SUM lattice that recombination uses they are the SAME event, so
+    the plain sum counts every unordered pair twice and ``omega @ a`` comes
+    out at exactly twice the quasiparticle energy loss. The one half below is
+    that double count, not a fudge factor;
+    ``test_the_unordered_pair_halving_is_load_bearing`` pins it, so nobody
+    can quietly drop it or copy it onto the scattering channel where it does
+    not belong.
+    """
+
+    def _rates(self, ctx: SpectralContext, f: np.ndarray, *, scattering: bool):
+        K_s0, K_r0 = _kernels(ctx)
+        omega, idx_d, idx_s, sgn = build_phonon_frequency_map(ctx.E)
+        # zero-temperature phonons, so the ledger is a clean one-way transfer
+        N_p, _emit, _abs = phonon_occupation_matrices_from_state(
+            np.zeros(omega.size), idx_d, idx_s, sgn,
+        )
+        gain, loss = phonon_collision_rates(
+            f, ctx, K_s0, K_r0, T_bath=0.0, N_p_override=N_p,
+            enable_scattering=scattering, enable_recombination=not scattering,
+        )
+        a, _b = compute_phonon_source_sink(
+            f, ctx, K_s0, K_r0, idx_d, idx_s, sgn, omega.size,
+            enable_scattering=scattering, enable_recombination=not scattering,
+        )
+        E = np.asarray(ctx.E)
+        qp = float(np.asarray(ctx.cell_weights) @ (E * (gain - loss * f)))
+        phonon_sum = float(float(ctx.dE[0]) * (omega @ a))
+        return qp, phonon_sum
+
+    @pytest.mark.parametrize("num", [105, 205, 305])
+    def test_scattering_loop_conserves_energy(self, num: int) -> None:
+        ctx = _ctx(num)
+        qp, ph = self._rates(ctx, _driven_f(ctx, boost=8.0), scattering=True)
+        assert qp < 0.0 and ph > 0.0
+        assert abs(qp + ph) / (abs(qp) + abs(ph)) < 1e-13, (num, qp, ph)
+
+    @pytest.mark.parametrize("num", [105, 205, 305])
+    def test_recombination_loop_conserves_energy(self, num: int) -> None:
+        ctx = _ctx(num)
+        qp, ph_sum = self._rates(ctx, _driven_f(ctx, boost=8.0), scattering=False)
+        ph = 0.5 * ph_sum  # unordered pairs; see the class docstring
+        assert qp < 0.0 and ph > 0.0
+        assert abs(qp + ph) / (abs(qp) + abs(ph)) < 1e-13, (num, qp, ph)
+
+    def test_the_unordered_pair_halving_is_load_bearing(self) -> None:
+        """Without the one half the recombination ledger is out by exactly 2.
+
+        If this ever stops being 2, the assembly convention has changed and
+        the factor above needs re-deriving rather than re-tuning.
+        """
+        ctx = _ctx()
+        qp, ph_sum = self._rates(ctx, _driven_f(ctx, boost=8.0), scattering=False)
+        assert ph_sum / abs(qp) == pytest.approx(2.0, rel=1e-12)
+
+    def test_scattering_needs_no_halving(self) -> None:
+        """The same factor must NOT be applied to the difference lattice."""
+        ctx = _ctx()
+        qp, ph = self._rates(ctx, _driven_f(ctx, boost=8.0), scattering=True)
+        assert ph / abs(qp) == pytest.approx(1.0, rel=1e-12)
 
 
 class TestNumberChangingChannels:
