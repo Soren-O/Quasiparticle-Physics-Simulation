@@ -230,6 +230,7 @@ const state = {
   detailRunId: null,
   lastRunsKey: null,    // change-detection: skip DOM rebuilds on identical polls
   lastDetailKey: null,
+  testsLoaded: false,   // the catalogue is static; fetch it once
 };
 
 /* ---------- new-run view ---------- */
@@ -506,6 +507,116 @@ async function refreshMaterials() {
 
 /* ---------- view switching & init ---------- */
 
+/* ---------- test simulations ---------- */
+
+/* Each case is defaults-for-its-mode plus a small override map, so a case only
+   states what it changes and picks up any later change to the defaults. An
+   override naming a path the model does not have is reported rather than
+   dropped: a silently ignored override would make a case claim to test
+   something it is not testing. */
+function applyOverrides(setup, overrides) {
+  const unknown = [];
+  for (const [path, value] of Object.entries(overrides || {})) {
+    const parts = path.split(".");
+    let node = setup;
+    for (const key of parts.slice(0, -1)) {
+      if (node === null || typeof node !== "object" || !(key in node)) { node = null; break; }
+      node = node[key];
+    }
+    const leaf = parts[parts.length - 1];
+    if (node === null || typeof node !== "object" || !(leaf in node)) { unknown.push(path); continue; }
+    node[leaf] = value;
+  }
+  return unknown;
+}
+
+async function buildCaseSetup(tc) {
+  const { body } = await api(`/api/defaults/${tc.mode}`);
+  const unknown = applyOverrides(body, tc.overrides);
+  return { setup: body, unknown };
+}
+
+async function openCase(tc) {
+  const { setup, unknown } = await buildCaseSetup(tc);
+  $("#run-name").value = tc.title;
+  await switchMode(tc.mode, setup);
+  showView("new-run");
+  if (unknown.length) {
+    $("#feedback").innerHTML =
+      `<div class="err">This case names setup fields that do not exist: ${
+        unknown.map(esc).join(", ")}. It was loaded without them.</div>`;
+  }
+}
+
+async function runCase(tc, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Starting…";
+  try {
+    const { setup, unknown } = await buildCaseSetup(tc);
+    if (unknown.length) {
+      throw new Error(`unknown setup fields: ${unknown.join(", ")}`);
+    }
+    const { resp, body } = await postJSON("/api/runs", { name: tc.title, setup });
+    if (!resp.ok) {
+      const problems = (body.errors || [String(resp.status)]).join("; ");
+      throw new Error(problems);
+    }
+    showView("runs");
+  } catch (exc) {
+    btn.textContent = label;
+    btn.disabled = false;
+    const holder = document.getElementById(`case-msg-${tc.id}`);
+    if (holder) holder.innerHTML = `<div class="err">Could not start: ${esc(exc.message)}</div>`;
+  }
+}
+
+async function refreshTests() {
+  const host = $("#tests-list");
+  if (state.testsLoaded) return;
+  let cat;
+  try {
+    const resp = await fetch("/static/test-simulations.json");
+    if (!resp.ok) throw new Error(`catalogue unavailable (${resp.status})`);
+    cat = await resp.json();
+  } catch (exc) {
+    host.innerHTML = `<div class="err">${esc(exc.message)}</div>`;
+    return;
+  }
+  host.innerHTML = "";
+  for (const group of cat.groups || []) {
+    const sec = document.createElement("section");
+    sec.className = "test-group";
+    sec.innerHTML = `<h3>${esc(group.title)}</h3>` +
+      (group.hint ? `<p class="hint">${esc(group.hint)}</p>` : "");
+    for (const tc of group.cases || []) {
+      const card = document.createElement("article");
+      card.className = "test-case";
+      card.innerHTML =
+        `<div class="tc-head">
+           <span class="tc-title">${esc(tc.title)}</span>
+           <span class="tc-mode">${esc(state.modeLabels[tc.mode] || tc.mode)}</span>
+         </div>
+         <p class="tc-summary">${esc(tc.summary)}</p>
+         <p class="tc-expect"><b>Expect</b> ${esc(tc.expect)}</p>
+         <div class="tc-actions"></div>
+         <div id="case-msg-${esc(tc.id)}"></div>`;
+      const actions = card.querySelector(".tc-actions");
+      const open = document.createElement("button");
+      open.textContent = "Open in editor";
+      open.addEventListener("click", () => openCase(tc));
+      const run = document.createElement("button");
+      run.className = "primary";
+      run.textContent = "Run";
+      run.addEventListener("click", () => runCase(tc, run));
+      actions.append(open, run);
+      sec.appendChild(card);
+    }
+    host.appendChild(sec);
+  }
+  state.testsLoaded = true;
+}
+
 function showView(name) {
   document.querySelectorAll("nav button").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
@@ -519,6 +630,8 @@ function showView(name) {
     refreshSetups();
   } else if (name === "materials") {
     refreshMaterials();
+  } else if (name === "tests") {
+    refreshTests();
   }
 }
 

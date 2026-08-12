@@ -141,3 +141,26 @@ pre.json {
   background: var(--surface); border: 1px solid var(--grid); border-radius: 8px;
   padding: 10px; overflow-x: auto; font-size: 12.5px;
 }
+
+/* ---- test simulations ---- */
+.tests-lede { color: var(--ink-2); max-width: 70ch; margin: 0 0 18px; }
+.test-group { margin-bottom: 26px; }
+.test-group h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .11em;
+  color: var(--muted); margin: 0 0 4px; font-weight: 700;
+}
+.test-group .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; max-width: 70ch; }
+.test-case {
+  background: var(--surface); border: 1px solid var(--grid); border-radius: 3px;
+  padding: 13px 15px; margin-bottom: 8px;
+}
+.tc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.tc-title { font-weight: 650; font-size: 15px; }
+.tc-mode {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--grid);
+  border-radius: 2px; padding: 1px 7px; white-space: nowrap;
+}
+.tc-summary { margin: 6px 0 4px; color: var(--ink-2); max-width: 78ch; }
+.tc-expect { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; max-width: 78ch; }
+.tc-expect b { color: var(--ink-2); font-weight: 600; }
+.tc-actions { display: flex; gap: 8px; }

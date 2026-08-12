@@ -12,6 +12,7 @@
     <h1>qpsim <span class="subtitle">nonequilibrium superconductor kinetics</span></h1>
     <nav>
       <button data-view="new-run" class="active">New run</button>
+      <button data-view="tests">Test simulations</button>
       <button data-view="runs">Runs</button>
       <button data-view="setups">Setups</button>
       <button data-view="materials">Materials</button>
@@ -32,6 +33,13 @@
         <button id="btn-run" class="primary">Run</button>
       </div>
       <div id="feedback"></div>
+    </section>
+
+    <section id="view-tests" class="view hidden">
+      <p class="tests-lede">Various test and example simulations, as well as reproductions of prior
+        literature results. Each one starts from its mode's defaults and changes only what it needs
+        to. Open one to inspect or edit it before running, or run it straight from here.</p>
+      <div id="tests-list"></div>
     </section>
 
     <section id="view-runs" class="view hidden">
