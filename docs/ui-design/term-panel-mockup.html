@@ -1,0 +1,603 @@
+<title>Quasiparticle kinetics — term panel</title>
+<style>
+  :root{
+    --bg:#F6F8F9; --ink:#10171B; --ink-soft:#4A5A63; --ink-faint:#8B9AA3;
+    --rule:#DCE4E8;
+    --qp:#2E6F8E; --ph:#8F6221; --gap:#674781;
+    --qp-wash:rgba(46,111,142,.10); --ph-wash:rgba(143,98,33,.10); --gap-wash:rgba(103,71,129,.10);
+    --warn:#A63D40; --warn-wash:rgba(166,61,64,.09); --ok:#2E6F8E;
+    --math:'Cambria Math','STIX Two Math','Latin Modern Math','Times New Roman',Georgia,serif;
+    --ui:'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+  /* Deliberately single-theme. This is an instrument panel meant to read like
+     a bench sheet, and the sector hues were chosen against paper rather than
+     against a dark ground. The dark selector is pinned to the same values so
+     the viewer's toggle cannot half-apply a palette that was never designed. */
+  :root[data-theme="light"], :root[data-theme="dark"]{
+    --bg:#F6F8F9; --ink:#10171B; --ink-soft:#4A5A63; --ink-faint:#8B9AA3; --rule:#DCE4E8;
+    --qp:#2E6F8E; --ph:#8F6221; --gap:#674781;
+    --qp-wash:rgba(46,111,142,.10); --ph-wash:rgba(143,98,33,.10); --gap-wash:rgba(103,71,129,.10);
+    --warn:#A63D40; --warn-wash:rgba(166,61,64,.09); --ok:#2E6F8E;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--ui); font-size:16px; line-height:1.55; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px; margin:0 auto; padding:56px 30px 84px; display:flex; flex-direction:column; gap:40px}
+
+  header{display:flex; flex-direction:column; gap:9px}
+  .eyebrow{font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:600}
+  h1{margin:0; font-family:var(--math); font-weight:400; font-size:clamp(25px,3.2vw,34px); letter-spacing:-.005em; text-wrap:balance}
+  .sub{margin:0; color:var(--ink-soft); max-width:66ch; font-size:15px}
+  .sub em{font-family:var(--math); font-style:italic}
+
+  /* ---- aligned equation stack: label | LHS | = | RHS ----------------- */
+  .stack{
+    display:grid;
+    grid-template-columns:max-content max-content max-content minmax(0,1fr);
+    column-gap:16px; row-gap:10px; align-items:center;
+    font-size:clamp(12.5px,1.55vw,18.5px);
+  }
+  .tag{
+    font-family:var(--ui); font-size:10px; letter-spacing:.15em; text-transform:uppercase;
+    font-weight:700; color:var(--sector); white-space:nowrap; padding-right:8px;
+  }
+  .lhs,.rhs{font-family:var(--math); line-height:1.2; display:flex; align-items:center; white-space:nowrap}
+  .lhs{justify-content:flex-end}
+  .rhs{min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; padding:9px 0 11px; margin:-9px 0 -11px}
+  .eqs{font-family:var(--math); color:var(--ink-soft); line-height:1.2}
+  [data-sector="qp"]{--sector:var(--qp); --wash:var(--qp-wash)}
+  [data-sector="ph"]{--sector:var(--ph); --wash:var(--ph-wash)}
+  [data-sector="gap"]{--sector:var(--gap); --wash:var(--gap-wash)}
+
+  @media (max-width:720px){
+    .stack{grid-template-columns:max-content max-content minmax(0,1fr); row-gap:4px}
+    .tag{grid-column:1 / -1; padding-top:14px; padding-right:0}
+  }
+
+  .term{
+    font:inherit; color:inherit; background:transparent; border:0; cursor:pointer;
+    padding:.2em .24em; margin:0; border-radius:3px; position:relative; line-height:1.2;
+    white-space:nowrap; transition:opacity .16s ease, background-color .16s ease, color .16s ease;
+  }
+  .term:hover{background:var(--wash)}
+  .term:focus-visible{outline:2px solid var(--sector); outline-offset:2px}
+  .term.off{opacity:.24; color:var(--ink-soft)}
+  .term.off::after{content:""; position:absolute; left:.05em; right:.05em; top:50%; height:1.5px; background:currentColor; border-radius:2px}
+  .term.locked{cursor:not-allowed}
+  .term.locked::before{content:""; position:absolute; inset:0 -1px; border-radius:4px; border:1px dashed var(--sector); opacity:.4}
+  .term.clamped{opacity:.52}
+  .term.clamped::after{content:""; position:absolute; left:.1em; right:.1em; bottom:.08em; border-bottom:2px dotted currentColor}
+  .term.warn{color:var(--warn); background:var(--warn-wash)}
+  .op{padding:0 .2em; color:var(--ink-soft); transition:opacity .16s ease}
+  /* the sign in front of a term belongs to it, and fades with it */
+  .op.dim{opacity:.24}
+  @keyframes nudge{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  .term.nudge{animation:nudge .26s ease}
+  @media (prefers-reduced-motion:reduce){.term.nudge{animation:none}.term{transition:none}}
+
+  /* ---- math primitives ----------------------------------------------- */
+  .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.12; margin:0 .14em; position:relative; top:-.05em}
+  .frac>.num{display:block; padding:0 .3em .07em}
+  .frac>.den{display:block; padding:.07em .3em 0; border-top:1.1px solid currentColor}
+  .itl{font-style:italic}
+  .up{font-style:normal}
+  .vec{font-style:italic; font-weight:700}
+  sub,sup{font-size:.62em; font-style:normal; line-height:0}
+  sub{vertical-align:-.25em} sup{vertical-align:.5em}
+  .si{font-size:.62em; vertical-align:-.25em; font-style:italic; line-height:0}
+  .intg{display:inline-block; vertical-align:middle; margin:0 .1em}
+  .intg .sym{font-size:1.62em; font-style:italic; line-height:.78; display:inline-block; vertical-align:middle}
+  .intg .lim{display:inline-block; vertical-align:middle; font-size:.52em; line-height:1.25; text-align:left; margin-left:.12em}
+  .intg .lim>span{display:block}
+  .sqrt{display:inline-block; vertical-align:middle; white-space:nowrap}
+  .sqrt .rad{font-size:1.2em; display:inline-block; vertical-align:-.06em; line-height:1}
+  .sqrt .rand{display:inline-block; border-top:1.1px solid currentColor; padding:.08em .12em 0 .05em; margin-top:.1em; line-height:1.1}
+
+  /* ---- consequences --------------------------------------------------- */
+  .cons-wrap{display:flex; flex-direction:column; gap:14px; padding-top:26px; border-top:1px solid var(--rule)}
+  .cons-wrap h2{margin:0; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700}
+  ul.cons{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
+  ul.cons li{display:grid; grid-template-columns:auto 1fr; column-gap:12px; align-items:baseline; font-size:14.5px; line-height:1.55}
+  ul.cons .mk{width:16px; height:2px; border-radius:2px; background:var(--sector,var(--ink-faint)); transform:translateY(-4px)}
+  ul.cons li b{font-weight:650}
+  ul.cons li.derived{color:var(--ink-soft)}
+  ul.cons li.derived .mk{background:var(--ink-faint)}
+  ul.cons li.bad{color:var(--warn)}
+  ul.cons li.bad .mk{background:var(--warn)}
+  ul.cons li.bad b{color:var(--warn)}
+  ul.cons li.full .mk{background:var(--ok)}
+
+  .legend{display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; font-size:12.5px; color:var(--ink-soft)}
+  .legend .k{display:inline-flex; align-items:center; gap:8px}
+  .swatch{font-family:var(--math); font-size:15px; padding:.1em .3em; position:relative; border-radius:3px; color:var(--ink)}
+  .swatch.s-off{opacity:.24}
+  .swatch.s-off::after{content:""; position:absolute; left:.05em; right:.05em; top:50%; height:1.5px; background:currentColor}
+  .swatch.s-lock::before{content:""; position:absolute; inset:0 -1px; border:1px dashed var(--ink-faint); border-radius:4px; opacity:.65}
+  .swatch.s-clamp{opacity:.52}
+  .swatch.s-clamp::after{content:""; position:absolute; left:.1em; right:.1em; bottom:.08em; border-bottom:2px dotted currentColor}
+  .reset{margin-left:auto; font:inherit; font-size:12.5px; color:var(--ink-soft); background:none; border:1px solid var(--rule); border-radius:2px; padding:5px 12px; cursor:pointer}
+  .reset:hover{color:var(--ink); border-color:var(--ink-faint)}
+  .reset:focus-visible{outline:2px solid var(--qp); outline-offset:2px}
+  .foot{font-size:12.5px; color:var(--ink-faint); max-width:72ch; margin:0}
+
+  /* ---- landing ------------------------------------------------------- */
+  .view[hidden]{display:none}
+  .lede{margin:0; color:var(--ink-soft); max-width:62ch; font-size:15.5px}
+  .groups{display:flex; flex-direction:column; gap:30px}
+  .group{display:flex; flex-direction:column; gap:2px}
+  .group>h2{
+    margin:0 0 8px; font-size:10.5px; letter-spacing:.17em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:700;
+  }
+  .action{
+    display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:4px 20px;
+    width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer;
+    background:transparent; border:0; border-top:1px solid var(--rule);
+    padding:15px 4px 15px 0; position:relative; transition:background-color .14s ease;
+  }
+  .group .action:last-of-type{border-bottom:1px solid var(--rule)}
+  .action:hover{background:var(--qp-wash)}
+  .action:focus-visible{outline:2px solid var(--qp); outline-offset:-2px}
+  .action .name{font-size:16.5px; font-weight:600; letter-spacing:-.005em}
+  .action .desc{grid-column:1; font-size:13.5px; color:var(--ink-soft); max-width:64ch}
+  .action .go{
+    grid-row:1 / span 2; align-self:center; font-size:12px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-faint); white-space:nowrap;
+  }
+  .action.primary .name{color:var(--qp)}
+  .action.primary .go{color:var(--qp)}
+  .action[data-mock="1"] .go{font-style:normal}
+  .workspace{
+    font-family:'Cascadia Mono','Consolas',ui-monospace,monospace; font-size:12px;
+    color:var(--ink-faint); border-top:1px solid var(--rule); padding-top:16px;
+    display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline;
+  }
+  .workspace b{color:var(--ink-soft); font-weight:600; letter-spacing:.06em;
+    font-family:var(--ui); font-size:10.5px; text-transform:uppercase}
+  .toast{
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+    background:var(--ink); color:var(--bg); font-size:13px; padding:10px 16px;
+    border-radius:3px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+    max-width:min(560px,88vw); box-shadow:0 8px 24px -10px rgba(16,23,27,.5);
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  @media (prefers-reduced-motion:reduce){ .toast{transition:none} }
+  .back{
+    font:inherit; font-size:13px; color:var(--ink-soft); background:none; border:0;
+    padding:0; cursor:pointer; align-self:flex-start; display:inline-flex; gap:7px; align-items:center;
+  }
+  .back:hover{color:var(--ink)}
+  .back:focus-visible{outline:2px solid var(--qp); outline-offset:3px}
+</style>
+
+<div class="wrap view" id="view-home">
+  <header>
+    <div class="eyebrow">Quasiparticle Physics Simulator</div>
+    <h1>Crank–Nicolson diffusion workflow</h1>
+    <p class="lede">Geometry, boundary-condition assignment, and the coupled quasiparticle–phonon–gap
+      solve. Start a new setup, reopen a saved one, or read the results of a run.</p>
+  </header>
+
+  <div class="groups">
+    <section class="group">
+      <h2>Setups</h2>
+      <button class="action primary" data-go="terms" type="button">
+        <span class="name">Create New Setup</span>
+        <span class="go">Open →</span>
+        <span class="desc">Choose the geometry, the material, and which terms of the kinetic equations to solve.</span>
+      </button>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">Load Saved Setup</span>
+        <span class="go">Browse</span>
+        <span class="desc">Reopen a setup from <code>data/setups</code> and edit it before running.</span>
+      </button>
+    </section>
+
+    <section class="group">
+      <h2>Simulations</h2>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">User Simulations</span>
+        <span class="go">Browse</span>
+        <span class="desc">Runs you have saved, with their spatial, spectral and phonon viewers, and CSV or PNG export.</span>
+      </button>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">Test Simulations</span>
+        <span class="go">Browse</span>
+        <span class="desc">Various test and example simulations, as well as reproductions of prior literature results. Run individually when you open one.</span>
+      </button>
+    </section>
+
+    <section class="group">
+      <h2>Reference</h2>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">Relevant Physics</span>
+        <span class="go">Read</span>
+        <span class="desc">The concepts behind the model: the diffusion-operator family, the collision channels, and what each approximation costs.</span>
+      </button>
+    </section>
+
+    <section class="group">
+      <h2>Environment</h2>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">Install Requirements</span>
+        <span class="go">Run</span>
+        <span class="desc">Set up the Python environment this workspace expects.</span>
+      </button>
+      <button class="action" data-mock="1" type="button">
+        <span class="name">Run Quality Checks</span>
+        <span class="go">Run</span>
+        <span class="desc">Lint, type-check and the test gate, against the workspace as it stands.</span>
+      </button>
+    </section>
+  </div>
+
+  <div class="workspace">
+    <b>Workspace</b>
+    <span>B:\AEinstein\Einstein\Documents\Soren\qpsim</span>
+  </div>
+
+  <p class="foot">Mock-up only — nothing is solved and no file is read or written. “Create New Setup” is
+    the one wired route; it opens the term panel.</p>
+</div>
+
+<div class="wrap view" id="view-terms" hidden>
+  <button class="back" id="back" type="button">← Quasiparticle Physics Simulator</button>
+  <header>
+    <div class="eyebrow">Dirty-limit Keldysh–Usadel · A1 · (p, q) = (1, 0) · any dimension</div>
+    <h1>Three coupled equations, as the control surface</h1>
+    <p class="sub">Click a term to drop it from the model; the consequences collect at the foot of the page. Only right-hand sides switch — each rate equation's left side is the quantity being solved for. Empty a right-hand side and that derivative is zero, which holds the quantity at its initial value. The operator is written with ∇, so the same panel serves 1-, 2- and 3-D geometries.</p>
+  </header>
+
+  <div class="stack">
+    <!-- ---- quasiparticles ---- -->
+    <div class="tag" data-sector="qp">Quasiparticles</div>
+    <div class="lhs" data-sector="qp">
+      <button class="term locked" data-term="dqp" type="button" aria-disabled="true"><span class="frac"><span class="num up">∂(<span class="itl">N</span><sub>1</sub><span class="itl">f</span>)</span><span class="den up">∂<span class="itl">t</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="qp">
+      <button class="term" data-term="diff" type="button">∇&middot;(<span class="itl">D</span><sub>0</sub>∇<span class="itl">f</span>)</button>
+      <span class="op" data-op-for="scat">+</span>
+      <button class="term" data-term="scat" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">sc</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="recomb">+</span>
+      <button class="term" data-term="recomb" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">r</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="photsg">+</span>
+      <button class="term" data-term="photsg" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">γ,sg</span>[<span class="itl">f</span>]</button>
+      <span class="op" data-op-for="photpb">+</span>
+      <button class="term" data-term="photpb" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">γ,pb</span>[<span class="itl">f</span>]</button>
+      <span class="op" data-op-for="src">+</span>
+      <button class="term" data-term="src" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">S</span>(<span class="itl">E</span>,&thinsp;<span class="vec">r</span>,&thinsp;<span class="itl">t</span>)</button>
+    </div>
+
+    <!-- ---- phonons ---- -->
+    <div class="tag" data-sector="ph">Phonons</div>
+    <div class="lhs" data-sector="ph">
+      <button class="term locked" data-term="dph" type="button" aria-disabled="true"><span class="frac"><span class="num up">∂<span class="itl">n</span></span><span class="den up">∂<span class="itl">t</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="ph">
+      <button class="term" data-term="psc" type="button"><span class="itl">Σ</span><span class="si">sc</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="prc">+</span>
+      <button class="term" data-term="prc" type="button"><span class="itl">Σ</span><span class="si">r</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="pesc">−</span>
+      <button class="term" data-term="pesc" type="button"><span class="frac"><span class="num"><span class="itl">n</span> − <span class="itl">n</span><span class="si">B</span>(<span class="itl">T</span><span class="si">b</span>)</span><span class="den"><span class="itl">τ</span><span class="si">esc</span></span></span></button>
+    </div>
+
+    <!-- ---- order parameter ---- -->
+    <div class="tag" data-sector="gap">Order parameter</div>
+    <div class="lhs" data-sector="gap">
+      <button class="term" data-term="gapeq" type="button"><span class="frac"><span class="num">1</span><span class="den"><span class="itl">N</span><sub>0</sub><span class="itl">V</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="gap">
+      <button class="term" data-term="gapeq" type="button"><span class="intg"><span class="sym">∫</span><span class="lim"><span>ℏ<span class="itl">ω</span><span class="si">D</span></span><span><span class="itl">Δ</span></span></span></span><span class="frac"><span class="num">1 − 2<span class="itl">f</span>(<span class="itl">E</span>)</span><span class="den"><span class="sqrt"><span class="rad">√</span><span class="rand"><span class="itl">E</span><sup>2</sup> − <span class="itl">Δ</span><sup>2</sup></span></span></span></span><span class="up">&thinsp;d</span><span class="itl">E</span></button>
+    </div>
+  </div>
+
+  <section class="cons-wrap">
+    <h2>Consequences</h2>
+    <ul class="cons" id="cons"></ul>
+  </section>
+
+  <div class="legend">
+    <span class="k"><span class="swatch">term</span> in the model</span>
+    <span class="k"><span class="swatch s-off">term</span> dropped</span>
+    <span class="k"><span class="swatch s-lock">term</span> locked</span>
+    <span class="k"><span class="swatch s-clamp">term</span> clamped</span>
+    <button class="reset" id="reset" type="button">Reset to full model</button>
+  </div>
+
+  <p class="foot">Mock-up only — nothing is solved. Colour marks the subsystem a term belongs to; clay-red is reserved for a model the solver could run but could not certify.</p>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---- landing / term-panel routing ------------------------------------ */
+(function(){
+  var home = document.getElementById('view-home');
+  var terms = document.getElementById('view-terms');
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+
+  function show(which){
+    var toTerms = which === 'terms';
+    home.hidden = toTerms;
+    terms.hidden = !toTerms;
+    window.scrollTo(0, 0);
+    (toTerms ? document.getElementById('back') : home.querySelector('.action')).focus();
+  }
+
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
+  }
+
+  document.querySelectorAll('.action').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.dataset.go === 'terms'){ show('terms'); return; }
+      /* Say what would happen rather than pretending it did. A mock-up that
+         silently does nothing reads as broken. */
+      toast('“' + btn.querySelector('.name').textContent + '” is not wired in this mock-up.');
+    });
+  });
+  document.getElementById('back').addEventListener('click', function(){ show('home'); });
+})();
+
+/* ---- term panel ------------------------------------------------------- */
+(function(){
+  /* Only right-hand sides are switchable. Each rate equation's left-hand
+     side is the quantity being solved for, so it is locked: empty its
+     right-hand side and the derivative is simply zero, which fixes that
+     quantity at whatever it was initialised to. The gap equation is not a
+     rate equation — its left-hand side is not d(Delta)/dt — so it stays a
+     single toggle for the whole relation. */
+  var state = {diff:1, scat:1, recomb:1, photsg:1, photpb:1, src:1, psc:1, prc:1, pesc:1, gapeq:1};
+
+  /* The two phonon-coupled channels appear in BOTH equations — the same
+     microscopic events, counted from either side. MIRROR maps each phonon
+     term to the quasiparticle channel that generates it, which is what makes
+     the cross-equation check possible: the phonon side may be a subset of the
+     quasiparticle side (that is the fixed-bath limit), never a superset. */
+  var MIRROR = {psc:'scat', prc:'recomb'};
+
+  var LOCK_NOTE = {
+    dqp:'The quantity being solved for. Empty the right-hand side instead — f then holds at its initial value.',
+    dph:'The quantity being solved for. Empty the right-hand side instead — n then holds at its initial value.'
+  };
+
+  /* one consequence per switchable term, in reading order */
+  var OFF_TEXT = [
+    ['diff','qp','<b>No spatial transport.</b> Every point in the geometry evolves independently.'],
+    ['scat','qp','<b>No quasiparticle–phonon scattering.</b> The distribution cannot relax in energy — nothing carries a quasiparticle down toward the gap edge, and nothing lifts it back.'],
+    ['recomb','qp','<b>No recombination or pair breaking.</b> Two quasiparticles annihilating into a phonon above 2Δ and that phonon breaking a pair are the forward and reverse of one process, so they go together. Quasiparticle number is now conserved by every remaining channel.'],
+    ['photsg','qp','<b>No sub-gap photon drive.</b> Nothing redistributes quasiparticles in energy by absorbing a photon below 2Δ.'],
+    ['photpb','qp','<b>No pair-breaking photon drive.</b> The drive no longer creates quasiparticles.'],
+    ['src','qp','<b>No external injection.</b> Nothing is fed in from outside the film.'],
+    ['psc','ph','<b>Scattering no longer feeds the phonons.</b> Quasiparticles still scatter, but the phonons they emit and absorb are not booked.'],
+    ['prc','ph','<b>Recombination no longer feeds the phonons.</b> The 2Δ phonons that recombination emits — and that pair breaking reabsorbs — are not booked. This is the channel phonon trapping is made of.'],
+    ['pesc','ph','<b>No phonon escape.</b> The film retains every phonon it emits.'],
+    ['__phfix','ph','<b>Phonon population fixed.</b> With an empty right-hand side ∂<i>n</i>/∂<i>t</i> = 0, so <i>n</i> holds at whatever it was initialised to — usually a thermal bath, though not necessarily one. This is the fast-escape limit, <i>τ</i><sub>esc</sub> → 0: sound when phonons leave faster than the quasiparticles evolve, and <i>not</i> sound where trapping — reabsorption before escape — is part of the effect being studied.'],
+    ['gapeq','gap','<b>Gap held at its initial value.</b> Fixed-gap kinetics — Δ no longer responds to the occupation.']
+  ];
+
+  var els = {};
+  document.querySelectorAll('.term').forEach(function(b){
+    (els[b.dataset.term] = els[b.dataset.term] || []).push(b);
+  });
+  function each(k, fn){ (els[k] || []).forEach(fn); }
+
+  Object.keys(LOCK_NOTE).forEach(function(k){
+    each(k, function(el){ el.title = LOCK_NOTE[k]; });
+  });
+
+  /* A phonon term cannot book a channel the quasiparticle equation does not
+     have, so it FOLLOWS its source channel rather than warning after the
+     fact — the phonon side is a subset of the quasiparticle side by
+     construction. `state` records what the user asked for; `eff` is what the
+     model actually runs. Keeping the two apart means switching a channel off
+     and back on restores the phonon term to whatever the user had chosen,
+     instead of silently resurrecting a term they had dropped on purpose. */
+  function qpFixed(){
+    return !state.diff && !state.scat && !state.recomb
+        && !state.photsg && !state.photpb && !state.src;
+  }
+  /* Switching a channel off on ONE side does not stop those events happening.
+     It clamps that side against them: dropping I_sc says the quasiparticle
+     energies are held fixed while phonons scatter off them, exactly as
+     dropping the phonon term says the phonons are held fixed while
+     quasiparticles scatter off them. Both are the same idealisation with the
+     roles swapped, and both lose track of the energy being traded — so both
+     are warned about and neither is prevented. (A correction factor applied
+     to one side only WOULD be incoherent, because then the two equations rate
+     the same event differently; that is not what a term switch does.) */
+  
+
+  /* Channels where one side responds and the other is held fixed. `side` is
+     the side that is NOT tracking: 'ph' means the phonon term is off. */
+  function clampedChannels(){
+    var out = [];
+    Object.keys(MIRROR).forEach(function(p){
+      var q = MIRROR[p];
+      if(state[q] && !state[p]) out.push({ch:q, side:'ph'});
+      if(state[p] && !state[q]) out.push({ch:q, side:'qp'});
+    });
+    return out;
+  }
+
+  /* An empty right-hand side is what fixes a quantity — there is no separate
+     switch for it, so the two can never disagree. */
+  function phFixed(){ return !state.psc && !state.prc && !state.pesc; }
+
+  function render(){
+    var nFixed = phFixed();
+
+    Object.keys(state).forEach(function(k){
+      each(k, function(el){
+        el.classList.toggle('off', !state[k]);
+        el.classList.remove('warn','clamped','locked');
+        el.removeAttribute('title');
+      });
+    });
+
+    /* n no longer moves, so the collision terms that read it are pinned */
+    if(nFixed){
+      ['scat','recomb'].forEach(function(k){
+        if(state[k]) each(k, function(el){ el.classList.add('clamped'); });
+      });
+    }
+
+    /* Read the operators' state back off the rendered terms rather than the
+       model, so a sign can never disagree with the term it introduces. */
+    document.querySelectorAll('[data-op-for]').forEach(function(op){
+      var t = (els[op.getAttribute('data-op-for')] || [])[0];
+      op.classList.toggle('dim', !!(t && t.classList.contains('off')));
+    });
+
+    var anyColl = (state.scat || state.recomb || state.photsg || state.photpb || state.src);
+    /* Only the pair channel changes quasiparticle number. Without it the
+       number is exactly conserved, which is two different situations: if
+       something still CREATES quasiparticles the population has no sink, and
+       if nothing does, the number is frozen and the steady state is degenerate
+       in amplitude — the defect the number certificate was built to catch. */
+    var noSink = !state.recomb && (state.src || state.photpb);
+    var amplitudeFree = !state.recomb && !state.src && !state.photpb && anyColl;
+    if(noSink || amplitudeFree){ each('recomb', function(el){ el.classList.add('warn'); }); }
+
+    /* ---- build the stacked list ---- */
+    var out = [];
+    OFF_TEXT.forEach(function(row){
+      var k = row[0];
+      if(k === '__phfix'){
+        if(nFixed) out.push('<li data-sector="ph"><span class="mk"></span><span>'+row[2]+'</span></li>');
+        return;
+      }
+      if(state[k]) return;
+      /* the combined statement already covers the whole right-hand side */
+      if(nFixed && (k === 'psc' || k === 'prc' || k === 'pesc')) return;
+      out.push('<li data-sector="'+row[1]+'"><span class="mk"></span><span>'+row[2]+'</span></li>');
+    });
+
+    if(amplitudeFree){
+      out.push('<li class="derived"><span class="mk"></span><span><b>Quasiparticle number is frozen.</b> '
+        + 'Only the pair channel changes it, so with that gone the number is exactly conserved and every remaining '
+        + 'channel merely redistributes it. A transient is fine, but there is no unique steady state to find: any '
+        + 'amplitude solves it, and which one you land on is set by the initial condition rather than by the physics. '
+        + 'This is the degeneracy the conserved-number certificate exists to catch.</span></li>');
+    }
+    if(noSink){
+      out.push('<li class="bad"><span class="mk"></span><span><b>Nothing removes quasiparticles.</b> '
+        + 'Injection and the pair-breaking drive create them, and only recombination takes them away. '
+        + 'The population grows until Pauli blocking stops it, so any steady state found is the saturated one.</span></li>');
+    }
+    /* Delta is a functional of the occupation, so whatever pathology the
+       occupation has propagates into the gap — and the gap is what the whole
+       spectral model is built on. */
+    if(state.gapeq && noSink){
+      out.push('<li class="bad"><span class="mk"></span><span><b>The gap collapses.</b> '
+        + 'The population runs away and Δ is solved from it, so Δ is driven toward zero. '
+        + '<i>N</i><sub>1</sub> = <i>E</i>/√(<i>E</i>²−Δ²) then loses the gap-edge structure the whole model rests on, '
+        + 'and a sub-gap drive stops being sub-gap once 2Δ falls past it. The run does not just come out wrong; '
+        + 'it leaves the regime the equations describe.</span></li>');
+    }
+    if(state.gapeq && amplitudeFree){
+      out.push('<li class="derived"><span class="mk"></span><span>The undetermined amplitude carries into Δ: the gap is a functional of the occupation, so a one-parameter family of <i>f</i> gives a one-parameter family of Δ. Two coupled degeneracies rather than one.</span></li>');
+    }
+    if(nFixed && state.recomb){
+      out.push('<li class="derived"><span class="mk"></span><span>The pair channel exchanges energy with a phonon population that cannot respond — fine against a fixed bath, but not a closed energy budget.</span></li>');
+    }
+    clampedChannels().forEach(function(c){
+      /* A whole side switched off is a deliberate bath, and gets the gentler
+         note further down. This is the partial case: the other side is still
+         being solved, so the loss is easy to miss. */
+      var deliberate = (c.side === 'ph') ? nFixed : qpFixed();
+      if(deliberate) return;
+      var process = (c.ch === 'scat')
+        ? 'quasiparticle-phonon scattering'
+        : 'recombination and pair breaking';
+      /* [moving plural, moving singular, other singular, other plural] —
+         the two directions are the same sentence with the roles swapped. */
+      var w = (c.side === 'ph')
+        ? ['quasiparticles', 'quasiparticle', 'phonon', 'phonons']
+        : ['phonons', 'phonon', 'quasiparticle', 'quasiparticles'];
+      out.push('<li class="bad"><span class="mk"></span><span><b>Warning:</b> Right now, the '
+        + w[0] + '’ energies can change due to ' + process + '. This involves a transfer of energy between a '
+        + w[1] + ' and a ' + w[2] + '. But the corresponding term that tracks the change in the '
+        + w[3] + '’ energies due to this transfer of energy has been turned off. '
+        + 'Energy conservation is not being kept track of. Proceed at your own risk.</span></li>');
+    });
+    if(!state.pesc && (state.psc || state.prc)){
+      out.push('<li class="derived"><span class="mk"></span><span>Closed system: no phonon leaves the film, so quasiparticle and phonon energy together should be conserved. A useful conservation test rather than a defect.</span></li>');
+    }
+    if(qpFixed()){
+      out.push('<li class="derived"><span class="mk"></span><span><b>Occupation fixed.</b> With an empty right-hand side ∂(<i>N</i><sub>1</sub><i>f</i>)/∂<i>t</i> = 0, so <i>f</i> holds at its initial value and the solve returns the initial condition unchanged — useful only as an end-to-end check that the pipeline is wired correctly.</span></li>');
+    } else if(!anyColl){
+      out.push('<li class="derived"><span class="mk"></span><span><b>Nothing relaxes f.</b> The initial distribution spreads through the geometry and stays there.</span></li>');
+    }
+
+    /* Name the reduction when it is a model someone would recognise, so a
+       stripped-down configuration reads as a deliberate choice rather than as
+       a pile of missing terms. */
+    var on = Object.keys(state).filter(function(k){ return state[k]; });
+    var named = null;
+    /* The mirror of the fixed bath: hold the quasiparticles still instead of
+       the phonons, and ask what the phonon population does in response. */
+    if(qpFixed() && (state.psc || state.prc)){
+      named = '<b>A quasiparticle bath.</b> The occupation is held fixed and the phonons respond to it — the same '
+            + 'idea as a fixed phonon bath, with the roles swapped. Here <i>f</i> is something you supply rather '
+            + 'than something being solved for, so the phonon terms are free again: quasiparticle–phonon events '
+            + 'still happen, they are just driven by a distribution you have pinned rather than one that reacts.';
+    }
+    if(!named && on.length === 2){
+      var key = on.slice().sort().join('|');
+      var PAIRS = {
+        'diff|recomb':'<b>Diffusion–recombination.</b> The textbook reduction: quasiparticles spread through the geometry and are removed in pairs, with the recombination length √(<i>D</i><sub>eff</sub><i>τ</i><sub>r</sub>) setting the scale everything else is measured against.',
+        'recomb|scat':'<b>Zero-dimensional kinetics against a fixed bath.</b> Energy relaxation and number relaxation both present, no transport — the standard local model, and the one the paper reproductions solve at each point.',
+        'prc|recomb':'<b>The phonon-trapping loop.</b> Recombination emits a 2Δ phonon, pair breaking reabsorbs it, and with escape switched off it cannot leave. This closed loop is exactly the effect that makes τ<sub>esc</sub> matter; energy here should be conserved, which makes it a conservation test.',
+        'psc|scat':'<b>Closed scattering loop.</b> Quasiparticles and phonons trade energy with nothing leaving the film, so the two populations together should conserve it.',
+        'recomb|src':'<b>Driven steady state.</b> Injection balanced by recombination — the configuration behind any steady quasiparticle density quoted for a driven film.',
+        'photpb|recomb':'<b>Photon-driven steady state.</b> Pair-breaking absorption balanced by recombination, with no energy relaxation to reshape the distribution between the two.'
+      };
+      named = PAIRS[key] || null;
+    }
+    if(!named && on.length === 1){
+      if(on[0] === 'diff')   named = '<b>A pure diffusion simulator.</b> One linear diffusion equation per energy, uncoupled: ∂<i>f</i>/∂<i>t</i> = (<i>D</i><sub>0</sub>/<i>N</i><sub>1</sub>)∇²<i>f</i> at fixed Δ. The energy dependence survives only through the effective rate <i>D</i><sub>0</sub>/<i>N</i><sub>1</sub>(<i>E</i>), which falls toward the gap edge.';
+      if(on[0] === 'scat')   named = '<b>Energy relaxation at fixed number.</b> Quasiparticles exchange energy with a fixed bath and nothing changes how many there are, so <i>f</i> relaxes toward a thermal shape carrying whatever population it started with.';
+      if(on[0] === 'recomb') named = '<b>Recombination-limited decay.</b> The population relaxes toward the value the fixed bath supports, with no energy relaxation to reshape it on the way.';
+      if(on[0] === 'gapeq')  named = '<b>A gap calculation, not a kinetics run.</b> Nothing evolves; Δ is solved self-consistently for the occupation as given. This is how you read off gap suppression for a distribution you already have.';
+      if(on[0] === 'pesc')   named = '<b>Bare phonon relaxation.</b> The phonons decay to the bath and stop; the quasiparticles are inert throughout.';
+      if(on[0] === 'psc' || on[0] === 'prc')
+        named = '<b>Phonons driven by a frozen occupation.</b> One-way coupling: <i>f</i> is an input, not an unknown, and the phonon population responds to it. The mirror of the fixed-bath limit.';
+    }
+    if(named){
+      out.unshift('<li class="full"><span class="mk"></span><span>'+named+'</span></li>');
+    }
+
+    if(!out.length){
+      out.push('<li class="full"><span class="mk"></span><span><b>Full model.</b> Every channel active; the quasiparticle, phonon and gap sectors close on each other, and the solve is certifiable.</span></li>');
+    }
+    document.getElementById('cons').innerHTML = out.join('');
+  }
+
+  document.querySelectorAll('.term').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.classList.contains('locked')){
+        btn.classList.remove('nudge'); void btn.offsetWidth; btn.classList.add('nudge');
+        return;
+      }
+      var k = btn.dataset.term;
+      state[k] = state[k] ? 0 : 1;
+      render();
+    });
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    Object.keys(state).forEach(function(k){ state[k] = 1; });
+    render();
+  });
+
+  render();
+})();
+</script>
