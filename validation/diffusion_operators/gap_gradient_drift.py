@@ -17,7 +17,7 @@ Oracle measure (corrected 2026-08-11)
 -------------------------------------
 Both the tracked moment and the analytic velocity are built from the
 represented cell-average measure ``bcs_dos_cell_weights(E, dE, g) / dE``,
-which is what ``T3Spatial1DBackend`` conserves. The helper is imported from
+which is what ``T3SpatialBackend`` conserves. The helper is imported from
 the sibling benchmark rather than re-derived so the two cannot diverge.
 
 This completes the July-2026 validation-oracle correction recorded in
@@ -46,7 +46,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.physics.spectral import SpectralContext
@@ -98,7 +99,7 @@ def run(
     x = np.linspace(0.0, length_um, NX)
 
     ramp = np.linspace(gap_lo_factor * base_gap, gap_max, NX)
-    # The represented cell-average BCS measure that T3Spatial1DBackend actually
+    # The represented cell-average BCS measure that T3SpatialBackend actually
     # conserves. Shared with benchmark 4 rather than re-derived, so the two
     # benchmarks cannot drift into different measures. Both the tracked moment
     # and the analytic velocity below are built from this one array: weighting
@@ -116,21 +117,23 @@ def run(
     dN1_dx = np.gradient(N1, x, axis=1)[:, center]
     N1_center = N1[:, center]
 
-    backend = T3Spatial1DBackend()
+    backend = T3SpatialBackend()
     drift_measured: dict[str, np.ndarray] = {}
     drift_analytic: dict[str, np.ndarray] = {}
 
     for model in BENCHMARK_MODELS:
         p, q = model.p, model.q
-        state = T3Spatial1DState(
+        state = T3SpatialState(
             f=f_seed.copy(),
-            x=x,
-            gap=gap_max,
+            geometry=strip(
+                len(x),
+                mesh_size=float(x[1] - x[0]) if len(x) > 1 else 1.0,
+            ),
             spectral=spectral,
             material=material,
             T_bath=0.1,
             diffusion_model=model,
-            gap_profile=ramp,
+            gap_per_cell=ramp,
         )
         com0 = _center_of_mass(state.f, N1, p, x)
         evolving = state

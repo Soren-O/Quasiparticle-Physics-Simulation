@@ -28,7 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.physics.bcs_quadrature import cell_edges_from_widths
@@ -109,7 +110,7 @@ def run(
     lambda_1 = (2.0 / dx**2) * (1.0 - np.cos(np.pi / NX))
     cell_weights = spectral.cell_weights
 
-    backend = T3Spatial1DBackend()
+    backend = T3SpatialBackend()
     f_seed = np.tile(0.5 + 0.3 * mode, (NE, 1))
 
     deff_over_dn: dict[str, np.ndarray] = {}
@@ -174,11 +175,13 @@ def _state(
     spectral: SpectralContext,
     material: object,
     model: DiffusionModel,
-) -> T3Spatial1DState:
-    return T3Spatial1DState(
+) -> T3SpatialState:
+    return T3SpatialState(
         f=f,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            f.shape[1],
+            mesh_size=float(x[1] - x[0]) if x.size > 1 else 1.0,
+        ),
         spectral=spectral,
         material=material,  # type: ignore[arg-type]
         T_bath=0.1,

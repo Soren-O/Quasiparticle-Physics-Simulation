@@ -50,7 +50,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 import numpy as np
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.gap_suppression import (
@@ -403,23 +404,25 @@ def run(
             f0: np.ndarray,
             model: DiffusionModel = model,
             gap_profile: np.ndarray = gap_profile,
-        ) -> T3Spatial1DState:
-            return T3Spatial1DState(
+        ) -> T3SpatialState:
+            return T3SpatialState(
                 f=f0.copy(),
-                x=x,
-                gap=gap0,
+                geometry=strip(
+                    len(x),
+                    mesh_size=float(x[1] - x[0]) if len(x) > 1 else 1.0,
+                ),
                 spectral=spectral,
                 material=material,
                 T_bath=0.1,
                 diffusion_model=model,
-                gap_profile=gap_profile.copy(),
+                gap_per_cell=gap_profile.copy(),
             )
 
         heavy = make_state(f_heavy0)
         probe = make_state(f_probe0)
 
-        def conserved_total(state: T3Spatial1DState, p: int = p) -> float:
-            N1 = _n1_columns(E, dE, state.gap_profile)
+        def conserved_total(state: T3SpatialState, p: int = p) -> float:
+            N1 = _n1_columns(E, dE, state.gap_per_cell)
             return float(np.sum(dE[:, None] * np.power(N1, p) * state.f))
 
         total0 = conserved_total(heavy)
@@ -429,10 +432,10 @@ def run(
         com_t[0] = _com_per_energy(N1_now, p, probe.f, x)
 
         if not dynamic:
-            backend = T3Spatial1DBackend()
+            backend = T3SpatialBackend()
         for step in range(n_steps):
             if dynamic:
-                backend = T3Spatial1DBackend()  # profile changes every step
+                backend = T3SpatialBackend()  # profile changes every step
                 heavy = backend.apply_transport(heavy, dt)
             probe = backend.apply_transport(probe, dt)
             if dynamic:
@@ -440,10 +443,10 @@ def run(
                     heavy.f,
                     E,
                     gap0,
-                    initial_gap=heavy.gap_profile,
+                    initial_gap=heavy.gap_per_cell,
                 )
-                heavy = replace(heavy, gap_profile=gap_profile)
-                probe = replace(probe, gap_profile=gap_profile)
+                heavy = replace(heavy, gap_per_cell=gap_profile)
+                probe = replace(probe, gap_per_cell=gap_profile)
                 N1_now = _n1_columns(E, dE, gap_profile)
             com_t[step + 1] = _com_per_energy(N1_now, p, probe.f, x)
 

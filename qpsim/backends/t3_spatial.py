@@ -40,7 +40,10 @@ from qpsim.transport.diffusion.base import (
 )
 from qpsim.transport.interface import interface_face_conductances
 from qpsim.transport.spatial_operator import face_condition_lookup
-from qpsim.transport.spatial_transport import SpatialTransport
+from qpsim.transport.spatial_transport import (
+    EnergyTransportOp,
+    SpatialTransport,
+)
 
 __all__ = ["T3SpatialBackend", "T3SpatialState"]
 
@@ -66,6 +69,11 @@ class T3SpatialState:
     diffusion_model: DiffusionModel = DiffusionModel.A1
     interface_conductance: float | None = None
     _: dict[str, float] = field(default_factory=dict, repr=False)
+
+    @property
+    def gap(self) -> float:
+        """The scalar reference gap. Local gaps live in ``gap_per_cell``."""
+        return float(self.spectral.gap)
 
     def gaps(self) -> np.ndarray:
         """Local gap per cell, as an array either way."""
@@ -179,6 +187,26 @@ class T3SpatialBackend:
             )
             self._collision_signature = signature
         return self._collisions
+
+    def _n1_per_cell(self, state: T3SpatialState) -> np.ndarray:
+        """Finite-volume BCS density per energy and cell, ``(NE, Ncells)``.
+
+        Same quantity and name as the 1-D backend's helper, so validation
+        producers that read it keep working across the migration.
+        """
+        return self._per_cell(state.spectral, state.gaps(), "density")
+
+    def _build_transport_operators(
+        self, state: T3SpatialState, dt: float,
+    ) -> list[EnergyTransportOp | None]:
+        """Per-energy transport operators, in the 1-D backend's tuple order.
+
+        Kept as a named entry point because validation producers inspect the
+        operators directly -- the substep count in particular, which is a
+        reported diagnostic of the Crank-Nicolson stiffness bound.
+        """
+        weights, density = self._transport_weights(state)
+        return self._transport_for(state).build(weights, density, dt)
 
     def apply_transport(
         self, state: T3SpatialState, dt: float,
