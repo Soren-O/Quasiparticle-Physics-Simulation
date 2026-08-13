@@ -296,6 +296,18 @@ def run_transient_0d(
             stop_tol=setup.stop_tol,
             enable_scattering=setup.collisions.scattering,
             enable_recombination=setup.collisions.recombination,
+            # None keeps the phonon field frozen. The dynamic modes hand the
+            # driver an escape time; 0.0 is the no-substrate sentinel, so it
+            # must be passed through as a real value, not treated as "off".
+            phonon_escape_time=(
+                None
+                if setup.phonons.mode == "thermal_bath"
+                else (
+                    setup.phonons.tau_l_ns
+                    if setup.phonons.mode == "dynamic_escape"
+                    else 0.0
+                )
+            ),
             progress_hook=_time_progress_hook(progress, is_cancelled),
         )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))

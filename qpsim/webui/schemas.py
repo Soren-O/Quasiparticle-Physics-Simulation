@@ -206,16 +206,22 @@ class SteadyState0DSetup(StrictModel):
 
 
 class Transient0DSetup(StrictModel):
-    """0-D ETD2 collisional transient (frozen n_ph, frozen Δ).
+    """0-D ETD2 collisional transient at frozen Δ.
 
-    The phonon sector sets the *initial* (frozen) n_ph: thermal at
-    ``T_bath``. Drives are constant across the transient.
+    ``phonons.mode`` decides whether the phonon population is frozen or
+    solved in time. ``thermal_bath`` pins n_ph at the Bose-Einstein seed,
+    which is the historical behaviour. The dynamic modes co-evolve it with
+    ``f`` by operator splitting: ``f`` advances at frozen n_ph, then n_ph
+    advances at the new ``f`` under the exact solution of its affine ODE.
+
+    Drives are constant across the transient. Δ is held fixed in every mode.
     """
 
     mode: Literal["transient_0d"] = "transient_0d"
     material: MaterialParams = MaterialParams()
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1
     grid: EnergyGrid = EnergyGrid()
+    phonons: PhononSector = PhononSector()
     collisions: CollisionTerms = CollisionTerms()
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()

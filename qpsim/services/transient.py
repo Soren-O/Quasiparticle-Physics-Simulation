@@ -1,13 +1,21 @@
 r"""Transient driver: evolve ``f(E, t)`` from an initial state.
 
-V1 scope: collisional relaxation at frozen ``n_ph`` and frozen ``Δ``.
-Repeated ETD2 collision substeps produce a time series of ``f(E)``
-snapshots the caller can post-process.
+Collisional relaxation at frozen ``Δ``. Repeated ETD2 collision substeps
+produce a time series of ``f(E)`` snapshots the caller can post-process.
 
-What's *not* in v1
-------------------
-* No phonon dynamics — ``n_ph`` stays at whatever the initial state
-  carries. For coupled ``(f, n_ph)`` steady state, use
+``phonon_escape_time`` decides whether the phonon population is frozen
+(``None``, the default and the historical behaviour) or solved in time
+alongside ``f``. When it is solved, each step is Lie splitting: ``f``
+advances at frozen ``n_ph``, then ``n_ph`` advances at the new ``f``
+under the exact solution of its affine ODE. The coefficients are
+assembled exactly as :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+assembles them, so the transient relaxes onto the same fixed point the
+steady-state solver finds, to within that solver's own tolerance.
+
+What's *not* here
+-----------------
+* No coupled ``(f, n_ph)`` implicit step — the splitting is first order
+  in ``dt``. For a converged coupled steady state use
   :func:`qpsim.services.steady_state.solve_steady_state` or the
   backend's ``steady_state(method="coupled_newton")``.
 * No transport — ``apply_transport`` is a no-op in the v1
@@ -50,6 +58,9 @@ class TransientSnapshot:
     t: float                    # simulation time (ns)
     f: np.ndarray               # shape (NE,) — f(E) at this time
     observables: dict[str, float] = field(default_factory=dict)
+    # Populated only when the phonons are solved in time; None while they are
+    # frozen, so a caller can tell "unchanged" from "not tracked".
+    n_ph: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +72,9 @@ class TransientResult:
     n_steps: int                # driver-level steps (ETD2 may rate-subcycle internally)
     n_etd_substeps: int         # actual ETD2 substeps when backend exposes diagnostics
     converged: bool             # True iff stop_tol was met mid-run
+    # End-of-run state. Carries the evolved phonon field, which the snapshot
+    # list alone cannot express while dense output interpolates f only.
+    final_state: T3DiffusionState | None = None
 
 
 def run_time_dependent(
@@ -76,6 +90,8 @@ def run_time_dependent(
     stop_tol: float | None = None,
     enable_scattering: bool = True,
     enable_recombination: bool = True,
+    phonon_escape_time: float | None = None,
+    use_phonon_side_kernel: bool = True,
     backend: T3DiffusionBackend | None = None,
     progress_hook: Callable[[float, float], bool] | None = None,
 ) -> TransientResult:
@@ -210,7 +226,16 @@ def run_time_dependent(
             if observables
             else {}
         )
-        return TransientSnapshot(t=float(t), f=s.f.copy(), observables=obs)
+        return TransientSnapshot(
+            t=float(t),
+            f=s.f.copy(),
+            observables=obs,
+            n_ph=(
+                None
+                if phonon_escape_time is None
+                else s.phonon.n_ph[0, :, 0].copy()
+            ),
+        )
 
     snapshots: list[TransientSnapshot] = [_snapshot(0.0, state)]
     t = 0.0
@@ -241,6 +266,11 @@ def run_time_dependent(
         step_dt = min(dt, remaining)
         t_previous = t
         prev_f = current.f.copy()
+        # Only needed when the phonons are live; the copy is cheap next to a
+        # step, and it keeps the stop test honest (see below).
+        prev_n_ph = (
+            None if phonon_escape_time is None else current.phonon.n_ph.copy()
+        )
         # Pass a term flag only when it is off: a third-party backend that
         # predates these kwargs must keep working at the defaults, and must
         # fail loudly rather than silently ignore a term you switched off.
@@ -249,6 +279,9 @@ def run_time_dependent(
             term_kwargs["enable_scattering"] = False
         if not enable_recombination:
             term_kwargs["enable_recombination"] = False
+        if phonon_escape_time is not None:
+            term_kwargs["phonon_escape_time"] = phonon_escape_time
+            term_kwargs["use_phonon_side_kernel"] = use_phonon_side_kernel
         step_flux = _flux_at(t + 0.5 * step_dt)
         raw_rate: np.ndarray | None = None
         diagnostics_method = getattr(
@@ -292,8 +325,9 @@ def run_time_dependent(
         # the ETD steps solve, so an interior point is trustworthy only for
         # dt well inside the local relaxation time (the constructor warns
         # otherwise). Only ``f`` is interpolated; the remaining fields carry
-        # their end-of-step values, which is exact while v1 holds n_ph and Δ
-        # frozen and must be revisited when either becomes dynamic.
+        # their end-of-step values. That is exact while Δ is frozen, and for
+        # a live n_ph it means an interior snapshot carries the phonon field
+        # from the end of the step rather than an interpolated one.
         time_tol = 16.0 * np.finfo(float).eps * max(
             1.0, abs(t), abs(next_snap),
         )
@@ -339,6 +373,16 @@ def run_time_dependent(
                 clipped_low = (prev_f > 0.0) & (current.f <= 0.0)
                 if np.any(current.f >= 1.0 - bound_tol) or np.any(clipped_low):
                     rate = np.inf
+            if prev_n_ph is not None:
+                # A live phonon field has its own balance to satisfy. The
+                # f-residual alone would happily certify a steady state while
+                # n_ph was still climbing, so the slower of the two governs.
+                # Both are occupation rates in 1/ns, so one tolerance covers
+                # them.
+                phonon_rate = float(
+                    np.max(np.abs(current.phonon.n_ph - prev_n_ph)) / step_dt
+                )
+                rate = max(rate, phonon_rate)
             if rate < stop_tol:
                 converged = True
                 if snapshots[-1].t < t - 1e-12:
@@ -358,4 +402,5 @@ def run_time_dependent(
         n_steps=n_steps,
         n_etd_substeps=n_etd_substeps,
         converged=converged,
+        final_state=current,
     )

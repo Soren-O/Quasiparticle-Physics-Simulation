@@ -437,12 +437,13 @@ def build_state_0d(
     spectral = build_spectral(setup)
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
 
-    if isinstance(setup, SteadyState0DSetup) and setup.phonons.mode == "dynamic_escape":
+    has_sector = isinstance(setup, (SteadyState0DSetup, Transient0DSetup))
+    if has_sector and setup.phonons.mode == "dynamic_escape":
         tau_l_value = setup.phonons.tau_l_ns
     else:
-        # thermal_bath (value unused on the Newton path), dynamic_closed
-        # (0.0 is the engine's no-substrate τ_l → ∞ sentinel), and all
-        # transients (n_ph frozen at the thermal seed).
+        # thermal_bath (value unused: n_ph is pinned on both the Newton path
+        # and the frozen transient) and dynamic_closed, where 0.0 is the
+        # engine's no-substrate τ_l → ∞ sentinel.
         tau_l_value = 0.0
 
     phonon = PhononState(

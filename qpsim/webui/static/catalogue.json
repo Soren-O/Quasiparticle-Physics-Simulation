@@ -16,7 +16,7 @@
     {
       "id": "single-term",
       "title": "Single term examples",
-      "blurb": "One term of the kinetic equations on its own. Nine of the ten run. The tenth, phonon-bath coupling, has a working switch but no regime that shows it. The two phonon source terms are the phonon side of the collision channels rather than separate processes, so switching one side off breaks energy conservation on purpose — those cases warn.",
+      "blurb": "One term of the kinetic equations on its own. All ten now run. The two phonon source terms are the phonon side of the collision channels rather than separate processes, so switching one side off breaks energy conservation on purpose — those cases warn.",
       "items": [
         {
           "id": "diff",
@@ -260,10 +260,45 @@
           "id": "pesc",
           "title": "Phonon-bath coupling",
           "sector": "ph",
-          "available": false,
+          "available": true,
           "blurb": "Phonons leak out of the film into the substrate bath on a timescale tau_esc.",
-          "evidence": "tests/physics/test_phonon_escape.py",
-          "why": "The switch exists and is wired (phonons.mode: dynamic_escape against dynamic_closed), but neither regime shows anything. Undriven, the phonons already sit at the bath value, so the two answers are bit-identical to every digit. Driven, a closed sector has no steady state at all -- energy arrives and nothing can leave -- so there is no root to find and the solve correctly fails to converge. Watching a closed sector heat up needs the phonon population time-integrated, which no mode does."
+          "cases": [
+            {
+              "id": "pesc-closed",
+              "title": "Closed sector: nothing leaves",
+              "mode": "transient_0d",
+              "summary": "The phonon population solved in time with no substrate to escape to. Every frequency bin drifts away from the bath value and keeps going, because energy arrives and nothing removes it.",
+              "overrides": {
+                "T_bath": 0.1,
+                "grid.num_bins": 405,
+                "total_time": 40.0,
+                "pb_drive.enabled": true,
+                "pb_drive.omega_PB": 400.0,
+                "pb_drive.n_bar_PB": 1000.0,
+                "pb_drive.c_phot_PB": 1e-09,
+                "subgap_drive.enabled": false,
+                "phonons.mode": "dynamic_closed"
+              }
+            },
+            {
+              "id": "pesc-open",
+              "title": "The same run with escape switched on",
+              "mode": "transient_0d",
+              "summary": "Finite tau_esc pulls the phonons back toward the bath, so they settle instead of drifting. Run it against the case above: the difference is the coupling.",
+              "overrides": {
+                "T_bath": 0.1,
+                "grid.num_bins": 405,
+                "total_time": 40.0,
+                "pb_drive.enabled": true,
+                "pb_drive.omega_PB": 400.0,
+                "pb_drive.n_bar_PB": 1000.0,
+                "pb_drive.c_phot_PB": 1e-09,
+                "subgap_drive.enabled": false,
+                "phonons.mode": "dynamic_escape",
+                "phonons.tau_l_ns": 0.17
+              }
+            }
+          ]
         },
         {
           "id": "gapeq",
