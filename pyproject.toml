@@ -26,6 +26,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gds = [
+    # GDSII layout import. Optional: qpsim.geometries imports without it and
+    # only the functions that read a file raise.
+    "gdstk>=0.9",
+]
 dev = [
     "pytest>=9.0",
     "pytest-cov",
