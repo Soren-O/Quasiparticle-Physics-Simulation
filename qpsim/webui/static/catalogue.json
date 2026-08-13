@@ -16,7 +16,7 @@
     {
       "id": "single-term",
       "title": "Single term examples",
-      "blurb": "One term of the kinetic equations on its own. Nine of the ten are reachable. The phonon source terms are the phonon side of the two collision channels rather than separate processes, so switching one side off breaks energy conservation on purpose — those cases warn.",
+      "blurb": "One term of the kinetic equations on its own. Nine of the ten run. The tenth, phonon-bath coupling, has a working switch but no regime that shows it. The two phonon source terms are the phonon side of the collision channels rather than separate processes, so switching one side off breaks energy conservation on purpose — those cases warn.",
       "items": [
         {
           "id": "diff",
@@ -258,12 +258,12 @@
         },
         {
           "id": "pesc",
-          "title": "Phonon escape",
+          "title": "Phonon-bath coupling",
           "sector": "ph",
           "available": false,
-          "blurb": "Phonons leak out of the film toward the substrate on a timescale τ_esc.",
+          "blurb": "Phonons leak out of the film into the substrate bath on a timescale tau_esc.",
           "evidence": "tests/physics/test_phonon_escape.py",
-          "why": "phonons.mode does switch it, but with no drive the result is bit-identical either way, and with a drive a closed phonon sector has no steady state."
+          "why": "The switch exists and is wired (phonons.mode: dynamic_escape against dynamic_closed), but neither regime shows anything. Undriven, the phonons already sit at the bath value, so the two answers are bit-identical to every digit. Driven, a closed sector has no steady state at all -- energy arrives and nothing can leave -- so there is no root to find and the solve correctly fails to converge. Watching a closed sector heat up needs the phonon population time-integrated, which no mode does."
         },
         {
           "id": "gapeq",
