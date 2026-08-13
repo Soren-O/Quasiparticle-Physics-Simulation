@@ -643,15 +643,26 @@ async function loadCatalogue() {
   return state.catalogue;
 }
 
-async function renderHomeCategories() {
-  const host = $("#home-categories");
+/* Level 1: the categories, reached from Home > Test simulations. */
+async function openTestSimulations() {
   let cat;
   try {
     cat = await loadCatalogue();
   } catch (exc) {
-    host.innerHTML = `<div class="err">${esc(exc.message)}</div>`;
+    $("#cat-body").innerHTML = `<div class="err">${esc(exc.message)}</div>`;
+    showView("catalogue");
     return;
   }
+  crumbs([
+    { label: "Home", go: () => showView("home") },
+    { label: "Test simulations" },
+  ]);
+  $("#cat-title").textContent = "Test simulations";
+  $("#cat-blurb").textContent =
+    "Reductions of the kinetic equations, grouped by how many terms are on, " +
+    "plus reproductions of prior literature results.";
+
+  const host = $("#cat-body");
   host.innerHTML = "";
   const sec = document.createElement("section");
   sec.className = "group";
@@ -662,7 +673,7 @@ async function renderHomeCategories() {
     b.className = "action";
     b.innerHTML =
       `<span class="name">${esc(c.title)}</span>` +
-      `<span class="go">${n} ${n === 1 ? "entry" : "entries"}</span>` +
+      `<span class="go">${n} ${n === 1 ? "case" : "cases"}</span>` +
       `<span class="desc">${esc(c.blurb)}</span>`;
     b.addEventListener("click", () => {
       if (document.body.classList.contains("editing")) return;
@@ -671,6 +682,8 @@ async function renderHomeCategories() {
     sec.appendChild(b);
   }
   host.appendChild(sec);
+  showView("catalogue");
+  window.scrollTo(0, 0);
 }
 
 function crumbs(trail) {
@@ -700,6 +713,7 @@ async function openCategory(catId) {
   state.catId = catId;
   crumbs([
     { label: "Home", go: () => showView("home") },
+    { label: "Test simulations", go: () => openTestSimulations() },
     { label: cat.title },
   ]);
   $("#cat-title").textContent = cat.title;
@@ -735,6 +749,7 @@ async function openItem(catId, itemId) {
   if (!it) return;
   crumbs([
     { label: "Home", go: () => showView("home") },
+    { label: "Test simulations", go: () => openTestSimulations() },
     { label: cat.title, go: () => openCategory(catId) },
     { label: it.title },
   ]);
@@ -812,8 +827,6 @@ function showView(name) {
     refreshSetups();
   } else if (name === "materials") {
     refreshMaterials();
-  } else if (name === "home") {
-    renderHomeCategories();
   }
 }
 
@@ -842,6 +855,13 @@ async function init() {
     b.addEventListener("click", () => {
       // While the wording is being edited, a row is a text field, not a link.
       if (document.body.classList.contains("editing")) return;
+      // "tests" is not a view of its own: it is the catalogue opened at its
+      // top level, so route it rather than letting showView hunt for a
+      // section that does not exist.
+      if (b.dataset.go === "tests") {
+        openTestSimulations();
+        return;
+      }
       showView(b.dataset.go);
       window.scrollTo(0, 0);
     }));
@@ -850,9 +870,6 @@ async function init() {
   $("#btn-run").addEventListener("click", doRun);
 
   await switchMode("steady_state_0d");
-  // Home is visible from the markup, so it is never routed through showView on
-  // first paint and has to be rendered explicitly.
-  await renderHomeCategories();
 }
 
 init();

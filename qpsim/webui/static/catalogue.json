@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Catalogue for the landing page. Three levels: category -> item -> case.",
+    "Catalogue for Test simulations. Four levels: Home -> Test simulations -> category -> item -> case.",
     "A case starts from its mode's defaults (GET /api/defaults/{mode}) and applies",
     "`overrides` on top, so it only states what it changes. Unknown override paths",
     "are reported rather than silently ignored.",
@@ -663,35 +663,6 @@
                 "dt": 2.0,
                 "max_time": 200.0
               }
-            }
-          ]
-        },
-        {
-          "id": "app",
-          "title": "The rest of the interface",
-          "sector": "gap",
-          "available": true,
-          "blurb": "Not simulations.",
-          "links": [
-            {
-              "title": "Create new setup",
-              "go": "new-run",
-              "desc": "Build a run from a material and a drive."
-            },
-            {
-              "title": "Saved setups",
-              "go": "setups",
-              "desc": "Reopen and edit a setup from your workspace."
-            },
-            {
-              "title": "Your runs",
-              "go": "runs",
-              "desc": "Results, viewers and CSV or PNG export."
-            },
-            {
-              "title": "Materials",
-              "go": "materials",
-              "desc": "The shipped material records."
             }
           ]
         }

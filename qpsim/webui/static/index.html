@@ -35,13 +35,83 @@
         <div class="home-head">
           <p class="eyebrow">Kinetics workbench</p>
           <h1>Quasiparticle and phonon kinetics in a driven superconductor.</h1>
-          <p class="lede">Pick how much of the model you want switched on.</p>
+          <p class="lede">Solve the coupled quasiparticle, phonon and gap equations in zero or
+            one spatial dimension. Start from a saved setup, open one of the bundled test cases,
+            or build a new one from a material and a drive.</p>
         </div>
-        <div class="groups" id="home-categories"></div>
+
+        <div class="groups">
+          <section class="group">
+            <h2>Setups</h2>
+            <button class="action lead" data-go="new-run">
+              <span class="name">Create new setup</span>
+              <span class="go">Open</span>
+              <span class="desc">Choose the geometry, the material, and which terms of the kinetic
+                equations to solve.</span>
+            </button>
+            <button class="action" data-go="setups">
+              <span class="name">Load saved setup</span>
+              <span class="go">Browse</span>
+              <span class="desc">Reopen a setup from your workspace and edit it before running.</span>
+            </button>
+          </section>
+
+          <section class="group">
+            <h2>Simulations</h2>
+            <button class="action" data-go="runs">
+              <span class="name">User simulations</span>
+              <span class="go">Browse</span>
+              <span class="desc">Runs you have saved, with their spatial, spectral and phonon
+                viewers, and CSV or PNG export.</span>
+            </button>
+            <button class="action" data-go="tests">
+              <span class="name">Test simulations</span>
+              <span class="go">Browse</span>
+              <span class="desc">Reductions of the kinetic equations grouped by how many terms are
+                on, plus reproductions of prior literature results.</span>
+            </button>
+          </section>
+
+          <section class="group">
+            <h2>Reference</h2>
+            <button class="action" data-go="materials">
+              <span class="name">Materials</span>
+              <span class="go">Browse</span>
+              <span class="desc">The shipped material records and the parameters each one fixes,
+                alongside the custom entry you can override.</span>
+            </button>
+            <button class="action" disabled>
+              <span class="name">Relevant physics</span>
+              <span class="go">Not yet</span>
+              <span class="desc">The concepts behind the model: the diffusion-operator family, the
+                collision channels, and what each approximation costs.</span>
+            </button>
+          </section>
+
+          <section class="group">
+            <h2>Environment</h2>
+            <button class="action" disabled>
+              <span class="name">Install requirements</span>
+              <span class="go">Not yet</span>
+              <span class="desc">Set up the Python environment this workspace expects.</span>
+            </button>
+            <button class="action" disabled>
+              <span class="name">Run quality checks</span>
+              <span class="go">Not yet</span>
+              <span class="desc">Lint, type-check and the test gate, against the workspace as it
+                stands.</span>
+            </button>
+          </section>
+        </div>
+
         <div class="workspace">
           <b>Workspace</b>
           <span id="home-workspace">&hellip;</span>
         </div>
+        <p class="foot">Rows marked &ldquo;Not yet&rdquo; are planned and not wired to anything. The
+          bundled test cases set up the conditions of a published point so you can vary them; the
+          certified figure reproductions, with their pinned baselines and provenance, live in the
+          validation suite rather than in this interface.</p>
       </div>
     </section>
 
