@@ -19,6 +19,7 @@ handling.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -260,3 +261,70 @@ class T3SpatialBackend:
             s, dt, external_gain=external_gain, external_loss=external_loss,
         )
         return self.apply_transport(s, 0.5 * dt)
+
+    # -- residual and stepping loop ---------------------------------------
+
+    def rates(self, state: T3SpatialState) -> np.ndarray:
+        """Endpoint ``df/dt`` from transport and collisions together.
+
+        Used as the convergence certificate. A finite difference of the last
+        step would be cheaper and wrong in the case that matters: an occupation
+        pinned at a clip bound stops changing while its governing operator is
+        still nonzero, and would then be reported as converged.
+        """
+        collisions = self._collisions_for(state)
+        total = np.zeros_like(state.f)
+        for gap, columns in collisions._groups():
+            operator = collisions.local_operator(gap)
+            gain, loss = collisions.group_rates(state.f[:, columns], operator)
+            total[:, columns] = gain - loss * state.f[:, columns]
+
+        if state.f.shape[1] > 1:
+            weights, density = self._transport_weights(state)
+            transport = self._transport_for(state)
+            # dt only sets the substep count, which the rate does not use.
+            for i, op in enumerate(transport.build(weights, density, 1.0)):
+                if op is None:
+                    continue
+                _b, _lu, idx, rho_p, _n, _forcing, operator = op
+                # The state carried is f while the operator acts on the
+                # conserved density u = rho_p f, so divide back through.
+                u = rho_p * state.f[i, idx]
+                total[i, idx] += (operator @ u) / rho_p
+        return total
+
+    def run(
+        self,
+        state: T3SpatialState,
+        *,
+        dt: float,
+        max_time: float,
+        stop_tol: float = 1e-10,
+        progress_hook: Callable[[float, float], bool] | None = None,
+    ) -> tuple[T3SpatialState, int, bool, float]:
+        """Fixed-step dynamics until the residual falls below ``stop_tol``.
+
+        Returns ``(state, n_steps, converged, last_max_rate)``.
+        """
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError("dt must be positive.")
+        current = state
+        elapsed = 0.0
+        n_steps = 0
+        converged = False
+        last_rate = float("inf")
+        for _ in range(int(np.ceil(max_time / dt))):
+            remaining = max_time - elapsed
+            if remaining <= 1e-12:
+                break
+            step_dt = min(dt, remaining)
+            current = self.step(current, step_dt)
+            elapsed += step_dt
+            n_steps += 1
+            last_rate = float(np.max(np.abs(self.rates(current))))
+            if last_rate < stop_tol:
+                converged = True
+                break
+            if progress_hook is not None and not progress_hook(elapsed, max_time):
+                break
+        return current, n_steps, converged, last_rate

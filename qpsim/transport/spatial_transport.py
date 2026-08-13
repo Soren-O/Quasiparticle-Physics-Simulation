@@ -38,8 +38,14 @@ _MAX_CN_SUBSTEPS = 1_000_000
 # this is the memory knob that keeps 2-D tractable.
 _MAX_OPERATOR_SETS = 2
 
-# (B, LU[A], solve-order cell indices, rho_p, n_substeps, per-substep forcing)
-EnergyTransportOp = tuple[Any, Any, np.ndarray, np.ndarray, int, np.ndarray]
+# (B, LU[A], solve-order cell indices, rho_p, n_substeps, per-substep forcing,
+#  raw operator L).  L is kept so a caller can form the endpoint residual
+#  df/dt = (L u)/rho_p exactly; it is not recoverable from B without the
+#  substep, and a finite-difference stand-in would call a clipped step
+#  converged.
+EnergyTransportOp = tuple[
+    Any, Any, np.ndarray, np.ndarray, int, np.ndarray, Any,
+]
 
 
 class SpatialTransport:
@@ -152,7 +158,7 @@ class SpatialTransport:
         # Scale the boundary forcing to the substep here, so the stepper does
         # not have to carry dt around and cannot forget the factor.
         return (b_mat, lu, np.flatnonzero(active), density_weight[active],
-                n_substeps, sub_dt * source)
+                n_substeps, sub_dt * source, operator)
 
     def _cache_key(
         self,
@@ -194,7 +200,7 @@ class SpatialTransport:
         for i, op in enumerate(ops):
             if op is None:
                 continue
-            b_mat, lu, idx, rho_p, n_substeps, forcing = op
+            b_mat, lu, idx, rho_p, n_substeps, forcing, _operator = op
             u = rho_p * f_new[i, idx]
             mass_scale += float(np.sum(np.abs(u)))
             # An inhomogeneous boundary contributes a constant rate over the

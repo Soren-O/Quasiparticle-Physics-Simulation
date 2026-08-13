@@ -176,3 +176,74 @@ class TestBoundaryConditions:
         got = T3SpatialBackend().apply_transport(state, DT).f
         supported = spectral.cell_density > 0
         assert np.any(got[supported, 0] > 0.0)
+
+
+class TestResidualAndRun:
+    def test_thermal_is_a_fixed_point(self):
+        from qpsim.observables.gap_suppression import fermi_dirac_distribution
+        material, spectral = _setup(ne=20)
+        geom = strip(9, mesh_size=10.0)
+        f0 = np.repeat(
+            fermi_dirac_distribution(spectral.E, T_BATH)[:, None],
+            geom.cell_count, axis=1,
+        )
+        state = T3SpatialState(
+            f=f0, geometry=geom, spectral=spectral, material=material,
+            T_bath=T_BATH,
+        )
+        residual = float(np.max(np.abs(T3SpatialBackend().rates(state))))
+        assert residual < 1e-18
+
+    def test_the_residual_is_not_a_finite_difference(self):
+        """It must see a nonzero operator even where f has stopped moving.
+
+        A step whose occupation is pinned at a clip bound stops changing while
+        its governing operator is still nonzero. A finite-difference proxy
+        would call that converged; the endpoint residual does not.
+        """
+        material, spectral = _setup(ne=16)
+        geom = strip(5, mesh_size=10.0)
+        f0 = np.zeros((spectral.E.size, geom.cell_count))
+        supported = spectral.cell_density > 0
+        f0[supported, 0] = 1.0            # saturated at the upper clip bound
+        state = T3SpatialState(
+            f=f0, geometry=geom, spectral=spectral, material=material,
+            T_bath=T_BATH,
+        )
+        assert float(np.max(np.abs(T3SpatialBackend().rates(state)))) > 0.0
+
+    def test_a_hot_spot_relaxes_and_the_residual_falls(self):
+        from qpsim.observables.gap_suppression import fermi_dirac_distribution
+        material, spectral = _setup(ne=20)
+        geom = rectangle(8, 8, mesh_size=10.0)
+        f0 = np.repeat(
+            fermi_dirac_distribution(spectral.E, T_BATH)[:, None],
+            geom.cell_count, axis=1,
+        )
+        peak = int(np.argmax(spectral.cell_density > 0))
+        f0[peak, 27] += 1e-3
+        backend = T3SpatialBackend()
+        state = T3SpatialState(
+            f=f0.copy(), geometry=geom, spectral=spectral, material=material,
+            T_bath=T_BATH,
+        )
+        before = float(np.max(np.abs(backend.rates(state))))
+        out, n_steps, _converged, after = backend.run(
+            state, dt=1.0, max_time=200.0, stop_tol=1e-14,
+        )
+        assert n_steps > 0
+        assert after < before
+        grid = out.f[peak].reshape(8, 8)
+        assert grid[3, 3] < f0[peak, 27]          # the spike drained
+        assert grid[3, 2] > f0[peak, 26]          # a neighbour filled
+        assert np.isclose(grid[3, 2], grid[2, 3])  # symmetric in both axes
+
+    def test_a_non_positive_step_is_refused(self):
+        material, spectral = _setup(ne=16)
+        geom = strip(4)
+        state = T3SpatialState(
+            f=_occupations(spectral, material, geom.cell_count),
+            geometry=geom, spectral=spectral, material=material, T_bath=T_BATH,
+        )
+        with pytest.raises(ValueError, match="dt must be positive"):
+            T3SpatialBackend().run(state, dt=0.0, max_time=1.0)
