@@ -247,3 +247,68 @@ class TestResidualAndRun:
         )
         with pytest.raises(ValueError, match="dt must be positive"):
             T3SpatialBackend().run(state, dt=0.0, max_time=1.0)
+
+
+class TestFeatureParityWithTheStrip:
+    """Gap regions and injection, the two things spatial_1d had and 2D lacked."""
+
+    def _driven_step(self, conductance, max_time=300.0):
+        from qpsim.webui import execute
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 32
+        setup.dt = 2.0
+        setup.max_time = max_time
+        setup.geometry.rows = 6
+        setup.geometry.cols = 12
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_right = 240.0
+        setup.gap_regions.interface_G_N = conductance
+        setup.injection.enabled = True     # a steady flux ACROSS the step
+        payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
+        profile = payload.arrays["xqp_profile"].reshape(6, 12)
+        return float(profile[:, :6].mean()) / float(profile[:, 6:].mean())
+
+    def test_a_closing_barrier_impedes_transport_monotonically(self):
+        """The barrier only shows when something drives a flux across it.
+
+        At equilibrium the two sides sit at their own local thermal values and
+        nothing crosses, so every conductance gives the same answer. Comparing
+        there measures nothing -- the test has to drive the interface.
+        """
+        ratios = [self._driven_step(g) for g in (10.0, 1.0, 0.1, 0.01)]
+        assert ratios == sorted(ratios), f"not monotonic: {ratios}"
+        assert ratios[-1] > 5.0 * ratios[0], (
+            f"a near-opaque barrier barely changed the profile: {ratios}"
+        )
+
+    def test_injection_raises_the_population(self):
+        from qpsim.webui import execute
+        from qpsim.webui.schemas import Spatial2DSetup
+        results = []
+        for enabled in (False, True):
+            setup = Spatial2DSetup()
+            setup.T_bath = 0.2
+            setup.grid.num_bins = 32
+            setup.dt = 2.0
+            setup.max_time = 120.0
+            setup.geometry.rows = 8
+            setup.geometry.cols = 8
+            setup.injection.enabled = enabled
+            payload = execute.execute_setup(
+                setup, lambda *a, **k: None, lambda: False,
+            )
+            results.append(payload.summary["x_qp_mean"])
+        assert results[1] > 5.0 * results[0]
+
+    def test_a_column_step_gives_two_distinct_gaps(self):
+        from qpsim.webui.builders import build_state_2d
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.geometry.rows = 4
+        setup.geometry.cols = 8
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_right = 240.0
+        state = build_state_2d(setup)
+        assert sorted(np.unique(state.gaps())) == [180.0, 240.0]

@@ -264,7 +264,13 @@ class T3SpatialBackend:
 
     # -- residual and stepping loop ---------------------------------------
 
-    def rates(self, state: T3SpatialState) -> np.ndarray:
+    def rates(
+        self,
+        state: T3SpatialState,
+        *,
+        external_gain: np.ndarray | None = None,
+        external_loss: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Endpoint ``df/dt`` from transport and collisions together.
 
         Used as the convergence certificate. A finite difference of the last
@@ -276,7 +282,11 @@ class T3SpatialBackend:
         total = np.zeros_like(state.f)
         for gap, columns in collisions._groups():
             operator = collisions.local_operator(gap)
-            gain, loss = collisions.group_rates(state.f[:, columns], operator)
+            gain, loss = collisions.group_rates(
+                state.f[:, columns], operator,
+                None if external_gain is None else external_gain[:, columns],
+                None if external_loss is None else external_loss[:, columns],
+            )
             total[:, columns] = gain - loss * state.f[:, columns]
 
         if state.f.shape[1] > 1:
@@ -300,6 +310,8 @@ class T3SpatialBackend:
         dt: float,
         max_time: float,
         stop_tol: float = 1e-10,
+        external_gain: np.ndarray | None = None,
+        external_loss: np.ndarray | None = None,
         progress_hook: Callable[[float, float], bool] | None = None,
     ) -> tuple[T3SpatialState, int, bool, float]:
         """Fixed-step dynamics until the residual falls below ``stop_tol``.
@@ -318,10 +330,16 @@ class T3SpatialBackend:
             if remaining <= 1e-12:
                 break
             step_dt = min(dt, remaining)
-            current = self.step(current, step_dt)
+            current = self.step(
+                current, step_dt,
+                external_gain=external_gain, external_loss=external_loss,
+            )
             elapsed += step_dt
             n_steps += 1
-            last_rate = float(np.max(np.abs(self.rates(current))))
+            last_rate = float(np.max(np.abs(
+                self.rates(current, external_gain=external_gain,
+                           external_loss=external_loss)
+            )))
             if last_rate < stop_tol:
                 converged = True
                 break

@@ -717,4 +717,49 @@ def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
         T_bath=setup.T_bath,
         conditions=geometry.conditions(condition),
         diffusion_model=DiffusionModel[setup.diffusion_model],
+        gap_per_cell=build_gap_per_cell_2d(setup, geometry),
+        interface_conductance=(
+            None if setup.gap_regions.kind == "uniform"
+            else setup.gap_regions.interface_G_N
+        ),
     )
+
+
+def build_gap_per_cell_2d(setup: Spatial2DSetup, geometry: Geometry) -> np.ndarray | None:
+    """Local gap for every solved cell, or ``None`` for a uniform gap."""
+    regions = setup.gap_regions
+    if regions.kind == "uniform":
+        return None
+    _rows, cols = np.nonzero(geometry.mask)
+    boundary_col = regions.step_fraction * geometry.shape[1]
+    return np.where(cols < boundary_col, regions.gap_left, regions.gap_right)
+
+
+def build_injection_2d(
+    setup: Spatial2DSetup, state: T3SpatialState,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Gaussian-in-energy source as ``(gain, loss_rate)`` over the cells."""
+    injection = setup.injection
+    if not injection.enabled:
+        return None
+    energies = state.spectral.E
+    gap = setup.material.Delta_0
+    centre = injection.center_over_delta * gap
+    sigma = injection.sigma_over_delta * gap
+    line = np.exp(-0.5 * ((energies - centre) / sigma) ** 2)
+
+    rows, cols = np.nonzero(state.geometry.mask)
+    gain = np.zeros((energies.size, state.f.shape[1]))
+    if injection.where == "uniform":
+        gain[:, :] = injection.rate_per_ns * line[:, None]
+    elif injection.where == "left_edge":
+        # Every cell on the lowest occupied column, so a ragged mask still
+        # gets a whole edge injected rather than a single corner.
+        target = cols == cols.min()
+        gain[:, target] = injection.rate_per_ns * line[:, None]
+    else:  # centre_cell
+        centre_row = 0.5 * (rows.min() + rows.max())
+        centre_col = 0.5 * (cols.min() + cols.max())
+        nearest = int(np.argmin((rows - centre_row) ** 2 + (cols - centre_col) ** 2))
+        gain[:, nearest] = injection.rate_per_ns * line
+    return gain, np.zeros_like(gain)

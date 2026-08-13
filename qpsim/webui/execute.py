@@ -51,6 +51,7 @@ from qpsim.services.rate_equation_coefficients import (
 )
 from qpsim.services.transient import run_time_dependent
 from qpsim.webui.builders import (
+    build_injection_2d,
     build_injection_flux,
     build_m25_inputs,
     build_state_0d,
@@ -621,6 +622,8 @@ def run_spatial_2d(
 
     state = build_state_2d(setup)
     geometry = state.geometry
+    injection = build_injection_2d(setup, state)
+    external_gain, external_loss = (None, None) if injection is None else injection
     delta_0 = setup.material.Delta_0
     backend = T3SpatialBackend(
         enable_scattering=setup.collisions.scattering,
@@ -638,6 +641,8 @@ def run_spatial_2d(
             dt=setup.dt,
             max_time=setup.max_time,
             stop_tol=setup.stop_tol,
+            external_gain=external_gain,
+            external_loss=external_loss,
             progress_hook=hook,
         )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))

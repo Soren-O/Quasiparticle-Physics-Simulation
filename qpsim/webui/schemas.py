@@ -377,6 +377,34 @@ class EdgeConditions(StrictModel):
     value: float = 0.0
 
 
+class GapRegions(StrictModel):
+    """Local gap across the mask.
+
+    ``uniform`` uses the material gap everywhere. ``column_step`` puts
+    ``gap_left`` on the columns before ``step_fraction`` and ``gap_right``
+    after, which is the 2-D reading of the 1-D strip's step: in 2-D the
+    boundary between the two is a curve of faces rather than one face, and a
+    finite ``interface_G_N`` turns every face along it into a
+    Kupriyanov-Lukichev barrier.
+    """
+
+    kind: Literal["uniform", "column_step"] = "uniform"
+    gap_left: Annotated[float, Field(gt=0.0)] = 180.0
+    gap_right: Annotated[float, Field(gt=0.0)] = 180.0
+    step_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.5
+    interface_G_N: Annotated[float, Field(ge=0.0)] | None = None
+
+
+class Injection2D(StrictModel):
+    """Continuous Gaussian-in-energy quasiparticle source."""
+
+    enabled: bool = False
+    center_over_delta: Annotated[float, Field(gt=1.0)] = 2.0
+    sigma_over_delta: Annotated[float, Field(gt=0.0)] = 0.1
+    rate_per_ns: Annotated[float, Field(gt=0.0)] = 2e-5
+    where: Literal["left_edge", "uniform", "centre_cell"] = "left_edge"
+
+
 class Spatial2DSetup(StrictModel):
     """Kinetics on a 2-D geometry, driven to steady state.
 
@@ -395,6 +423,8 @@ class Spatial2DSetup(StrictModel):
     boundary: EdgeConditions = EdgeConditions()
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
     collisions: CollisionTerms = CollisionTerms()
+    gap_regions: GapRegions = GapRegions()
+    injection: Injection2D = Injection2D()
     dt: Annotated[float, Field(gt=0.0)] = 1.0
     max_time: Annotated[float, Field(gt=0.0)] = 5000.0
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10

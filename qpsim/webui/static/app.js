@@ -213,6 +213,28 @@ const FORMS = {
       ],
     },
     {
+      title: "Gap regions",
+      hint: "column_step puts gap_left before the step fraction and gap_right after. In 2D that boundary is a curve of faces; a finite G_N makes every face along it a Kupriyanov–Lukichev barrier. It only shows when something drives a flux across the step.",
+      fields: [
+        F("gap_regions.kind", "Kind", "select", { options: ["uniform", "column_step"] }),
+        F("gap_regions.gap_left", "Gap left (μeV)"),
+        F("gap_regions.gap_right", "Gap right (μeV)"),
+        F("gap_regions.step_fraction", "Step position (0–1)"),
+        F("gap_regions.interface_G_N", "Interface G_N", "number", { nullable: true }),
+      ],
+    },
+    {
+      title: "Injection",
+      hint: "Continuous Gaussian-in-energy source.",
+      fields: [
+        F("injection.enabled", "Enabled", "check"),
+        F("injection.center_over_delta", "Line center (×Δ)"),
+        F("injection.sigma_over_delta", "Line width σ (×Δ)"),
+        F("injection.rate_per_ns", "Peak rate (1/ns)"),
+        F("injection.where", "Where", "select", { options: ["left_edge", "uniform", "centre_cell"] }),
+      ],
+    },
+    {
       title: "Time stepping",
       fields: [
         F("dt", "dt (ns)"),
