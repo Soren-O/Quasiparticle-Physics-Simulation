@@ -815,8 +815,14 @@ async function openItem(catId, itemId) {
 }
 
 function showView(name) {
-  document.querySelectorAll("nav button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.view === name));
+  const target = document.getElementById(`view-${name}`);
+  if (target === null) {
+    // Hiding every view and matching none renders a blank page with nothing
+    // in the console. Fall back to Home and say so, so a routing mistake is
+    // visible instead of looking like a broken app.
+    console.error(`showView: no section for "${name}"; falling back to home.`);
+    name = "home";
+  }
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("hidden", v.id !== `view-${name}`));
   clearInterval(state.pollTimer);
@@ -847,8 +853,11 @@ async function init() {
     b.addEventListener("click", () => switchMode(mode));
     row.appendChild(b);
   }
-  document.querySelectorAll("nav button").forEach((b) =>
-    b.addEventListener("click", () => showView(b.dataset.view)));
+  $("#go-home").addEventListener("click", () => {
+    if (document.body.classList.contains("editing")) return;
+    showView("home");
+    window.scrollTo(0, 0);
+  });
   // Home rows are shortcuts into the same views the nav reaches; rows with no
   // data-go are the not-yet-built ones and stay inert.
   document.querySelectorAll(".action[data-go]").forEach((b) =>
@@ -900,7 +909,7 @@ const COPY_SELECTOR = [
   ".workspace b", ".home .foot",
   "#cat-title", "#cat-blurb",
   ".tc-title", ".tc-summary",
-  "header .subtitle", "nav button",
+  "header .subtitle", ".crumb",
 ].join(",");
 
 const copyState = { edits: {}, on: false, applying: false };
