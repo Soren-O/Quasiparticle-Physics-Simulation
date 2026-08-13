@@ -16,7 +16,7 @@
     {
       "id": "single-term",
       "title": "Single term examples",
-      "blurb": "One term of the kinetic equations on its own. Seven are reachable: diffusion, injection, the two collision channels, the two photon drives and the gap closure. The three phonon terms are not, for the reason each one gives.",
+      "blurb": "One term of the kinetic equations on its own. Nine of the ten are reachable. The phonon source terms are the phonon side of the two collision channels rather than separate processes, so switching one side off breaks energy conservation on purpose — those cases warn.",
       "items": [
         {
           "id": "diff",
@@ -191,19 +191,70 @@
           "id": "psc",
           "title": "Phonon scattering source",
           "sector": "ph",
-          "available": false,
-          "blurb": "Books the phonons emitted and absorbed when quasiparticles scatter.",
-          "evidence": "tests/phonon_models/test_ph0_local.py",
-          "why": "The two phonon source terms are removable only jointly, by replacing the whole phonon equation with a bath."
+          "available": true,
+          "blurb": "Books the phonons emitted and absorbed when quasiparticles scatter. It is the phonon side of the scattering channel, not a separate process.",
+          "cases": [
+            {
+              "id": "psc-split",
+              "title": "Quasiparticles scatter, phonons do not record it",
+              "mode": "steady_state_0d",
+              "summary": "The scattering channel on for the quasiparticles and off for the phonons. Energy leaves one population without arriving in the other, so the ledger does not balance: x_qp = 2.257e-03 against 2.261e-03 symmetric. The interface warns; there is no thermal fixed point here.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 405,
+                "phonons.mode": "dynamic_escape",
+                "pb_drive.enabled": true,
+                "pb_drive.omega_PB": 400.0,
+                "pb_drive.n_bar_PB": 1000.0,
+                "pb_drive.c_phot_PB": 1e-09,
+                "subgap_drive.enabled": false,
+                "collisions.phonon_scattering_source": false
+              }
+            },
+            {
+              "id": "psc-split-rev",
+              "title": "Phonons record what quasiparticles no longer do",
+              "mode": "steady_state_0d",
+              "summary": "The same split the other way round: the phonon source is driven by an f that scattering no longer moves. x_qp = 2.851e-03.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 405,
+                "phonons.mode": "dynamic_escape",
+                "pb_drive.enabled": true,
+                "pb_drive.omega_PB": 400.0,
+                "pb_drive.n_bar_PB": 1000.0,
+                "pb_drive.c_phot_PB": 1e-09,
+                "subgap_drive.enabled": false,
+                "collisions.scattering": false
+              }
+            }
+          ]
         },
         {
           "id": "prc",
           "title": "Phonon recombination source",
           "sector": "ph",
-          "available": false,
+          "available": true,
           "blurb": "Books the 2Δ phonons recombination emits and pair breaking reabsorbs. This is what phonon trapping is made of.",
-          "evidence": "tests/phonon_models/test_ph0_local.py",
-          "why": "Removable only jointly with the scattering source, as above."
+          "cases": [
+            {
+              "id": "prc-split",
+              "title": "Recombination on the quasiparticle side only",
+              "mode": "steady_state_0d",
+              "summary": "Pairs recombine but the 2Δ phonons are never booked, so nothing can break them again and trapping disappears: x_qp = 1.733e-03 against 2.261e-03 with the loop closed.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 405,
+                "phonons.mode": "dynamic_escape",
+                "pb_drive.enabled": true,
+                "pb_drive.omega_PB": 400.0,
+                "pb_drive.n_bar_PB": 1000.0,
+                "pb_drive.c_phot_PB": 1e-09,
+                "subgap_drive.enabled": false,
+                "collisions.phonon_recombination_source": false
+              }
+            }
+          ]
         },
         {
           "id": "pesc",

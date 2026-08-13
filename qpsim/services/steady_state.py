@@ -195,6 +195,8 @@ def solve_steady_state(
     picard_balance_tol: float | None = None,
     picard_mixing: float = 0.3,
     anderson_depth: int = 0,
+    phonon_enable_scattering: bool = True,
+    phonon_enable_recombination: bool = True,
     phonon_out: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Solve for the steady-state occupation ``f(E)``.
@@ -594,6 +596,8 @@ def solve_steady_state(
             T_bath, phonon_escape_time,
             K_s0_phonon_side=K_s0_phonon_side,
             K_r0_phonon_side=K_r0_phonon_side,
+            enable_scattering=phonon_enable_scattering,
+            enable_recombination=phonon_enable_recombination,
             coefficients_out=coefficients,
         )
 

@@ -131,6 +131,13 @@ class CollisionTerms(StrictModel):
 
     scattering: bool = True
     recombination: bool = True
+    # The phonon-side counterparts. Each pair is ONE physical process booked
+    # on both sides of the ledger, so switching a side off on its own is an
+    # energy-conservation violation, not a smaller model: one population
+    # trades energy with another that does not record it. Allowed on purpose,
+    # with a warning, because seeing the imbalance is the point.
+    phonon_scattering_source: bool = True
+    phonon_recombination_source: bool = True
 
 
 class SubGapDrive(StrictModel):

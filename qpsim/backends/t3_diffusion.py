@@ -548,6 +548,8 @@ class T3DiffusionBackend:
         external_dissipation_only: bool = False,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
@@ -813,6 +815,8 @@ class T3DiffusionBackend:
                 external_dissipation_only=external_dissipation_only,
                 enable_scattering=enable_scattering,
                 enable_recombination=enable_recombination,
+                enable_phonon_scattering_source=enable_phonon_scattering_source,
+                enable_phonon_recombination_source=enable_phonon_recombination_source,
                 use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
@@ -876,6 +880,8 @@ class T3DiffusionBackend:
                 use_thermal_phonons=use_thermal_phonons,
                 enable_scattering=enable_scattering,
                 enable_recombination=enable_recombination,
+                enable_phonon_scattering_source=enable_phonon_scattering_source,
+                enable_phonon_recombination_source=enable_phonon_recombination_source,
                 use_phonon_side_kernel=use_phonon_side_kernel,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
@@ -999,6 +1005,8 @@ class T3DiffusionBackend:
         external_dissipation_only: bool = False,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         use_phonon_side_kernel: bool = True,
         photon_params: dict[str, float] | None,
         pb_photon_params: dict[str, float] | None,
@@ -1072,13 +1080,21 @@ class T3DiffusionBackend:
                         "use_phonon_side_kernel=False only to reproduce the "
                         "legacy QP-side-kernel behavior."
                     )
-                K_r0_phonon_side = build_recombination_kernel_phonon_side(
-                    state.spectral,
-                    tau_0_pb_ns=tau_0_pb_ns,
+                K_r0_phonon_side = (
+                    build_recombination_kernel_phonon_side(
+                        state.spectral,
+                        tau_0_pb_ns=tau_0_pb_ns,
+                    )
+                    if enable_phonon_recombination_source
+                    else None
                 )
-                K_s0_phonon_side = build_scattering_kernel_phonon_side(
-                    state.spectral,
-                    tau_0_pb_ns=tau_0_pb_ns,
+                K_s0_phonon_side = (
+                    build_scattering_kernel_phonon_side(
+                        state.spectral,
+                        tau_0_pb_ns=tau_0_pb_ns,
+                    )
+                    if enable_phonon_scattering_source
+                    else None
                 )
 
         tau_l_scalar = float(state.phonon.tau_l[0, 0])
@@ -1122,6 +1138,8 @@ class T3DiffusionBackend:
                 state.T_bath,
                 K_r0_phonon_side=K_r0_phonon_side,
                 K_s0_phonon_side=K_s0_phonon_side,
+                phonon_enable_scattering=enable_phonon_scattering_source,
+                phonon_enable_recombination=enable_phonon_recombination_source,
                 photon_params=photon_params,
                 pb_photon_params=pb_photon_params,
                 external_flux=external_flux,

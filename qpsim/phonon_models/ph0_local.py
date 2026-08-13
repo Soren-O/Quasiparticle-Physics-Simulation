@@ -367,6 +367,8 @@ def phonon_steady_state(
     *,
     K_s0_phonon_side: np.ndarray | None = None,
     K_r0_phonon_side: np.ndarray | None = None,
+    enable_scattering: bool = True,
+    enable_recombination: bool = True,
     coefficients_out: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Solve the Ph0 phonon-balance equation for ``n_ph(ω)`` given ``f``.
@@ -423,6 +425,8 @@ def phonon_steady_state(
         omega_idx_diff, omega_idx_sum, diff_sign, n_omega,
         K_s0_phonon_side=K_s0_phonon_side,
         K_r0_phonon_side=K_r0_phonon_side,
+        enable_scattering=enable_scattering,
+        enable_recombination=enable_recombination,
     )
     if coefficients_out is not None:
         coefficients_out["a_ph"] = a_ph

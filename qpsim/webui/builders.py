@@ -228,6 +228,51 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     if isinstance(setup, SteadyState0DSetup):
         _validate_drives_and_probe(report, setup)
+
+        c = setup.collisions
+        if setup.phonons.mode == "thermal_bath":
+            # No phonon equation exists in this sector: n is pinned at the bath.
+            # The phonon-source flags have no term to act on, so they are inert
+            # rather than wrong, and a channel switched off on the quasiparticle
+            # side alone is not a split.
+            if not (c.phonon_scattering_source and c.phonon_recombination_source):
+                report.warnings.append(
+                    "Collision terms: the phonon source switches have no effect with a "
+                    "thermal-bath phonon sector, because n_ph is pinned and there is no "
+                    "phonon equation to remove a term from."
+                )
+        else:
+            sc_split = c.scattering != c.phonon_scattering_source
+            rc_split = c.recombination != c.phonon_recombination_source
+            if sc_split or rc_split:
+                channels = " and ".join(
+                    name for name, split in
+                    (("scattering", sc_split), ("recombination", rc_split)) if split
+                )
+                if not setup.phonons.use_phonon_side_kernel:
+                    report.errors.append(
+                        f"Collision terms: the {channels} channel cannot be split while "
+                        "use_phonon_side_kernel is off, because the phonon equation then "
+                        "reuses the quasiparticle-side kernel and the two sides are the "
+                        "same matrix. Enable the phonon-side kernel, or set both sides "
+                        "of the channel the same."
+                    )
+                elif setup.solver.method == "coupled_newton":
+                    report.errors.append(
+                        f"Collision terms: the {channels} channel cannot be split on the "
+                        "coupled-Newton route, which assembles the phonon source and its "
+                        "Jacobian through a path that does not carry these flags. Use the "
+                        "Picard solver, or set both sides of the channel the same."
+                    )
+                else:
+                    report.warnings.append(
+                        f"Energy conservation is not being tracked: the {channels} "
+                        "channel is switched on for one population and off for the "
+                        "other, so one trades energy with the other without it being "
+                        "recorded. Detailed balance no longer holds and there is no "
+                        "thermal fixed point. Proceed at your own risk."
+                    )
+
         if setup.solver.self_consistent_gap and setup.grid.min_factor >= 1.0:
             report.warnings.append(
                 "Self-consistent gap: the energy grid does not extend below "
@@ -446,6 +491,10 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
         "use_phonon_side_kernel": setup.phonons.use_phonon_side_kernel,
         "enable_scattering": setup.collisions.scattering,
         "enable_recombination": setup.collisions.recombination,
+        "enable_phonon_scattering_source": setup.collisions.phonon_scattering_source,
+        "enable_phonon_recombination_source": (
+            setup.collisions.phonon_recombination_source
+        ),
         "newton_tol": s.newton_tol,
         "newton_max_iter": s.newton_max_iter,
     }
