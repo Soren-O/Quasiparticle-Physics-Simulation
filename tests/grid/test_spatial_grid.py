@@ -11,8 +11,8 @@ from qpsim.grid.spatial_grid import (
     BoundaryFace,
     EdgeSegment,
     build_laplacian_with_boundaries,
-    edges_from_mask,
     build_variable_diffusion_laplacian,
+    edges_from_mask,
     mask_to_index,
     reconstruct_field,
 )

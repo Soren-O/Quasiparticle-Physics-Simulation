@@ -23,11 +23,11 @@ from qpsim.backends.base import Tier
 from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
-    compute_phonon_source_sink,
     build_recombination_kernel_base,
     build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
     build_scattering_kernel_phonon_side,
+    compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
 )

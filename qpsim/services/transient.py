@@ -42,8 +42,8 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
-from typing import Any
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 

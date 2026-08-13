@@ -66,6 +66,7 @@ class SpatialTransport:
         dt: float,
         *,
         cache_key: tuple[Any, ...] | None = None,
+        face_overrides: dict[int, dict[tuple[int, int], float]] | None = None,
     ) -> list[EnergyTransportOp | None]:
         """Operators for every energy bin.
 
@@ -76,6 +77,11 @@ class SpatialTransport:
         ``cache_key`` should fingerprint everything the arrays derive from.
         Passing ``None`` hashes the arrays themselves, which is correct but
         costs a pass over them -- fine for a few calls, wasteful in a loop.
+
+        ``face_overrides`` maps an energy-bin index to that bin's face
+        conductance overrides, which is how a Kupriyanov-Lukichev interface
+        enters: the barrier weight is energy dependent, so the affected faces
+        differ bin by bin.
         """
         key = self._cache_key(flux_weight_grid, density_weight_grid, dt, cache_key)
         cached = self._cache.get(key)
@@ -96,6 +102,7 @@ class SpatialTransport:
                 self._build_one(
                     flux_weight_grid[i], density_weight_grid[i],
                     cell_rows, cell_cols, dt,
+                    None if face_overrides is None else face_overrides.get(i),
                 )
             )
         self._cache[key] = ops
@@ -108,6 +115,7 @@ class SpatialTransport:
         cell_rows: np.ndarray,
         cell_cols: np.ndarray,
         dt: float,
+        face_overrides: dict[tuple[int, int], float] | None = None,
     ) -> EnergyTransportOp | None:
         active = flux_weight > 0.0
         if int(np.count_nonzero(active)) < 2:
@@ -122,6 +130,7 @@ class SpatialTransport:
             self.dx,
             flux_weight[active],
             density_weight[active],
+            face_overrides,
         )
         exit_rate = float(np.max(-operator.diagonal()))
         stiffness = dt * exit_rate

@@ -143,3 +143,37 @@ def bcs_dos_cell_weights(
     xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
     xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))
     return xi_hi - xi_lo
+
+
+def represented_bcs_weights(
+    E: np.ndarray,
+    dE: np.ndarray,
+    gap: float,
+) -> np.ndarray:
+    """Exact BCS capacity on only the represented energy domain.
+
+    Copied out of the 1-D spatial backend, where it was private, so the
+    dimension-agnostic core does not import from a module scheduled for
+    deletion. The 1-D copy stays put until that deletion, deliberately: it is
+    the reference the new core is checked against, so it must not move.
+    """
+    edges = cell_edges_from_widths(E, dE)
+    return bcs_dos_cell_weights(
+        E, dE, gap, lower_bound=max(float(gap), float(edges[0])),
+    )
+
+
+def bcs_support_fraction(
+    E: np.ndarray,
+    dE: np.ndarray,
+    gap: float,
+) -> np.ndarray:
+    """Fraction of each energy cell lying in the ideal-BCS continuum.
+
+    The dirty-limit flux coefficient is an above-gap indicator, and its exact
+    finite-volume average over a cell cut by the gap edge is this fraction --
+    not 1 merely because the cell has some capacity.
+    """
+    edges = cell_edges_from_widths(E, dE)
+    overlap = np.maximum(edges[1:] - np.maximum(edges[:-1], float(gap)), 0.0)
+    return overlap / dE

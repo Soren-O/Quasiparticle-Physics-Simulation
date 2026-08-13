@@ -1,0 +1,262 @@
+"""T3 kinetics on an arbitrary geometry: transport composed with collisions.
+
+One backend for every dimensionality. The geometry is a mask, so a single
+cell is 0-D, a one-cell-wide mask is a 1-D strip, and anything else is 2-D --
+configurations of the same object rather than separate code paths.
+
+Composes :class:`qpsim.transport.spatial_transport.SpatialTransport` with
+:class:`qpsim.collisions.spatial.SpatialCollisions` in a symmetric split,
+matching the 1-D backend it generalises:
+
+    transport(dt/2) -> collisions(dt) -> transport(dt/2)
+
+``qpsim/backends/t3_spatial_1d.py`` stays in the tree until this is
+benchmark-certified. A one-cell-wide geometry here must reproduce it; that is
+the acceptance gate, and it is sharper than any single analytic check because
+that backend already carries validated face weights, subcycling and interface
+handling.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+
+import numpy as np
+
+from qpsim.collisions.spatial import SpatialCollisions
+from qpsim.geometries import Geometry
+from qpsim.grid.spatial_grid import BoundaryCondition
+from qpsim.materials.database import Material
+from qpsim.physics.bcs_quadrature import (
+    bcs_support_fraction,
+    represented_bcs_weights,
+)
+from qpsim.physics.spectral import SpectralContext
+from qpsim.transport.diffusion.base import (
+    DiffusionModel,
+    density_weight,
+    flux_weight,
+)
+from qpsim.transport.interface import interface_face_conductances
+from qpsim.transport.spatial_operator import face_condition_lookup
+from qpsim.transport.spatial_transport import SpatialTransport
+
+__all__ = ["T3SpatialBackend", "T3SpatialState"]
+
+
+@dataclass
+class T3SpatialState:
+    """Occupation ``f(E, cell)`` on a geometry.
+
+    ``f`` is ``(NE, Ncells)`` with cells in the geometry's mask order, i.e.
+    row-major over ``mask.nonzero()``. ``gap_per_cell`` gives the local gap so
+    the density of states, the transport dressing and the collision kernels
+    all agree cell by cell; ``None`` means the spectral context's scalar gap
+    everywhere.
+    """
+
+    f: np.ndarray
+    geometry: Geometry
+    spectral: SpectralContext
+    material: Material
+    T_bath: float
+    gap_per_cell: np.ndarray | None = None
+    conditions: dict[str, BoundaryCondition] | None = None
+    diffusion_model: DiffusionModel = DiffusionModel.A1
+    interface_conductance: float | None = None
+    _: dict[str, float] = field(default_factory=dict, repr=False)
+
+    def gaps(self) -> np.ndarray:
+        """Local gap per cell, as an array either way."""
+        if self.gap_per_cell is None:
+            return np.full(self.f.shape[1], float(self.spectral.gap))
+        return np.asarray(self.gap_per_cell, dtype=float)
+
+    def boundary(self) -> dict[str, BoundaryCondition]:
+        """Declared conditions, defaulting to a reflective device."""
+        return (
+            self.geometry.conditions() if self.conditions is None
+            else self.conditions
+        )
+
+
+class T3SpatialBackend:
+    """Split-step T3 kinetics on a geometry of any dimensionality."""
+
+    def __init__(
+        self,
+        *,
+        enable_scattering: bool = True,
+        enable_recombination: bool = True,
+    ) -> None:
+        self.enable_scattering = bool(enable_scattering)
+        self.enable_recombination = bool(enable_recombination)
+        self._transport: SpatialTransport | None = None
+        self._collisions: SpatialCollisions | None = None
+        self._transport_signature: object = None
+        self._collision_signature: object = None
+
+    # -- per-cell spectral quantities -------------------------------------
+
+    @staticmethod
+    def _per_cell(
+        spectral: SpectralContext,
+        gaps: np.ndarray,
+        kind: str,
+    ) -> np.ndarray:
+        """``(NE, Ncells)`` spectral weight, one integration per distinct gap.
+
+        Cells are grouped by exact gap first, so a piecewise-constant profile
+        costs one quadrature per material rather than one per cell -- which is
+        what keeps a fine 2-D mesh affordable.
+        """
+        energies, widths = spectral.E, spectral.dE
+        distinct, group_index = np.unique(gaps, return_inverse=True)
+        if kind == "density":
+            columns = [
+                represented_bcs_weights(energies, widths, float(g)) / widths
+                for g in distinct
+            ]
+        elif kind == "support":
+            columns = [
+                bcs_support_fraction(energies, widths, float(g))
+                for g in distinct
+            ]
+        else:  # pragma: no cover - internal
+            raise ValueError(f"unknown per-cell weight {kind!r}")
+        return np.column_stack(columns)[:, group_index]
+
+    def _transport_weights(
+        self, state: T3SpatialState,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        gaps = state.gaps()
+        n1 = self._per_cell(state.spectral, gaps, "density")
+        model = state.diffusion_model
+        if model.q == 0:
+            # Dirty-limit D_L is an above-gap indicator. Its exact
+            # finite-volume average is the supported fraction of a cut cell,
+            # not one merely because the cell has some capacity.
+            weights = state.spectral.diffusion_coefficient * self._per_cell(
+                state.spectral, gaps, "support",
+            )
+        else:
+            weights = flux_weight(
+                state.spectral.diffusion_coefficient, n1, model.q,
+            )
+        return weights, density_weight(n1, model.p)
+
+    # -- the two halves ---------------------------------------------------
+
+    def _transport_for(self, state: T3SpatialState) -> SpatialTransport:
+        signature = (
+            id(state.geometry), state.geometry.mask.tobytes(),
+            float(state.geometry.mesh_size), id(state.conditions),
+        )
+        if self._transport is None or signature != self._transport_signature:
+            self._transport = SpatialTransport(
+                state.geometry.mask,
+                face_condition_lookup(state.geometry.edges, state.boundary()),
+                state.geometry.mesh_size,
+            )
+            self._transport_signature = signature
+        return self._transport
+
+    def _collisions_for(self, state: T3SpatialState) -> SpatialCollisions:
+        gaps = state.gaps()
+        signature = (
+            gaps.tobytes(), float(state.T_bath), float(state.material.tau_0),
+            float(state.material.T_c), state.spectral.E.tobytes(),
+        )
+        if self._collisions is None or signature != self._collision_signature:
+            self._collisions = SpatialCollisions(
+                state.spectral, gaps,
+                tau_0=state.material.tau_0,
+                T_c=state.material.T_c,
+                T_bath=state.T_bath,
+                enable_scattering=self.enable_scattering,
+                enable_recombination=self.enable_recombination,
+            )
+            self._collision_signature = signature
+        return self._collisions
+
+    def apply_transport(
+        self, state: T3SpatialState, dt: float,
+    ) -> T3SpatialState:
+        """One CN transport step. A single cell has nothing to transport."""
+        if state.f.shape[1] == 1:
+            return state
+        weights, density = self._transport_weights(state)
+        transport = self._transport_for(state)
+
+        conductance = state.interface_conductance
+        overrides: dict[int, dict[tuple[int, int], float]] | None = None
+        # The barrier conductance belongs in the key: two runs differing only
+        # in it must not share an operator set.
+        interface_key: tuple[float, int] | None = None
+        if conductance is not None and state.gap_per_cell is not None:
+            overrides = self._interface_overrides(state, float(conductance))
+            interface_key = (float(conductance), len(overrides))
+
+        ops = transport.build(
+            weights, density, dt,
+            cache_key=(weights.tobytes(), density.tobytes(), interface_key),
+            face_overrides=overrides,
+        )
+        f_new, _diagnostics = transport.apply(state.f, ops)
+        return replace(state, f=f_new)
+
+    def _interface_overrides(
+        self, state: T3SpatialState, conductance: float,
+    ) -> dict[int, dict[tuple[int, int], float]]:
+        """Kupriyanov-Lukichev face conductances, per energy bin."""
+        gap_grid = np.zeros(state.geometry.mask.shape, dtype=float)
+        gap_grid[state.geometry.mask] = state.gaps()
+        weights, _density = self._transport_weights(state)
+        overrides: dict[int, dict[tuple[int, int], float]] = {}
+        rows, cols = np.nonzero(state.geometry.mask)
+        for i in range(weights.shape[0]):
+            active = weights[i] > 0.0
+            if int(np.count_nonzero(active)) < 2:
+                continue
+            submask = np.zeros_like(state.geometry.mask)
+            submask[rows[active], cols[active]] = True
+            found = interface_face_conductances(
+                submask, gap_grid, state.spectral.E, state.spectral.dE,
+                float(conductance), state.geometry.mesh_size, i,
+            )
+            if found:
+                overrides[i] = found
+        return overrides
+
+    def apply_collisions(
+        self,
+        state: T3SpatialState,
+        dt: float,
+        *,
+        external_gain: np.ndarray | None = None,
+        external_loss: np.ndarray | None = None,
+    ) -> T3SpatialState:
+        """One local ETD2 collision/source step at every cell."""
+        collisions = self._collisions_for(state)
+        f_new = collisions.apply(
+            state.f, dt,
+            external_gain=external_gain, external_loss=external_loss,
+        )
+        return replace(state, f=f_new)
+
+    # -- composed step ----------------------------------------------------
+
+    def step(
+        self,
+        state: T3SpatialState,
+        dt: float,
+        *,
+        external_gain: np.ndarray | None = None,
+        external_loss: np.ndarray | None = None,
+    ) -> T3SpatialState:
+        """Symmetric split step: transport/2, collisions+source, transport/2."""
+        s = self.apply_transport(state, 0.5 * dt)
+        s = self.apply_collisions(
+            s, dt, external_gain=external_gain, external_loss=external_loss,
+        )
+        return self.apply_transport(s, 0.5 * dt)
