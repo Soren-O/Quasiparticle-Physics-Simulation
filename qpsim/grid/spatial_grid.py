@@ -372,7 +372,10 @@ def build_laplacian_with_boundaries(
     dx_value = float(dx)
     with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
         inv_dx = 1.0 / dx_value
-        inv_dx2 = inv_dx * inv_dx
+        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two, and it
+        # matches the 1-D backend exactly so a one-cell-wide grid
+        # reproduces it bit for bit.
+        inv_dx2 = 1.0 / (dx * dx)
     if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
         raise ValueError("dx is too small to assemble a finite Laplacian.")
     rows: list[int] = []
@@ -460,7 +463,10 @@ def build_variable_diffusion_laplacian(
     dx_value = float(dx)
     with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
         inv_dx = 1.0 / dx_value
-        inv_dx2 = inv_dx * inv_dx
+        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two, and it
+        # matches the 1-D backend exactly so a one-cell-wide grid
+        # reproduces it bit for bit.
+        inv_dx2 = 1.0 / (dx * dx)
     if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
         raise ValueError("dx is too small to assemble a finite diffusion operator.")
 

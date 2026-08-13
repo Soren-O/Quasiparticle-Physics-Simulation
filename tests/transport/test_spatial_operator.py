@@ -1,0 +1,178 @@
+"""Tests for qpsim.transport.spatial_operator.
+
+The headline test is the reproduction gate: on a one-cell-wide geometry the
+2-D core must produce the shipped 1-D backend's operator bit for bit, for
+every member of the diffusion family. That is a far sharper check than an
+analytic benchmark, because the 1-D path is already validated.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from qpsim.backends.t3_spatial_1d import (
+    _flux_laplacian_from_conductances,
+    _harmonic_face_weights,
+)
+from qpsim.geometries import rectangle, strip
+from qpsim.grid.spatial_grid import BoundaryCondition
+from qpsim.transport.diffusion.base import (
+    DiffusionModel,
+    density_weight,
+    flux_weight,
+)
+from qpsim.transport.spatial_operator import (
+    active_submask_boundary,
+    face_condition_lookup,
+    spatial_diffusion_operator,
+)
+from scipy import sparse
+
+D0 = 3.0
+
+
+def _shipped_1d_operator(n1: np.ndarray, model: DiffusionModel, dx: float):
+    """The operator exactly as qpsim.backends.t3_spatial_1d builds it."""
+    rho_p = density_weight(n1, model.p)
+    w_cell = flux_weight(D0, n1, model.q)
+    inv_dx2 = 1.0 / (dx * dx)
+    laplacian = _flux_laplacian_from_conductances(
+        _harmonic_face_weights(w_cell) * inv_dx2, n1.size,
+    )
+    return (laplacian @ sparse.diags(1.0 / rho_p)).tocsr(), rho_p, w_cell
+
+
+class TestReproducesTheOneDimensionalBackend:
+    @pytest.mark.parametrize("model", list(DiffusionModel))
+    @pytest.mark.parametrize("dx", [1.0, 0.5, 0.75, 0.3, 0.1, 12.5])
+    def test_operator_matches_bit_for_bit(self, model, dx):
+        n = 9
+        n1 = np.random.default_rng(1).uniform(0.4, 2.5, size=n)
+        expected, rho_p, w_cell = _shipped_1d_operator(n1, model, dx)
+
+        geom = strip(n, mesh_size=dx)
+        faces = face_condition_lookup(geom.edges, geom.conditions())
+        got, _source = spatial_diffusion_operator(
+            geom.mask, faces, dx, w_cell, rho_p,
+        )
+        assert np.array_equal(got.toarray(), expected.toarray())
+
+    def test_a_single_cell_has_no_transport(self):
+        n1 = np.array([1.7])
+        rho_p = density_weight(n1, 1)
+        w_cell = flux_weight(D0, n1, 0)
+        geom = rectangle(1, 1)
+        faces = face_condition_lookup(geom.edges, geom.conditions())
+        operator, _s = spatial_diffusion_operator(
+            geom.mask, faces, 1.0, w_cell, rho_p,
+        )
+        assert np.allclose(operator.toarray(), 0.0)
+
+
+class TestGeneralGeometry:
+    def test_two_dimensional_keeps_the_five_point_stencil(self):
+        geom = rectangle(3, 3)
+        n = geom.cell_count
+        n1 = np.full(n, 1.3)
+        operator, _s = spatial_diffusion_operator(
+            geom.mask,
+            face_condition_lookup(geom.edges, geom.conditions()),
+            1.0,
+            flux_weight(D0, n1, 0),
+            density_weight(n1, 1),
+        )
+        assert np.count_nonzero(operator.toarray()[4]) - 1 == 4
+
+    def test_a_non_contiguous_active_region_is_supported(self):
+        """The case the 1-D operator raises NotImplementedError on.
+
+        Two pockets of above-gap cells separated by a sub-gap gap: each solves
+        on its own, with no transport between them.
+        """
+        active = np.array([[True, True, False, True, True]])
+        n_active = int(active.sum())
+        n1 = np.full(n_active, 1.1)
+        operator, _s = spatial_diffusion_operator(
+            active,
+            {},                      # every face newly exposed -> reflective
+            1.0,
+            flux_weight(D0, n1, 0),
+            density_weight(n1, 1),
+        )
+        dense = operator.toarray()
+        assert dense.shape == (4, 4)
+        # Cells 1 and 2 in solve order are the two sides of the gap; they must
+        # not be coupled, or the operator would carry flux through a region
+        # with no states.
+        assert dense[1, 2] == 0.0
+        assert dense[2, 1] == 0.0
+        # Each pocket still conserves internally.
+        assert np.allclose(dense.sum(axis=1), 0.0)
+
+    def test_an_interior_hole_is_closed_off(self):
+        mask = np.ones((3, 3), dtype=bool)
+        mask[1, 1] = False
+        n = int(mask.sum())
+        n1 = np.full(n, 1.0)
+        operator, _s = spatial_diffusion_operator(
+            mask, {}, 1.0, flux_weight(D0, n1, 0), density_weight(n1, 1),
+        )
+        assert operator.shape == (8, 8)
+        assert np.allclose(operator.toarray().sum(axis=1), 0.0)
+
+
+class TestBoundaryInheritance:
+    def test_device_conditions_survive_on_active_faces(self):
+        geom = rectangle(1, 4)
+        conditions = geom.conditions()
+        conditions[geom.edges[0].edge_id] = BoundaryCondition("dirichlet", 0.5)
+        faces = face_condition_lookup(geom.edges, conditions)
+
+        _edges, active_conditions = active_submask_boundary(geom.mask, faces)
+        kinds = {c.normalized_kind() for c in active_conditions.values()}
+        assert "dirichlet" in kinds
+
+    def test_newly_exposed_faces_are_reflective(self):
+        # One cell of a 1x3 strip has no states: the faces its neighbours now
+        # present are not device edges and must carry no flux.
+        active = np.array([[True, False, True]])
+        edges, conditions = active_submask_boundary(active, {})
+        assert {c.normalized_kind() for c in conditions.values()} == {"reflective"}
+        total_faces = sum(len(e.faces) for e in edges)
+        assert total_faces == 8  # two isolated cells, four faces each
+
+    def test_a_dirichlet_device_edge_still_breaks_conservation(self):
+        geom = rectangle(3, 3)
+        conditions = geom.conditions()
+        conditions[geom.edges[0].edge_id] = BoundaryCondition("dirichlet", 0.0)
+        n = geom.cell_count
+        n1 = np.full(n, 1.0)
+        operator, _s = spatial_diffusion_operator(
+            geom.mask,
+            face_condition_lookup(geom.edges, conditions),
+            1.0,
+            flux_weight(D0, n1, 0),
+            density_weight(n1, 1),
+        )
+        assert not np.allclose(operator.toarray().sum(axis=1), 0.0)
+
+    def test_an_inhomogeneous_condition_produces_a_source(self):
+        geom = rectangle(1, 4)
+        conditions = geom.conditions()
+        conditions[geom.edges[0].edge_id] = BoundaryCondition("dirichlet", 2.0)
+        n = geom.cell_count
+        n1 = np.full(n, 1.0)
+        _op, source = spatial_diffusion_operator(
+            geom.mask,
+            face_condition_lookup(geom.edges, conditions),
+            1.0,
+            flux_weight(D0, n1, 0),
+            density_weight(n1, 1),
+        )
+        assert source.shape == (n,)
+        assert np.any(source != 0.0)
+
+    def test_missing_condition_is_reported(self):
+        geom = rectangle(2, 2)
+        with pytest.raises(KeyError, match="boundary condition"):
+            face_condition_lookup(geom.edges, {})
