@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
+from typing import Any
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -279,7 +280,7 @@ def run_time_dependent(
         # Pass a term flag only when it is off: a third-party backend that
         # predates these kwargs must keep working at the defaults, and must
         # fail loudly rather than silently ignore a term you switched off.
-        term_kwargs: dict[str, bool] = {}
+        term_kwargs: dict[str, Any] = {}
         if not enable_scattering:
             term_kwargs["enable_scattering"] = False
         if not enable_recombination:
