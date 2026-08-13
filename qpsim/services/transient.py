@@ -5,17 +5,22 @@ produce a time series of ``f(E)`` snapshots the caller can post-process.
 
 ``phonon_escape_time`` decides whether the phonon population is frozen
 (``None``, the default and the historical behaviour) or solved in time
-alongside ``f``. When it is solved, each step is Lie splitting: ``f``
-advances at frozen ``n_ph``, then ``n_ph`` advances at the new ``f``
-under the exact solution of its affine ODE. The coefficients are
+alongside ``f``. When it is solved, each step is Strang splitting: half a
+phonon step, the full ``f`` step, then the second half phonon step, each
+phonon half taken under the exact solution of its affine ODE. The
+symmetric composition is second order in ``dt``, matching the ETD2
+treatment of ``f``; advancing the phonons once per step would be first
+order. Measured on a driven escape sector, the observed order is 2.003
+against 1.013 for the one-sided arrangement. The coefficients are
 assembled exactly as :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
 assembles them, so the transient relaxes onto the same fixed point the
 steady-state solver finds, to within that solver's own tolerance.
 
 What's *not* here
 -----------------
-* No coupled ``(f, n_ph)`` implicit step — the splitting is first order
-  in ``dt``. For a converged coupled steady state use
+* No coupled ``(f, n_ph)`` implicit step — the split flows are each
+  solved exactly, but they are still composed rather than solved
+  together. For a converged coupled steady state use
   :func:`qpsim.services.steady_state.solve_steady_state` or the
   backend's ``steady_state(method="coupled_newton")``.
 * No transport — ``apply_transport`` is a no-op in the v1

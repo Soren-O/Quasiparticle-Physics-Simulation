@@ -1314,6 +1314,90 @@ class T3DiffusionBackend:
             state.spectral.E
         )
         n_ph_1d = state.phonon.n_ph[0, :, 0]
+
+        if phonon_escape_time is not None:
+            # The phonon equation is written on its OWN kernels (F&C 2023
+            # Eq. 12), not the quasiparticle-side ones -- tau_0_pb_ns is
+            # ~1700x smaller than tau_0, so using the QP matrices here lands
+            # on a different fixed point than the steady-state solver finds
+            # for the same setup.
+            K_s0_ph: np.ndarray | None = None
+            K_r0_ph: np.ndarray | None = None
+            if use_phonon_side_kernel:
+                tau_0_pb_ns = state.material.tau_0_pb_ns
+                if (
+                    tau_0_pb_ns is None
+                    or not np.isfinite(tau_0_pb_ns)
+                    or tau_0_pb_ns <= 0.0
+                ):
+                    raise ValueError(
+                        "A dynamic transient phonon sector with "
+                        "use_phonon_side_kernel=True requires "
+                        "state.material.tau_0_pb_ns to be finite and positive; "
+                        f"got {tau_0_pb_ns!r}. Set tau_0_pb_ns on the Material, "
+                        "or pass use_phonon_side_kernel=False to reuse the "
+                        "quasiparticle-side kernel as the legacy path does."
+                    )
+                K_s0_ph = build_scattering_kernel_phonon_side(
+                    state.spectral, tau_0_pb_ns=tau_0_pb_ns,
+                )
+                K_r0_ph = build_recombination_kernel_phonon_side(
+                    state.spectral, tau_0_pb_ns=tau_0_pb_ns,
+                )
+            n_th_omega = thermal_phonon_occupation(omega_bins, state.T_bath)
+
+            def advance_phonons(
+                n_vec: np.ndarray, f_vec: np.ndarray, h: float,
+            ) -> np.ndarray:
+                """Exact flow of the affine phonon ODE over ``h`` at fixed f.
+
+                The equation is diagonal in omega,
+                    dn/dt = a_ph + b_ph*n + (n_th - n)/tau_l = A + B*n,
+                assembled exactly as phonon_steady_state assembles it so the
+                transient relaxes onto the same fixed point the steady-state
+                solver finds.
+                """
+                a_ph, b_ph = compute_phonon_source_sink(
+                    f_vec,
+                    state.spectral,
+                    K_s0,
+                    K_r0,
+                    idx_diff,
+                    idx_sum,
+                    diff_sign,
+                    int(omega_bins.size),
+                    enable_scattering=enable_scattering,
+                    enable_recombination=enable_recombination,
+                    K_s0_phonon_side=K_s0_ph,
+                    K_r0_phonon_side=K_r0_ph,
+                )
+                if phonon_escape_time == 0.0:
+                    # The tau_l -> infinity sentinel: no substrate, no bath term.
+                    A, B = a_ph, b_ph
+                else:
+                    inv_tau = 1.0 / phonon_escape_time
+                    A = a_ph + inv_tau * n_th_omega
+                    B = b_ph - inv_tau
+                # n(t+h) = n*exp(B h) + A*h*phi_1(B h), phi_1(x) = (e^x - 1)/x.
+                # phi_1 goes through expm1 for the same reason etd1_step does:
+                # sub-2-Delta bins reach |B h| ~ 1e-7, where forming
+                # (exp(Bh) - 1) directly cancels to zero and silently deletes
+                # the whole source term.
+                Bh = B * h
+                nonzero = B != 0.0
+                phi1_h = np.where(
+                    nonzero, np.expm1(Bh) / np.where(nonzero, B, 1.0), h,
+                )
+                out = n_vec * np.exp(Bh) + A * phi1_h
+                # A Bose occupation is unbounded above but cannot be negative;
+                # the exact update only undershoots through rounding near zero.
+                return np.clip(out, 0.0, None)
+
+            # Strang: half a phonon step before f moves, half after. The
+            # symmetric composition of two second-order flows is second order,
+            # where advancing the phonons once per step is only first.
+            n_ph_1d = advance_phonons(n_ph_1d, state.f, 0.5 * dt)
+
         N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
             n_ph_1d,
             idx_diff,
@@ -1389,71 +1473,7 @@ class T3DiffusionBackend:
             # Shipped behaviour: n_ph is whatever the incoming state carries.
             return replace(state, f=f_new)
 
-        # Lie splitting: f has advanced at frozen n_ph, now n_ph advances at
-        # the new f. The phonon equation is diagonal in omega and affine,
-        #     dn/dt = a_ph + b_ph*n + (n_th - n)/tau_l = A + B*n,
-        # assembled exactly as phonon_steady_state does so the transient and
-        # the steady-state solver agree on the same root by construction.
-        # The phonon equation is written on its OWN kernels (F&C 2023 Eq. 12),
-        # not the quasiparticle-side ones -- tau_0_pb_ns is ~1700x smaller than
-        # tau_0, so using the QP matrices here lands on a different fixed point
-        # than the steady-state solver finds for the same setup.
-        K_s0_ph: np.ndarray | None = None
-        K_r0_ph: np.ndarray | None = None
-        if use_phonon_side_kernel:
-            tau_0_pb_ns = state.material.tau_0_pb_ns
-            if tau_0_pb_ns is None or not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
-                raise ValueError(
-                    "A dynamic transient phonon sector with "
-                    "use_phonon_side_kernel=True requires "
-                    "state.material.tau_0_pb_ns to be finite and positive; got "
-                    f"{tau_0_pb_ns!r}. Set tau_0_pb_ns on the Material, or pass "
-                    "use_phonon_side_kernel=False to reuse the "
-                    "quasiparticle-side kernel as the legacy path does."
-                )
-            K_s0_ph = build_scattering_kernel_phonon_side(
-                state.spectral, tau_0_pb_ns=tau_0_pb_ns,
-            )
-            K_r0_ph = build_recombination_kernel_phonon_side(
-                state.spectral, tau_0_pb_ns=tau_0_pb_ns,
-            )
-
-        a_ph, b_ph = compute_phonon_source_sink(
-            f_new,
-            state.spectral,
-            K_s0,
-            K_r0,
-            idx_diff,
-            idx_sum,
-            diff_sign,
-            int(omega_bins.size),
-            enable_scattering=enable_scattering,
-            enable_recombination=enable_recombination,
-            K_s0_phonon_side=K_s0_ph,
-            K_r0_phonon_side=K_r0_ph,
-        )
-        if phonon_escape_time == 0.0:
-            # The tau_l -> infinity sentinel: no substrate, so no bath term.
-            A = a_ph
-            B = b_ph
-        else:
-            inv_tau = 1.0 / phonon_escape_time
-            A = a_ph + inv_tau * thermal_phonon_occupation(omega_bins, state.T_bath)
-            B = b_ph - inv_tau
-
-        # Exact solution of the frozen-coefficient affine ODE:
-        #     n(t+h) = n*exp(B h) + A*h*phi_1(B h),  phi_1(x) = (e^x - 1)/x.
-        # phi_1 goes through expm1 for the same reason etd1_step does: the
-        # sub-2-Delta bins reach |B h| ~ 1e-7, where forming (exp(Bh) - 1)
-        # directly cancels to zero and silently deletes the whole source term.
-        Bh = B * dt
-        nonzero = B != 0.0
-        phi1_h = np.where(nonzero, np.expm1(Bh) / np.where(nonzero, B, 1.0), dt)
-        n_ph_new = n_ph_1d * np.exp(Bh) + A * phi1_h
-        # A Bose occupation is unbounded above but cannot be negative; the
-        # exact update only undershoots through rounding near n = 0.
-        np.clip(n_ph_new, 0.0, None, out=n_ph_new)
-
+        n_ph_new = advance_phonons(n_ph_1d, f_new, 0.5 * dt)
         phonon_new = replace(
             state.phonon,
             n_ph=n_ph_new.reshape(state.phonon.n_ph.shape),
