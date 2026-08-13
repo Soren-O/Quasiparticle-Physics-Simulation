@@ -152,6 +152,72 @@ def mask_to_index(mask: np.ndarray) -> tuple[np.ndarray, list[tuple[int, int]]]:
     return index_map, [(int(rc[0]), int(rc[1])) for rc in coords]
 
 
+def edges_from_mask(
+    mask: np.ndarray,
+    *,
+    condition: BoundaryCondition | str = "reflective",
+    group: str = "direction",
+) -> tuple[list[EdgeSegment], dict[str, BoundaryCondition]]:
+    """Declare every outward face of ``mask`` as boundary, in one call.
+
+    Assembly requires that *every* face pointing out of the mask is named in
+    an :class:`EdgeSegment` and assigned a condition; an undeclared face is an
+    error, and there is deliberately no default. That is right for a device
+    whose edges mean different things, but it makes the degenerate cases
+    absurdly expensive to state by hand: a 1xN strip needs ``2N+2`` faces and
+    a single 0-D cell needs 4, purely to say "nothing leaves".
+
+    ``group`` selects how the faces are bundled into edges:
+
+    * ``"direction"`` (default) -- four edges, ``up``/``down``/``left``/
+      ``right``, so a caller can reassign one side afterwards.
+    * ``"all"`` -- one edge named ``boundary``.
+
+    ``condition`` applies to every edge produced; pass a
+    :class:`BoundaryCondition` for anything needing a value. Reassign entries
+    of the returned dict to give individual sides different conditions.
+
+    The geometric fields of each :class:`EdgeSegment` are set to the mask's
+    bounding box. They are carried metadata only -- the assembler reads just
+    ``edge_id`` and ``faces`` -- but they keep the segments plottable.
+    """
+    mask = _validated_boolean_mask(mask)
+    if not mask.any():
+        raise BoundaryAssignmentError("Geometry mask has no interior points.")
+    bc = BoundaryCondition(condition) if isinstance(condition, str) else condition
+    bc.validate()
+
+    nrow, ncol = mask.shape
+    by_dir: dict[str, list[BoundaryFace]] = {d: [] for d in _DIR_OFFSETS}
+    for row, col in np.argwhere(mask):
+        for direction, (dr, dc) in _DIR_OFFSETS.items():
+            r, c = int(row) + dr, int(col) + dc
+            outward = (
+                r < 0 or r >= nrow or c < 0 or c >= ncol or not bool(mask[r, c])
+            )
+            if outward:
+                by_dir[direction].append(
+                    BoundaryFace(int(row), int(col), direction)
+                )
+
+    box = (0.0, 0.0, float(ncol), float(nrow))
+    if group == "all":
+        faces = [f for d in _DIR_OFFSETS for f in by_dir[d]]
+        edges = [EdgeSegment("boundary", *box, "up", faces)]
+    elif group == "direction":
+        # Keep empty sides out: an EdgeSegment with no faces is still a real
+        # edge that must be assigned, so emitting them would only add noise.
+        edges = [
+            EdgeSegment(direction, *box, direction, by_dir[direction])
+            for direction in _DIR_OFFSETS
+            if by_dir[direction]
+        ]
+    else:
+        raise ValueError(f"group must be 'direction' or 'all'; got {group!r}.")
+
+    return edges, {edge.edge_id: bc for edge in edges}
+
+
 def _normalized_bc(bc: BoundaryCondition) -> BoundaryCondition:
     return replace(bc, kind=bc.normalized_kind())
 

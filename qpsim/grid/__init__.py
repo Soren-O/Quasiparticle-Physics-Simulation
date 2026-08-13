@@ -18,6 +18,7 @@ from qpsim.grid.spatial_grid import (
     EdgeSegment,
     build_laplacian_with_boundaries,
     build_variable_diffusion_laplacian,
+    edges_from_mask,
     mask_to_index,
     reconstruct_field,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "build_energy_grid",
     "build_laplacian_with_boundaries",
     "build_variable_diffusion_laplacian",
+    "edges_from_mask",
     "integration_widths_from_centers",
     "mask_to_index",
     "reconstruct_field",

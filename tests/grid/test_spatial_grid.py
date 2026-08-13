@@ -11,6 +11,7 @@ from qpsim.grid.spatial_grid import (
     BoundaryFace,
     EdgeSegment,
     build_laplacian_with_boundaries,
+    edges_from_mask,
     build_variable_diffusion_laplacian,
     mask_to_index,
     reconstruct_field,
@@ -414,3 +415,114 @@ class TestBuildVariableDiffusionLaplacian:
         )
         assert np.all(np.isfinite(operator.data))
         assert np.all(np.isfinite(source))
+
+
+class TestEdgesFromMask:
+    """The helper that makes the degenerate configurations usable.
+
+    Assembly demands every outward face be declared and assigned, which is
+    right for a device with meaningful edges and prohibitive for the cases the
+    engine is supposed to reduce to: a 1xN strip needs 2N+2 faces by hand and a
+    single cell needs 4, only to say "nothing leaves".
+    """
+
+    def test_single_cell_is_the_zero_operator(self):
+        mask = np.ones((1, 1), dtype=bool)
+        edges, conditions = edges_from_mask(mask)
+        laplacian, _source, _index = build_laplacian_with_boundaries(
+            mask, edges, conditions, dx=1.0,
+        )
+        # 0-D: one cell, no transport at all.
+        assert laplacian.shape == (1, 1)
+        assert np.allclose(laplacian.toarray(), 0.0)
+
+    def test_one_cell_wide_is_exactly_the_1d_chain(self):
+        n = 5
+        mask = np.ones((1, n), dtype=bool)
+        edges, conditions = edges_from_mask(mask)
+        laplacian, _source, _index = build_laplacian_with_boundaries(
+            mask, edges, conditions, dx=1.0,
+        )
+        expected = np.zeros((n, n))
+        for i in range(n):
+            for j in (i - 1, i + 1):
+                if 0 <= j < n:
+                    expected[i, j] = 1.0
+                    expected[i, i] -= 1.0
+        # Not "close to" the 1D operator -- it IS the 1D operator.
+        assert np.array_equal(laplacian.toarray(), expected)
+
+    def test_a_column_strip_matches_a_row_strip(self):
+        row = np.ones((1, 6), dtype=bool)
+        col = np.ones((6, 1), dtype=bool)
+        mats = []
+        for mask in (row, col):
+            edges, conditions = edges_from_mask(mask)
+            laplacian, _s, _i = build_laplacian_with_boundaries(
+                mask, edges, conditions, dx=1.0,
+            )
+            mats.append(laplacian.toarray())
+        assert np.array_equal(mats[0], mats[1])
+
+    def test_two_dimensional_mask_keeps_the_five_point_stencil(self):
+        mask = np.ones((3, 3), dtype=bool)
+        edges, conditions = edges_from_mask(mask)
+        laplacian, _s, _i = build_laplacian_with_boundaries(
+            mask, edges, conditions, dx=1.0,
+        )
+        dense = laplacian.toarray()
+        # The centre of a 3x3 couples to all four neighbours.
+        assert np.count_nonzero(dense[4]) - 1 == 4
+
+    def test_interior_hole_gets_its_own_faces(self):
+        mask = np.ones((5, 5), dtype=bool)
+        mask[2, 2] = False
+        edges, conditions = edges_from_mask(mask)
+        # The four cells around the hole each face it, so a mask with a hole
+        # declares strictly more faces than the same mask without one.
+        solid_edges, _ = edges_from_mask(np.ones((5, 5), dtype=bool))
+        assert sum(len(e.faces) for e in edges) == (
+            sum(len(e.faces) for e in solid_edges) + 4
+        )
+        laplacian, _s, _i = build_laplacian_with_boundaries(
+            mask, edges, conditions, dx=1.0,
+        )
+        assert laplacian.shape == (24, 24)
+
+    def test_sides_stay_individually_addressable(self):
+        mask = np.ones((3, 3), dtype=bool)
+        edges, conditions = edges_from_mask(mask)
+        assert {e.edge_id for e in edges} == {"up", "down", "left", "right"}
+        conditions["left"] = BoundaryCondition("dirichlet", 0.0)
+        laplacian, source, _i = build_laplacian_with_boundaries(
+            mask, edges, conditions, dx=1.0,
+        )
+        # A Dirichlet side removes the conserved constant null mode.
+        assert not np.allclose(laplacian.toarray().sum(axis=1), 0.0)
+        assert source.shape == (9,)
+
+    def test_group_all_produces_one_edge(self):
+        mask = np.ones((3, 3), dtype=bool)
+        edges, conditions = edges_from_mask(mask, group="all")
+        assert [e.edge_id for e in edges] == ["boundary"]
+        assert set(conditions) == {"boundary"}
+
+    def test_default_reflective_matches_neumann_zero(self):
+        mask = np.ones((4, 4), dtype=bool)
+        reflective = edges_from_mask(mask)
+        neumann = edges_from_mask(mask, condition=BoundaryCondition("neumann", 0.0))
+        mats = []
+        for edges, conditions in (reflective, neumann):
+            laplacian, _s, _i = build_laplacian_with_boundaries(
+                mask, edges, conditions, dx=1.0,
+            )
+            mats.append(laplacian.toarray())
+        assert np.array_equal(mats[0], mats[1])
+
+    def test_rejects_an_empty_mask(self):
+        with pytest.raises(BoundaryAssignmentError):
+            edges_from_mask(np.zeros((3, 3), dtype=bool))
+
+    def test_rejects_an_unknown_grouping(self):
+        with pytest.raises(ValueError, match="group must be"):
+            edges_from_mask(np.ones((2, 2), dtype=bool), group="sideways")
