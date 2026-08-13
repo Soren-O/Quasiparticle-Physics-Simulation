@@ -305,16 +305,18 @@ async function switchMode(mode, presetSetup) {
     const { body } = await api(`/api/defaults/${mode}`);
     state.setup = body;
   }
-  document.querySelectorAll("#mode-row button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.mode === mode));
   renderForm();
   $("#feedback").innerHTML = "";
 }
 
 function renderForm() {
-  const form = $("#setup-form");
+  renderStepForm("#setup-form", FORMS[state.mode]);
+}
+
+function renderStepForm(selector, sections) {
+  const form = $(selector);
   form.innerHTML = "";
-  for (const section of FORMS[state.mode]) {
+  for (const section of sections) {
     const det = document.createElement("details");
     det.open = true;
     const sum = document.createElement("summary");
@@ -687,7 +689,11 @@ async function openTestSimulations() {
 }
 
 function crumbs(trail) {
-  const host = $("#crumbs");
+  crumbsInto("#crumbs", trail);
+}
+
+function crumbsInto(selector, trail) {
+  const host = $(selector);
   host.innerHTML = "";
   trail.forEach((step, i) => {
     if (i) host.appendChild(document.createTextNode(" / "));
@@ -845,14 +851,6 @@ async function init() {
   $("#meta").textContent = `qpsim ${meta.qpsim_version} · workspace ${meta.workspace}`;
   $("#home-workspace").textContent = meta.workspace;
 
-  const row = $("#mode-row");
-  for (const [mode, label] of Object.entries(state.modeLabels)) {
-    const b = document.createElement("button");
-    b.dataset.mode = mode;
-    b.textContent = label;
-    b.addEventListener("click", () => switchMode(mode));
-    row.appendChild(b);
-  }
   $("#go-home").addEventListener("click", () => {
     if (document.body.classList.contains("editing")) return;
     showView("home");
@@ -878,7 +876,11 @@ async function init() {
   $("#btn-save-setup").addEventListener("click", doSaveSetup);
   $("#btn-run").addEventListener("click", doRun);
 
-  await switchMode("steady_state_0d");
+  // One mode: the geometry decides the dimensionality, so there is nothing
+  // for the user to pick between.
+  await switchMode("spatial_2d");
+  initWizard();
+  showWizardStep(0);
 }
 
 init();
@@ -1031,3 +1033,172 @@ function initCopyEditing() {
 }
 
 initCopyEditing();
+
+/* =====================================================================
+   New-run wizard: equations -> geometry -> conditions
+   ===================================================================== */
+
+/* Which setup field each clickable term maps onto.
+   `path` null means the unified 2-D mode cannot express that term yet, and
+   `why` says what is missing. Showing the term greyed with a reason is
+   honest; hiding it would misrepresent the model, and wiring it to nothing
+   would be worse. */
+const TERM_FIELDS = {
+  diff:    { path: "material.D_0", kind: "zeroable", label: "Diffusion" },
+  scat:    { path: "collisions.scattering", kind: "flag",
+             label: "Quasiparticle–phonon scattering" },
+  recomb:  { path: "collisions.recombination", kind: "flag",
+             label: "Recombination and pair breaking" },
+  src:     { path: "injection.enabled", kind: "flag", label: "External injection" },
+  psc:     { path: "collisions.phonon_scattering_source", kind: "flag",
+             label: "Phonon scattering source" },
+  prc:     { path: "collisions.phonon_recombination_source", kind: "flag",
+             label: "Phonon recombination source" },
+  photsg:  { path: null, label: "Sub-gap photon drive",
+             why: "the photon channels are not in the unified spatial solver yet" },
+  photpb:  { path: null, label: "Pair-breaking photon drive",
+             why: "the photon channels are not in the unified spatial solver yet" },
+  pesc:    { path: null, label: "Phonon-bath coupling",
+             why: "this mode holds the phonons at the bath; a solved phonon sector is 0-D only" },
+  gapeq:   { path: null, label: "Self-consistent gap",
+             why: "the gap closure is not wired into the spatial solver yet" },
+};
+
+const GEOMETRY_SECTIONS = FORMS.spatial_2d.filter(
+  (section) => section.title === "Geometry" || section.title === "Boundary",
+);
+const CONDITION_SECTIONS = FORMS.spatial_2d.filter(
+  (section) => section.title !== "Geometry" && section.title !== "Boundary",
+);
+
+const WIZARD_STEPS = ["equations", "geometry", "conditions"];
+const wizard = { index: 0, offD0: null };
+
+function termIsOn(id) {
+  const spec = TERM_FIELDS[id];
+  if (!spec || spec.path === null) return false;
+  const value = getByPath(state.setup, spec.path);
+  return spec.kind === "zeroable" ? Number(value) > 0 : Boolean(value);
+}
+
+function setTerm(id, on) {
+  const spec = TERM_FIELDS[id];
+  if (!spec || spec.path === null) return;
+  if (spec.kind === "zeroable") {
+    // D_0 = 0 IS the transport off switch, so remember the value being
+    // switched away from rather than forcing the user to retype it.
+    if (on) {
+      setByPath(state.setup, spec.path, wizard.offD0 ?? 6.0);
+    } else {
+      wizard.offD0 = Number(getByPath(state.setup, spec.path)) || wizard.offD0;
+      setByPath(state.setup, spec.path, 0.0);
+    }
+  } else {
+    setByPath(state.setup, spec.path, on);
+  }
+}
+
+function renderTermPanel() {
+  const cons = [];
+  for (const button of document.querySelectorAll(".term[data-term]")) {
+    const id = button.dataset.term;
+    const spec = TERM_FIELDS[id];
+    if (button.classList.contains("locked")) continue;
+    const unavailable = !spec || spec.path === null;
+    const on = termIsOn(id);
+    button.classList.toggle("off", unavailable || !on);
+    button.classList.toggle("clamped", unavailable);
+    button.title = unavailable
+      ? `${spec ? spec.label : id}: ${spec ? spec.why : "not available"}.`
+      : `${spec.label} — click to ${on ? "drop" : "restore"} it.`;
+  }
+  // A sign belongs to the term it introduces and fades with it.
+  for (const op of document.querySelectorAll(".op[data-op-for]")) {
+    const target = document.querySelector(
+      `.term[data-term="${op.dataset.opFor}"]`);
+    op.classList.toggle("dim", target !== null && target.classList.contains("off"));
+  }
+
+  const live = Object.keys(TERM_FIELDS).filter(
+    (id) => TERM_FIELDS[id].path !== null && termIsOn(id));
+  if (!live.includes("scat") && !live.includes("recomb")) {
+    cons.push(["bad", "No electron-phonon collisions: nothing relaxes the "
+      + "quasiparticle energies or changes their number."]);
+  }
+  if (live.includes("src") && !live.includes("recomb")) {
+    cons.push(["bad", "Quasiparticles are injected and nothing removes them, "
+      + "so there is no steady state to find."]);
+  }
+  if (!live.includes("diff")) {
+    cons.push(["", "No spatial transport: every cell evolves independently, "
+      + "whatever the geometry."]);
+  }
+  const split = ["scat", "recomb"].filter((qp) => {
+    const ph = qp === "scat" ? "psc" : "prc";
+    return termIsOn(qp) !== termIsOn(ph);
+  });
+  if (split.length) {
+    cons.push(["bad", `Energy conservation is not being tracked: the `
+      + `${split.join(" and ")} channel is on for one population and off for `
+      + `the other.`]);
+  }
+  const unavailable = Object.values(TERM_FIELDS).filter((t) => t.path === null);
+  if (unavailable.length) {
+    cons.push(["", `${unavailable.length} terms are greyed because this solver `
+      + `cannot express them yet; hover one for the reason.`]);
+  }
+
+  const host = $("#cons");
+  host.innerHTML = "";
+  for (const [cls, text] of cons) {
+    const li = document.createElement("li");
+    li.className = cls;
+    li.innerHTML = `<span class="mk"></span><span>${esc(text)}</span>`;
+    host.appendChild(li);
+  }
+}
+
+function showWizardStep(index) {
+  wizard.index = Math.max(0, Math.min(WIZARD_STEPS.length - 1, index));
+  const name = WIZARD_STEPS[wizard.index];
+  document.querySelectorAll(".step-panel").forEach((panel) =>
+    panel.classList.toggle("hidden", panel.id !== `step-${name}`));
+  document.querySelectorAll("#wizard-steps li").forEach((li, i) => {
+    li.classList.toggle("current", i === wizard.index);
+    li.classList.toggle("done", i < wizard.index);
+  });
+  $("#btn-back").classList.toggle("hidden", wizard.index === 0);
+  $("#btn-next").classList.toggle("hidden", wizard.index === WIZARD_STEPS.length - 1);
+  const last = wizard.index === WIZARD_STEPS.length - 1;
+  for (const id of ["#btn-validate", "#btn-save-setup", "#btn-run"]) {
+    $(id).classList.toggle("hidden", !last);
+  }
+  crumbsInto("#wizard-crumbs", [
+    { label: "Home", go: () => showView("home") },
+    { label: "New run" },
+  ]);
+  if (name === "equations") renderTermPanel();
+  if (name === "geometry") renderStepForm("#form-geometry", GEOMETRY_SECTIONS);
+  if (name === "conditions") renderStepForm("#setup-form", CONDITION_SECTIONS);
+  window.scrollTo(0, 0);
+}
+
+function initWizard() {
+  for (const button of document.querySelectorAll(".term[data-term]")) {
+    button.addEventListener("click", () => {
+      if (document.body.classList.contains("editing")) return;
+      const id = button.dataset.term;
+      if (button.classList.contains("locked")) {
+        button.classList.remove("nudge");
+        void button.offsetWidth;          // restart the animation
+        button.classList.add("nudge");
+        return;
+      }
+      if (!TERM_FIELDS[id] || TERM_FIELDS[id].path === null) return;
+      setTerm(id, !termIsOn(id));
+      renderTermPanel();
+    });
+  }
+  $("#btn-next").addEventListener("click", () => showWizardStep(wizard.index + 1));
+  $("#btn-back").addEventListener("click", () => showWizardStep(wizard.index - 1));
+}

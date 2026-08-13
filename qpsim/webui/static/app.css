@@ -388,3 +388,107 @@ body.editing .action:hover:not(:disabled) { background: none; }
   background: #fbeaea; border: 1px solid var(--critical);
   border-radius: 8px; padding: 8px 12px; margin: 6px 0; font-size: 13.5px;
 }
+
+/* ---- equation term panel (ported from the mockup) ---- */
+  .stack{
+    display:grid;
+    grid-template-columns:max-content max-content max-content minmax(0,1fr);
+    column-gap:16px; row-gap:10px; align-items:center;
+    font-size:clamp(12.5px,1.55vw,18.5px);
+  }
+  .tag{
+    font-family:var(--ui); font-size:10px; letter-spacing:.15em; text-transform:uppercase;
+    font-weight:700; color:var(--sector); white-space:nowrap; padding-right:8px;
+  }
+  .lhs,.rhs{font-family:var(--math); line-height:1.2; display:flex; align-items:center; white-space:nowrap}
+  .lhs{justify-content:flex-end}
+  .rhs{min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; padding:9px 0 11px; margin:-9px 0 -11px}
+  .eqs{font-family:var(--math); color:var(--ink-2); line-height:1.2}
+  [data-sector="qp"]{--sector:var(--qp); --wash:rgba(46,111,142,.10)}
+  [data-sector="ph"]{--sector:var(--ph); --wash:rgba(143,98,33,.10)}
+  [data-sector="gap"]{--sector:var(--gap); --wash:rgba(103,71,129,.10)}
+
+  @media (max-width:720px){
+    .stack{grid-template-columns:max-content max-content minmax(0,1fr); row-gap:4px}
+    .tag{grid-column:1 / -1; padding-top:14px; padding-right:0}
+  }
+
+  .term{
+    font:inherit; color:inherit; background:transparent; border:0; cursor:pointer;
+    padding:.2em .24em; margin:0; border-radius:3px; position:relative; line-height:1.2;
+    white-space:nowrap; transition:opacity .16s ease, background-color .16s ease, color .16s ease;
+  }
+  .term:hover{background:var(--wash)}
+  .term:focus-visible{outline:2px solid var(--sector); outline-offset:2px}
+  .term.off{opacity:.24; color:var(--ink-2)}
+  .term.off::after{content:""; position:absolute; left:.05em; right:.05em; top:50%; height:1.5px; background:currentColor; border-radius:2px}
+  .term.locked{cursor:not-allowed}
+  .term.locked::before{content:""; position:absolute; inset:0 -1px; border-radius:4px; border:1px dashed var(--sector); opacity:.4}
+  .term.clamped{opacity:.52}
+  .term.clamped::after{content:""; position:absolute; left:.1em; right:.1em; bottom:.08em; border-bottom:2px dotted currentColor}
+  .term.warn{color:var(--critical); background:rgba(166,61,64,.09)}
+  .op{padding:0 .2em; color:var(--ink-2); transition:opacity .16s ease}
+  /* the sign in front of a term belongs to it, and fades with it */
+  .op.dim{opacity:.24}
+  @keyframes nudge{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  .term.nudge{animation:nudge .26s ease}
+  @media (prefers-reduced-motion:reduce){.term.nudge{animation:none}.term{transition:none}}
+
+  /* ---- math primitives ----------------------------------------------- */
+  .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.12; margin:0 .14em; position:relative; top:-.05em}
+  .frac>.num{display:block; padding:0 .3em .07em}
+  .frac>.den{display:block; padding:.07em .3em 0; border-top:1.1px solid currentColor}
+  .itl{font-style:italic}
+  .up{font-style:normal}
+  .vec{font-style:italic; font-weight:700}
+  sub,sup{font-size:.62em; font-style:normal; line-height:0}
+  sub{vertical-align:-.25em} sup{vertical-align:.5em}
+  .si{font-size:.62em; vertical-align:-.25em; font-style:italic; line-height:0}
+  .intg{display:inline-block; vertical-align:middle; margin:0 .1em}
+  .intg .sym{font-size:1.62em; font-style:italic; line-height:.78; display:inline-block; vertical-align:middle}
+  .intg .lim{display:inline-block; vertical-align:middle; font-size:.52em; line-height:1.25; text-align:left; margin-left:.12em}
+  .intg .lim>span{display:block}
+  .sqrt{display:inline-block; vertical-align:middle; white-space:nowrap}
+  .sqrt .rad{font-size:1.2em; display:inline-block; vertical-align:-.06em; line-height:1}
+  .sqrt .rand{display:inline-block; border-top:1.1px solid currentColor; padding:.08em .12em 0 .05em; margin-top:.1em; line-height:1.1}
+
+  /* ---- consequences --------------------------------------------------- */
+  .cons-wrap{display:flex; flex-direction:column; gap:14px; padding-top:26px; border-top:1px solid var(--grid)}
+  .cons-wrap h2{margin:0; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700}
+  ul.cons{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
+  ul.cons li{display:grid; grid-template-columns:auto 1fr; column-gap:12px; align-items:baseline; font-size:14.5px; line-height:1.55}
+  ul.cons .mk{width:16px; height:2px; border-radius:2px; background:var(--sector,var(--ink-faint)); transform:translateY(-4px)}
+  ul.cons li b{font-weight:650}
+  ul.cons li.derived{color:var(--ink-2)}
+  ul.cons li.derived .mk{background:var(--ink-faint)}
+  ul.cons li.bad{color:var(--critical)}
+  ul.cons li.bad .mk{background:var(--critical)}
+  ul.cons li.bad b{color:var(--critical)}
+  ul.cons li.full .mk{background:var(--ok)}
+
+
+.steps {
+  display: flex; gap: 26px; list-style: none; margin: 0; padding: 0 0 6px;
+  font-size: 12.5px; color: var(--muted);
+}
+.steps li { display: flex; align-items: baseline; gap: 7px; }
+.steps .n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; border-radius: 50%;
+  border: 1px solid var(--baseline); font-size: 11px;
+}
+.steps li.current { color: var(--ink); font-weight: 600; }
+.steps li.current .n { border-color: var(--accent); color: var(--accent); }
+.steps li.done .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step-panel { display: flex; flex-direction: column; gap: 26px; }
+.cons-wrap { display: flex; flex-direction: column; gap: 12px;
+  padding-top: 22px; border-top: 1px solid var(--grid); }
+.cons-wrap h2 { margin: 0; font-size: 11px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--muted); font-weight: 700; }
+ul.cons { margin: 0; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 9px; font-size: 14.5px; }
+ul.cons li { display: flex; gap: 11px; align-items: baseline; color: var(--ink-2); }
+ul.cons .mk { flex: none; width: 15px; height: 2px; border-radius: 2px;
+  background: var(--muted); position: relative; top: -.35em; }
+ul.cons li.bad { color: var(--critical); }
+ul.cons li.bad .mk { background: var(--critical); }

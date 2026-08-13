@@ -121,17 +121,106 @@
     </section>
 
     <section id="view-new-run" class="view hidden">
-      <div class="mode-row" id="mode-row"></div>
-      <div class="name-row">
-        <label>Run name <input id="run-name" type="text" value="Untitled run" size="40"></label>
+      <div class="home">
+        <nav class="crumbs" id="wizard-crumbs"></nav>
+        <ol class="steps" id="wizard-steps">
+          <li data-step="equations"><span class="n">1</span> Equations</li>
+          <li data-step="geometry"><span class="n">2</span> Geometry</li>
+          <li data-step="conditions"><span class="n">3</span> Conditions</li>
+        </ol>
+
+        <div class="step-panel" id="step-equations">
+          <div class="home-head">
+            <p class="eyebrow">Step 1 &middot; Dirty-limit Keldysh&ndash;Usadel &middot; A1</p>
+            <h1>Choose which terms the model solves.</h1>
+            <p class="lede">Click a term to drop it. Only right-hand sides switch &mdash; each rate
+              equation&rsquo;s left side is the quantity being solved for, and emptying a right-hand
+              side holds that quantity at its initial value. The operator is written with &nabla;, so
+              the same panel serves any geometry.</p>
+          </div>
+  <div class="stack">
+    <!-- ---- quasiparticles ---- -->
+    <div class="tag" data-sector="qp">Quasiparticles</div>
+    <div class="lhs" data-sector="qp">
+      <button class="term locked" data-term="dqp" type="button" aria-disabled="true"><span class="frac"><span class="num up">∂(<span class="itl">N</span><sub>1</sub><span class="itl">f</span>)</span><span class="den up">∂<span class="itl">t</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="qp">
+      <button class="term" data-term="diff" type="button">∇&middot;(<span class="itl">D</span><sub>0</sub>∇<span class="itl">f</span>)</button>
+      <span class="op" data-op-for="scat">+</span>
+      <button class="term" data-term="scat" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">sc</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="recomb">+</span>
+      <button class="term" data-term="recomb" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">r</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="photsg">+</span>
+      <button class="term" data-term="photsg" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">γ,sg</span>[<span class="itl">f</span>]</button>
+      <span class="op" data-op-for="photpb">+</span>
+      <button class="term" data-term="photpb" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">I</span><span class="si">γ,pb</span>[<span class="itl">f</span>]</button>
+      <span class="op" data-op-for="src">+</span>
+      <button class="term" data-term="src" type="button"><span class="itl">N</span><sub>1</sub><span class="itl">S</span>(<span class="itl">E</span>,&thinsp;<span class="vec">r</span>,&thinsp;<span class="itl">t</span>)</button>
+    </div>
+
+    <!-- ---- phonons ---- -->
+    <div class="tag" data-sector="ph">Phonons</div>
+    <div class="lhs" data-sector="ph">
+      <button class="term locked" data-term="dph" type="button" aria-disabled="true"><span class="frac"><span class="num up">∂<span class="itl">n</span></span><span class="den up">∂<span class="itl">t</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="ph">
+      <button class="term" data-term="psc" type="button"><span class="itl">Σ</span><span class="si">sc</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="prc">+</span>
+      <button class="term" data-term="prc" type="button"><span class="itl">Σ</span><span class="si">r</span>[<span class="itl">f</span>,&thinsp;<span class="itl">n</span>]</button>
+      <span class="op" data-op-for="pesc">−</span>
+      <button class="term" data-term="pesc" type="button"><span class="frac"><span class="num"><span class="itl">n</span> − <span class="itl">n</span><span class="si">B</span>(<span class="itl">T</span><span class="si">b</span>)</span><span class="den"><span class="itl">τ</span><span class="si">esc</span></span></span></button>
+    </div>
+
+    <!-- ---- order parameter ---- -->
+    <div class="tag" data-sector="gap">Order parameter</div>
+    <div class="lhs" data-sector="gap">
+      <button class="term" data-term="gapeq" type="button"><span class="frac"><span class="num">1</span><span class="den"><span class="itl">N</span><sub>0</sub><span class="itl">V</span></span></span></button>
+    </div>
+    <div class="eqs">=</div>
+    <div class="rhs" data-sector="gap">
+      <button class="term" data-term="gapeq" type="button"><span class="intg"><span class="sym">∫</span><span class="lim"><span>ℏ<span class="itl">ω</span><span class="si">D</span></span><span><span class="itl">Δ</span></span></span></span><span class="frac"><span class="num">1 − 2<span class="itl">f</span>(<span class="itl">E</span>)</span><span class="den"><span class="sqrt"><span class="rad">√</span><span class="rand"><span class="itl">E</span><sup>2</sup> − <span class="itl">Δ</span><sup>2</sup></span></span></span></span><span class="up">&thinsp;d</span><span class="itl">E</span></button>
+    </div>
+  </div>
+
+          <section class="cons-wrap">
+            <h2>Consequences</h2>
+            <ul class="cons" id="cons"></ul>
+          </section>
+        </div>
+
+        <div class="step-panel hidden" id="step-geometry">
+          <div class="home-head">
+            <p class="eyebrow">Step 2</p>
+            <h1>Import the device, or state its extent.</h1>
+            <p class="lede">The mask decides the dimensionality: a rectangle one cell wide is a 1-D
+              strip and a single cell is 0-D, both solved by the same core.</p>
+          </div>
+          <form id="form-geometry" onsubmit="return false"></form>
+        </div>
+
+        <div class="step-panel hidden" id="step-conditions">
+          <div class="home-head">
+            <p class="eyebrow">Step 3</p>
+            <h1>Material, bath and initial conditions.</h1>
+            <p class="lede">Everything the terms you kept still needs in order to run.</p>
+          </div>
+          <div class="name-row">
+            <label>Run name <input id="run-name" type="text" value="Untitled run" size="40"></label>
+          </div>
+          <form id="setup-form" onsubmit="return false"></form>
+        </div>
+
+        <div class="action-row">
+          <button id="btn-back">Back</button>
+          <button id="btn-next" class="primary">Next</button>
+          <button id="btn-validate">Validate</button>
+          <button id="btn-save-setup">Save setup</button>
+          <button id="btn-run" class="primary">Run</button>
+        </div>
+        <div id="feedback"></div>
       </div>
-      <form id="setup-form" onsubmit="return false"></form>
-      <div class="action-row">
-        <button id="btn-validate">Validate</button>
-        <button id="btn-save-setup">Save setup</button>
-        <button id="btn-run" class="primary">Run</button>
-      </div>
-      <div id="feedback"></div>
     </section>
 
     <section id="view-runs" class="view hidden">
