@@ -29,6 +29,7 @@ from qpsim.grid.spatial_grid import (
 
 __all__ = [
     "active_submask_boundary",
+    "apply_face_conductances",
     "face_condition_lookup",
     "spatial_diffusion_operator",
 ]
@@ -101,12 +102,41 @@ def active_submask_boundary(
     return edges, conditions
 
 
+def apply_face_conductances(
+    laplacian: sparse.csr_matrix,
+    overrides: dict[tuple[int, int], float],
+) -> sparse.csr_matrix:
+    """Replace the bulk conductance on named faces.
+
+    ``overrides`` maps a solve-index pair ``(p, q)``, ``p < q``, to the
+    conductance that face should carry. Used for a Kupriyanov-Lukichev
+    interface, where a finite barrier conductance stands in for the bulk
+    harmonic mean.
+
+    The existing off-diagonal ``L[p, q]`` IS the bulk face conductance, so the
+    correction is applied as a delta in the conservative four-entry pattern --
+    both off-diagonals and both diagonals -- which keeps every row summing to
+    what it summed to before, i.e. the operator stays conservative.
+    """
+    if not overrides:
+        return laplacian
+    lil = laplacian.tolil()
+    for (p, q), g_new in overrides.items():
+        delta = float(g_new) - float(lil[p, q])
+        lil[p, q] += delta
+        lil[q, p] += delta
+        lil[p, p] -= delta
+        lil[q, q] -= delta
+    return lil.tocsr()
+
+
 def spatial_diffusion_operator(
     submask: np.ndarray,
     device_faces: dict[tuple[int, int, str], BoundaryCondition],
     dx: float,
     flux_weight_active: np.ndarray,
     density_weight_active: np.ndarray,
+    face_conductances: dict[tuple[int, int], float] | None = None,
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
     """Assemble ``L = div(W grad .) / rho_p`` on one energy's active region.
 
@@ -126,6 +156,8 @@ def spatial_diffusion_operator(
     laplacian, source = build_variable_diffusion_laplacian(
         submask, edges, conditions, dx=dx, D_spatial=flux_weight_active,
     )
+    if face_conductances:
+        laplacian = apply_face_conductances(laplacian, face_conductances)
     # Divide through by the conserved-density dressing: the equation solved is
     # d(N_1^p f)/dt = div(W grad f), and the state carried is f.
     operator = (laplacian @ sparse.diags(1.0 / density_weight_active)).tocsr()
