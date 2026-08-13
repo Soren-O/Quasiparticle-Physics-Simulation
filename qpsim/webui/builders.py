@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.t3_spatial import T3SpatialState
 from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
 from qpsim.collisions.pair_breaking_photon import (
     validate_pair_breaking_photon_grid,
@@ -26,13 +27,16 @@ from qpsim.collisions.pair_breaking_photon import (
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.collisions.sub_gap_photon import COMMENSURATE_TOL
 from qpsim.constants import H_OVER_KB_K_PER_HZ
+from qpsim.geometries import Geometry, from_gds, gds_support_available, rectangle
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.materials.database import Material
 from qpsim.observables import fermi_dirac_distribution
 from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.rate_equation_coefficients import M25PhotonDrive, M25PhysicalParameters
+from qpsim.transport.diffusion.base import DiffusionModel
 from qpsim.transport.diffusion.base import from_name as diffusion_model_from_name
 from qpsim.webui.schemas import (
     AnySetup,
@@ -40,6 +44,7 @@ from qpsim.webui.schemas import (
     MaterialParams,
     ProbeConfig,
     Spatial1DSetup,
+    Spatial2DSetup,
     SteadyState0DSetup,
     Transient0DSetup,
 )
@@ -94,7 +99,9 @@ def mb_probe_invalid_reason(
     return None
 
 
-def _grid_spacing(setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup) -> float:
+def _grid_spacing(
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
+) -> float:
     span = (setup.grid.max_factor - setup.grid.min_factor) * setup.material.Delta_0
     return span / float(setup.grid.num_bins)
 
@@ -121,7 +128,7 @@ def _check_photon_commensurate(
 
 def _check_pb_runtime_contract(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
 ) -> None:
     """Run the production PB kernel's static grid-contract preflight.
 
@@ -159,7 +166,7 @@ def _check_pb_runtime_contract(
 
 def _validate_drives_and_probe(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
 ) -> None:
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
@@ -314,6 +321,54 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 f"total_time/dt ≈ {n_steps:.3g} substeps — this run will take a while."
             )
 
+    elif isinstance(setup, Spatial2DSetup):
+        _validate_drives_and_probe(report, setup)
+        # Dynes broadening is reported by _validate_drives_and_probe above,
+        # which covers every kinetic mode; do not repeat it here.
+        if setup.material.D_0 < 0.0:
+            report.errors.append("2D geometry: D₀ (μm²/ns) cannot be negative.")
+        elif setup.material.D_0 == 0.0:
+            report.warnings.append(
+                "2D geometry: D₀ = 0 switches spatial transport off entirely; "
+                "every cell then evolves independently."
+            )
+        source = setup.geometry
+        if source.kind == "gds":
+            if not source.gds_path:
+                report.errors.append("2D geometry: a GDS source needs gds_path.")
+            elif not gds_support_available():
+                report.errors.append(
+                    "2D geometry: GDS import needs the optional 'gdstk' "
+                    'package. Install it with: pip install -e ".[gds]" — or '
+                    "choose the rectangle geometry."
+                )
+        else:
+            cells = source.rows * source.cols
+            if cells > 40_000:
+                report.warnings.append(
+                    f"2D geometry: {source.rows}×{source.cols} is {cells:,} "
+                    "cells. Each energy bin factorises its own sparse operator, "
+                    "so both memory and time grow with this; start smaller and "
+                    "refine once the physics looks right."
+                )
+            dimensionality = (
+                0 if cells <= 1 else (1 if 1 in (source.rows, source.cols) else 2)
+            )
+            if dimensionality < 2:
+                report.warnings.append(
+                    f"2D geometry: a {source.rows}×{source.cols} mask is the "
+                    f"{dimensionality}-D reduction, which is intended and "
+                    "supported — the same core solves it — but say so "
+                    "deliberately rather than by accident."
+                )
+        if setup.boundary.kind in ("dirichlet", "neumann") and (
+            not np.isfinite(setup.boundary.value)
+        ):
+            report.errors.append(
+                f"2D geometry: a {setup.boundary.kind} boundary needs a finite "
+                "value."
+            )
+
     elif isinstance(setup, Spatial1DSetup):
         _validate_drives_and_probe(report, setup)
         if setup.material.D_0 < 0.0:
@@ -412,7 +467,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
 
 def build_spectral(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
 ) -> SpectralContext:
     """Spectral context on the setup's uniform energy grid."""
     E, _ = build_energy_grid(
@@ -622,3 +677,44 @@ def build_m25_inputs(
         volume_m3=setup.drive.volume_m3,
     )
     return params, drive
+
+
+def build_geometry_2d(setup: Spatial2DSetup) -> Geometry:
+    """Geometry for the 2-D mode, from extent or from a layout file."""
+    source = setup.geometry
+    if source.kind == "rectangle":
+        return rectangle(
+            source.rows, source.cols, mesh_size=source.mesh_size_um,
+        )
+    if source.gds_path is None:
+        raise ValueError("A GDS geometry needs gds_path.")
+    if not gds_support_available():
+        raise ValueError(
+            "GDS import needs the optional 'gdstk' package, which is not "
+            'installed. Install it with: pip install -e ".[gds]" -- or choose '
+            "the rectangle geometry."
+        )
+    return from_gds(
+        source.gds_path, source.gds_layer, source.mesh_size_um,
+        require_connected=source.require_connected,
+    )
+
+
+def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
+    """Thermal-seed state on the setup's geometry."""
+    geometry = build_geometry_2d(setup)
+    spectral = build_spectral(setup)
+    condition = BoundaryCondition(
+        setup.boundary.kind,
+        None if setup.boundary.kind in ("reflective",) else setup.boundary.value,
+    )
+    thermal = fermi_dirac_distribution(spectral.E, setup.T_bath)
+    return T3SpatialState(
+        f=np.repeat(thermal[:, None], geometry.cell_count, axis=1),
+        geometry=geometry,
+        spectral=spectral,
+        material=material_from_params(setup.material),
+        T_bath=setup.T_bath,
+        conditions=geometry.conditions(condition),
+        diffusion_model=DiffusionModel[setup.diffusion_model],
+    )

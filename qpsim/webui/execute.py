@@ -24,8 +24,10 @@ from typing import Any
 import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.constants import H_OVER_KB_K_PER_HZ
+from qpsim.grid.spatial_grid import reconstruct_field
 from qpsim.observables import (
     compute_ac_conductivity,
     compute_frequency_shift,
@@ -53,6 +55,7 @@ from qpsim.webui.builders import (
     build_m25_inputs,
     build_state_0d,
     build_state_1d,
+    build_state_2d,
     drive_dicts,
     mb_probe_invalid_reason,
     steady_state_solver_kwargs,
@@ -62,6 +65,7 @@ from qpsim.webui.schemas import (
     M25JunctionSetup,
     ProbeConfig,
     Spatial1DSetup,
+    Spatial2DSetup,
     SteadyState0DSetup,
     Transient0DSetup,
 )
@@ -585,4 +589,90 @@ def execute_setup(
         return run_transient_0d(setup, progress, is_cancelled)
     if isinstance(setup, Spatial1DSetup):
         return run_spatial_1d(setup, progress, is_cancelled)
+    if isinstance(setup, Spatial2DSetup):
+        return run_spatial_2d(setup, progress, is_cancelled)
     return run_m25_junction(setup, progress, is_cancelled)
+
+
+def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
+    """Per-cell ``x_qp`` on a geometry, one quadrature per distinct gap.
+
+    Mirrors the 1-D helper: the numerator uses each cell's local gap because
+    transport does, while the denominator stays the material reference so
+    values across a gap step share one normalization and stay comparable.
+    """
+    if not np.isfinite(delta_0) or delta_0 <= 0.0:
+        raise ValueError("delta_0 must be finite and positive.")
+    gaps = state.gaps()
+    distinct, group_index = np.unique(gaps, return_inverse=True)
+    weights = np.column_stack([
+        bcs_dos_cell_weights(state.spectral.E, state.spectral.dE, float(g))
+        for g in distinct
+    ])[:, group_index]
+    return np.einsum("ec,ec->c", weights, state.f) / delta_0
+
+
+def run_spatial_2d(
+    setup: Spatial2DSetup, progress: ProgressFn, is_cancelled: CancelledFn
+) -> RunPayload:
+    payload = RunPayload()
+    _check_cancel(is_cancelled)
+    progress(0.02, "building geometry")
+
+    state = build_state_2d(setup)
+    geometry = state.geometry
+    delta_0 = setup.material.Delta_0
+    backend = T3SpatialBackend(
+        enable_scattering=setup.collisions.scattering,
+        enable_recombination=setup.collisions.recombination,
+    )
+
+    def hook(elapsed: float, total: float) -> bool:
+        progress(0.05 + 0.9 * min(1.0, elapsed / total), "stepping")
+        return not is_cancelled()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("once")
+        final, n_steps, converged, last_rate = backend.run(
+            state,
+            dt=setup.dt,
+            max_time=setup.max_time,
+            stop_tol=setup.stop_tol,
+            progress_hook=hook,
+        )
+    payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
+    if is_cancelled():
+        raise RunCancelledError
+
+    profile = _xqp_profile_2d(final, delta_0)
+    # Reconstructed onto the mask so a viewer can show the device rather than
+    # a flat vector; NaN outside, which plots as blank rather than as zero.
+    field = reconstruct_field(geometry.mask, profile)
+
+    payload.arrays["E_bins"] = final.spectral.E
+    payload.arrays["f_final"] = final.f
+    payload.arrays["mask"] = geometry.mask.astype(np.int8)
+    payload.arrays["xqp_field"] = field
+    payload.arrays["xqp_profile"] = profile
+    payload.summary.update({
+        "cells": int(geometry.cell_count),
+        "dimensionality": int(geometry.dimensionality),
+        "rows": int(geometry.shape[0]),
+        "cols": int(geometry.shape[1]),
+        "mesh_size_um": float(geometry.mesh_size),
+        "steps": int(n_steps),
+        "converged": bool(converged),
+        "final_max_rate": float(last_rate),
+        "x_qp_mean": float(np.mean(profile)),
+        "x_qp_max": float(np.max(profile)),
+        "x_qp_min": float(np.min(profile)),
+    })
+    if not converged:
+        payload.notes.append(
+            f"Did not reach stop_tol={setup.stop_tol:g} within "
+            f"max_time={setup.max_time:g} ns; the final residual was "
+            f"{last_rate:.3e}. The result is the state at that time, not a "
+            "steady state."
+        )
+    progress(1.0, "done")
+    return payload

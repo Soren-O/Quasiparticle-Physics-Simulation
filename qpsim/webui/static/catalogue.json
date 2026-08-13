@@ -614,6 +614,59 @@
           ]
         },
         {
+          "id": "geometry-2d",
+          "title": "Two-dimensional geometry",
+          "sector": "qp",
+          "available": true,
+          "blurb": "The unified spatial core. The mask sets the dimensionality, so the same mode covers 2-D, the 1-D strip and a single 0-D cell.",
+          "cases": [
+            {
+              "id": "square-reflective",
+              "title": "Square film, nothing escapes",
+              "mode": "spatial_2d",
+              "summary": "A 16x16 film with reflective edges. Quasiparticles stay in, so the film settles at its thermal value.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 32,
+                "geometry.rows": 16,
+                "geometry.cols": 16,
+                "boundary.kind": "reflective",
+                "dt": 2.0,
+                "max_time": 200.0
+              }
+            },
+            {
+              "id": "square-absorbing",
+              "title": "The same film with an absorbing rim",
+              "mode": "spatial_2d",
+              "summary": "Identical but the edge absorbs. Quasiparticles now leave the film and the population collapses far below thermal. Run it against the case above.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 32,
+                "geometry.rows": 16,
+                "geometry.cols": 16,
+                "boundary.kind": "absorbing",
+                "dt": 2.0,
+                "max_time": 200.0
+              }
+            },
+            {
+              "id": "reduction-1d",
+              "title": "The 1-D strip as a one-cell-wide mask",
+              "mode": "spatial_2d",
+              "summary": "rows = 1 makes the 5-point stencil the 3-point chain exactly. This is the same physics the dedicated 1D strip mode solves, reached by choosing the geometry rather than the mode.",
+              "overrides": {
+                "T_bath": 0.2,
+                "grid.num_bins": 32,
+                "geometry.rows": 1,
+                "geometry.cols": 40,
+                "dt": 2.0,
+                "max_time": 200.0
+              }
+            }
+          ]
+        },
+        {
           "id": "app",
           "title": "The rest of the interface",
           "sector": "gap",

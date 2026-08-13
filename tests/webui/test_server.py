@@ -52,7 +52,8 @@ class TestMetaAndMaterials:
     def test_meta_lists_modes(self, client: TestClient) -> None:
         body = client.get("/api/meta").json()
         assert set(body["modes"]) == {
-            "steady_state_0d", "transient_0d", "spatial_1d", "m25_junction",
+            "steady_state_0d", "transient_0d", "spatial_1d", "spatial_2d",
+            "m25_junction",
         }
 
     def test_materials_carry_autofill_params(self, client: TestClient) -> None:

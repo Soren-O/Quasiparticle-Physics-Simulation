@@ -182,6 +182,45 @@ const FORMS = {
       ],
     },
   ],
+  spatial_2d: [
+    MATERIAL_FIELDS(true),
+    { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: "Spatial transport needs Dynes Γ = 0." },
+    {
+      title: "Geometry",
+      hint: "The mask sets the dimensionality: rows = 1 is a 1D strip, 1×1 is a single 0-D cell. Cells are square, so mesh size fixes the resolution in both directions.",
+      fields: [
+        F("geometry.kind", "Source", "select", { options: ["rectangle", "gds"] }),
+        F("geometry.rows", "Rows", "int"),
+        F("geometry.cols", "Columns", "int"),
+        F("geometry.mesh_size_um", "Mesh size (μm)"),
+        F("geometry.gds_path", "GDS file", "text"),
+        F("geometry.gds_layer", "GDS layer", "int"),
+        F("geometry.require_connected", "Require one connected region", "check"),
+      ],
+    },
+    {
+      title: "Boundary",
+      hint: "Applied to the whole device rim. reflective keeps everything in; absorbing and dirichlet let quasiparticles leave.",
+      fields: [
+        F("boundary.kind", "Condition", "select", { options: ["reflective", "absorbing", "dirichlet", "neumann"] }),
+        F("boundary.value", "Value"),
+      ],
+    },
+    {
+      title: "Transport",
+      fields: [
+        F("diffusion_model", "Diffusion operator", "select", { options: ["A1", "A1P", "A2", "C", "B"] }),
+      ],
+    },
+    {
+      title: "Time stepping",
+      fields: [
+        F("dt", "dt (ns)"),
+        F("max_time", "Max time (ns)"),
+        F("stop_tol", "Stop tol max|df/dt| (1/ns)"),
+      ],
+    },
+  ],
   m25_junction: [
     {
       title: "Junction (energies in GHz ÷ h)",

@@ -342,7 +342,71 @@ class M25JunctionSetup(StrictModel):
     )
 
 
-AnySetup = SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | M25JunctionSetup
+class GeometrySource(StrictModel):
+    """Where the 2-D mask comes from.
+
+    ``rectangle`` needs nothing but its extent. ``gds`` rasterises one layer
+    of a layout file; that needs the optional ``gdstk`` package, and the
+    builder says so rather than failing on an import.
+
+    The mask decides the dimensionality: ``rows = 1`` is a 1-D strip and
+    ``rows = cols = 1`` is a single 0-D cell, both solved by the same core.
+    """
+
+    kind: Literal["rectangle", "gds"] = "rectangle"
+    rows: Annotated[int, Field(ge=1, le=512)] = 24
+    cols: Annotated[int, Field(ge=1, le=512)] = 24
+    mesh_size_um: Annotated[float, Field(gt=0.0)] = 4.0
+    gds_path: str | None = None
+    gds_layer: Annotated[int, Field(ge=0)] = 0
+    # A rasterised layout that lands in more than one piece is nearly always
+    # a stray polygon or too coarse a mesh, not a real device.
+    require_connected: bool = True
+
+
+class EdgeConditions(StrictModel):
+    """Boundary condition applied to the device rim.
+
+    One condition for the whole boundary. Per-edge assignment is what the
+    geometry layer is built for, but naming individual run-merged segments
+    needs a picker the interface does not have yet, so this exposes the
+    uniform case honestly rather than pretending to more.
+    """
+
+    kind: Literal["reflective", "absorbing", "dirichlet", "neumann"] = "reflective"
+    value: float = 0.0
+
+
+class Spatial2DSetup(StrictModel):
+    """Kinetics on a 2-D geometry, driven to steady state.
+
+    One backend serves every dimensionality, so this mode also covers the
+    1-D and 0-D reductions by choosing the mask's extent.
+
+    Spatial transport requires a pure-BCS spectral context; the builder
+    rejects ``dynes_gamma > 0`` here, as the engine does.
+    """
+
+    mode: Literal["spatial_2d"] = "spatial_2d"
+    material: MaterialParams = MaterialParams()
+    T_bath: Annotated[float, Field(gt=0.0)] = 0.1
+    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=48)
+    geometry: GeometrySource = GeometrySource()
+    boundary: EdgeConditions = EdgeConditions()
+    diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
+    collisions: CollisionTerms = CollisionTerms()
+    dt: Annotated[float, Field(gt=0.0)] = 1.0
+    max_time: Annotated[float, Field(gt=0.0)] = 5000.0
+    stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
+
+
+AnySetup = (
+    SteadyState0DSetup
+    | Transient0DSetup
+    | Spatial1DSetup
+    | Spatial2DSetup
+    | M25JunctionSetup
+)
 
 
 class SetupEnvelope(StrictModel):
@@ -356,14 +420,23 @@ MODE_LABELS: dict[str, str] = {
     "steady_state_0d": "0-D steady state",
     "transient_0d": "0-D transient",
     "spatial_1d": "1D strip",
+    "spatial_2d": "2D geometry",
     "m25_junction": "M25 junction",
 }
 
 MODE_CLASSES: dict[
-    str, type[SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | M25JunctionSetup]
+    str,
+    type[
+        SteadyState0DSetup
+        | Transient0DSetup
+        | Spatial1DSetup
+        | Spatial2DSetup
+        | M25JunctionSetup
+    ],
 ] = {
     "steady_state_0d": SteadyState0DSetup,
     "transient_0d": Transient0DSetup,
     "spatial_1d": Spatial1DSetup,
+    "spatial_2d": Spatial2DSetup,
     "m25_junction": M25JunctionSetup,
 }
