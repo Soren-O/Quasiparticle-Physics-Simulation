@@ -186,6 +186,7 @@ class T3SpatialBackend:
             repr(self.phonon_escape_time),
         )
         if self._collisions is None or signature != self._collision_signature:
+            previous = self._collisions
             self._collisions = SpatialCollisions(
                 state.spectral, gaps,
                 tau_0=state.material.tau_0,
@@ -197,6 +198,27 @@ class T3SpatialBackend:
                 pb_photon_params=self.pb_photon_params,
                 phonon_escape_time=self.phonon_escape_time,
             )
+            # The collision layer is a KERNEL CACHE keyed on the gap, but it
+            # also owns n_ph, which is STATE. Rebuilding the cache must not
+            # destroy the state, and it silently did: a self-consistent solve
+            # moves the gap on every step, so every step re-seeded the evolved
+            # phonon population back at the bath and phonon trapping -- the
+            # entire reason the dynamic sector exists -- quietly vanished. A
+            # gap change of one part in 10^6 was enough.
+            #
+            # The frequency grid comes from spectral.E, which is part of the
+            # signature, so an unchanged signature component means the two
+            # grids are identical and the population transfers as-is. When E
+            # itself changed there is no correspondence to carry and the
+            # thermal re-seed is correct.
+            if (
+                previous is not None
+                and previous.n_ph is not None
+                and self._collisions.n_ph is not None
+                and previous.n_ph.shape == self._collisions.n_ph.shape
+                and np.array_equal(previous.omega_bins, self._collisions.omega_bins)
+            ):
+                self._collisions.n_ph = previous.n_ph
             self._collision_signature = signature
         return self._collisions
 
@@ -462,8 +484,11 @@ class T3SpatialBackend:
             change = float(np.max(np.abs(blended - previous)))
             current = replace(current, gap_per_cell=blended)
             # The collision layer is keyed on the gap profile, so a changed
-            # profile must invalidate it or the next step runs the old kernels.
-            self._collisions = None
+            # profile must invalidate it or the next step runs the old
+            # kernels. Clear the SIGNATURE, not the object: `_collisions_for`
+            # needs the outgoing layer to carry the evolved phonon population
+            # onto the new kernels. Dropping the object here is what used to
+            # reset n_ph to the bath on every iteration of this loop.
             self._collision_signature = None
             if change <= tol:
                 return current, iteration, change

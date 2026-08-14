@@ -312,3 +312,67 @@ class TestFeatureParityWithTheStrip:
         setup.gap_regions.gap_right = 240.0
         state = build_state_2d(setup)
         assert sorted(np.unique(state.gaps())) == [180.0, 240.0]
+
+
+class TestPhononPopulationSurvivesAGapChange:
+    """The evolved phonon population is state, not a cached kernel.
+
+    ``SpatialCollisions`` is cache-keyed on the gap profile *and* owns
+    ``n_ph``. Rebuilding it for a new gap therefore used to re-seed the
+    phonons at the bath, so a self-consistent solve -- which moves the gap on
+    every step -- silently discarded phonon trapping, the entire reason the
+    dynamic sector exists. A gap change of one part in 10^6 was enough.
+    """
+
+    @staticmethod
+    def _backend_and_state(rows: int = 4, cols: int = 4):
+        from qpsim.webui.builders import build_state_2d
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 48
+        setup.geometry.rows, setup.geometry.cols = rows, cols
+        setup.phonons.mode = "dynamic_escape"
+        state = build_state_2d(setup)
+        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        return backend, state
+
+    def test_a_nudged_gap_does_not_reset_the_phonons(self):
+        from dataclasses import replace
+        backend, state = self._backend_and_state()
+        collisions = backend._collisions_for(state)
+        assert collisions.n_ph is not None, "phonons frozen — the test is inert"
+
+        marked = collisions.n_ph.copy()
+        marked += 1.0            # unmistakably away from any thermal seed
+        collisions.n_ph = marked
+
+        gaps = state.gaps().copy()
+        gaps[0] *= 1.000001      # what one self-consistent iteration does
+        moved = replace(state, gap_per_cell=gaps)
+
+        rebuilt = backend._collisions_for(moved)
+        assert rebuilt is not collisions, "the kernel cache did not rebuild"
+        np.testing.assert_array_equal(rebuilt.n_ph, marked)
+
+    def test_relax_gap_does_not_reset_the_phonons(self):
+        backend, state = self._backend_and_state()
+        collisions = backend._collisions_for(state)
+        marked = collisions.n_ph + 1.0
+        collisions.n_ph = marked
+
+        relaxed, _, change = backend.relax_gap(state, max_iter=1)
+        assert change > 0.0, "the gap did not move — the test is inert"
+        np.testing.assert_array_equal(backend._collisions_for(relaxed).n_ph, marked)
+
+    def test_a_changed_energy_grid_reseeds_instead(self):
+        """No correspondence between the two omega grids, so carrying is wrong."""
+        from dataclasses import replace
+        backend, state = self._backend_and_state()
+        collisions = backend._collisions_for(state)
+        collisions.n_ph = collisions.n_ph + 1.0
+
+        _, coarser = _setup(ne=32)
+        rebuilt = backend._collisions_for(replace(state, spectral=coarser))
+        assert rebuilt.omega_bins.shape != collisions.omega_bins.shape
+        assert not np.array_equal(rebuilt.n_ph, collisions.n_ph)

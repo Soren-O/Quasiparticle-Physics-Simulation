@@ -684,6 +684,11 @@ def run_spatial_2d(
     payload.arrays["xqp_field"] = field
     payload.arrays["xqp_profile"] = profile
     payload.summary.update({
+        # The reference gap the figures normalise energy by. Without it
+        # `plots._gap` falls back to 1.0 and the occupation spectrum plots
+        # micro-eV against an axis labelled "E / Δ" — a factor of ~180 for
+        # aluminium, in the only spectral figure this mode draws.
+        "gap_ueV": float(delta_0),
         "cells": int(geometry.cell_count),
         "dimensionality": int(geometry.dimensionality),
         "rows": int(geometry.shape[0]),
