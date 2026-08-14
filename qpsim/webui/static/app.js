@@ -1178,9 +1178,27 @@ const CONDITION_SECTIONS = FORMS.spatial_2d.filter(
 const WIZARD_STEPS = ["equations", "geometry", "conditions"];
 const wizard = { index: 0, offD0: null };
 
+/* The panel's paths are the 2-D setup's. Other modes do not carry all of
+   them, and an absent field must NOT read as a term that is switched off:
+   "off" says the model contains this term and it is not acting, which is a
+   statement about the physics. Absent says the mode cannot express the term
+   at all. Writing to one is worse than displaying it wrongly -- setByPath
+   throws, or the value reaches an extra="forbid" model and 422s. */
+function termFieldExists(spec) {
+  if (!spec || spec.path === null || state.setup === null) return false;
+  const parts = spec.path.split(".");
+  let node = state.setup;
+  for (const key of parts.slice(0, -1)) {
+    if (node === null || typeof node !== "object" || !(key in node)) return false;
+    node = node[key];
+  }
+  return node !== null && typeof node === "object"
+    && parts[parts.length - 1] in node;
+}
+
 function termIsOn(id) {
   const spec = TERM_FIELDS[id];
-  if (!spec || spec.path === null) return false;
+  if (!termFieldExists(spec)) return false;
   const value = getByPath(state.setup, spec.path);
   if (spec.kind === "zeroable") return Number(value) > 0;
   if (spec.kind === "mode") return value === spec.on;
@@ -1189,7 +1207,7 @@ function termIsOn(id) {
 
 function setTerm(id, on) {
   const spec = TERM_FIELDS[id];
-  if (!spec || spec.path === null) return;
+  if (!termFieldExists(spec)) return;
   if (spec.kind === "zeroable") {
     // D_0 = 0 IS the transport off switch, so remember the value being
     // switched away from rather than forcing the user to retype it.
@@ -1214,13 +1232,22 @@ function renderTermPanel() {
     const id = button.dataset.term;
     const spec = TERM_FIELDS[id];
     if (button.classList.contains("locked")) continue;
-    const unavailable = !spec || spec.path === null;
+    const declared = spec && spec.path !== null;
+    const expressible = termFieldExists(spec);
+    const unavailable = !expressible;
     const on = termIsOn(id);
-    button.classList.toggle("off", unavailable || !on);
+    // Deliberately exclusive. "off" carries a strike-through, which asserts
+    // the model contains this term and it is not acting; a term the mode
+    // cannot express has no business making that claim.
+    button.classList.toggle("off", expressible && !on);
     button.classList.toggle("clamped", unavailable);
-    button.title = unavailable
-      ? `${spec ? spec.label : id}: ${spec ? spec.why : "not available"}.`
-      : `${spec.label} — click to ${on ? "drop" : "restore"} it.`;
+    const mode = state.modeLabels[state.mode] || state.mode;
+    button.title = expressible
+      ? `${spec.label} — click to ${on ? "drop" : "restore"} it.`
+      : declared
+        ? `${spec.label}: not part of the ${mode} model, so it can be `
+          + `neither switched on nor off here.`
+        : `${spec ? spec.label : id}: ${spec ? spec.why : "not available"}.`;
   }
   // A sign belongs to the term it introduces and fades with it.
   for (const op of document.querySelectorAll(".op[data-op-for]")) {
@@ -1230,7 +1257,7 @@ function renderTermPanel() {
   }
 
   const live = Object.keys(TERM_FIELDS).filter(
-    (id) => TERM_FIELDS[id].path !== null && termIsOn(id));
+    (id) => termFieldExists(TERM_FIELDS[id]) && termIsOn(id));
   if (!live.includes("scat") && !live.includes("recomb")) {
     cons.push(["bad", "No electron-phonon collisions: nothing relaxes the "
       + "quasiparticle energies or changes their number."]);

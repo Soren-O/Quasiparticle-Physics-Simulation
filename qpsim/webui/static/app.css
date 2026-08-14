@@ -424,7 +424,9 @@ body.editing .action:hover:not(:disabled) { background: none; }
   .term.off::after{content:""; position:absolute; left:.05em; right:.05em; top:50%; height:1.5px; background:currentColor; border-radius:2px}
   .term.locked{cursor:not-allowed}
   .term.locked::before{content:""; position:absolute; inset:0 -1px; border-radius:4px; border:1px dashed var(--sector); opacity:.4}
-  .term.clamped{opacity:.52}
+  /* Not expressible on this mode: dotted underline, never the strike-through,
+     which would claim the term is present and switched off. */
+  .term.clamped{opacity:.52; cursor:not-allowed}
   .term.clamped::after{content:""; position:absolute; left:.1em; right:.1em; bottom:.08em; border-bottom:2px dotted currentColor}
   .term.warn{color:var(--critical); background:rgba(166,61,64,.09)}
   .op{padding:0 .2em; color:var(--ink-2); transition:opacity .16s ease}
