@@ -531,7 +531,8 @@ async function showRunDetail() {
   const setupWasOpen = !!document.querySelector("#run-detail details")?.open;
   let html = `<h2>${esc(r.name)} <span class="status ${esc(r.status)}">${esc(r.status)}</span></h2>
     <div class="hint">${esc(state.modeLabels[r.mode] || r.mode)} · ${esc(r.created || "")}
-    ${r.elapsed_s != null ? " · " + fmt(r.elapsed_s) + " s" : ""}</div>`;
+    ${r.elapsed_s != null ? " · " + fmt(r.elapsed_s) + " s" : ""}</div>
+    <div class="action-row"><button type="button" id="run-reopen">Open in editor</button></div>`;
   for (const n of r.notes || []) html += `<div class="note">⚠ ${esc(n)}</div>`;
   if (r.error) html += `<div class="note">✗ ${esc(r.error)}</div>`;
 
@@ -567,6 +568,16 @@ async function showRunDetail() {
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
+  // Iterating on a run meant reading its setup out of a JSON block and
+  // retyping it. It is already a valid setup for its own mode, so the
+  // editor can just be handed it -- as a COPY, since the editor mutates in
+  // place and a stored run must not change because somebody looked at it.
+  $("#run-reopen")?.addEventListener("click", async () => {
+    await switchMode(r.mode, JSON.parse(JSON.stringify(r.setup)));
+    $("#run-name").value = `${r.name} (edited)`;
+    showView("new-run");
+    window.scrollTo(0, 0);
+  });
   document.querySelectorAll("#run-detail .scrubber").forEach(initScrubber);
   if (setupWasOpen) {
     const details = document.querySelector("#run-detail details");

@@ -373,3 +373,35 @@ class TestFigureFamilies:
         manifest = _wait_done(client, run_id)
         assert manifest["plot_params"] == {}
         assert "field_over_time" not in manifest["plots"]
+
+
+class TestIterationLoop:
+    """A finished run has to be a starting point, not a dead end."""
+
+    def test_a_stored_setup_is_re_postable_unchanged(
+        self, client: TestClient
+    ) -> None:
+        """What "Open in editor" relies on: the manifest's setup is valid input.
+
+        Without this the only way to iterate on a run is to read its setup
+        out of a JSON block and retype it.
+        """
+        setup = client.get("/api/defaults/spatial_2d").json()
+        setup["grid"]["num_bins"] = 24
+        setup["geometry"]["rows"] = 3
+        setup["geometry"]["cols"] = 3
+        setup["dt"] = 2.0
+        setup["max_time"] = 8.0
+        first = _wait_done(
+            client,
+            client.post(
+                "/api/runs", json={"name": "first", "setup": setup}
+            ).json()["id"],
+        )
+        again = client.post(
+            "/api/runs", json={"name": "reopened", "setup": first["setup"]}
+        )
+        assert again.status_code == 200
+        second = _wait_done(client, again.json()["id"])
+        assert second["status"] == "done"
+        assert second["setup"] == first["setup"]
