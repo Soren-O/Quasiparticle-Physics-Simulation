@@ -1,0 +1,14 @@
+# Tantalum on sapphire — generic starter values.
+# Used in STJ X-ray detectors and, more recently, as a qubit base layer.
+name: Ta
+Delta_0: 700.0       # μeV
+T_c: 4.47            # K
+tau_0: 1.8           # ns (QP characteristic time)
+D_0: 0.82            # μm²/ns  (= 8.2 cm²/s, Poelaert 2000; see D_0_range)
+D_0_range: [0.5, 1.5]
+v_F: 1.8e6           # m/s
+notes: >-
+  Longer quasiparticle lifetime than Nb, which is why STJ detectors use it.
+  D_0 is the measured single-crystal-ish value; sputtered films run lower.
+references:
+  - "Poelaert et al., PRB 61 (2000) — D = 8.2 cm²/s and tau = 83 us at 0.21 K, from STJ"

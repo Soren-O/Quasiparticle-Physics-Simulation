@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -76,10 +77,15 @@ class TestLoadMaterial:
         # YAML 1.1 resolves unsigned-exponent notation ("1.74e28") as a
         # string — the shipped files write v_F/rho_F that way, and the
         # dataclass must coerce so arithmetic on loaded materials works.
-        for name in ("Al", "Nb", "TiN"):
+        # Every shipped material, not a hand-listed three: a new entry with a
+        # string-typed exponent would otherwise ship unnoticed.
+        for name in list_materials():
             mat = load_material(name)
             for field_name, value in vars(mat).items():
-                if field_name in ("name", "substrate"):
+                # Provenance fields are deliberately not numbers.
+                if field_name in (
+                    "name", "substrate", "notes", "references", "D_0_range",
+                ):
                     continue
                 assert value is None or isinstance(value, float), (
                     f"{name}.{field_name} loaded as {type(value).__name__}: {value!r}"
@@ -181,3 +187,42 @@ class TestListMaterials:
         (tmp_path / "B.yaml").touch()
         (tmp_path / "notyaml.txt").touch()  # ignored
         assert list_materials(database_dir=tmp_path) == ["A", "B"]
+
+
+class TestProvenance:
+    """A bare number cannot be chosen with; the band and the citation can.
+
+    D_0 spans a factor of five or more across film qualities of the same
+    material, so "which value should I use for my film" is answered by the
+    reference class, not by the stored scalar.
+    """
+
+    def test_every_material_carries_its_sources(self) -> None:
+        for name in list_materials():
+            mat = load_material(name)
+            assert mat.references, f"{name} has no references"
+            assert mat.notes.strip(), f"{name} has no film-class note"
+            assert mat.D_0_range is not None, f"{name} has no D_0 band"
+
+    def test_a_stored_value_outside_its_own_band_warns(self) -> None:
+        """The inconsistency has to be visible at load, not only in a comment."""
+        with pytest.warns(UserWarning, match="outside its own sourced band"):
+            Material(
+                name="X", Delta_0=1.0, T_c=1.0, tau_0=1.0,
+                D_0=60.0, D_0_range=(2.25, 10.0),
+            )
+
+    def test_a_value_inside_its_band_is_quiet(self) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Material(
+                name="X", Delta_0=1.0, T_c=1.0, tau_0=1.0,
+                D_0=3.0, D_0_range=(2.0, 4.0),
+            )
+
+    def test_an_inverted_band_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="low < high"):
+            Material(
+                name="X", Delta_0=1.0, T_c=1.0, tau_0=1.0,
+                D_0=1.0, D_0_range=(4.0, 2.0),
+            )

@@ -127,6 +127,16 @@ class Material:
     substrate: Substrate | None = None
     substrate_transmission_eta: float = 0.0
 
+    # Provenance. Carried because a bare number is not enough to choose with:
+    # D_0 spans a factor of five or more across film qualities of the SAME
+    # material, so "which value should I use for my film" is answered by the
+    # band and the citation, not by the stored scalar. These are metadata --
+    # nothing solves with them -- but dropping them is what turned a sourced
+    # table into a list of unattributed constants.
+    D_0_range: tuple[float, float] | None = None  # plausible band (μm²/ns)
+    notes: str = ""              # the film class this entry describes
+    references: tuple[str, ...] = ()   # "Author, Journal (year) — what it fixes"
+
     def __post_init__(self) -> None:
         # YAML 1.1 resolves unsigned-exponent scientific notation
         # ("1.74e28") as a *string*, not a float — the shipped Al/Nb/TiN
@@ -148,6 +158,31 @@ class Material:
                     f"Material {self.name!r}: {field_name}={value} is ignored; "
                     f"every scattering and recombination kernel uses "
                     f"tau_0={self.tau_0}. Set tau_0 instead, or drop the field.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+        if self.references:
+            self.references = tuple(self.references)
+        if self.D_0_range is not None:
+            low, high = (float(v) for v in self.D_0_range)
+            if not low < high:
+                raise ValueError(
+                    f"Material {self.name!r}: D_0_range must be (low, high) "
+                    f"with low < high; got ({low}, {high})."
+                )
+            self.D_0_range = (low, high)
+            # A stored value outside its own sourced band is exactly the
+            # inconsistency the band exists to expose, and a comment in a
+            # YAML file is not seen by anyone who loads the material. Warn
+            # rather than raise: the value may be a deliberate choice, and
+            # refusing to load would make the band unusable as a record.
+            if self.D_0 > 0.0 and not low <= self.D_0 <= high:
+                warnings.warn(
+                    f"Material {self.name!r}: D_0={self.D_0:g} um^2/ns lies "
+                    f"outside its own sourced band [{low:g}, {high:g}]. "
+                    "Check the entry's references before relying on the "
+                    "stored value for a spatial run.",
                     UserWarning,
                     stacklevel=3,
                 )

@@ -13,7 +13,30 @@ tau_0_pb_ns: 0.255   # ns (F&C 2023 Table I parameters → τ_0^PB ≈ 255 ps fo
 # Nb, so never substitute one for the other. The 0.255 value is what the
 # author's Fig. 6 program used and is pinned for Fig. 3/5/6 replay fidelity;
 # F&C's own text quotes ≈240 ps.
-D_0: 60.0            # μm²/ns (normal-state; depends on resistivity)
+# D_0 provenance (2026-08-14 — FLAGGED, NOT CORRECTED, following the same
+# practice as TiN.yaml below). The stored 60.0 um^2/ns sits 6x above the top
+# of the band its own references support: Chi & Clarke give D ~ 60 cm^2/s,
+# Heikkila et al. 100 cm^2/s and Hubbell & Briscoe 22.5 cm^2/s, and
+# 1 cm^2/s = 0.1 um^2/ns, so those are 6.0, 10.0 and 2.25 um^2/ns. The stored
+# number is numerically equal to the Chi & Clarke value with cm^2/s read as
+# um^2/ns, which is what a unit slip looks like.
+# NOT changed here on purpose: docs/HELD-BACK-ADJUDICATION-2026-08-11.md P14
+# adjudicated the material D_0 values and says explicitly "Do NOT touch the
+# filing's Al/Nb values". Correcting it is a physics change -- it shortens
+# every Al diffusion length sqrt(D tau) by ~2.4x -- and belongs to that queue,
+# not to a passing edit. The band below makes the discrepancy visible at load
+# time instead of leaving it in a comment nobody reads.
+D_0: 60.0            # μm²/ns (normal-state; SEE THE PROVENANCE NOTE ABOVE)
+D_0_range: [2.25, 10.0]
+notes: >-
+  Thin-film Al, the transmon and MKID workhorse. D_0 varies by roughly a
+  factor of four with film quality and thickness, so the band matters more
+  than the point value for anything spatial.
+references:
+  - "Chi & Clarke, PRB 19 (1979) — D ~ 60 cm^2/s in thin films"
+  - "Heikkila et al., arXiv:1911.02434 — D = 100 cm^2/s by nanothermometry"
+  - "Hubbell & Briscoe, PRL 20 (1968) — D = 22.5 cm^2/s, the first measurement"
+  - "Kaplan et al., PRB 14 (1976) — tau_0 = 438 ns, and the Table II phonon time"
 v_F: 1.36e6          # m/s (Fermi velocity in Al)
 rho_F: 1.74e28       # eV⁻¹ m⁻³ (single-spin DOS at Fermi level)
 sound_velocity_longitudinal: 6420.0   # m/s

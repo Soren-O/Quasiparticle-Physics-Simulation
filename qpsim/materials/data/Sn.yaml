@@ -1,0 +1,14 @@
+# Tin — the classical low-T_c superconductor, standard BCS values.
+# Present mainly as a textbook cross-check: little used in modern devices.
+name: Sn
+Delta_0: 575.0       # μeV
+T_c: 3.72            # K
+tau_0: 2.3           # ns (QP characteristic time)
+D_0: 3.0             # μm²/ns  (= 30 cm²/s; see D_0_range)
+D_0_range: [2.0, 4.0]
+v_F: 1.9e6           # m/s
+notes: >-
+  Textbook BCS material. Included so a reduction can be checked against a
+  second gap scale without leaving the well-characterised regime.
+references:
+  - "Kittel, Introduction to Solid State Physics — Delta = 0.575 meV, standard BCS values"

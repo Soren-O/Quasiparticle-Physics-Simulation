@@ -1,0 +1,16 @@
+# Niobium nitride — strongly disordered, very short mean free path.
+# The SNSPD material; included because it sits at the opposite end of the
+# disorder axis from Al and exercises the dirty limit hard.
+name: NbN
+Delta_0: 2460.0      # μeV
+T_c: 16.0            # K
+tau_0: 0.02          # ns (QP characteristic time)
+D_0: 0.05            # μm²/ns  (= 0.5 cm²/s, Il'in 2019; see D_0_range)
+D_0_range: [0.02, 0.1]
+v_F: 1.0e6           # m/s
+notes: >-
+  Strongly disordered: D_0 is two to three orders below Al, so diffusion
+  lengths are short and the spatial problem is stiff. Values vary widely
+  with nitrogen content and deposition.
+references:
+  - "Il'in et al. (2019), NbN thin films — D ~ 0.5 cm²/s, strongly disordered"

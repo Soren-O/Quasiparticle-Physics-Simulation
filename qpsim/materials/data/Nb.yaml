@@ -11,7 +11,15 @@ Delta_0: 1500.0      # μeV (Δ(0) ≈ 1.5 meV for Nb)
 T_c: 9.25            # K
 tau_0: 0.149         # ns (Kaplan 1976 for Nb — much faster than Al)
 tau_0_phonon: 0.00417  # ns (Kaplan 1976 Table II; phonon τ_0^ph for Nb)
-D_0: 25.0            # μm²/ns
+D_0: 25.0            # μm²/ns (see the band below; sputtered films run far lower)
+D_0_range: [0.5, 2.0]
+notes: >-
+  Strong-coupling superconductor (2 Delta / k_B T_c ~ 3.8). Sputtered films
+  have a short mean free path and correspondingly low D_0; the stored value
+  describes a much cleaner film than the band's reference class.
+references:
+  - "Kaplan et al., PRB 14 (1976) — recombination/scattering times, BCS parameters"
+  - "Bal et al., PR Applied 20 (2023) — quasiparticle spectroscopy in Nb transmon films"
 v_F: 1.37e6          # m/s
 rho_F: 5.4e28        # eV⁻¹ m⁻³ (single-spin DOS at Fermi level)
 sound_velocity_longitudinal: 5100.0

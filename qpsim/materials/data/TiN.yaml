@@ -16,6 +16,14 @@ tau_0: 0.5           # ns (varies with film quality)
 # diffusion length √(Dτ) by ~11×) and needs a physicist sign-off, so the
 # shipped value is left alone and the inconsistency recorded here.
 D_0: 10.0            # μm²/ns (normal-state; see the provenance note above)
+D_0_range: [0.041, 0.274]
+notes: >-
+  Tunable T_c via nitrogen content; the KID material. Strongly disordered,
+  so the diffusion constant is two orders below Al. The stored D_0 does not
+  describe that film class -- see the provenance note above.
+references:
+  - "Leduc et al., APL 97 (2010) — TiN for kinetic inductance detectors"
+  - "Gao et al. (2012) — the KID film class this entry's rho_F cites, rho ~ 30-200 uOhm-cm"
 v_F: 1.0e6           # m/s
 # Film-dependent: rounded from the 3.9e10 eV^-1 um^-3 single-spin value
 # derived from TiN pulse response by Gao et al., APL 101, 142602 (2012).
