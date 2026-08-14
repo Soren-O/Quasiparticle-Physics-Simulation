@@ -338,6 +338,16 @@ def run_transient_0d(
     )
     payload.summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
     payload.summary["gap_ueV"] = setup.material.Delta_0
+    # The thermal reference the run started from. Several reductions assert
+    # that they HOLD thermal, and without this the assertion has nothing to
+    # be checked against except a number somebody typed into a description.
+    payload.summary["x_qp_thermal"] = float(
+        qp_fraction(
+            payload.arrays["f_thermal"], state.spectral,
+            delta_0=setup.material.Delta_0,
+        )
+    )
+    payload.summary["x_qp_initial"] = float(payload.arrays["obs_x_qp"][0])
     progress(1.0, "done")
     return payload
 

@@ -10,7 +10,8 @@
     "switch in the setup schema. `evidence` points at what does cover it.",
     "",
     "Served as a static asset and deliberately NOT part of the qpsim source",
-    "manifest, so editing this catalogue costs no recertification."
+    "manifest, so editing this catalogue costs no recertification.",
+    "An `expect` block states a closed form and how to check it: read `observable` from the run summary and compare against `reference` (another summary field, so the target is computed rather than typed) within `rel_tol`, or with `comparison` for an inequality."
   ],
   "categories": [
     {
@@ -79,6 +80,13 @@
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
                 "collisions.recombination": false
+              },
+              "expect": {
+                "formula_latex": "f(E,t) = f_{\\mathrm{FD}}(E,T_b)\\ \\ \\forall t",
+                "reason": "Scattering satisfies detailed balance against a thermal phonon bath, so the Fermi-Dirac distribution is its fixed point and nothing evolves.",
+                "observable": "x_qp_final",
+                "reference": "x_qp_thermal",
+                "rel_tol": 1e-09
               }
             }
           ]
@@ -102,6 +110,13 @@
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
                 "collisions.scattering": false
+              },
+              "expect": {
+                "formula_latex": "f(E,t) = f_{\\mathrm{FD}}(E,T_b)\\ \\ \\forall t",
+                "reason": "The pair channel also balances at thermal: emission into the bath and reabsorption from it cancel bin by bin.",
+                "observable": "x_qp_final",
+                "reference": "x_qp_thermal",
+                "rel_tol": 1e-09
               }
             }
           ]
@@ -129,6 +144,13 @@
                 "pb_drive.enabled": false,
                 "collisions.scattering": false,
                 "collisions.recombination": false
+              },
+              "expect": {
+                "formula_latex": "\\sum_i \\rho_i\\, f_i(t) = \\mathrm{const}",
+                "reason": "The sub-gap channel moves quasiparticles in energy without creating or destroying any, so the number is conserved exactly while the distribution reshapes.",
+                "observable": "x_qp_final",
+                "reference": "x_qp_initial",
+                "rel_tol": 0.0001
               }
             }
           ]
@@ -156,6 +178,14 @@
                 "subgap_drive.enabled": false,
                 "collisions.scattering": false,
                 "collisions.recombination": false
+              },
+              "expect": {
+                "formula_latex": "\\frac{d}{dt}\\sum_i \\rho_i f_i > 0",
+                "reason": "Photons above 2Δ create quasiparticles and nothing removes them, so the number can only grow. There is no steady state.",
+                "observable": "x_qp_final",
+                "reference": "x_qp_thermal",
+                "comparison": "greater",
+                "factor": 10.0
               }
             }
           ]
@@ -322,6 +352,13 @@
                 "collisions.scattering": false,
                 "collisions.recombination": false,
                 "solver.self_consistent_gap": true
+              },
+              "expect": {
+                "formula_latex": "\\frac{1}{N_0V}=\\int_\\Delta^{\\hbar\\omega_D}\\frac{1-2f(E)}{\\sqrt{E^2-\\Delta^2}}\\,dE",
+                "reason": "With every collision term off, f stays thermal and the closure must return the equilibrium gap at the bath temperature. The tolerance is set by the grid, not by taste: the finite-volume gap integral converges to Delta_eq at first order in dE, measured 4.3e-6 at 96 bins, 2.0e-6 at 192 and 1.1e-6 at 384. Refine the grid and the agreement tightens.",
+                "observable": "gap_ueV",
+                "reference": "delta_eq_ueV",
+                "rel_tol": 1e-05
               }
             }
           ]

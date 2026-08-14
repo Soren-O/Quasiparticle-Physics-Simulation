@@ -492,3 +492,24 @@ ul.cons .mk { flex: none; width: 15px; height: 2px; border-radius: 2px;
   background: var(--muted); position: relative; top: -.35em; }
 ul.cons li.bad { color: var(--critical); }
 ul.cons li.bad .mk { background: var(--critical); }
+
+/* ---- analytic expectation verdict ---- */
+.expectation {
+  border: 1px solid var(--grid); border-left-width: 3px; border-radius: 4px;
+  padding: 11px 14px; margin: 10px 0; background: var(--surface);
+}
+.expectation.pass { border-left-color: var(--good); }
+.expectation.fail { border-left-color: var(--critical); }
+.expectation.unknown { border-left-color: var(--muted); }
+.ex-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.ex-verdict {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+  font-weight: 700; color: var(--muted);
+}
+.expectation.pass .ex-verdict { color: var(--good); }
+.expectation.fail .ex-verdict { color: var(--critical); }
+.ex-formula { font-family: var(--math); font-size: 15px; color: var(--ink); }
+.ex-reason { margin: 7px 0 3px; color: var(--ink-2); max-width: 74ch; }
+.ex-detail {
+  margin: 0; font-family: var(--mono); font-size: 12px; color: var(--muted);
+}

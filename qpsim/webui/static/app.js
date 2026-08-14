@@ -456,6 +456,19 @@ async function doRun() {
 
 /* ---------- runs view ---------- */
 
+async function awaitRun(runId, timeoutMs = 120000) {
+  // Poll rather than block: a solve can outlast any single request, and the
+  // run store is the only thing that knows when it is finished.
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { ok, body } = await api(`/api/runs/${runId}`);
+    if (!ok) return null;
+    if (body.status !== "queued" && body.status !== "running") return body;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return null;
+}
+
 async function refreshRuns() {
   const { body: runs } = await api("/api/runs");
   const runsKey = JSON.stringify(runs);
@@ -643,7 +656,27 @@ async function runCase(tc, btn) {
       const problems = (body.errors || [String(status)]).join("; ");
       throw new Error(problems);
     }
-    showView("runs");
+    if (!tc.expect) {
+      showView("runs");
+      return;
+    }
+    // Stay put and report the verdict: the point of a case with a closed form
+    // is the comparison, and sending the user to the runs list hides it.
+    btn.textContent = "Checking…";
+    const holder = document.getElementById(`case-msg-${tc.id}`);
+    const finished = await awaitRun(body.id);
+    btn.textContent = label;
+    btn.disabled = false;
+    if (holder) {
+      holder.innerHTML = "";
+      if (finished === null || finished.status !== "done") {
+        holder.innerHTML = `<div class="err">The run did not finish`
+          + `${finished && finished.error ? `: ${esc(finished.error)}` : "."}</div>`;
+      } else {
+        renderExpectation(holder, tc.expect, finished.summary || {});
+      }
+    }
+    return;
   } catch (exc) {
     btn.textContent = label;
     btn.disabled = false;
@@ -824,6 +857,15 @@ async function openItem(catId, itemId) {
        <p class="tc-summary">${esc(tc.summary)}</p>
        <div class="tc-actions"></div>
        <div id="case-msg-${esc(tc.id)}"></div>`;
+    if (tc.expect) {
+      const stated = document.createElement("div");
+      stated.className = "expectation";
+      stated.innerHTML =
+        `<div class="ex-head"><span class="ex-verdict">Expected</span>`
+        + `<span class="ex-formula">${esc(tc.expect.formula_latex)}</span></div>`
+        + `<p class="ex-reason">${esc(tc.expect.reason)}</p>`;
+      card.insertBefore(stated, card.querySelector(".tc-actions"));
+    }
     const actions = card.querySelector(".tc-actions");
     const open = document.createElement("button");
     open.textContent = "Open in editor";
@@ -1225,4 +1267,56 @@ function initWizard() {
   }
   $("#btn-next").addEventListener("click", () => showWizardStep(wizard.index + 1));
   $("#btn-back").addEventListener("click", () => showWizardStep(wizard.index - 1));
+}
+
+/* =====================================================================
+   Analytic expectations
+   A case may state a closed form and how to check it. The reference is
+   another summary field wherever possible, so the target is COMPUTED by
+   the run rather than typed into a description by hand -- a number in
+   prose stops being true the moment the engine moves, and says nothing
+   when it does.
+   ===================================================================== */
+
+function evaluateExpectation(expect, summary) {
+  const got = Number(summary[expect.observable]);
+  const want = Number(summary[expect.reference]);
+  if (!Number.isFinite(got) || !Number.isFinite(want)) {
+    return {
+      verdict: "unknown",
+      detail: `the run reported no ${!Number.isFinite(got)
+        ? expect.observable : expect.reference}`,
+    };
+  }
+  if (expect.comparison === "greater") {
+    const factor = expect.factor ?? 1.0;
+    return {
+      verdict: got > want * factor ? "pass" : "fail",
+      got, want,
+      detail: `${fmt(got)} vs ${fmt(want)} × ${factor} = ${fmt(want * factor)}`,
+    };
+  }
+  const scale = Math.abs(want) > 0 ? Math.abs(want) : 1.0;
+  const rel = Math.abs(got - want) / scale;
+  return {
+    verdict: rel <= (expect.rel_tol ?? 1e-6) ? "pass" : "fail",
+    got, want, rel,
+    detail: `relative difference ${rel.toExponential(2)} `
+          + `against a tolerance of ${(expect.rel_tol ?? 1e-6).toExponential(0)}`,
+  };
+}
+
+function renderExpectation(host, expect, summary) {
+  const result = evaluateExpectation(expect, summary);
+  const box = document.createElement("div");
+  box.className = `expectation ${result.verdict}`;
+  const label = { pass: "Matches", fail: "Does not match", unknown: "Not checked" };
+  box.innerHTML =
+    `<div class="ex-head"><span class="ex-verdict">${label[result.verdict]}</span>`
+    + `<span class="ex-formula">${esc(expect.formula_latex)}</span></div>`
+    + `<p class="ex-reason">${esc(expect.reason)}</p>`
+    + `<p class="ex-detail">${esc(expect.observable)} = `
+    + `${result.got === undefined ? "—" : fmt(result.got)}; ${esc(result.detail)}</p>`;
+  host.appendChild(box);
+  return result;
 }
