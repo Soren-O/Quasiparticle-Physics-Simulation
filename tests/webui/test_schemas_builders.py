@@ -397,3 +397,51 @@ class TestBuilders:
         assert params.Delta_L_kelvin > params.Delta_R_kelvin
         assert params.T_kelvin == 0.020
         assert drive.Gamma_nu_scale_Hz == 1.0
+
+
+class TestPrescribedGapMap:
+    """A gap map from an expression, and the grid it needs underneath it."""
+
+    @staticmethod
+    def _setup(expression: str, min_factor: float = 0.7):
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 24
+        setup.grid.min_factor = min_factor
+        setup.geometry.rows, setup.geometry.cols = 9, 9
+        setup.gap_regions.kind = "expression"
+        setup.gap_regions.expression = expression
+        return setup
+
+    WELL = (
+        "gap * (1.0 - params.get('depth', 0.25) * "
+        "np.exp(-((x - 0.5)**2 + (y - 0.5)**2) / (2 * 0.15**2)))"
+    )
+
+    def test_a_radial_well_produces_a_graded_gap(self):
+        """Not reachable from any step: the well is a continuum of gaps."""
+        from qpsim.webui.builders import build_gap_per_cell_2d, build_geometry_2d
+        setup = self._setup(self.WELL)
+        setup.gap_regions.params = {"depth": 0.25}
+        gaps = build_gap_per_cell_2d(setup, build_geometry_2d(setup))
+        assert gaps is not None
+        assert len(np.unique(gaps)) > 2, "a step would give exactly two gaps"
+        assert np.min(gaps) == pytest.approx(0.75 * setup.material.Delta_0, rel=1e-9)
+        assert np.max(gaps) < setup.material.Delta_0
+
+    def test_the_grid_floor_is_checked_before_the_run(self):
+        """Raised inside the quadrature this is an opaque bound violation."""
+        from qpsim.webui.builders import validate_setup
+        setup = self._setup(self.WELL, min_factor=1.0)
+        report = validate_setup(setup)
+        assert not report.ok
+        assert any("smallest local gap" in e for e in report.errors)
+        assert any("min_factor <= 0.75" in e for e in report.errors)
+
+    def test_a_map_that_reaches_zero_is_refused(self):
+        """A non-positive gap is a normal metal, not a smaller gap."""
+        from qpsim.webui.builders import build_gap_per_cell_2d, build_geometry_2d
+        setup = self._setup("gap * (1.0 - 2.0 * x)")  # negative past mid-device
+        with pytest.raises(ValueError, match="strictly positive"):
+            build_gap_per_cell_2d(setup, build_geometry_2d(setup))

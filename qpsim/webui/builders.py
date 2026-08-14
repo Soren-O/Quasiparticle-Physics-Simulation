@@ -389,6 +389,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 f"2D geometry: a {setup.boundary.kind} boundary needs a finite "
                 "value."
             )
+        _validate_gap_map_against_grid(report, setup)
 
     elif isinstance(setup, Spatial1DSetup):
         _validate_drives_and_probe(report, setup)
@@ -815,9 +816,73 @@ def build_gap_per_cell_2d(setup: Spatial2DSetup, geometry: Geometry) -> np.ndarr
     regions = setup.gap_regions
     if regions.kind == "uniform":
         return None
+    if regions.kind == "expression":
+        x_um, y_um, x_norm, y_norm = cell_coordinates(geometry)
+        fn = compile_expression(
+            regions.expression, variables=(*_SPACE_VARS, "gap"),
+        )
+        gaps = np.broadcast_to(
+            np.asarray(
+                fn(
+                    x=x_norm, y=y_norm, x_um=x_um, y_um=y_um,
+                    gap=float(setup.material.Delta_0),
+                    params=dict(regions.params),
+                ),
+                dtype=float,
+            ),
+            x_norm.shape,
+        ).astype(float, copy=True)
+        # A non-positive gap is not a smaller gap, it is a normal metal, and
+        # every kernel here assumes a superconducting spectrum. Refuse rather
+        # than produce a spectral context nothing downstream can interpret.
+        if not np.all(np.isfinite(gaps)) or np.any(gaps <= 0.0):
+            raise ValueError(
+                "The prescribed gap map must be finite and strictly positive "
+                f"everywhere; it ranges over [{np.nanmin(gaps):g}, "
+                f"{np.nanmax(gaps):g}] micro-eV."
+            )
+        return gaps
     _rows, cols = np.nonzero(geometry.mask)
     boundary_col = regions.step_fraction * geometry.shape[1]
     return np.where(cols < boundary_col, regions.gap_left, regions.gap_right)
+
+
+def _validate_gap_map_against_grid(
+    report: ValidationReport, setup: Spatial2DSetup,
+) -> None:
+    """The energy grid must reach below the SMALLEST local gap.
+
+    A varying gap moves the band edge cell by cell, and the BCS weights
+    cannot reconstruct singular support that was never sampled. Raised deep
+    in the quadrature this reads as an opaque bound violation; here it can
+    name the offending gap and the grid factor that would cover it.
+    """
+    regions = setup.gap_regions
+    if regions.kind == "uniform":
+        return
+    delta_0 = setup.material.Delta_0
+    if regions.kind == "column_step":
+        smallest = min(regions.gap_left, regions.gap_right)
+    else:
+        try:
+            geometry = build_geometry_2d(setup)
+            gaps = build_gap_per_cell_2d(setup, geometry)
+        except Exception as exc:
+            report.errors.append(f"2D gap map: {exc}")
+            return
+        if gaps is None:
+            return
+        smallest = float(np.min(gaps))
+    floor = setup.grid.min_factor * delta_0
+    if smallest < floor:
+        needed = smallest / delta_0
+        report.errors.append(
+            f"2D gap map: the smallest local gap is {smallest:.4g} micro-eV "
+            f"but the energy grid starts at {floor:.4g} "
+            f"(min_factor={setup.grid.min_factor:g} x Delta_0={delta_0:g}). "
+            f"Set grid.min_factor <= {needed:.4g} so the grid covers the "
+            "band edge everywhere on the device."
+        )
 
 
 def build_injection_2d(

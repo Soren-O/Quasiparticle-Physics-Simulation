@@ -562,11 +562,24 @@ class GapRegions(StrictModel):
     Kupriyanov-Lukichev barrier.
     """
 
-    kind: Literal["uniform", "column_step"] = "uniform"
+    kind: Literal["uniform", "column_step", "expression"] = "uniform"
     gap_left: Annotated[float, Field(gt=0.0)] = 180.0
     gap_right: Annotated[float, Field(gt=0.0)] = 180.0
     step_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.5
     interface_G_N: Annotated[float, Field(ge=0.0)] | None = None
+    # A prescribed map in micro-eV over the cells. Variables in scope:
+    # x, y (normalised cell centres), x_um, y_um, gap (the material value),
+    # params. A step is one gap profile; a proximitised finger, a radial
+    # well, a gradient used as a trap, or a map computed elsewhere are not
+    # reachable from any finite set of presets.
+    expression: str | None = None
+    params: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def expression_present_when_selected(self) -> GapRegions:
+        if self.kind == "expression" and not self.expression:
+            raise ValueError("kind='expression' needs an expression.")
+        return self
 
 
 class Injection2D(StrictModel):
