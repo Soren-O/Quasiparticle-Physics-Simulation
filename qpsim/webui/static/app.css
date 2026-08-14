@@ -611,3 +611,40 @@ details.ex-full pre {
   color: var(--muted); font-weight: 700; margin: 16px 0 6px;
 }
 .settings table { margin-bottom: 4px; }
+
+/* ---- the wizard, read-only ----
+   Same three pages as the editor with interaction withdrawn, so what you
+   inspect is laid out exactly like what you would set. Disabled controls keep
+   their labels and units, which is why they are disabled rather than replaced
+   by plain text. */
+body.viewing-settings #setup-form input:disabled,
+body.viewing-settings #setup-form select:disabled,
+body.viewing-settings #form-geometry input:disabled,
+body.viewing-settings #form-geometry select:disabled,
+body.viewing-settings #run-name:disabled {
+  background: var(--page);
+  color: var(--ink);
+  border-color: var(--grid);
+  opacity: 1;               /* the value is the point; do not fade it out */
+  cursor: default;
+}
+/* The equation panel stays exactly as the editor draws it -- terms that are
+   off keep their strike-through -- but nothing responds to a click. */
+body.viewing-settings .term { cursor: default; }
+body.viewing-settings .term:hover { background: transparent; }
+
+body.viewing-settings #view-new-run::before {
+  content: "Viewing the settings of a simulation that has already run. These "
+           "produced its results, so they cannot be changed — edit a saved "
+           "setup instead.";
+  display: block;
+  margin: 0 0 14px;
+  padding: 9px 13px;
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  max-width: 78ch;
+}

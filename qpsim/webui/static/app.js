@@ -316,6 +316,9 @@ const state = {
 /* ---------- new-run view ---------- */
 
 async function switchMode(mode, presetSetup) {
+  // Entering the editor by any route leaves the read-only view behind.
+  wizard.readOnly = false;
+  wizard.title = "";
   state.mode = mode;
   if (presetSetup) {
     state.setup = presetSetup;
@@ -334,6 +337,11 @@ function renderForm() {
 function renderStepForm(selector, sections) {
   const form = $(selector);
   form.innerHTML = "";
+  if (!sections.length) {
+    form.innerHTML = `<p class="hint">This mode has no fields on this step. `
+      + `A 0-D run has no geometry: it is a single cell.</p>`;
+    return;
+  }
   for (const section of sections) {
     const det = document.createElement("details");
     det.open = true;
@@ -349,6 +357,13 @@ function renderStepForm(selector, sections) {
     const grid = document.createElement("div");
     grid.className = "field-grid";
     for (const field of section.fields) grid.appendChild(renderField(field));
+    // Disabled rather than replaced by text: the control keeps its label,
+    // units and formatting, so a value reads the same way it would be typed.
+    if (wizard.readOnly) {
+      grid.querySelectorAll("input, select, textarea, button").forEach((el) => {
+        el.disabled = true;
+      });
+    }
     det.appendChild(grid);
     form.appendChild(det);
   }
@@ -675,49 +690,6 @@ function initScrubber(figure) {
   figure.addEventListener("qpsim:teardown", stop);
 }
 
-/* ---------- settings, read-only ----------
-   Rendered from the same FORMS schema the editor uses, so a field carries the
-   same label and units in both places. Raw JSON stays available underneath --
-   it is the exact record -- but it is not what a reader should have to parse
-   to see what was run. */
-
-function settingsRows(mode, setup) {
-  const sections = FORMS[mode] || [];
-  let html = "";
-  for (const section of sections) {
-    const rows = section.fields.map((f) => {
-      const value = getByPath(setup, f.path);
-      if (value === undefined) return "";
-      const shown = f.type === "check"
-        ? (value ? "on" : "off")
-        : (value === null ? "—" : fmt(value));
-      return `<tr><td>${esc(f.label)}</td><td>${esc(shown)}</td></tr>`;
-    }).join("");
-    if (!rows) continue;
-    html += `<h3 class="settings-h">${esc(section.title)}</h3>`
-      + `<table class="list summary-table">${rows}</table>`;
-  }
-  return html || `<p class="hint">This mode has no editable fields.</p>`;
-}
-
-function openSettingsView(name, mode, setup) {
-  crumbs([
-    { label: "Home", go: () => showView("home") },
-    { label: "Simulations", go: () => showView("runs") },
-    { label: name },
-  ]);
-  $("#cat-title").textContent = `${name} — settings`;
-  $("#cat-blurb").textContent =
-    "The settings this simulation ran with. A simulation has already run, so "
-    + "these are a record and cannot be changed; edit a saved setup instead.";
-  $("#cat-body").innerHTML =
-    `<div class="settings">${settingsRows(mode, setup)}</div>`
-    + `<details class="ex-full"><summary>Exact stored setup (JSON)</summary>`
-    + `<pre class="json">${esc(JSON.stringify(setup, null, 2))}</pre></details>`;
-  showView("catalogue");
-  window.scrollTo(0, 0);
-}
-
 /* ---------- materials view ---------- */
 
 async function refreshMaterials() {
@@ -795,11 +767,12 @@ async function buildCaseSetup(tc) {
    so what is shown is what would run, not a second description of it. */
 async function viewCaseSettings(tc) {
   const { setup, unknown } = await buildCaseSetup(tc);
-  openSettingsView(tc.title, tc.mode, setup);
+  openSettingsView(tc.title, tc.mode, setup, { from: "catalogue" });
   if (unknown.length) {
-    $("#cat-body").insertAdjacentHTML("afterbegin",
+    // Into the wizard's own feedback slot, since that is the view now shown.
+    $("#feedback").innerHTML =
       `<div class="err">This case names setup fields that do not exist: ${
-        unknown.map(esc).join(", ")}.</div>`);
+        unknown.map(esc).join(", ")}. They are not reflected below.</div>`;
   }
 }
 
@@ -1317,15 +1290,24 @@ const TERM_FIELDS = {
              label: "Self-consistent gap" },
 };
 
-const GEOMETRY_SECTIONS = FORMS.spatial_2d.filter(
-  (section) => section.title === "Geometry" || section.title === "Boundary",
-);
-const CONDITION_SECTIONS = FORMS.spatial_2d.filter(
-  (section) => section.title !== "Geometry" && section.title !== "Boundary",
-);
+/* The wizard builds spatial_2d, but the read-only view has to show any mode a
+   saved run or a test case used -- several are 0-D, which has no geometry at
+   all. Sections are therefore taken from the mode being shown rather than
+   pinned to one, and the geometry step says so when a mode has none, instead
+   of presenting an empty page as though something were missing. */
+const isGeometrySection = (section) =>
+  section.title === "Geometry" || section.title === "Boundary";
+const geometrySections = (mode) => (FORMS[mode] || []).filter(isGeometrySection);
+const conditionSections = (mode) =>
+  (FORMS[mode] || []).filter((section) => !isGeometrySection(section));
+
+const GEOMETRY_SECTIONS = geometrySections("spatial_2d");
+const CONDITION_SECTIONS = conditionSections("spatial_2d");
 
 const WIZARD_STEPS = ["equations", "geometry", "conditions"];
-const wizard = { index: 0, offD0: null };
+// `readOnly` is what makes the settings view the wizard rather than a copy of
+// it: the same renderers run, and only interaction is withdrawn.
+const wizard = { index: 0, offD0: null, readOnly: false, title: "", from: "runs" };
 
 /* The panel's paths are the 2-D setup's. Other modes do not carry all of
    them, and an absent field must NOT read as a term that is switched off:
@@ -1456,23 +1438,61 @@ function showWizardStep(index) {
   $("#btn-back").classList.toggle("hidden", wizard.index === 0);
   $("#btn-next").classList.toggle("hidden", wizard.index === WIZARD_STEPS.length - 1);
   const last = wizard.index === WIZARD_STEPS.length - 1;
+  // Nothing that would change or launch anything exists in the read-only
+  // view; Back and Next remain, because paging is how you read three pages.
   for (const id of ["#btn-validate", "#btn-save-setup", "#btn-run"]) {
-    $(id).classList.toggle("hidden", !last);
+    $(id).classList.toggle("hidden", wizard.readOnly || !last);
   }
-  crumbsInto("#wizard-crumbs", [
-    { label: "Home", go: () => showView("home") },
-    { label: "New run" },
-  ]);
+  $("#run-name").disabled = wizard.readOnly;
+  document.body.classList.toggle("viewing-settings", wizard.readOnly);
+  crumbsInto("#wizard-crumbs", wizard.readOnly
+    ? [
+        { label: "Home", go: () => showView("home") },
+        wizard.from === "catalogue"
+          ? { label: "Test simulations", go: () => openTestSimulations() }
+          : { label: "Simulations", go: () => showView("runs") },
+        { label: wizard.title || "Settings" },
+      ]
+    : [
+        { label: "Home", go: () => showView("home") },
+        { label: "New run" },
+      ]);
+  const mode = wizard.readOnly ? state.mode : "spatial_2d";
   if (name === "equations") renderTermPanel();
-  if (name === "geometry") renderStepForm("#form-geometry", GEOMETRY_SECTIONS);
-  if (name === "conditions") renderStepForm("#setup-form", CONDITION_SECTIONS);
+  if (name === "geometry") {
+    renderStepForm("#form-geometry", geometrySections(mode));
+  }
+  if (name === "conditions") {
+    renderStepForm("#setup-form", conditionSections(mode));
+  }
   window.scrollTo(0, 0);
+}
+
+/* The wizard, showing settings that already produced something and therefore
+   cannot be changed. Same three pages and the same renderers -- a separate
+   read-only layout would drift, and then the settings you inspect stop being
+   the settings you would set. */
+function openSettingsView(name, mode, setup, { from = "runs" } = {}) {
+  wizard.readOnly = true;
+  wizard.title = name;
+  wizard.from = from;
+  state.mode = mode;
+  // A copy: the wizard's renderers read state.setup, and a stored run must
+  // not change because somebody opened it to look.
+  state.setup = JSON.parse(JSON.stringify(setup));
+  $("#run-name").value = name;
+  $("#feedback").innerHTML = "";
+  showView("new-run");
+  showWizardStep(0);
 }
 
 function initWizard() {
   for (const button of document.querySelectorAll(".term[data-term]")) {
     button.addEventListener("click", () => {
       if (document.body.classList.contains("editing")) return;
+      // The settings of something that already ran are a record. Toggling a
+      // term here would show a model that produced none of these numbers.
+      if (wizard.readOnly) return;
       const id = button.dataset.term;
       if (button.classList.contains("locked")) {
         button.classList.remove("nudge");
