@@ -625,9 +625,12 @@ def run_spatial_2d(
     injection = build_injection_2d(setup, state)
     external_gain, external_loss = (None, None) if injection is None else injection
     delta_0 = setup.material.Delta_0
+    photon_params, pb_photon_params = drive_dicts(setup)
     backend = T3SpatialBackend(
         enable_scattering=setup.collisions.scattering,
         enable_recombination=setup.collisions.recombination,
+        photon_params=photon_params,
+        pb_photon_params=pb_photon_params,
     )
 
     def hook(elapsed: float, total: float) -> bool:

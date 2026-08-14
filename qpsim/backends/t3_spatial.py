@@ -97,9 +97,13 @@ class T3SpatialBackend:
         *,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
     ) -> None:
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
+        self.photon_params = photon_params
+        self.pb_photon_params = pb_photon_params
         self._transport: SpatialTransport | None = None
         self._collisions: SpatialCollisions | None = None
         self._transport_signature: object = None
@@ -175,6 +179,7 @@ class T3SpatialBackend:
         signature = (
             gaps.tobytes(), float(state.T_bath), float(state.material.tau_0),
             float(state.material.T_c), state.spectral.E.tobytes(),
+            repr(self.photon_params), repr(self.pb_photon_params),
         )
         if self._collisions is None or signature != self._collision_signature:
             self._collisions = SpatialCollisions(
@@ -184,6 +189,8 @@ class T3SpatialBackend:
                 T_bath=state.T_bath,
                 enable_scattering=self.enable_scattering,
                 enable_recombination=self.enable_recombination,
+                photon_params=self.photon_params,
+                pb_photon_params=self.pb_photon_params,
             )
             self._collision_signature = signature
         return self._collisions
@@ -315,6 +322,13 @@ class T3SpatialBackend:
                 None if external_gain is None else external_gain[:, columns],
                 None if external_loss is None else external_loss[:, columns],
             )
+            # The photon channels are part of the right-hand side, so they are
+            # part of the residual. Leaving them out lets a driven device be
+            # certified steady on its first step, which is what happened.
+            photon = collisions.photon_rates(state.f[:, columns], gap)
+            if photon is not None:
+                gain = gain + photon[0]
+                loss = loss + photon[1]
             total[:, columns] = gain - loss * state.f[:, columns]
 
         if state.f.shape[1] > 1:

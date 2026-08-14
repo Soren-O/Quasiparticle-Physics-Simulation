@@ -29,12 +29,16 @@ from typing import Any
 
 import numpy as np
 
+from qpsim.collisions.pair_breaking_photon import (
+    pair_breaking_photon_collision_rates,
+)
 from qpsim.collisions.phonon import (
     _thermal_phonon_recombination_occupations,
     _thermal_phonon_scattering_occupation,
     build_recombination_kernel_base,
     build_scattering_kernel_base,
 )
+from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.etd import etd2_step
 
@@ -69,6 +73,8 @@ class SpatialCollisions:
         T_bath: float,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        photon_params: dict[str, float] | None = None,
+        pb_photon_params: dict[str, float] | None = None,
     ) -> None:
         if spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -84,6 +90,8 @@ class SpatialCollisions:
         self.T_bath = float(T_bath)
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
+        self.photon_params = photon_params
+        self.pb_photon_params = pb_photon_params
 
         self._distinct_gaps, self._group_index = np.unique(
             self.gap_per_cell, return_inverse=True,
@@ -171,6 +179,44 @@ class SpatialCollisions:
 
     # -- rates ------------------------------------------------------------
 
+    def photon_rates(
+        self, f_group: np.ndarray, local_gap: float,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Photon-channel gain and loss for one gap group, or ``None``.
+
+        The kernels validate ``f`` against ``(NE,)`` -- they are written for a
+        single spatial pixel -- so this evaluates them column by column. That
+        is the honest cost of reusing the validated channel rather than
+        writing a second, vectorised copy that would have to be validated
+        again.
+        """
+        if self.photon_params is None and self.pb_photon_params is None:
+            return None
+        spectral = self._local_spectral(local_gap)
+        gain = np.zeros_like(f_group)
+        loss = np.zeros_like(f_group)
+        for column in range(f_group.shape[1]):
+            f_cell = f_group[:, column]
+            if self.photon_params is not None:
+                g, ell = sub_gap_photon_collision_rates(
+                    f_cell, spectral,
+                    self.photon_params["omega_0"],
+                    self.photon_params["n_bar"],
+                    self.photon_params["c_phot"],
+                )
+                gain[:, column] += g
+                loss[:, column] += ell
+            if self.pb_photon_params is not None:
+                g, ell = pair_breaking_photon_collision_rates(
+                    f_cell, spectral,
+                    self.pb_photon_params["omega_PB"],
+                    self.pb_photon_params["n_bar_PB"],
+                    self.pb_photon_params["c_phot_PB"],
+                )
+                gain[:, column] += g
+                loss[:, column] += ell
+        return gain, loss
+
     @staticmethod
     def group_rates(
         f_group: np.ndarray,
@@ -252,13 +298,19 @@ class SpatialCollisions:
         def rhs(current: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             gain = np.zeros_like(current)
             loss = np.zeros_like(current)
-            for columns, operator in groups:
+            for (columns, operator), (gap, _cols) in zip(
+                groups, self._groups(), strict=True,
+            ):
                 g, ell = self.group_rates(
                     current[:, columns],
                     operator,
                     None if external_gain is None else external_gain[:, columns],
                     None if external_loss is None else external_loss[:, columns],
                 )
+                photon = self.photon_rates(current[:, columns], gap)
+                if photon is not None:
+                    g = g + photon[0]
+                    ell = ell + photon[1]
                 gain[:, columns] = g
                 loss[:, columns] = ell
             return gain, loss
@@ -286,10 +338,16 @@ class SpatialCollisions:
                 bound_operator: CollisionOperator = operator,
                 bound_gain: np.ndarray | None = group_gain,
                 bound_loss: np.ndarray | None = group_loss,
+                bound_gap: float = gap,
             ) -> tuple[np.ndarray, np.ndarray]:
-                return self.group_rates(
+                g, ell = self.group_rates(
                     f_group, bound_operator, bound_gain, bound_loss,
                 )
+                photon = self.photon_rates(f_group, bound_gap)
+                if photon is not None:
+                    g = g + photon[0]
+                    ell = ell + photon[1]
+                return g, ell
 
             f_group = f[:, columns]
             updated[:, columns] = etd2_step(

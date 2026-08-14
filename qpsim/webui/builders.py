@@ -519,7 +519,7 @@ def build_state_0d(
 
 
 def drive_dicts(
-    setup: SteadyState0DSetup | Transient0DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial2DSetup,
 ) -> tuple[dict[str, float] | None, dict[str, float] | None]:
     """(photon_params, pb_photon_params) in the backend's dict format."""
     photon_params = None
