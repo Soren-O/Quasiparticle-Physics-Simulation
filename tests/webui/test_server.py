@@ -436,3 +436,67 @@ class TestFormulaRendering:
         self, client: TestClient
     ) -> None:
         assert client.get("/api/benchmarks/nope/formula.png").status_code == 404
+
+
+class TestStaticAssetsRevalidate:
+    """The UI must not be served from cache after it changes.
+
+    Starlette's StaticFiles sends etag and last-modified but no Cache-Control,
+    so a browser applies heuristic freshness and keeps serving a stale app.js
+    across ordinary reloads. For an app whose interface is edited in place
+    that is indistinguishable from the change not working -- which is exactly
+    how it presented.
+    """
+
+    def test_the_frontend_script_must_revalidate(self, client: TestClient) -> None:
+        resp = client.get("/static/app.js")
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-cache"
+        # no-cache means "revalidate", not "do not store": the validator has
+        # to still be there or every reload is a full re-download.
+        assert resp.headers.get("etag")
+
+    def test_the_shell_must_revalidate(self, client: TestClient) -> None:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-cache"
+
+    def test_an_unchanged_asset_still_answers_304(self, client: TestClient) -> None:
+        """Revalidating must stay cheap, or this trades one problem for another."""
+        first = client.get("/static/app.js")
+        again = client.get(
+            "/static/app.js", headers={"If-None-Match": first.headers["etag"]}
+        )
+        assert again.status_code == 304
+
+
+class TestCaseSummariesAreNotTheirOwnReason:
+    """The card printed the same paragraph twice.
+
+    I generated the benchmark cases with summary = benchmark.reason, so the
+    interface showed it as the case summary and again as the expectation's
+    reason. The summary says what the case IS; the reason says why the closed
+    form holds.
+    """
+
+    def test_no_case_summary_repeats_its_benchmark_reason(
+        self, client: TestClient
+    ) -> None:
+        import json
+        from pathlib import Path
+        catalogue = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "qpsim" / "webui" / "static" / "catalogue.json"
+            ).read_text(encoding="utf-8")
+        )
+        entries = client.get("/api/benchmarks").json()
+        for category in catalogue["categories"]:
+            for item in category["items"]:
+                for case in item.get("cases", []):
+                    name = case.get("benchmark")
+                    if not name:
+                        continue
+                    assert case["summary"] != entries[name]["reason"], (
+                        f"{case['id']} shows the same text twice"
+                    )

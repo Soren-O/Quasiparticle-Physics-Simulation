@@ -130,7 +130,11 @@ def create_app(workspace_root: Path | str) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        # Same reasoning as the static mount: the shell must not be served
+        # from cache after it changes, or the app boots against stale markup.
+        return FileResponse(
+            STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"},
+        )
 
     # -- meta ---------------------------------------------------------
 
@@ -357,5 +361,29 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             },
         )
 
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    class _RevalidatingStatic(StaticFiles):
+        """Serve the frontend with must-revalidate rather than heuristically.
+
+        Starlette's StaticFiles sends etag and last-modified but no
+        Cache-Control, so a browser applies HEURISTIC freshness and will keep
+        serving a cached app.js across ordinary reloads. For an app whose UI
+        is edited in place that is a persistent trap: the server has the new
+        file, the user reloads, and still sees the old interface -- which is
+        indistinguishable from the change not working.
+
+        `no-cache` does not mean "do not store": the browser keeps the file
+        and revalidates, so an unchanged asset still costs one conditional
+        request answered 304 by the etag that is already being sent.
+        """
+
+        def is_not_modified(self, response_headers, request_headers):  # type: ignore[override]
+            response_headers["Cache-Control"] = "no-cache"
+            return super().is_not_modified(response_headers, request_headers)
+
+        async def get_response(self, path: str, scope):  # type: ignore[override]
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-cache"
+            return response
+
+    app.mount("/static", _RevalidatingStatic(directory=STATIC_DIR), name="static")
     return app

@@ -31,7 +31,7 @@
               "id": "diff-benchmark",
               "title": "Diffusion against its eigenmode decay rate",
               "mode": "spatial_2d",
-              "summary": "With no collisions and a uniform gap, N₁ leaves the divergence and each energy bin is an independent scalar heat equation; a cell-centred cosine is an exact eigenfunction of the Laplacian AND of the discrete no-flux stencil, so its amplitude decays as a pure exponential at D_eff(E)k². The energy dependence of that rate is the whole content of the (p,q) dressing, which is why the curve is taken over energy rather than time.",
+              "summary": "A cosine mode on a 2-D film with every collision channel off. Its amplitude decays at a rate that depends on energy, and that dependence is the whole content of the diffusion operator.",
               "benchmark": "diffusion",
               "overrides": {
                 "material.name": "Al",
@@ -118,7 +118,7 @@
               "id": "scat-benchmark",
               "title": "Scattering against its closed-form out-rate",
               "mode": "spatial_2d",
-              "summary": "At T_bath -> 0 the phonon occupation vanishes and the scattering operator can only move a quasiparticle down in energy, so the highest occupied cell of a column has no source above it: its gain term is identically zero and, once the excess is small enough for Pauli blocking to be negligible, its equation is a linear decay at a constant rate. That rate's continuum limit is the Kaplan scattering-out integral, which is elementary. Five columns seeded at five energies with D_0 = 0 keeps them independent, so one run measures five different rates against five closed forms.",
+              "summary": "Five columns, each seeded with an excess in a different energy cell. One run measures five independent decay rates spanning a factor of 7.",
               "benchmark": "scattering",
               "overrides": {
                 "material.name": "Al",
@@ -191,7 +191,7 @@
               "id": "recomb-benchmark",
               "title": "Recombination against the two-body 1/t law",
               "mode": "spatial_2d",
-              "summary": "With scattering, both drives and transport removed and the phonons pinned at the bath, recombination is the only term left, and it moves no quasiparticle between energy bins (Kaplan Eq. 8: the partner is booked in the partner's own bin). A one-cell excess therefore stays in its cell and the NE-dimensional system collapses to dg/dt = -R g^2, whose exact solution is the two-body 1/t law. R is written down from elementary BCS cell integrals with no free parameter, so the height AND the rate of the whole curve are predicted rather than fitted.",
+              "summary": "A uniform excess left to annihilate with nothing else acting. Two quasiparticles per event makes the decay second order, not exponential.",
               "benchmark": "recombination",
               "overrides": {
                 "material.name": "Al",
@@ -265,7 +265,7 @@
               "id": "photsg-benchmark",
               "title": "Sub-gap drive against the exact ladder solution",
               "mode": "transient_0d",
-              "summary": "The sub-gap term is a jump operator in energy, so with the photon step chosen above half the grid span (N_E/2 <= m < N_E) no bin has both an up and a down partner and the operator decomposes into independent two-rung ladders. Each ladder conserves B·f_a + A·f_b, which reduces it to one scalar Riccati equation with an elementary solution. No linearisation is used: the Pauli factors are carried in full, so the closed form is exact for arbitrary occupation and at every grid spacing, and the only approximation left in the run is the ETD2 time step.",
+              "summary": "A grid-commensurate photon energy, so each bin has at most one ladder partner and the drive alone is exactly solvable.",
               "benchmark": "subgap-drive",
               "overrides": {
                 "material.Delta_0": 180,
@@ -328,7 +328,7 @@
               "id": "photpb-benchmark",
               "title": "Pair breaking against its exactly linear growth",
               "mode": "transient_0d",
-              "summary": "At f = 0 every block of the pair-breaking photon integral except pair generation carries an explicit factor of f — both scattering gains at the partner index, the whole loss rate, and the pair-recombination loss on top of it — so df/dt at zero occupation is the single f-independent term S_i. With both collision channels off, the phonons pinned and Δ frozen, S_i is the entire right-hand side, so f is linear in t and the per-bin slope is the closed form. The reflection partner is an exact lattice reflection here, j(i) = 209 − i rather than a rounding, and the cell measures are elementary integrals, so S_i is written rather than quadratured.",
+              "summary": "Photons above 2 Delta creating quasiparticles with every sink switched off, so nothing removes what is made.",
               "benchmark": "pb-drive",
               "overrides": {
                 "T_bath": 0.1,
@@ -388,7 +388,7 @@
               "id": "src-benchmark",
               "title": "Injection against its exact accumulation rate",
               "mode": "spatial_2d",
-              "summary": "With D₀ = 0, both collision channels off and no photon drives, the right-hand side is the source alone and does not depend on f, so f is exactly linear in t. The stepper reproduces that exactly rather than approximately: loss = 0 collapses the ETD1 weight (1−e^{−μdt})/μ to dt, the ETD2 corrector averages two identical constant rates, and the weighted-balance projection finds its target already met, so each step is f ← f + dt·S.",
+              "summary": "Transport off and both collision channels off, so each cell simply accumulates what is injected into it.",
               "benchmark": "injection",
               "overrides": {
                 "material.D_0": 0.0,
@@ -448,7 +448,7 @@
               "id": "psc-benchmark",
               "title": "The phonon scattering source against its affine relaxation",
               "mode": "spatial_2d",
-              "summary": "TIER, PRECISELY: T1 in the time law and T2-equivalent in the per-ω rate constant. The exponential flow is written from the physics, but a_ω and b_ω are rebuilt from the same finite-volume formulas the engine uses and would reproduce a wrong kernel unchanged, so the weaker label ships. With the quasiparticle occupation held still the phonon equation is exactly affine and diagonal in ω, so it has an elementary solution: one exponential per frequency, with rate 1/τ_l + |b_ω| and fixed point (a_ω + n_B/τ_l)/(1/τ_l + |b_ω|). The engine integrates that same affine flow exactly (advance_phonons composes exp(Bh) with φ₁(Bh) through expm1), so there is no time-discretisation error to remove and the whole residual is the frozen-occupation reduction plus arithmetic. What the curve tests per ω is the combination a_ω + b_ω n_B(ω,T_bath) — the phonon-side collision integral evaluated at the bath occupation — over 127 frequencies at once.",
+              "summary": "The phonon side of the scattering channel, relaxing at fixed f, where its equation is exactly affine.",
               "benchmark": "phonon-scattering-source",
               "overrides": {
                 "material.name": "Al",
@@ -530,7 +530,7 @@
               "id": "prc-benchmark",
               "title": "The recombination source against Kaplan's S+",
               "mode": "spatial_2d",
-              "summary": "With f held at a constant A the pair convolution factorises: every emission weight is A² and every pair-breaking weight is (1−A)², so a_ph and b_ph are the same line integral J(ω) times two known numbers, and the phonon equation becomes an affine ODE with constant coefficients whose solution is an exponential approach to −a/b. J(ω) is the Kaplan pair integral truncated to the energy band the grid represents, evaluated here by an independent Gauss-Legendre quadrature; the engine evaluates it as a midpoint sum over the pair lattice and, on the spatial route, applies no endpoint correction to it, so the two are genuinely different computations of the same number.",
+              "summary": "The 2 Delta phonons recombination emits, checked against Kaplan's closed form for their spectrum.",
               "benchmark": "phonon-recombination-source",
               "overrides": {
                 "material.name": "Al",
@@ -598,7 +598,7 @@
               "id": "pesc-benchmark",
               "title": "Escape against pure exponential relaxation",
               "mode": "spatial_2d",
-              "summary": "From an empty superconductor (f ≡ 0) every scattering and recombination-emission contribution to the phonon source carries a factor of the quasiparticle density ρf and vanishes, while pair breaking carries ρ(1−f) twice and survives: a_ph ≡ 0 and b_ph = −Γ_pb exactly. The phonon equation is then a constant-coefficient affine ODE per ω bin, which the engine integrates with the exact exponential map, and eliminating the source leaves a form in which τ_l appears twice — once as the rate it contributes and once as the surviving bath fraction n_∞/n_bath = τ_eff/τ_l, which is the escape term's own statement.",
+              "summary": "An emptied superconductor, where only pair breaking survives on the phonon side and escape sets both the rate and the level.",
               "benchmark": "phonon-escape",
               "overrides": {
                 "material.name": "Al",
@@ -682,7 +682,7 @@
               "id": "gapeq-benchmark",
               "title": "The BCS closure against an independent solve of it",
               "mode": "spatial_2d",
-              "summary": "With every kinetic term off and D_0 = 0 each cell is frozen at the occupation it was prepared with, so the closure alone acts and its root is the finite-cutoff BCS gap at that cell's temperature. The Matsubara identity for tanh(E/2T)/E makes that root an explicit arctangent series with a Hurwitz-zeta remainder -- no quadrature rule, no engine array, no root of an engine residual.",
+              "summary": "A row of cells each prepared at its own effective temperature, so one run sweeps the gap across a real temperature range.",
               "benchmark": "self-consistent-gap",
               "overrides": {
                 "material.Delta_0": 90.0,
