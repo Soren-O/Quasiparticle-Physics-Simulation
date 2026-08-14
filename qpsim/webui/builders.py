@@ -1083,3 +1083,38 @@ def build_drives_2d(
     if not parts:
         return None
     return parts[0] if len(parts) == 1 else SumDrive(tuple(parts))
+
+
+def build_phonon_seed_2d(
+    setup: Spatial2DSetup, geometry: Geometry,
+) -> np.ndarray | None:
+    """The phonon population a run starts from, or ``None`` for the bath.
+
+    Returns a ``(n_omega,)`` profile; ``SpatialCollisions`` broadcasts it
+    across cells. The frequency grid is derived from the energy grid, not from
+    the geometry, so the seed does not depend on the mask.
+    """
+    spec = setup.phonons.initial
+    if spec.kind == "bath" or setup.phonons.mode == "thermal_bath":
+        return None
+    spectral = build_spectral(setup)
+    omega, _, _, _ = build_phonon_frequency_map(spectral.E)
+    bath = thermal_phonon_occupation(omega, setup.T_bath)
+
+    if spec.kind == "thermal_at":
+        return thermal_phonon_occupation(omega, float(spec.T_eff))
+    if spec.kind == "scaled":
+        return float(spec.factor) * bath
+    fn = compile_expression(spec.expression, variables=("omega", "n_bath"))
+    seed = np.broadcast_to(
+        np.asarray(
+            fn(omega=omega, n_bath=bath, params=dict(spec.params)), dtype=float,
+        ),
+        omega.shape,
+    ).astype(float, copy=True)
+    if not np.all(np.isfinite(seed)) or np.any(seed < 0.0):
+        raise ValueError(
+            "The prescribed phonon seed must be finite and non-negative; a "
+            "negative occupation is not a colder phonon field."
+        )
+    return seed

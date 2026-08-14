@@ -136,12 +136,18 @@ class T3SpatialBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
+        phonon_seed: np.ndarray | None = None,
     ) -> None:
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
         self.phonon_escape_time = phonon_escape_time
+        # Applied only when the collision layer is first built; a later
+        # rebuild carries the EVOLVED population forward instead (see
+        # _collisions_for), because re-seeding mid-run would silently discard
+        # the history the run is measuring.
+        self.phonon_seed = phonon_seed
         self._transport: SpatialTransport | None = None
         self._collisions: SpatialCollisions | None = None
         self._transport_signature: object = None
@@ -232,6 +238,7 @@ class T3SpatialBackend:
                 photon_params=self.photon_params,
                 pb_photon_params=self.pb_photon_params,
                 phonon_escape_time=self.phonon_escape_time,
+                phonon_seed=self.phonon_seed,
             )
             # The collision layer is a KERNEL CACHE keyed on the gap, but it
             # also owns n_ph, which is STATE. Rebuilding the cache must not

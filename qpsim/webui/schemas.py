@@ -95,6 +95,39 @@ class EnergyGrid(StrictModel):
         return self
 
 
+class PhononInitialCondition(StrictModel):
+    """Where the phonon population starts, when that is not the bath.
+
+    The default seed and the target the escape term relaxes toward are the
+    same Bose-Einstein value, so a run left at ``bath`` starts exactly at that
+    term's own fixed point and the phonons do not move. Escape is then
+    unmeasurable: a check on it would agree just as well with the term
+    switched off. Every other kind here is a deliberate departure that gives
+    the relaxation something to relax from.
+    """
+
+    kind: Literal["bath", "thermal_at", "scaled", "expression"] = "bath"
+    T_eff: Annotated[float, Field(gt=0.0)] | None = None   # thermal_at (K)
+    factor: Annotated[float, Field(ge=0.0)] = 1.0          # scaled x n_bath
+    # Variables in scope: omega (ueV), n_bath (the Bose value there), params.
+    expression: str | None = None
+    params: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def the_departure_must_be_real(self) -> PhononInitialCondition:
+        if self.kind == "thermal_at" and self.T_eff is None:
+            raise ValueError("kind='thermal_at' needs T_eff (K).")
+        if self.kind == "expression" and not self.expression:
+            raise ValueError("kind='expression' needs an expression.")
+        if self.kind == "scaled" and self.factor == 1.0:
+            raise ValueError(
+                "kind='scaled' with factor=1 is the bath value exactly, so "
+                "the phonons would start at the escape term's own fixed point "
+                "and nothing would relax. Use a factor != 1, or kind='bath'."
+            )
+        return self
+
+
 class PhononSector(StrictModel):
     """Ph0 phonon-sector choice.
 
@@ -113,6 +146,8 @@ class PhononSector(StrictModel):
     mode: Literal["thermal_bath", "dynamic_escape", "dynamic_closed"] = "thermal_bath"
     tau_l_ns: Annotated[float, Field(gt=0.0)] = 0.170
     use_phonon_side_kernel: bool = True
+    # Only meaningful in the dynamic modes; thermal_bath pins n_ph outright.
+    initial: PhononInitialCondition = PhononInitialCondition()
 
 
 class CollisionTerms(StrictModel):

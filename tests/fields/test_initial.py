@@ -217,3 +217,74 @@ class TestItActuallyRelaxes:
         centre = int(np.argmax(start))
         assert end[centre] < start[centre], "the spot did not drain"
         assert end[0] > start[0], "nothing reached the far end"
+
+
+class TestPhononInitialCondition:
+    """The phonon population needs a departure too, for the same reason.
+
+    The engine seeds n_ph at the Bose value AND the escape term relaxes
+    toward that same value, so a run left at the default starts exactly at
+    that term's own fixed point. Escape is then unmeasurable -- a check on it
+    would agree just as well with the term switched off. Found while building
+    the phonon-escape benchmark, which refused to ship on that reduction.
+    """
+
+    @staticmethod
+    def _departure(initial):
+        from qpsim.webui import execute
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.4
+        setup.grid.num_bins = 32
+        setup.geometry.rows, setup.geometry.cols = 1, 3
+        setup.material.D_0 = 0.0
+        setup.collisions.scattering = False
+        setup.collisions.recombination = False
+        setup.phonons.mode = "dynamic_escape"
+        setup.phonons.tau_l_ns = 0.17
+        setup.phonons.initial = initial
+        setup.dt = 0.02
+        setup.max_time = 0.6
+        setup.stop_tol = 0.0
+        setup.snapshot_interval = 0.1
+        payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
+        n = payload.arrays["snap_n_ph"]
+        live = n[0, :, 0] > 1e-12
+        return float(np.max(np.abs(n[-1, live, 0] / n[0, live, 0] - 1.0)))
+
+    def test_the_default_start_leaves_the_phonons_exactly_still(self):
+        """Not a bug -- the fixed point. It is why a seed is needed at all."""
+        from qpsim.webui.schemas import PhononInitialCondition
+        assert self._departure(PhononInitialCondition()) < 1e-14
+
+    def test_a_scaled_seed_gives_the_escape_term_something_to_relax(self):
+        from qpsim.webui.schemas import PhononInitialCondition
+        moved = self._departure(
+            PhononInitialCondition(kind="scaled", factor=3.0)
+        )
+        assert moved > 0.1, "the seeded departure did not relax"
+
+    def test_a_hotter_phonon_start_relaxes_further(self):
+        from qpsim.webui.schemas import PhononInitialCondition
+        assert self._departure(
+            PhononInitialCondition(kind="thermal_at", T_eff=1.2)
+        ) > 0.5
+
+    def test_a_scaled_seed_of_one_is_refused(self):
+        """It is the bath value exactly, so nothing would relax."""
+        from pydantic import ValidationError
+        from qpsim.webui.schemas import PhononInitialCondition
+        with pytest.raises(ValidationError, match="own fixed point"):
+            PhononInitialCondition(kind="scaled", factor=1.0)
+
+    def test_a_negative_seed_is_refused(self):
+        from qpsim.webui.builders import build_geometry_2d, build_phonon_seed_2d
+        from qpsim.webui.schemas import PhononInitialCondition, Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.grid.num_bins = 24
+        setup.phonons.mode = "dynamic_escape"
+        setup.phonons.initial = PhononInitialCondition(
+            kind="expression", expression="-1.0 * n_bath",
+        )
+        with pytest.raises(ValueError, match="non-negative"):
+            build_phonon_seed_2d(setup, build_geometry_2d(setup))

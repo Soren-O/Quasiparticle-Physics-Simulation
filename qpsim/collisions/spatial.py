@@ -82,6 +82,7 @@ class SpatialCollisions:
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
         gap_quantum: float | None = None,
+        phonon_seed: np.ndarray | None = None,
     ) -> None:
         if spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -127,10 +128,33 @@ class SpatialCollisions:
         )
         self.n_ph: np.ndarray | None = None
         if phonon_escape_time is not None:
-            seed = thermal_phonon_occupation(self.omega_bins, self.T_bath)
-            self.n_ph = np.repeat(
-                seed[:, None], self.gap_per_cell.size, axis=1,
-            )
+            # The bath value is both the default seed AND the target the
+            # escape term relaxes toward, so a run left at the default starts
+            # exactly at that term's own fixed point and nothing moves. That
+            # makes the escape rate unmeasurable: a benchmark on it would pass
+            # with the term switched off. `phonon_seed` is how a caller
+            # prepares the departure the measurement needs.
+            if phonon_seed is None:
+                seed = thermal_phonon_occupation(self.omega_bins, self.T_bath)
+                self.n_ph = np.repeat(
+                    seed[:, None], self.gap_per_cell.size, axis=1,
+                )
+            else:
+                seed = np.asarray(phonon_seed, dtype=float)
+                shape = (self.omega_bins.size, self.gap_per_cell.size)
+                if seed.ndim == 1:
+                    seed = np.repeat(seed[:, None], shape[1], axis=1)
+                if seed.shape != shape:
+                    raise ValueError(
+                        f"phonon_seed has shape {seed.shape}, expected "
+                        f"{shape} = (frequency bins, cells)."
+                    )
+                if not np.all(np.isfinite(seed)) or np.any(seed < 0.0):
+                    raise ValueError(
+                        "phonon_seed must be finite and non-negative: a "
+                        "negative occupation is not a colder phonon field."
+                    )
+                self.n_ph = seed.copy()
 
         self._distinct_gaps, self._group_index = np.unique(
             self.gap_per_cell, return_inverse=True,

@@ -57,6 +57,7 @@ from qpsim.webui.builders import (
     build_injection_2d,
     build_injection_flux,
     build_m25_inputs,
+    build_phonon_seed_2d,
     build_state_0d,
     build_state_1d,
     build_state_2d,
@@ -668,6 +669,7 @@ def run_spatial_2d(
             else (setup.phonons.tau_l_ns
                   if setup.phonons.mode == "dynamic_escape" else 0.0)
         ),
+        phonon_seed=build_phonon_seed_2d(setup, geometry),
     )
 
     def hook(elapsed: float, total: float) -> bool:
