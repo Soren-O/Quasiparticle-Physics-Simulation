@@ -428,6 +428,14 @@ class Spatial2DSetup(StrictModel):
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()
     phonons: PhononSector = PhononSector()
+    self_consistent_gap: bool = False
+    # Gap quantum as a fraction of the energy-grid spacing. Collisions group
+    # by exact gap, so a continuous profile gives one group per cell; snapping
+    # bounds that. Measured cost: the kernel moves about 2e-2 per FULL grid
+    # spacing of gap shift and smoothly, so a tenth costs ~2e-3. Do not push
+    # past ~0.5: crossing a cell edge moves it 3.3e-1, because a bin enters or
+    # leaves the above-gap support.
+    gap_quantum_over_dE: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1
     dt: Annotated[float, Field(gt=0.0)] = 1.0
     max_time: Annotated[float, Field(gt=0.0)] = 5000.0
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10

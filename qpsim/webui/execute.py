@@ -653,6 +653,10 @@ def run_spatial_2d(
             stop_tol=setup.stop_tol,
             external_gain=external_gain,
             external_loss=external_loss,
+            self_consistent_gap=setup.self_consistent_gap,
+            gap_quantum=(
+                setup.gap_quantum_over_dE * float(np.min(state.spectral.dE))
+            ),
             progress_hook=hook,
         )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))

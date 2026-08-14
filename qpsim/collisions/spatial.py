@@ -81,6 +81,7 @@ class SpatialCollisions:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
+        gap_quantum: float | None = None,
     ) -> None:
         if spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -90,7 +91,24 @@ class SpatialCollisions:
                 "kernel does not implement."
             )
         self.spectral = spectral
-        self.gap_per_cell = np.asarray(gap_per_cell, dtype=float)
+        raw_gaps = np.asarray(gap_per_cell, dtype=float)
+        # Grouping is by EXACT gap, so a continuously varying gap -- what a
+        # self-consistent solve produces -- would give one group per cell, each
+        # with its own dense kernels. Snapping to a quantum bounds that.
+        #
+        # The error is measured, not guessed. The kernel depends on the gap
+        # through the coherence factor 1 - D^2/(E_i E_j) and the density of
+        # states, both smooth: max|dK|/max|K| runs about 2e-2 per grid spacing
+        # of gap shift, linearly. So a quantum of dE/10 costs ~2e-3, well under
+        # the harmonic-mean face bias already carried. What is NOT smooth is
+        # which bins sit above the gap: crossing one cell edge moves the kernel
+        # by 3.3e-1. That discontinuity is the density-of-states support edge
+        # and is physical, so the quantum should stay well inside a cell.
+        self.gap_quantum = gap_quantum
+        self.gap_per_cell = (
+            raw_gaps if gap_quantum is None
+            else np.round(raw_gaps / gap_quantum) * gap_quantum
+        )
         self.tau_0 = float(tau_0)
         self.T_c = float(T_c)
         self.T_bath = float(T_bath)
@@ -120,13 +138,18 @@ class SpatialCollisions:
         self._cache: OrderedDict[Any, CollisionOperator] = OrderedDict()
 
         if self._distinct_gaps.size > _GAP_COUNT_WARN:
+            spacing = float(np.min(spectral.dE))
+            suggestion = (
+                f"pass gap_quantum={spacing / 10.0:.4g} (dE/10, costing about "
+                "2e-3 in the kernel)"
+                if gap_quantum is None
+                else f"the quantum is {gap_quantum:.4g}; coarsen it"
+            )
             warnings.warn(
                 f"{self._distinct_gaps.size} distinct local gaps across "
                 f"{self.gap_per_cell.size} cells: collisions are grouped by "
                 "EXACT gap, so each one builds and holds its own dense "
-                "kernels. This is efficient for a device of a few materials "
-                "and quadratic-ish for a continuously varying gap. Quantise "
-                "the gap profile, or coarsen the mesh, before running.",
+                f"kernels. To bound that, {suggestion}, or coarsen the mesh.",
                 RuntimeWarning,
                 stacklevel=2,
             )

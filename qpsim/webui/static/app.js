@@ -244,6 +244,14 @@ const FORMS = {
       ],
     },
     {
+      title: "Gap closure",
+      hint: "Re-solves Δ in every cell from that cell's own occupation, so a hot region digs its own gap well. The quantum bounds the collision grouping: a tenth of a grid spacing costs about 2e-3 in the kernel, while a full spacing costs 3.3e-1 because a bin enters or leaves the above-gap support.",
+      fields: [
+        F("self_consistent_gap", "Solve the gap", "check"),
+        F("gap_quantum_over_dE", "Gap quantum (× dE)"),
+      ],
+    },
+    {
       title: "Time stepping",
       fields: [
         F("dt", "dt (ns)"),
@@ -1070,8 +1078,8 @@ const TERM_FIELDS = {
   pesc:    { path: "phonons.mode", kind: "mode",
              label: "Phonon-bath coupling",
              on: "dynamic_escape", off: "dynamic_closed" },
-  gapeq:   { path: null, label: "Self-consistent gap",
-             why: "the gap closure is not wired into the spatial solver yet" },
+  gapeq:   { path: "self_consistent_gap", kind: "flag",
+             label: "Self-consistent gap" },
 };
 
 const GEOMETRY_SECTIONS = FORMS.spatial_2d.filter(

@@ -32,6 +32,7 @@ from qpsim.physics.bcs_quadrature import (
     bcs_support_fraction,
     represented_bcs_weights,
 )
+from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 from qpsim.physics.spectral import SpectralContext
 from qpsim.transport.diffusion.base import (
     DiffusionModel,
@@ -357,6 +358,8 @@ class T3SpatialBackend:
         stop_tol: float = 1e-10,
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
+        self_consistent_gap: bool = False,
+        gap_quantum: float | None = None,
         progress_hook: Callable[[float, float], bool] | None = None,
     ) -> tuple[T3SpatialState, int, bool, float]:
         """Fixed-step dynamics until the residual falls below ``stop_tol``.
@@ -379,6 +382,13 @@ class T3SpatialBackend:
                 current, step_dt,
                 external_gain=external_gain, external_loss=external_loss,
             )
+            if self_consistent_gap:
+                # Re-solve the gap against the occupation the step produced,
+                # so the well follows the population rather than lagging a
+                # whole run behind it.
+                current, _iters, _change = self.relax_gap(
+                    current, quantum=gap_quantum,
+                )
             elapsed += step_dt
             n_steps += 1
             last_rate = float(np.max(np.abs(
@@ -391,3 +401,70 @@ class T3SpatialBackend:
             if progress_hook is not None and not progress_hook(elapsed, max_time):
                 break
         return current, n_steps, converged, last_rate
+
+    # -- self-consistent gap ----------------------------------------------
+
+    def solve_gaps(
+        self,
+        state: T3SpatialState,
+        *,
+        quantum: float | None = None,
+    ) -> np.ndarray:
+        """Local gap in every cell, from that cell's own occupation.
+
+        Each cell solves the BCS closure against its own ``f``, so a hot
+        region digs its own gap well. The result is quantised before it is
+        used, because collisions group by exact gap and a continuous profile
+        would give one group -- and one set of dense kernels -- per cell.
+        See SpatialCollisions for the measured cost of the quantum.
+        """
+        calibration = calibrate_gap(
+            state.material.T_c, state.T_bath, Delta_0=state.material.Delta_0,
+        )
+        gaps = state.gaps()
+        solved = np.empty_like(gaps)
+        for cell in range(state.f.shape[1]):
+            solved[cell] = solve_gap(
+                calibration,
+                state.f[:, cell],
+                state.spectral.E,
+                state.spectral.dE,
+                reference_gap=float(gaps[cell]),
+                allow_gap_edge_extrapolation=True,
+            )
+        if quantum is not None and quantum > 0.0:
+            solved = np.round(solved / quantum) * quantum
+        return solved
+
+    def relax_gap(
+        self,
+        state: T3SpatialState,
+        *,
+        quantum: float | None = None,
+        tol: float = 1e-9,
+        max_iter: int = 20,
+        mixing: float = 0.5,
+    ) -> tuple[T3SpatialState, int, float]:
+        """Iterate the gap to a fixed point at frozen ``f``.
+
+        Under-relaxed because the closure is strongly nonlinear near the gap
+        edge: a full step can oscillate between two roots rather than settle.
+        Returns ``(state, iterations, last change)``.
+        """
+        current = state
+        change = float("inf")
+        for iteration in range(1, max_iter + 1):
+            solved = self.solve_gaps(current, quantum=quantum)
+            previous = current.gaps()
+            blended = previous + mixing * (solved - previous)
+            if quantum is not None and quantum > 0.0:
+                blended = np.round(blended / quantum) * quantum
+            change = float(np.max(np.abs(blended - previous)))
+            current = replace(current, gap_per_cell=blended)
+            # The collision layer is keyed on the gap profile, so a changed
+            # profile must invalidate it or the next step runs the old kernels.
+            self._collisions = None
+            self._collision_signature = None
+            if change <= tol:
+                return current, iteration, change
+        return current, max_iter, change
