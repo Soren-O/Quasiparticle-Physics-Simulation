@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import Callable, Collection, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import matplotlib
@@ -454,6 +454,94 @@ def _plot_analytic_comparison(
     return _finish(fig)
 
 
+def _frame_axes(arrays, summary, title):
+    """A device-shaped axes in microns, with the mask's aspect preserved."""
+    mesh = float(summary.get("mesh_size_um", 1.0)) or 1.0
+    rows, cols = np.asarray(arrays["mask"]).shape
+    fig, ax = _new_axes("x (μm)", "y (μm)", title)
+    ax.grid(False)
+    ax.set_aspect("equal")
+    return fig, ax, mesh, (0.0, cols * mesh, 0.0, rows * mesh)
+
+
+def _frame_norm(stack: np.ndarray) -> Any:
+    """One colour scale across EVERY frame.
+
+    Renormalising per frame is the classic way to make an animation lie: a
+    field decaying by three decades looks perfectly steady because each frame
+    is rescaled to its own maximum. The scale is therefore global, and the
+    colourbar means the same thing in every frame.
+    """
+    finite = stack[np.isfinite(stack)]
+    if finite.size == 0:
+        return Normalize(vmin=0.0, vmax=1.0)
+    lo, hi = float(np.min(finite)), float(np.max(finite))
+    if hi <= lo:
+        hi = lo + max(abs(lo) * 1e-6, 1e-30)
+    return Normalize(vmin=lo, vmax=hi)
+
+
+def _draw_frame(arrays, summary, values, title, label, norm) -> bytes:
+    from qpsim.grid.spatial_grid import reconstruct_field
+    mask = np.asarray(arrays["mask"]).astype(bool)
+    fig, ax, _mesh, extent = _frame_axes(arrays, summary, title)
+    image = ax.imshow(
+        reconstruct_field(mask, values), origin="lower", extent=extent,
+        cmap=SEQ_BLUE, norm=norm, interpolation="nearest",
+    )
+    fig.colorbar(image, ax=ax, label=label)
+    return _finish(fig)
+
+
+def _plot_field_frame(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int = 0,
+) -> bytes:
+    """Quasiparticle density over the device at one recorded time."""
+    stack = arrays["snap_xqp_profile"]
+    t = float(arrays["snap_t_ns"][frame])
+    return _draw_frame(
+        arrays, summary, stack[frame],
+        f"x_qp over the device — t = {t:.4g} ns "
+        f"(frame {frame + 1} of {stack.shape[0]})",
+        "x_qp [n_qp/(4 rho_F Delta_0)]", _frame_norm(stack),
+    )
+
+
+def _plot_energy_map(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+    frame: int = 0, energy: int = 0,
+) -> bytes:
+    """Occupation at ONE energy, over the device.
+
+    The integrated density says where the quasiparticles are; this says where
+    the HOT ones are, which is a different map and the reason for solving an
+    energy-resolved problem in the first place.
+    """
+    stack = arrays["snap_f"]
+    t = float(arrays["snap_t_ns"][frame])
+    gap = float(summary.get("gap_ueV", 1.0)) or 1.0
+    e_over_gap = float(arrays["E_bins"][energy]) / gap
+    return _draw_frame(
+        arrays, summary, stack[frame, energy],
+        f"f at E = {e_over_gap:.4g} Δ — t = {t:.4g} ns",
+        "f", _frame_norm(stack[:, energy]),
+    )
+
+
+def _plot_phonon_frame(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+    frame: int = 0, omega: int = 0,
+) -> bytes:
+    """Phonon occupation at one frequency, over the device."""
+    stack = arrays["snap_n_ph"]
+    t = float(arrays["snap_t_ns"][frame])
+    return _draw_frame(
+        arrays, summary, stack[frame, omega],
+        f"n_ph at ω bin {omega} — t = {t:.4g} ns",
+        "n_ph", _frame_norm(stack[:, omega]),
+    )
+
+
 # -- registry ---------------------------------------------------------
 
 
@@ -463,10 +551,17 @@ def _gap(summary: dict[str, Any]) -> float:
 
 @dataclass(frozen=True)
 class _PlotSpec:
-    """One named figure: its renderer plus an optional required array."""
+    """One named figure: its renderer plus an optional required array.
 
-    render: Callable[[dict[str, np.ndarray], dict[str, Any]], bytes]
+    ``params`` makes the entry a FAMILY of figures rather than one: each
+    named integer parameter is bounded by the length of the array it maps to,
+    so a caller can ask for frame 7 or energy bin 120 and the server can
+    reject an index the run does not have instead of raising deep in numpy.
+    """
+
+    render: Callable[..., bytes]
     requires: str | None = None
+    params: dict[str, tuple[str, int]] = field(default_factory=dict)
 
 
 # Single source of truth per mode: the listing endpoint and the render
@@ -511,6 +606,20 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
     },
     "spatial_2d": {
         "xqp_field": _PlotSpec(lambda a, s: _plot_xqp_field(a, s)),
+        # Figure families: one image per recorded frame, so the interface can
+        # scrub through a run instead of showing only where it ended.
+        "field_over_time": _PlotSpec(
+            _plot_field_frame, requires="snap_xqp_profile",
+            params={"frame": ("snap_t_ns", 0)},
+        ),
+        "energy_resolved_map": _PlotSpec(
+            _plot_energy_map, requires="snap_f",
+            params={"frame": ("snap_f", 0), "energy": ("snap_f", 1)},
+        ),
+        "phonon_field_over_time": _PlotSpec(
+            _plot_phonon_frame, requires="snap_n_ph",
+            params={"frame": ("snap_n_ph", 0), "omega": ("snap_n_ph", 1)},
+        ),
         "geometry": _PlotSpec(lambda a, s: _plot_geometry_mask(a, s)),
         "xqp_profile": _PlotSpec(lambda a, s: _plot_xqp_profile_2d(a)),
         "occupation": _PlotSpec(
@@ -543,14 +652,60 @@ def available_plots(mode: str, array_names: Collection[str]) -> list[str]:
     ]
 
 
+def plot_parameter_arrays(mode: str, name: str) -> set[str]:
+    """Which stored arrays a figure family reads its index bounds from."""
+    spec = _PLOTS.get(mode, {}).get(name)
+    return {array for array, _axis in spec.params.values()} if spec else set()
+
+
+def plot_parameters(
+    mode: str, name: str, shapes: dict[str, tuple[int, ...]]
+) -> dict[str, int]:
+    """``{parameter: count}`` for a figure family, or ``{}`` for a single figure.
+
+    Takes SHAPES rather than arrays so a caller on a polling path does not
+    have to decompress a run's payload to draw a scrubber. The counts come
+    from the stored data either way, so the control cannot offer an index the
+    run does not have.
+    """
+    spec = _PLOTS.get(mode, {}).get(name)
+    if spec is None:
+        return {}
+    counts: dict[str, int] = {}
+    for param, (array_name, axis) in spec.params.items():
+        shape = shapes.get(array_name)
+        if shape is None or len(shape) <= axis:
+            return {}
+        counts[param] = int(shape[axis])
+    return counts
+
+
 def render_plot(
-    mode: str, name: str, arrays: dict[str, np.ndarray], summary: dict[str, Any]
+    mode: str,
+    name: str,
+    arrays: dict[str, np.ndarray],
+    summary: dict[str, Any],
+    params: dict[str, int] | None = None,
 ) -> bytes:
     """Render one named figure to PNG bytes; raises KeyError for unknown names."""
     spec = _PLOTS.get(mode, {}).get(name)
     if spec is None or (spec.requires is not None and spec.requires not in arrays):
         raise KeyError(f"No plot named {name!r} for mode {mode!r}.")
-    return spec.render(arrays, summary)
+    if not spec.params:
+        return spec.render(arrays, summary)
+    counts = plot_parameters(
+        mode, name, {k: tuple(v.shape) for k, v in arrays.items()},
+    )
+    chosen: dict[str, int] = {}
+    for param, count in counts.items():
+        value = int((params or {}).get(param, 0))
+        if not 0 <= value < count:
+            raise KeyError(
+                f"{name!r} {param}={value} is outside the run's range "
+                f"0..{count - 1}."
+            )
+        chosen[param] = value
+    return spec.render(arrays, summary, **chosen)
 
 
 # -- CSV export -------------------------------------------------------

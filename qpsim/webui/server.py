@@ -29,7 +29,14 @@ from qpsim.materials import list_materials, load_material
 from qpsim.webui import benchmarks
 from qpsim.webui.builders import validate_setup
 from qpsim.webui.hosts import is_loopback_host
-from qpsim.webui.plots import available_csvs, available_plots, render_csv, render_plot
+from qpsim.webui.plots import (
+    available_csvs,
+    available_plots,
+    plot_parameter_arrays,
+    plot_parameters,
+    render_csv,
+    render_plot,
+)
 from qpsim.webui.runner import JobRunner
 from qpsim.webui.schemas import MODE_CLASSES, MODE_LABELS, SetupEnvelope
 from qpsim.webui.store import Workspace
@@ -236,6 +243,18 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             else:
                 manifest["plots"] = available_plots(manifest["mode"], names)
                 manifest["csvs"] = available_csvs(manifest["mode"], names)
+                # Parameter counts come from the stored data, so a scrubber
+                # cannot offer an index this run does not have. Only the
+                # arrays the families name are read: this is a polling path.
+                wanted: set[str] = set()
+                for plot in manifest["plots"]:
+                    wanted |= plot_parameter_arrays(manifest["mode"], plot)
+                shapes = workspace.array_shapes(run_id, wanted) if wanted else {}
+                manifest["plot_params"] = {
+                    plot: params
+                    for plot in manifest["plots"]
+                    if (params := plot_parameters(manifest["mode"], plot, shapes))
+                }
         return manifest
 
     @app.post("/api/runs/{run_id}/cancel")
@@ -279,10 +298,22 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     _CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
     @app.get("/api/runs/{run_id}/plots/{name}.png")
-    def runs_plot(run_id: str, name: str) -> Response:
+    def runs_plot(
+        run_id: str,
+        name: str,
+        frame: int = 0,
+        energy: int = 0,
+        omega: int = 0,
+    ) -> Response:
         manifest, arrays = _load_run_artifacts(run_id)
         try:
-            png = render_plot(manifest["mode"], name, arrays, manifest.get("summary", {}))
+            # A figure family takes an index; a single figure ignores these.
+            # Out-of-range is a 404 from render_plot's KeyError rather than a
+            # traceback, because a scrubber can outrun a deleted run.
+            png = render_plot(
+                manifest["mode"], name, arrays, manifest.get("summary", {}),
+                {"frame": frame, "energy": energy, "omega": omega},
+            )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         return Response(content=png, media_type="image/png", headers=_CACHE_HEADERS)

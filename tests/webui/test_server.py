@@ -294,3 +294,82 @@ class TestPathTraversal:
     def test_run_id_cannot_escape_workspace(self, client: TestClient) -> None:
         assert client.get("/api/runs/..%5C..%5Csetups").status_code == 404
         assert client.delete("/api/runs/..%5C..%5Csetups").status_code == 404
+
+
+class TestFigureFamilies:
+    """A run replayed, rather than the single frame it happened to end on.
+
+    A family is one registry entry rendering one image per index. The counts
+    come from the stored arrays, so the interface cannot offer a frame the
+    run does not have.
+    """
+
+    @staticmethod
+    def _recorded_run(client: TestClient) -> dict[str, Any]:
+        setup = client.get("/api/defaults/spatial_2d").json()
+        setup["T_bath"] = 0.2
+        setup["grid"]["num_bins"] = 24
+        setup["geometry"]["rows"] = 4
+        setup["geometry"]["cols"] = 4
+        setup["dt"] = 2.0
+        setup["max_time"] = 24.0
+        setup["snapshot_interval"] = 8.0
+        setup["stop_tol"] = 0.0
+        setup["phonons"]["mode"] = "dynamic_escape"
+        run_id = client.post(
+            "/api/runs", json={"name": "frames", "setup": setup}
+        ).json()["id"]
+        return _wait_done(client, run_id)
+
+    def test_the_families_are_offered_with_their_index_counts(
+        self, client: TestClient
+    ) -> None:
+        manifest = self._recorded_run(client)
+        families = manifest["plot_params"]
+        assert set(families) == {
+            "field_over_time", "energy_resolved_map", "phonon_field_over_time",
+        }
+        assert families["field_over_time"] == {"frame": 4}
+        assert families["energy_resolved_map"]["frame"] == 4
+        assert families["energy_resolved_map"]["energy"] == 24
+
+    def test_each_index_renders_its_own_image(self, client: TestClient) -> None:
+        manifest = self._recorded_run(client)
+        run_id = manifest["id"]
+        seen = set()
+        for frame in range(manifest["plot_params"]["field_over_time"]["frame"]):
+            resp = client.get(
+                f"/api/runs/{run_id}/plots/field_over_time.png?frame={frame}"
+            )
+            assert resp.status_code == 200
+            assert resp.content[:4] == b"\x89PNG"
+            seen.add(resp.content)
+        # Identical bytes across frames would mean the index is ignored and
+        # the "animation" is one still image repeated.
+        assert len(seen) == manifest["plot_params"]["field_over_time"]["frame"]
+
+    def test_an_index_the_run_does_not_have_is_a_404(
+        self, client: TestClient
+    ) -> None:
+        manifest = self._recorded_run(client)
+        resp = client.get(
+            f"/api/runs/{manifest['id']}/plots/field_over_time.png?frame=9999"
+        )
+        assert resp.status_code == 404
+
+    def test_a_run_without_frames_offers_no_families(
+        self, client: TestClient
+    ) -> None:
+        """snapshot_interval is opt-in, so most runs have nothing to replay."""
+        setup = client.get("/api/defaults/spatial_2d").json()
+        setup["grid"]["num_bins"] = 24
+        setup["geometry"]["rows"] = 3
+        setup["geometry"]["cols"] = 3
+        setup["dt"] = 2.0
+        setup["max_time"] = 8.0
+        run_id = client.post(
+            "/api/runs", json={"name": "endpoint only", "setup": setup}
+        ).json()["id"]
+        manifest = _wait_done(client, run_id)
+        assert manifest["plot_params"] == {}
+        assert "field_over_time" not in manifest["plots"]

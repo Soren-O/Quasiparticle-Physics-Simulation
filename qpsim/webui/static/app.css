@@ -556,3 +556,26 @@ td.out-of-band { color: var(--warning-ink); font-weight: 600; }
 }
 .sources p { margin: 7px 0 4px; color: var(--ink-2); max-width: 78ch; }
 .sources ul { margin: 4px 0 2px; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+
+/* ---- figure families (scrubbable plots) ---- */
+.scrubber { margin: 12px 0; }
+.scrubber img {
+  display: block; max-width: 100%; width: 640px; height: auto;
+  border: 1px solid var(--grid); border-radius: 8px; background: var(--surface);
+}
+.scrubber figcaption {
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  margin-top: 7px; font-size: 12.5px; color: var(--ink-2);
+}
+.scrubber label { display: flex; gap: 8px; align-items: center; }
+.scrubber input[type="range"] { width: 190px; }
+.scrubber output {
+  font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums; min-width: 6ch;
+}
+.scrubber .play {
+  background: var(--surface); border: 1px solid var(--baseline);
+  border-radius: 6px; padding: 3px 12px; cursor: pointer; font: inherit;
+  font-size: 12.5px; color: var(--ink);
+}
+.scrubber .play:hover { border-color: var(--accent); }

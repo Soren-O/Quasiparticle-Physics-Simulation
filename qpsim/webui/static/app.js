@@ -541,13 +541,33 @@ async function showRunDetail() {
       html += `<table class="list summary-table">${entries.map(([k, v]) =>
         `<tr><td>${esc(k)}</td><td>${esc(fmt(v))}</td></tr>`).join("")}</table>`;
     }
-    html += `<div class="plot-grid">${(r.plots || []).map((p) =>
-      `<img src="/api/runs/${esc(id)}/plots/${esc(p)}.png" alt="${esc(p)}" loading="lazy">`).join("")}</div>`;
+    const families = r.plot_params || {};
+    html += `<div class="plot-grid">${(r.plots || [])
+      .filter((p) => !families[p])
+      .map((p) => `<img src="/api/runs/${esc(id)}/plots/${esc(p)}.png"`
+        + ` alt="${esc(p)}" loading="lazy">`).join("")}</div>`;
+    // A figure family is one image plus a control per index -- the run
+    // replayed, rather than the single frame it happened to end on.
+    for (const [name, params] of Object.entries(families)) {
+      html += `<figure class="scrubber" data-plot="${esc(name)}" data-run="${esc(id)}">
+        <img alt="${esc(name)}">
+        <figcaption>${Object.entries(params).map(([p, n]) => `
+          <label>${esc(p)}
+            <input type="range" min="0" max="${n - 1}" value="0" data-param="${esc(p)}">
+            <output>0 / ${n - 1}</output>
+          </label>`).join("")}
+          ${params.frame > 1
+            ? `<button type="button" class="play" data-playing="0">▶ Play</button>`
+            : ""}
+        </figcaption>
+      </figure>`;
+    }
     html += `<div class="downloads">${(r.csvs || []).map((c) =>
       `<a class="btn" href="/api/runs/${esc(id)}/csv/${esc(c)}.csv">⬇ ${esc(c)}.csv</a>`).join("")}</div>`;
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
+  document.querySelectorAll("#run-detail .scrubber").forEach(initScrubber);
   if (setupWasOpen) {
     const details = document.querySelector("#run-detail details");
     if (details) details.open = true;
@@ -579,6 +599,70 @@ async function refreshSetups() {
       await api(`/api/setups/${b.dataset.del}`, { method: "DELETE" });
       refreshSetups();
     }));
+}
+
+
+/* ---------- figure families ----------
+   The server renders one PNG per index, so scrubbing is just a src change.
+   Frames are preloaded on open: without it the first pass through a run
+   stutters while each frame round-trips, which reads as the simulation
+   being jerky rather than the images arriving. */
+
+function initScrubber(figure) {
+  const img = figure.querySelector("img");
+  const inputs = [...figure.querySelectorAll("input[type=range]")];
+  const runId = figure.dataset.run;
+  const plot = figure.dataset.plot;
+
+  const url = () => {
+    const q = inputs.map((i) => `${i.dataset.param}=${i.value}`).join("&");
+    return `/api/runs/${encodeURIComponent(runId)}`
+      + `/plots/${encodeURIComponent(plot)}.png?${q}`;
+  };
+  const draw = () => {
+    for (const i of inputs) {
+      i.nextElementSibling.textContent = `${i.value} / ${i.max}`;
+    }
+    img.src = url();
+  };
+  inputs.forEach((i) => i.addEventListener("input", draw));
+  draw();
+
+  const frame = inputs.find((i) => i.dataset.param === "frame");
+  if (frame) {
+    for (let k = 0; k <= Number(frame.max); k++) {
+      const warm = new Image();
+      const saved = frame.value;
+      frame.value = String(k);
+      warm.src = url();
+      frame.value = saved;
+    }
+  }
+
+  const play = figure.querySelector(".play");
+  if (!play || !frame) return;
+  let timer = null;
+  const stop = () => {
+    clearInterval(timer);
+    timer = null;
+    play.dataset.playing = "0";
+    play.textContent = "▶ Play";
+  };
+  play.addEventListener("click", () => {
+    if (timer !== null) { stop(); return; }
+    play.dataset.playing = "1";
+    play.textContent = "❚❚ Pause";
+    timer = setInterval(() => {
+      const next = Number(frame.value) + 1;
+      // Stop at the end rather than looping: a run has a beginning and an
+      // end, and a silent wrap makes a monotone decay look periodic.
+      if (next > Number(frame.max)) { stop(); return; }
+      frame.value = String(next);
+      draw();
+    }, 320);
+  });
+  // A scrubber left playing in a torn-down view would keep firing.
+  figure.addEventListener("qpsim:teardown", stop);
 }
 
 /* ---------- materials view ---------- */

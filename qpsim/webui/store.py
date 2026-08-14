@@ -23,6 +23,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -399,6 +400,21 @@ class Workspace:
         """Array names from the NPZ zip directory — no decompression."""
         with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
             return set(data.files)
+
+    def array_shapes(self, run_id: str, names: Collection[str]) -> dict[str, tuple[int, ...]]:
+        """Shapes of the NAMED arrays only.
+
+        Decompresses just those members. The run-detail poll runs on a timer,
+        and reading a whole result payload on each one would undo the
+        namelist-only design of :meth:`array_names` -- a 2-D run's frame stack
+        is the largest array in the file.
+        """
+        with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
+            return {
+                name: tuple(data[name].shape)
+                for name in names
+                if name in data.files
+            }
 
     def list_runs(self) -> list[dict[str, Any]]:
         """Run manifests, newest first (run ids sort chronologically).
