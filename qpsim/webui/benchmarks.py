@@ -141,6 +141,26 @@ def residuals(curve: Curve) -> dict[str, Any]:
 
 
 _REGISTRY: dict[str, Benchmark] = {}
+_REGISTERED = False
+
+
+def _ensure_registered() -> None:
+    """Import the benchmark modules on first use.
+
+    The registry is populated by importing :mod:`qpsim.webui.bench` for its
+    side effects, and relying on some *other* module to have done that is the
+    fragile arrangement this replaces: the runner is what calls
+    :func:`attach`, but it worked only because the server happened to import
+    the package first, so any path that built a runner without the server got
+    an empty registry and every run degraded to a "no such benchmark" note
+    instead of failing. Late-imported here rather than at module scope
+    because the bench modules import this one.
+    """
+    global _REGISTERED
+    if _REGISTERED:
+        return
+    _REGISTERED = True  # set first: a failed import must not retry per call
+    from qpsim.webui import bench  # noqa: F401  (imported for registration)
 
 
 def register(bench: Benchmark) -> Benchmark:
@@ -154,10 +174,12 @@ def register(bench: Benchmark) -> Benchmark:
 
 
 def get(name: str) -> Benchmark | None:
+    _ensure_registered()
     return _REGISTRY.get(name)
 
 
 def names() -> list[str]:
+    _ensure_registered()
     return sorted(_REGISTRY)
 
 
@@ -173,6 +195,7 @@ def evaluate(
     result whether or not a closed form happens to cover it, and a benchmark
     that cannot be built must not take the run down with it.
     """
+    _ensure_registered()
     bench = _REGISTRY.get(name)
     if bench is None:
         return None
@@ -208,6 +231,7 @@ def attach(
     source and a verdict from another can disagree without either being wrong,
     which is worse than having neither.
     """
+    _ensure_registered()
     bench = _REGISTRY.get(name)
     if bench is None:
         return [

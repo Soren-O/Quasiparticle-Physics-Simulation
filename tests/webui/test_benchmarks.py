@@ -346,3 +346,82 @@ class TestPrescribedFieldsReachTheRun:
         )]
         with pytest.raises(SafeExpressionError, match="Unknown name 'Q'"):
             self._run(setup)
+
+
+# -- the catalogue's benchmark cases -----------------------------------
+
+
+class TestCatalogueBenchmarkCases:
+    """Every case that names a benchmark must actually be able to run it.
+
+    These are cheap structural checks, and they are the ones that catch the
+    real failure: a case whose overrides do not resolve is reported by the
+    interface as "unknown setup fields" and never runs, so the benchmark it
+    names is silently never exercised. Found exactly that way -- one case
+    flattened a free-form `params` dict into dotted paths whose leaves do not
+    exist in the defaults.
+    """
+
+    @staticmethod
+    def _cases():
+        import json
+        from pathlib import Path
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "qpsim" / "webui" / "static" / "catalogue.json"
+        )
+        cat = json.loads(path.read_text(encoding="utf-8"))
+        return [
+            case
+            for category in cat["categories"]
+            for item in category["items"]
+            for case in item.get("cases", [])
+            if case.get("benchmark")
+        ]
+
+    def test_every_term_has_a_benchmark_case(self):
+        named = {c["benchmark"] for c in self._cases()}
+        assert named == set(benchmarks.names()), (
+            f"registered but not in the catalogue: "
+            f"{set(benchmarks.names()) - named}; "
+            f"in the catalogue but not registered: {named - set(benchmarks.names())}"
+        )
+
+    def test_each_case_names_a_benchmark_that_applies_to_its_mode(self):
+        for case in self._cases():
+            bench = benchmarks.get(case["benchmark"])
+            assert bench is not None, case["benchmark"]
+            assert case["mode"] in bench.modes, (
+                f"{case['id']} runs {case['mode']} but "
+                f"{case['benchmark']} applies to {bench.modes}"
+            )
+
+    def test_every_override_path_resolves_on_that_mode(self):
+        """An unresolved path means the case is never run at all."""
+        from qpsim.webui.schemas import MODE_CLASSES
+        problems = []
+        for case in self._cases():
+            setup = MODE_CLASSES[case["mode"]]()
+            for path in case["overrides"]:
+                node = setup
+                for key in path.split(".")[:-1]:
+                    node = getattr(node, key, None)
+                    if node is None:
+                        break
+                leaf = path.split(".")[-1]
+                if node is None or not hasattr(node, leaf):
+                    problems.append(f"{case['id']}: {path}")
+        assert not problems, f"override paths that do not resolve: {problems}"
+
+    def test_each_case_survives_schema_validation(self):
+        """Resolving is not enough -- the values must be legal too."""
+        from qpsim.webui.schemas import MODE_CLASSES
+        for case in self._cases():
+            setup = MODE_CLASSES[case["mode"]]()
+            for path, value in case["overrides"].items():
+                node = setup
+                for key in path.split(".")[:-1]:
+                    node = getattr(node, key)
+                setattr(node, path.split(".")[-1], value)
+            # Re-validating catches a value the field would reject on POST.
+            MODE_CLASSES[case["mode"]].model_validate(setup.model_dump())
