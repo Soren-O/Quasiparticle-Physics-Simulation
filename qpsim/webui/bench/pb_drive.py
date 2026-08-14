@@ -17,6 +17,18 @@ of that. Exactly one term survives with no factor of ``f`` anywhere,
 so ``f_i(t) = f_i(0) + S_i t + O(f²)`` and the measured per-bin slope is the
 closed form itself.
 
+The mode
+--------
+The case runs on the unified spatial core (``spatial_2d``) with a 1×1 mask.
+Dimensionality is read off the mask extent rather than set by a flag, so one
+cell *is* the 0-D reduction — the run's summary reports ``dimensionality = 0``
+— and the single-cell transport operator is identically zero, which is why
+``material.D_0`` is set to 0 for intent rather than for effect. The closed form
+is spatially uniform, so ``build`` scores every cell the mask carries; on the
+shipped mask that is the one cell, and the curve is the same four time series
+this case scored while it was expressed in the retired 0-D mode — to the same
+float, as ``convergence`` records.
+
 What is checked
 ---------------
 The running source rate ``(f_i(t) − f_i(0)) / t`` over all 405 energy bins at
@@ -59,23 +71,55 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 # proportional to n̄_PB, so the weaker drive buys an 8× tighter tolerance at
 # identical runtime (4.5 s) while x_qp still climbs 3.9e4×. The cost is nil; the
 # stronger drive was simply 8× less discriminating.
+#
+# The geometry is the 0-D reduction expressed as a mask, not a separate mode:
+#   rows = cols = 1.  One cell, so `summary["dimensionality"]` is 0 and the
+#     5-point Laplacian assembles to the identically zero operator. The
+#     boundary condition is then unreachable; `reflective` is stated anyway so
+#     the case does not depend on a schema default for something a reader would
+#     look for.
+#   material.D_0 = 0.  Redundant with one cell — there is nowhere for a flux to
+#     go — and set for intent: this case measures a source term, not transport.
+#   stop_tol = 0.  The residual here GROWS (the population grows without bound),
+#     so no positive stop_tol truncates this particular run; 0 states that the
+#     run is meant to reach `max_time` rather than to find a steady state, and
+#     the run then reports "did not reach stop_tol", which is the truth.
+#   snapshot_interval = 0.2.  Without it `spatial_2d` records no frames at all
+#     and there is no slope to measure — only the endpoint, which cannot
+#     distinguish "linear in t" from "arrived at the right place along a curve".
+#   initial.kind = "thermal".  The 0-D expression of this case had no initial
+#     block and always started from Fermi-Dirac; this states the same start
+#     explicitly. `build` subtracts f(0), so the start is not an ingredient of
+#     the prediction either way.
 CASE_OVERRIDES: dict[str, Any] = {
+    "mode": "spatial_2d",
+    "material.D_0": 0.0,
     "T_bath": 0.1,
     "grid.min_factor": 1.0,
     "grid.max_factor": 10.0,
     "grid.num_bins": 405,
+    "geometry.kind": "rectangle",
+    "geometry.rows": 1,
+    "geometry.cols": 1,
+    "geometry.mesh_size_um": 4.0,
+    "boundary.kind": "reflective",
     "phonons.mode": "thermal_bath",
     "collisions.scattering": False,
     "collisions.recombination": False,
+    "gap_regions.kind": "uniform",
+    "self_consistent_gap": False,
+    "initial.kind": "thermal",
+    "injection.enabled": False,
+    "drives": [],
     "subgap_drive.enabled": False,
     "pb_drive.enabled": True,
     "pb_drive.omega_PB": 1200.0,
     "pb_drive.n_bar_PB": 125.0,
     "pb_drive.c_phot_PB": 1e-9,
     "dt": 0.1,
-    "total_time": 12.0,
+    "max_time": 12.0,
+    "stop_tol": 0.0,
     "snapshot_interval": 0.2,
-    "probe.enabled": False,
 }
 
 # Fractions of the run at which the running slope is read. Four times rather
@@ -194,9 +238,54 @@ def _source_spectrum(
     return E, dE, w, S, live
 
 
+def _refuse_unless_reduced(setup: Any) -> None:
+    """Raise unless the run is the reduction this closed form describes.
+
+    Only the knobs that ``Spatial2DSetup`` adds over the 0-D setup this case
+    used to be written against are checked here, because those are the ones
+    that can silently invalidate the closed form: a second source makes S_i no
+    longer the whole f-independent right-hand side, and a gap that is not Δ₀
+    everywhere makes the cell measures wrong.
+
+    Note the deliberate omissions. ``pb_drive.enabled = False`` is NOT refused:
+    the closed form still applies and is violated, and that null run is this
+    benchmark's falsification test, so it has to produce a numeric FAIL rather
+    than an error. Neither collision channel is refused either — both carry an
+    explicit factor of f and are therefore inside the O(f) residual rather than
+    outside the reduction (which the caveat says, and which is exactly why this
+    benchmark cannot see them).
+    """
+    if setup.injection.enabled:
+        raise ValueError(
+            "injection is enabled, so the pair-breaking drive is not the whole "
+            "right-hand side: the measured slope would be S_i plus the injected "
+            "spectrum, and the excess would be scored as a kernel error."
+        )
+    if any(drive.enabled for drive in setup.drives):
+        raise ValueError(
+            "a prescribed drive is enabled, so the measured slope is S_i plus "
+            "that drive rather than S_i. Switch it off, or write a closed form "
+            "for the sum."
+        )
+    if setup.gap_regions.kind != "uniform":
+        raise ValueError(
+            f"gap_regions.kind={setup.gap_regions.kind!r} gives cells different "
+            "local gaps; this closed form is written at the material Δ₀ "
+            "everywhere, and both the BCS cell measures and the 2Δ pair "
+            "threshold move with the local gap."
+        )
+    if setup.self_consistent_gap:
+        raise ValueError(
+            "a self-consistent gap moves Δ during the run, so the cell measures "
+            "and the reflection partner are not constant and the growth is not "
+            "linear in t. This reduction freezes Δ."
+        )
+
+
 def _build(
     setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]
 ) -> Curve:
+    _refuse_unless_reduced(setup)
     E_ana, dE, w, S, live = _source_spectrum(setup)
 
     E = np.asarray(arrays["E_bins"], dtype=float)
@@ -211,8 +300,20 @@ def _build(
             f"the analytic grid is not the engine's grid: max |ΔE| = {grid_gap:.3g} μeV."
         )
 
-    t = np.asarray(arrays["t_ns"], dtype=float)
-    f = np.asarray(arrays["f_snapshots"], dtype=float)
+    if "snap_t_ns" not in arrays or "snap_f" not in arrays:
+        raise ValueError(
+            "this benchmark needs the recorded field: set snapshot_interval so "
+            "the run emits frames. Without them the only observable is the "
+            "endpoint, which cannot distinguish a rate from a final value."
+        )
+    t = np.asarray(arrays["snap_t_ns"], dtype=float)
+    f = np.asarray(arrays["snap_f"], dtype=float)  # (frames, NE, Ncells)
+    if f.ndim != 3 or f.shape[0] != t.size or f.shape[1] != E.size:
+        raise ValueError(
+            f"snap_f has shape {f.shape}; expected (frames, NE, Ncells) = "
+            f"({t.size}, {E.size}, ...)."
+        )
+    n_cells = int(f.shape[2])
     if t.size < 2:
         raise ValueError(
             f"a slope needs at least two snapshots; this run recorded {t.size}. "
@@ -223,17 +324,34 @@ def _build(
     if any(t[k] <= t[0] for k in idx):
         raise ValueError("snapshot times are not increasing; cannot form a slope.")
 
-    y_sim = np.array([(f[k] - f[0]) / (t[k] - t[0]) for k in idx])
-    y_ana = np.tile(S, (len(idx), 1))
+    # One series per (time, cell). The source is spatially uniform — the drive
+    # is, the gap is, and the thermal start is — so every cell is predicted to
+    # carry the same S_i, and on a mask wider than one cell that equality is
+    # part of what is being checked rather than an assumption. With the shipped
+    # 1×1 mask this collapses to the four series the 0-D expression of this case
+    # scored, at this run's own snapshot times.
+    y_sim = np.array([
+        (f[k, :, c] - f[0, :, c]) / (t[k] - t[0])
+        for k in idx
+        for c in range(n_cells)
+    ])
+    y_ana = np.tile(S, (len(idx) * n_cells, 1))
 
     # Cross-check, not a second verdict: the same S_i contracted against the BCS
     # cell weights is the slope of x_qp(t), which is what the run reports as an
     # observable. It uses no new physics, so it earns a note and not a curve.
-    x_qp = np.asarray(arrays["obs_x_qp"], dtype=float)
+    # The mean over cells is the right reduction because the prediction is
+    # uniform; on the 1×1 mask it is the single cell's own value.
+    x_qp = np.asarray(arrays["obs_x_qp_mean"], dtype=float)
     predicted = float(np.sum(S * w) / float(setup.material.Delta_0)) * (t[-1] - t[0])
     observed = float(x_qp[-1] - x_qp[0])
+    geometry = (
+        f"{summary.get('rows', '?')}×{summary.get('cols', '?')} mask, "
+        f"{n_cells} cell{'s' if n_cells != 1 else ''}, "
+        f"dimensionality {summary.get('dimensionality', '?')}"
+    )
     note = (
-        f"x_qp cross-check: Δx_qp over {t[-1] - t[0]:g} ns measured "
+        f"{geometry}. x_qp cross-check: Δx_qp over {t[-1] - t[0]:g} ns measured "
         f"{observed:.6e} against Σ_i w_i S_i/Δ₀ · t = {predicted:.6e} "
         f"({abs(observed / predicted - 1.0):.2e} relative). "
         f"{int(np.count_nonzero(live))} of {S.size} bins carry a source; the "
@@ -247,7 +365,11 @@ def _build(
         y_analytic=y_ana,
         x_label="E (μeV)",
         y_label="(f(E,t) − f(E,0)) / t   (1/ns)",
-        series_labels=tuple(f"t = {t[k]:.3g} ns" for k in idx),
+        series_labels=tuple(
+            f"t = {t[k]:.3g} ns" + (f", cell {c}" if n_cells > 1 else "")
+            for k in idx
+            for c in range(n_cells)
+        ),
         # "scale" rather than the pointwise default because the closed form is
         # EXACTLY ZERO on 195 of the 405 bins. Pointwise relative error divides
         # by |analytic| and the framework floors that at 1e-9 of the peak, so
@@ -293,9 +415,10 @@ register(
         ),
         rel_tol=2e-5,
         convergence=(
-            "Case: 405 bins over [1, 10]Δ (δE = 4 μeV exactly), dt = 0.1 ns, 12 ns, "
-            "4 snapshot times × 405 bins = 1620 points, 4.5 s. Measured worst error "
-            "6.528e-06 against rel_tol 2e-05 (3.1× headroom).\n"
+            "Case: 405 bins over [1, 10]Δ (δE = 4 μeV exactly), a 1×1 mask, "
+            "dt = 0.1 ns, 12 ns, 4 snapshot times × 405 bins = 1620 points, "
+            "1.0 s. Measured worst error 6.528e-06 against rel_tol 2e-05 "
+            "(3.1× headroom).\n"
             "The small parameter is the OCCUPATION, not the mesh or the step, "
             "because the closed form is the f → 0 limit. Halving the drive: "
             "n_bar_PB = 1000/500/250/125/62.5 gives 5.2215e-05 / 2.6108e-05 / "
@@ -304,23 +427,40 @@ register(
             "12 ns, 1.305e-05 at 24 ns): both knobs move f, and the residual is O(f).\n"
             "Refining dt does not converge, and should not: ETD2 is exact for "
             "constant gain and loss, which is what this reduction is at leading "
-            "order. dt = 0.4/0.2/0.1/0.05 ns gives the same error to six figures and "
-            "moves x_qp(12 ns) by 3.7e-15 relative over that factor of 8. This "
-            "benchmark therefore says nothing about time-integration order.\n"
+            "order. dt = 0.4/0.2/0.1/0.05 ns all read 6.527687e-06 — identical to "
+            "seven figures — and move x_qp(12 ns) by 3.3e-15 relative over that "
+            "factor of 8. This benchmark therefore says nothing about "
+            "time-integration order.\n"
             "Refining the ENERGY mesh makes it WORSE, reported rather than hidden: "
             "the gap-edge cell density sqrt(2ΔδE)/δE grows as δE^(−1/2), so the peak "
             "source and the occupation it drives grow with refinement and walk out "
             "of the linear limit. 810 bins measures 8.943e-06 — a factor 1.37 "
             "against the predicted sqrt(2) = 1.41 — still inside 2e-05 but with 2.2× "
             "headroom instead of 3.1×. Re-measure if num_bins, n_bar_PB, c_phot_PB "
-            "or total_time changes.\n"
+            "or max_time changes.\n"
             "Independence of the analytic cell measure: cell-averaged S converges to "
             "the continuum BCS point value (ω−E)/sqrt((ω−E)²−Δ²)·(1 − Δ²/(E(ω−E))) "
             "at second order in δE — 2.101e-07, 5.142e-08, 1.272e-08, 3.162e-09 at "
             "δE = 4/2/1/0.5 μeV, mid-band at E = 600 μeV. The cell weights really "
-            "are the BCS DOS and not a re-coding of engine internals."
+            "are the BCS DOS and not a re-coding of engine internals.\n"
+            "Mode migration (2026-08-14): this case previously ran as "
+            "``transient_0d``. Re-expressed as a 1×1 ``spatial_2d`` mask it scores "
+            "6.5276867346370295e-06 against the 0-D case's "
+            "6.5276867346370295e-06 — the same float, not merely the same to the "
+            "quoted digits — and x_qp(12 ns) agrees to 1 ulp "
+            "(8.599905148325067e-06 vs 8.599905148325065e-06), with the two f(E) "
+            "fields differing by at most 2.0e-28 in absolute occupation at 12 ns "
+            "against a peak of 1.18e-05. What is NOT identical is the snapshot "
+            "CADENCE: the 0-D driver interpolates onto the requested times, while "
+            "the spatial core records the step boundary actually reached and its "
+            "cadence counter drifts by a ulp, so two of the four read-off frames "
+            "land at 6.1 and 9.1 ns instead of 6.0 and 9.0. Those two series are "
+            "read 1.7% later, so their residual — which is O(f) and therefore "
+            "proportional to t — is 1.7% larger, and the rms moves 1.4352e-06 → "
+            "1.4432e-06. The scored maximum does not move at all, because it is "
+            "the 12 ns series and the two cadences agree exactly there."
         ),
-        modes=("transient_0d",),
+        modes=("spatial_2d",),
         build=_build,
         caveat=(
             "It validates the K⁻ pair-GENERATION block at leading order, and only "
@@ -349,14 +489,30 @@ register(
             "K⁻(E₀,E₀) of the gap-edge cell, which a reflection partner never is; "
             "it is not the size of the effect here.\n"
             "It is a maximal reduction, not physics: both collision channels off, "
-            "phonons pinned at the bath, Δ frozen, no diffusion. There is no steady "
+            "phonons pinned at the bath, Δ frozen, no transport. There is no steady "
             "state and the population grows without bound; that is the case, not a "
             "defect. The case also sits at exact grid commensurability, so the "
             "1%-of-a-bin snapping path, the 1e-9 partner-lattice rejection, the "
             "threshold-crossing guard, the off-grid-partner guards and the K⁺ "
             "up-partner truncation at i + m ≥ NE are all untested by it. One "
             "material (Al, Δ₀ = 180 μeV), one bath temperature, one photon energy, "
-            "pure BCS only — the term rejects dynes_gamma > 0 outright."
+            "pure BCS only — the term rejects dynes_gamma > 0 outright.\n"
+            "SPATIAL SCOPE. The shipped mask is one cell, so the case is the 0-D "
+            "reduction of the unified core: the transport operator is identically "
+            "zero and nothing here exercises the Laplacian, a boundary condition, "
+            "an interface or a gap step. ``build`` scores whatever cells the mask "
+            "carries, which was checked rather than left as an intention — on a "
+            "2×3 mask with D_0 = 0 the same case scores 6.5276867346370295e-06 "
+            "over 24 series, the identical float, so all six cells carry the same "
+            "source bit-for-bit. That widening is nearly free of information, "
+            "though, and the reason is worth stating: the drive, the gap and the "
+            "thermal start are all uniform, so the six cells are six copies of one "
+            "experiment. Turning transport back on (D_0 = 60 μm²/ns, same mask) "
+            "moves the score only to 6.5276867372e-06 — the tenth digit — because "
+            "a uniform field has no gradient for the Laplacian to act on. This "
+            "benchmark cannot be made to test transport by making the mask bigger; "
+            "that needs a source that varies in space, which is the diffusion "
+            "benchmark's job."
         ),
         activity=(
             "Measured on the shipped case, not asserted. Over 12 ns x_qp goes "
@@ -367,8 +523,9 @@ register(
             "Switching the drive off is not a small change to this curve: "
             "pb_drive.enabled = False gives error exactly 1.000e+00 against a 2e-05 "
             "tolerance, and max |f(T) − f(0)| is exactly 0.000e+00 — with both "
-            "collision channels off and the phonons pinned, nothing else in the "
-            "engine touches f, so the reduction is exact rather than approximate.\n"
+            "collision channels off, the phonons pinned and a one-cell mask whose "
+            "transport operator is identically zero, nothing else in the engine "
+            "touches f, so the reduction is exact rather than approximate.\n"
             "The trap this term ships with is n_bar_PB = 0.0, which is the schema "
             "default: an enabled drive at that default is inert (x_qp relative move "
             "0.000e+00, max |f(T) − f(0)| = 2.896e-77). That residue is the "
@@ -379,5 +536,6 @@ register(
             "refuses to score a case whose predicted source is identically zero "
             "rather than reporting the vacuous zero-against-zero pass."
         ),
+        extra={"case_overrides": CASE_OVERRIDES},
     )
 )

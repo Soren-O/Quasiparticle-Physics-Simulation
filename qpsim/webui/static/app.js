@@ -338,8 +338,13 @@ function renderStepForm(selector, sections) {
   const form = $(selector);
   form.innerHTML = "";
   if (!sections.length) {
-    form.innerHTML = `<p class="hint">This mode has no fields on this step. `
-      + `A 0-D run has no geometry: it is a single cell.</p>`;
+    // Not "this dimensionality has no geometry" -- 0-D IS a geometry, a 1x1
+    // mask, and the unified mode expresses it that way (measured
+    // bit-identical to the old 0-D mode). What lands here is a LEGACY mode
+    // that predates the unified geometry and carries no mask at all.
+    form.innerHTML = `<p class="hint">This is a legacy mode with no geometry `
+      + `of its own. In the unified mode a 0-D run is simply a 1&times;1 mask `
+      + `and a 1-D strip a 1&times;N one, so the geometry step applies there.</p>`;
     return;
   }
   for (const section of sections) {

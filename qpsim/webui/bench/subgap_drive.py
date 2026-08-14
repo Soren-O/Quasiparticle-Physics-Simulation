@@ -27,6 +27,15 @@ Two curves ship on the same abscissa:
     certificate, **not** an activity certificate: it is equally flat with the
     drive switched off. It is not a tautology either — see ``caveat``.
 
+The case runs on the unified spatial core at its 0-D reduction: a ``1×1`` mask,
+which :attr:`Geometry.dimensionality` reports as 0. One cell has no faces, so
+the transport operator is identically zero and what is integrated is the
+collision step alone. That is a change in how the case is *expressed*, not in
+what it computes — it reproduces the ``transient_0d`` case this benchmark used
+to run on bit-for-bit (``max|Δf| = 0.0`` over 201 frames × 16 bins, and the
+scored error agrees to every digit), which is why every number below carries
+over unchanged and is not re-derived for the new mode.
+
 Authored against the AUDITED position, not the original derivation. The
 adversarial audit found five defects, all wording or scope rather than numbers,
 and each is corrected where it lands: the partnerless bins are not "exactly
@@ -63,7 +72,10 @@ _KB_UEV_PER_K = 86.17333262145
 #     sub-gap drive: 202.5 < 2Δ = 360.
 #   dt = 0.015625 and snapshot_interval = 0.25 are exact binary fractions with
 #     an exact integer ratio 16, so every snapshot lands on an integration
-#     endpoint and no dense-output interpolation enters the comparison.
+#     endpoint and no dense-output interpolation enters the comparison. The
+#     spatial runner records a frame at the first step boundary at or after each
+#     requested time and stamps it with the time actually reached, so an
+#     inexact ratio would silently move the abscissa; this one does not.
 #   T_bath = 0.5 K is warm for Al, and deliberately so. At the UI default 0.1 K
 #     the thermal occupations run down to 2e-27 and ETD2's weighted-balance
 #     projection (which restores missing mass as f ← 1 − (1−f)·h) loses every
@@ -71,28 +83,58 @@ _KB_UEV_PER_K = 86.17333262145
 #     an integrator property, not a sub-gap-kernel error, and it is reported
 #     rather than hidden — see ``caveat``. At 0.5 K the smallest occupation on
 #     this grid is 4.7e-06 and the run converges cleanly at order 2.
+#
+# The geometry entries express the 0-D reduction rather than select a mode:
+#   rows = cols = 1 is a single cell, which has no faces, so the transport
+#     operator is identically zero whatever the diffusion model or the boundary
+#     condition says. Both are set anyway, to the neutral values, so the file
+#     states the arrangement instead of leaving it to a schema default.
+#   material.D_0 = 0.0 has no work to do for the same reason and is set so the
+#     intent is explicit: this case is collisions only.
+#   stop_tol = 0.0 because Spatial2DSetup's stop_tol is a float where the
+#     transient's was an optional None. Any positive threshold would end the run
+#     the moment the residual dropped under it, and the trajectory — not the
+#     endpoint — is what this benchmark scores. The run therefore reports
+#     converged = False by construction, which is correct: a driven case with no
+#     recombination has no steady state to reach (see ``caveat`` item 7).
+#   initial.kind = "thermal" reproduces the only start the old 0-D mode could
+#     express. The closed form itself takes arbitrary f_a(0), f_b(0), so this
+#     mode's `initial` block could now seed a non-thermal start; the case keeps
+#     the thermal one so the analytic side stays a Fermi function written from
+#     T_bath rather than a re-implementation of the seeding code.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "transient_0d",
+    "mode": "spatial_2d",
     "material.Delta_0": 180,
+    "material.D_0": 0.0,
     "T_bath": 0.5,
     "grid.min_factor": 1,
     "grid.max_factor": 3,
     "grid.num_bins": 16,
+    "geometry.kind": "rectangle",
+    "geometry.rows": 1,
+    "geometry.cols": 1,
+    "geometry.mesh_size_um": 4.0,
+    "boundary.kind": "reflective",
+    "diffusion_model": "A1",
     "phonons.mode": "thermal_bath",
     "collisions.scattering": False,
     "collisions.recombination": False,
     "collisions.phonon_scattering_source": True,
     "collisions.phonon_recombination_source": True,
+    "gap_regions.kind": "uniform",
+    "injection.enabled": False,
+    "initial.kind": "thermal",
+    "drives": [],
     "subgap_drive.enabled": True,
     "subgap_drive.omega_0": 202.5,
     "subgap_drive.n_bar": 3,
     "subgap_drive.c_phot": 0.01,
     "pb_drive.enabled": False,
+    "self_consistent_gap": False,
     "dt": 0.015625,
-    "total_time": 50,
+    "max_time": 50,
+    "stop_tol": 0.0,
     "snapshot_interval": 0.25,
-    "stop_tol": None,
-    "probe.enabled": False,
 }
 
 
@@ -208,7 +250,7 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
     """Both curves, from the setup's scalars and the run's own abscissa.
 
     The analytic side consumes exactly: Δ₀, the grid triple, T_bath, ω₀, n̄,
-    c_phot, and ``arrays['t_ns']``. Nothing simulated enters it.
+    c_phot, and ``arrays['snap_t_ns']``. Nothing simulated enters it.
     """
     gap = float(setup.material.Delta_0)
     ne = int(setup.grid.num_bins)
@@ -248,10 +290,70 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
             "cell capacity vanishes; this closed form assumes every cell is "
             "supported. Use min_factor >= 1."
         )
+    # The remaining sources this mode can add. Each would put a term on the
+    # right-hand side that the two-rung ladder does not carry, so refuse for the
+    # same reason the collision channels are refused above rather than charge
+    # the resulting gap to the sub-gap kernel.
+    if setup.injection.enabled:
+        raise ValueError(
+            "injection is on, so the kinetic equation has a source term the "
+            "two-rung ladder does not carry."
+        )
+    if any(drive.enabled for drive in setup.drives):
+        raise ValueError(
+            f"{sum(d.enabled for d in setup.drives)} prescribed drive(s) are "
+            "enabled; the closed form is the reduction with the sub-gap term "
+            "alone on the right-hand side."
+        )
+    if setup.self_consistent_gap:
+        raise ValueError(
+            "self_consistent_gap is on, so Δ follows the occupation and the "
+            "cell measure w_i, ρ̄_i and K⁺ below are not constants of the run."
+        )
+    if setup.initial.kind != "thermal":
+        # Not a limitation of the closed form -- _pair_trajectory takes
+        # arbitrary f_a(0), f_b(0) -- but of the analytic side's independence.
+        # f0 is written below straight from T_bath; honouring another seed here
+        # would mean re-implementing builders.build_initial_state_2d, and an
+        # analytic side that re-implements the engine is not a T1.
+        raise ValueError(
+            f"initial.kind={setup.initial.kind!r}: this closed form writes the "
+            "starting occupation as a Fermi function at T_bath, so the run must "
+            "start from the thermal state. The ladder solution itself takes any "
+            "start; giving it one would mean seeding it from the engine."
+        )
 
-    t = np.asarray(arrays["t_ns"], dtype=float)
+    if "snap_f" not in arrays:
+        raise ValueError(
+            "no snap_f in the payload: the field is only recorded when "
+            "snapshot_interval is set, and without frames there is no "
+            "trajectory to compare -- only the endpoint, which is the scalar "
+            "check this benchmark exists to replace."
+        )
+    t = np.asarray(arrays["snap_t_ns"], dtype=float)
     E_engine = np.asarray(arrays["E_bins"], dtype=float)
-    f_sim = np.asarray(arrays["f_snapshots"], dtype=float)
+    # (frames, NE, Ncells). One cell, so the second index is the whole field and
+    # f_sim is the (frames, NE) history the 0-D reduction is written against.
+    frames = np.asarray(arrays["snap_f"], dtype=float)
+    if frames.ndim != 3 or frames.shape[2] != 1:
+        raise ValueError(
+            f"the run has {frames.shape[2] if frames.ndim == 3 else '?'} cells; "
+            "this is the 0-D reduction (a 1x1 mask with D_0 = 0). With more "
+            "cells the closed form would have to state what transport does to "
+            "f, and it does not."
+        )
+    f_sim = frames[:, :, 0]
+
+    # Δ is a constant of this reduction and every w_i, ρ̄_i and K⁺ below is
+    # built from setup.material.Delta_0. Checked against what the run actually
+    # used, over cells AND over time, so a gap map or a relaxing gap cannot
+    # slip past self_consistent_gap = False.
+    run_gaps = np.unique(np.asarray(arrays["snap_gap"], dtype=float))
+    if run_gaps.size != 1 or not np.isclose(run_gaps[0], gap, rtol=1e-12, atol=0.0):
+        raise ValueError(
+            f"the run's local gap is {run_gaps} μeV, not the single "
+            f"{gap:g} μeV this closed form is built from."
+        )
 
     # Rebuild the cell centres from the setup and check the run is on the grid
     # the closed form assumes. Reading E_bins and calling it "the run's grid"
@@ -266,9 +368,9 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
     pairs, partnerless = _ladder_pairs(ne, m)
     w, rho_bar, K_plus = _bcs_cell_measure(gap, min_factor * gap, dE, ne)
 
-    # The transient always starts at equilibrium: Transient0DSetup has no
-    # InitialCondition field (only Spatial2DSetup does), so the thermal state is
-    # the only start this mode can express.
+    # The run starts at equilibrium, asserted by the initial.kind guard above
+    # rather than assumed from the mode: this mode CAN express a non-thermal
+    # start, where the 0-D transient this case used to run on could not.
     f0 = 1.0 / (np.exp(E / (_KB_UEV_PER_K * float(setup.T_bath))) + 1.0)
 
     # AUDIT: partnerless bins are frozen for the KERNEL, not for the run. ETD2
@@ -304,6 +406,10 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
         note=(
             f"{len(pairs)} two-rung ladders {pairs[0]}…{pairs[-1]} at m={m} "
             f"(ω₀={m * dE:g} μeV = {m}·δE), plus partnerless bins {partnerless}. "
+            f"Run on a {summary.get('rows', 1)}×{summary.get('cols', 1)} mask "
+            f"(dimensionality {summary.get('dimensionality', 0)}), the 0-D "
+            "reduction of the spatial core: one cell has no faces, so transport "
+            "contributes identically zero and only the collision step runs. "
             f"Series 1 is the activity test: ⟨E⟩/Δ moves "
             f"{100.0 * (y_sim[0, -1] / y_sim[0, 0] - 1.0):+.2f}% over this run, and "
             "scoring the drive-off run against this same closed form gives 1.8e-01, "
@@ -391,8 +497,11 @@ register(
             "with the extra, faster ladders that appear at the gap edge -- the "
             "gap-edge cell-average DOS goes as dE^(-1/2) -- raising the ETD2 "
             "truncation error at fixed dt.\n\n"
-            "SIZE. N_E=16 with 3200 steps runs in 6.6-7.4 s. The alternative, N_E=64 "
-            "(28 ladders), costs 9.2 s and measures the same 8.0e-08: refining the "
+            "SIZE. N_E=16 with 3200 steps runs in 2.7 s (4 repeats, 2.65-2.75 s, "
+            "re-timed on the migrated single-cell path; the same case on the "
+            "retired transient_0d runner takes 3.3-3.5 s, so the move did not "
+            "cost anything). The alternative, N_E=64 (28 ladders), costs 3.6-3.9 s "
+            "and measures the same 8.0e-08: refining the "
             "grid buys this benchmark nothing, while N_E=16 keeps the seven ladders "
             "and the two partnerless bins individually inspectable. Shortening the "
             "50 ns window is the one thing that would cost something -- it spans "
@@ -414,7 +523,7 @@ register(
             "and it is why the case is pinned at T_bath = 0.5 K where the smallest "
             "occupation is 4.7e-06."
         ),
-        modes=("transient_0d",),
+        modes=("spatial_2d",),
         build=_build,
         caveat=(
             "1. THE 'BOTH PARTNERS' KERNEL BRANCH IS NEVER EXECUTED. The two-rung "
@@ -456,9 +565,9 @@ register(
             "here from the BCS antiderivatives and match the engine's arrays to "
             "0.0 relative difference, which is the signature of a T2 in disguise. "
             "The audit attacked it by mutation instead of by inspection and the "
-            "tier survived; re-measured here at the shipped commit, patching "
-            "qpsim.backends.t3_diffusion.sub_gap_photon_collision_rates and "
-            "re-running the whole transient against the UNCHANGED closed form "
+            "tier survived; re-measured at the shipped commit, patching the "
+            "kernel where the run reaches it and re-running the whole trajectory "
+            "against the UNCHANGED closed form "
             "gives: identity re-implementation 4.2124e-08 (control, matches the "
             "baseline exactly), point DOS instead of the cell average 4.0e-02, "
             "swapped n_bar/(n_bar+1) 8.7e-02, K- instead of K+ 5.1e-02, no "
@@ -470,6 +579,14 @@ register(
             "series; on the headline curve alone the audit measured 9.0e-03, "
             "1.4e-03 and 1.6e-01 for the point DOS, the dropped Pauli factor and "
             "the deleted branch, plus 1.8e-02 for the wrong photon energy m=8.) "
+            "Those numbers were taken on the retired transient_0d runner, whose "
+            "patch point was qpsim.backends.t3_diffusion."
+            "sub_gap_photon_collision_rates. The migrated case reaches the same "
+            "kernel through qpsim.collisions.spatial."
+            "sub_gap_photon_collision_rates instead, and the control re-run "
+            "through THAT patch point returns 4.2124e-08 -- the same baseline on "
+            "the same kernel, so the mutation study carries over rather than "
+            "needing to be re-derived. "
             "What agreement does NOT prove is the "
             "convention: if the engine's cell-average DOS were the wrong measure "
             "for this integral, this benchmark would agree with it anyway. The "
@@ -496,12 +613,23 @@ register(
             "Al; with no recombination, no scattering and Delta frozen there is no "
             "thermal fixed point, so the bath only sets the initial condition -- do "
             "not read these numbers as a device state.\n"
-            "8. SCOPE. 0-D transient only. Delta is frozen, phonons are pinned at "
-            "the Bose bath, there is no transport, and nothing is coupled to any "
-            "other term. The identical kernel is also called from "
-            "qpsim/collisions/spatial.py, qpsim/backends/t3_spatial.py and "
-            "qpsim/solvers/newton_steady_state.py; none of those assembly paths is "
-            "covered. Also untested: x_qp, the Mattis-Bardeen probe, the "
+            "8. SCOPE. The 0-D reduction of the spatial core: a 1x1 mask, so the "
+            "transport operator is identically zero and only the collision step "
+            "runs. Delta is frozen, phonons are pinned at the Bose bath, and "
+            "nothing is coupled to any other term. Moving the case here from the "
+            "old transient_0d mode CHANGED WHICH ASSEMBLY PATH IS COVERED and "
+            "nothing else: qpsim/collisions/spatial.py and "
+            "qpsim/backends/t3_spatial.py are now the covered path, where "
+            "qpsim/services/transient.py was before, and the run is "
+            "bit-for-bit identical either way -- max |f_new - f_old| = 0.0 over "
+            "201 frames x 16 bins, same 4.2124e-08 verdict to every digit. Still "
+            "uncovered: qpsim/solvers/newton_steady_state.py, which calls the "
+            "same kernel from a steady-state solve, and every cell count above "
+            "one -- with more than one cell the closed form would have to say "
+            "what transport does to f, and it does not, so _build refuses it. "
+            "Also untested: x_qp (this mode records obs_x_qp_mean and the "
+            "benchmark does not score it), the Mattis-Bardeen probe (Spatial2DSetup "
+            "carries no probe at all), the "
             "dense-output interpolation (deliberately avoided by making "
             "snapshot_interval/dt an exact integer of exact binary fractions), the "
             "ETD2 rate-subcycling path (max loss rate is 0.235/ns, so "
@@ -567,8 +695,17 @@ register(
             # Pinned because the numbers above are measurements, and a
             # measurement without the tree it was taken on is an anecdote. The
             # audit's own numbers were taken at b799b9d with a dirty tree in the
-            # 2-D spatial region; these were re-measured here on a clean tree.
-            "verified_at_commit": "41ee7f8",
+            # 2-D spatial region; these were re-measured at 41ee7f8 on a clean
+            # tree, and then again at 7d887ea with this file the only change,
+            # when the case moved from transient_0d to the spatial core's 0-D
+            # reduction. Nothing moved: the whole dt table (2.697e-06 / 6.741e-07
+            # / 1.685e-07 / 4.212e-08 / 1.053e-08 / 2.631e-09 at order 2.000),
+            # the N_E row (4.2124e-08 / 6.1323e-08 / 8.0361e-08), the drive-off
+            # null (1.7786e-01), the n_bar=0 pair (7.5e-12 own / 1.8019e-01
+            # cross) and the N(t) certificate (3.9e-12) all reproduce to every
+            # digit printed here, because f itself is bit-identical.
+            "verified_at_commit": "7d887ea",
+            "migrated_from_mode": "transient_0d",
         },
     )
 )
