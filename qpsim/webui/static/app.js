@@ -109,6 +109,14 @@ const FORMS = {
     },
     SUBGAP_FIELDS, PB_FIELDS,
     {
+      title: "Phonon sector",
+      hint: "thermal_bath pins n_ph at the bath. The dynamic modes solve the phonon population in every cell, which is far more expensive: the occupation matrices stop being shared, so each cell builds its own.",
+      fields: [
+        F("phonons.mode", "Mode", "select", { options: ["thermal_bath", "dynamic_escape", "dynamic_closed"] }),
+        F("phonons.tau_l_ns", "Escape τ_l (ns)"),
+      ],
+    },
+    {
       title: "Solver",
       fields: [
         F("solver.method", "Method", "select", { options: ["auto", "picard", "coupled_newton"] }),
@@ -1059,8 +1067,9 @@ const TERM_FIELDS = {
              label: "Sub-gap photon drive" },
   photpb:  { path: "pb_drive.enabled", kind: "flag",
              label: "Pair-breaking photon drive" },
-  pesc:    { path: null, label: "Phonon-bath coupling",
-             why: "this mode holds the phonons at the bath; a solved phonon sector is 0-D only" },
+  pesc:    { path: "phonons.mode", kind: "mode",
+             label: "Phonon-bath coupling",
+             on: "dynamic_escape", off: "dynamic_closed" },
   gapeq:   { path: null, label: "Self-consistent gap",
              why: "the gap closure is not wired into the spatial solver yet" },
 };
@@ -1079,7 +1088,9 @@ function termIsOn(id) {
   const spec = TERM_FIELDS[id];
   if (!spec || spec.path === null) return false;
   const value = getByPath(state.setup, spec.path);
-  return spec.kind === "zeroable" ? Number(value) > 0 : Boolean(value);
+  if (spec.kind === "zeroable") return Number(value) > 0;
+  if (spec.kind === "mode") return value === spec.on;
+  return Boolean(value);
 }
 
 function setTerm(id, on) {
@@ -1094,6 +1105,10 @@ function setTerm(id, on) {
       wizard.offD0 = Number(getByPath(state.setup, spec.path)) || wizard.offD0;
       setByPath(state.setup, spec.path, 0.0);
     }
+  } else if (spec.kind === "mode") {
+    // Off is a CLOSED sector, not a pinned bath: the term being dropped is
+    // the coupling to the substrate, and the phonons still evolve.
+    setByPath(state.setup, spec.path, on ? spec.on : spec.off);
   } else {
     setByPath(state.setup, spec.path, on);
   }

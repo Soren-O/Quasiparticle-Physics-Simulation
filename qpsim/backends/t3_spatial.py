@@ -99,11 +99,13 @@ class T3SpatialBackend:
         enable_recombination: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
+        phonon_escape_time: float | None = None,
     ) -> None:
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
+        self.phonon_escape_time = phonon_escape_time
         self._transport: SpatialTransport | None = None
         self._collisions: SpatialCollisions | None = None
         self._transport_signature: object = None
@@ -180,6 +182,7 @@ class T3SpatialBackend:
             gaps.tobytes(), float(state.T_bath), float(state.material.tau_0),
             float(state.material.T_c), state.spectral.E.tobytes(),
             repr(self.photon_params), repr(self.pb_photon_params),
+            repr(self.phonon_escape_time),
         )
         if self._collisions is None or signature != self._collision_signature:
             self._collisions = SpatialCollisions(
@@ -191,6 +194,7 @@ class T3SpatialBackend:
                 enable_recombination=self.enable_recombination,
                 photon_params=self.photon_params,
                 pb_photon_params=self.pb_photon_params,
+                phonon_escape_time=self.phonon_escape_time,
             )
             self._collision_signature = signature
         return self._collisions
@@ -290,11 +294,17 @@ class T3SpatialBackend:
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
     ) -> T3SpatialState:
-        """Symmetric split step: transport/2, collisions+source, transport/2."""
+        """Symmetric split step: transport/2, collisions+source, transport/2.
+
+        A live phonon population advances after the collision half, at the new
+        ``f`` -- the same Lie arrangement the 0-D transient uses, one level out.
+        """
         s = self.apply_transport(state, 0.5 * dt)
         s = self.apply_collisions(
             s, dt, external_gain=external_gain, external_loss=external_loss,
         )
+        if self.phonon_escape_time is not None:
+            self._collisions_for(s).advance_phonons(s.f, dt)
         return self.apply_transport(s, 0.5 * dt)
 
     # -- residual and stepping loop ---------------------------------------
@@ -317,18 +327,11 @@ class T3SpatialBackend:
         total = np.zeros_like(state.f)
         for gap, columns in collisions._groups():
             operator = collisions.local_operator(gap)
-            gain, loss = collisions.group_rates(
-                state.f[:, columns], operator,
+            gain, loss = collisions.combined_group_rates(
+                state.f[:, columns], columns, operator, gap,
                 None if external_gain is None else external_gain[:, columns],
                 None if external_loss is None else external_loss[:, columns],
             )
-            # The photon channels are part of the right-hand side, so they are
-            # part of the residual. Leaving them out lets a driven device be
-            # certified steady on its first step, which is what happened.
-            photon = collisions.photon_rates(state.f[:, columns], gap)
-            if photon is not None:
-                gain = gain + photon[0]
-                loss = loss + photon[1]
             total[:, columns] = gain - loss * state.f[:, columns]
 
         if state.f.shape[1] > 1:

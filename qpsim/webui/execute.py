@@ -631,6 +631,13 @@ def run_spatial_2d(
         enable_recombination=setup.collisions.recombination,
         photon_params=photon_params,
         pb_photon_params=pb_photon_params,
+        # thermal_bath pins n_ph, which is the shipped behaviour; the dynamic
+        # modes solve it per cell. 0.0 is the no-substrate sentinel.
+        phonon_escape_time=(
+            None if setup.phonons.mode == "thermal_bath"
+            else (setup.phonons.tau_l_ns
+                  if setup.phonons.mode == "dynamic_escape" else 0.0)
+        ),
     )
 
     def hook(elapsed: float, total: float) -> bool:

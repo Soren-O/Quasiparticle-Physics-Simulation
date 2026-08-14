@@ -35,10 +35,15 @@ from qpsim.collisions.pair_breaking_photon import (
 from qpsim.collisions.phonon import (
     _thermal_phonon_recombination_occupations,
     _thermal_phonon_scattering_occupation,
+    build_phonon_frequency_map,
     build_recombination_kernel_base,
     build_scattering_kernel_base,
+    compute_phonon_source_sink,
+    phonon_collision_rates,
+    phonon_occupation_matrices_from_state,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
+from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.solvers.etd import etd2_step
 
@@ -75,6 +80,7 @@ class SpatialCollisions:
         enable_recombination: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
+        phonon_escape_time: float | None = None,
     ) -> None:
         if spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -92,6 +98,21 @@ class SpatialCollisions:
         self.enable_recombination = bool(enable_recombination)
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
+
+        # None keeps the phonons pinned at the bath, which is the shipped
+        # behaviour and what every published spatial result assumes. A value
+        # solves the phonon population per cell; 0.0 is the engine's
+        # no-substrate tau -> infinity sentinel, not instantaneous escape.
+        self.phonon_escape_time = phonon_escape_time
+        self.omega_bins, self._idx_diff, self._idx_sum, self._diff_sign = (
+            build_phonon_frequency_map(spectral.E)
+        )
+        self.n_ph: np.ndarray | None = None
+        if phonon_escape_time is not None:
+            seed = thermal_phonon_occupation(self.omega_bins, self.T_bath)
+            self.n_ph = np.repeat(
+                seed[:, None], self.gap_per_cell.size, axis=1,
+            )
 
         self._distinct_gaps, self._group_index = np.unique(
             self.gap_per_cell, return_inverse=True,
@@ -163,6 +184,97 @@ class SpatialCollisions:
         )
         self._cache[key] = operator
         return operator
+
+    def raw_kernels(
+        self, local_gap: float,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Undressed ``(K_s0, K_r0)`` for one local gap.
+
+        The cached operator bakes the THERMAL occupations into its matrices,
+        which is exactly right while the phonons are pinned and useless once
+        they are not: a live n_ph differs cell by cell.
+        """
+        spectral = self._local_spectral(local_gap)
+        k_s0 = (
+            build_scattering_kernel_base(spectral, tau_0=self.tau_0, T_c=self.T_c)
+            if self.enable_scattering else None
+        )
+        k_r0 = (
+            build_recombination_kernel_base(spectral, tau_0=self.tau_0, T_c=self.T_c)
+            if self.enable_recombination else None
+        )
+        return k_s0, k_r0
+
+    def dynamic_group_rates(
+        self,
+        f_group: np.ndarray,
+        columns: np.ndarray,
+        local_gap: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Collision rates against the live per-cell phonon population.
+
+        Evaluated cell by cell: the occupation matrices are built from that
+        cell's own n_ph, so nothing is shared across the group. This is the
+        real cost of a solved phonon sector on a mesh, and it is why the
+        thermal bath remains the default.
+        """
+        spectral = self._local_spectral(local_gap)
+        k_s0, k_r0 = self.raw_kernels(local_gap)
+        assert self.n_ph is not None
+        gain = np.zeros_like(f_group)
+        loss = np.zeros_like(f_group)
+        for local, cell in enumerate(columns):
+            n_p, n_emit, n_abs = phonon_occupation_matrices_from_state(
+                self.n_ph[:, cell], self._idx_diff, self._idx_sum, self._diff_sign,
+            )
+            g, ell = phonon_collision_rates(
+                f_group[:, local], spectral, k_s0, k_r0, self.T_bath,
+                enable_scattering=self.enable_scattering,
+                enable_recombination=self.enable_recombination,
+                N_p_override=n_p, N_emit_override=n_emit, N_abs_override=n_abs,
+            )
+            gain[:, local] = g
+            loss[:, local] = ell
+        return gain, loss
+
+    def advance_phonons(self, f: np.ndarray, dt: float) -> None:
+        """Advance the per-cell phonon population over ``dt`` at fixed ``f``.
+
+        Per cell the equation is diagonal in omega and affine,
+            dn/dt = a_ph + b_ph*n + (n_th - n)/tau_l = A + B*n,
+        solved exactly over the step. phi_1 goes through expm1 for the same
+        reason the 0-D transient does: sub-2-Delta bins reach |B h| ~ 1e-7,
+        where forming (exp(Bh) - 1) directly cancels to zero and silently
+        deletes the whole source term.
+        """
+        if self.n_ph is None or self.phonon_escape_time is None:
+            return
+        n_th = thermal_phonon_occupation(self.omega_bins, self.T_bath)
+        for gap, columns in self._groups():
+            spectral = self._local_spectral(gap)
+            k_s0, k_r0 = self.raw_kernels(gap)
+            for cell in columns:
+                a_ph, b_ph = compute_phonon_source_sink(
+                    f[:, cell], spectral, k_s0, k_r0,
+                    self._idx_diff, self._idx_sum, self._diff_sign,
+                    int(self.omega_bins.size),
+                    enable_scattering=self.enable_scattering,
+                    enable_recombination=self.enable_recombination,
+                )
+                if self.phonon_escape_time == 0.0:
+                    a_eff, b_eff = a_ph, b_ph
+                else:
+                    inv_tau = 1.0 / self.phonon_escape_time
+                    a_eff = a_ph + inv_tau * n_th
+                    b_eff = b_ph - inv_tau
+                bh = b_eff * dt
+                nonzero = b_eff != 0.0
+                phi1 = np.where(
+                    nonzero, np.expm1(bh) / np.where(nonzero, b_eff, 1.0), dt,
+                )
+                self.n_ph[:, cell] = np.clip(
+                    self.n_ph[:, cell] * np.exp(bh) + a_eff * phi1, 0.0, None,
+                )
 
     def _local_spectral(self, local_gap: float) -> SpectralContext:
         if float(local_gap) == float(self.spectral.gap):
@@ -252,6 +364,46 @@ class SpatialCollisions:
         loss[unsupported, :] = 0.0
         return gain, loss
 
+    def combined_group_rates(
+        self,
+        f_group: np.ndarray,
+        columns: np.ndarray,
+        operator: CollisionOperator,
+        local_gap: float,
+        external_gain: np.ndarray | None = None,
+        external_loss: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """THE right-hand side for one gap group. One author, deliberately.
+
+        Every term belongs here: the electron-phonon channels against either a
+        pinned or a live phonon population, the photon drives, and any external
+        source. The stepper and the convergence residual both call this, so
+        they cannot disagree about what the model contains.
+
+        That is not a stylistic preference. Assembling the residual separately
+        omitted the external source once and the photon drives once, and in
+        both cases a driven device was certified steady on its first step --
+        the same bug twice, in two different terms.
+        """
+        if self.n_ph is not None:
+            gain, loss = self.dynamic_group_rates(f_group, columns, local_gap)
+        else:
+            gain, loss = self.group_rates(f_group, operator)
+
+        photon = self.photon_rates(f_group, local_gap)
+        if photon is not None:
+            gain = gain + photon[0]
+            loss = loss + photon[1]
+        if external_gain is not None:
+            gain = gain + external_gain
+        if external_loss is not None:
+            loss = loss + external_loss
+
+        unsupported = ~operator[4]
+        gain[unsupported, :] = 0.0
+        loss[unsupported, :] = 0.0
+        return gain, loss
+
     # -- stepping ---------------------------------------------------------
 
     def apply(
@@ -301,16 +453,11 @@ class SpatialCollisions:
             for (columns, operator), (gap, _cols) in zip(
                 groups, self._groups(), strict=True,
             ):
-                g, ell = self.group_rates(
-                    current[:, columns],
-                    operator,
+                g, ell = self.combined_group_rates(
+                    current[:, columns], columns, operator, gap,
                     None if external_gain is None else external_gain[:, columns],
                     None if external_loss is None else external_loss[:, columns],
                 )
-                photon = self.photon_rates(current[:, columns], gap)
-                if photon is not None:
-                    g = g + photon[0]
-                    ell = ell + photon[1]
                 gain[:, columns] = g
                 loss[:, columns] = ell
             return gain, loss
@@ -339,15 +486,12 @@ class SpatialCollisions:
                 bound_gain: np.ndarray | None = group_gain,
                 bound_loss: np.ndarray | None = group_loss,
                 bound_gap: float = gap,
+                bound_columns: np.ndarray = columns,
             ) -> tuple[np.ndarray, np.ndarray]:
-                g, ell = self.group_rates(
-                    f_group, bound_operator, bound_gain, bound_loss,
+                return self.combined_group_rates(
+                    f_group, bound_columns, bound_operator, bound_gap,
+                    bound_gain, bound_loss,
                 )
-                photon = self.photon_rates(f_group, bound_gap)
-                if photon is not None:
-                    g = g + photon[0]
-                    ell = ell + photon[1]
-                return g, ell
 
             f_group = f[:, columns]
             updated[:, columns] = etd2_step(

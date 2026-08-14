@@ -427,6 +427,7 @@ class Spatial2DSetup(StrictModel):
     injection: Injection2D = Injection2D()
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()
+    phonons: PhononSector = PhononSector()
     dt: Annotated[float, Field(gt=0.0)] = 1.0
     max_time: Annotated[float, Field(gt=0.0)] = 5000.0
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
