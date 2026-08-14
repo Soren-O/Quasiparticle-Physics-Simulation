@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from qpsim.collisions.spatial import SpatialCollisions
+from qpsim.fields.drive import ExternalDrive, StaticDrive
 from qpsim.geometries import Geometry
 from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.materials.database import Material
@@ -414,6 +415,7 @@ class T3SpatialBackend:
         stop_tol: float = 1e-10,
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
+        drive: ExternalDrive | None = None,
         self_consistent_gap: bool = False,
         gap_quantum: float | None = None,
         snapshot_interval: float | None = None,
@@ -438,6 +440,24 @@ class T3SpatialBackend:
             not np.isfinite(snapshot_interval) or snapshot_interval <= 0.0
         ):
             raise ValueError("snapshot_interval must be positive when provided.")
+        if drive is not None and (
+            external_gain is not None or external_loss is not None
+        ):
+            raise ValueError(
+                "Pass either a drive or external_gain/external_loss, not both: "
+                "silently summing them would make the applied source depend on "
+                "which argument the caller happened to reach for."
+            )
+        if drive is None:
+            drive = StaticDrive(external_gain, external_loss)
+        static_drive = drive.is_static
+        # A time-dependent drive has no steady state to find, and its residual
+        # passes through zero whenever the drive does -- so an early stop on
+        # stop_tol would end the run in the gap between two pulses and report
+        # it as converged. Run the requested time instead.
+        if not static_drive:
+            stop_tol = 0.0
+        gain, loss = drive.sample(0.0)
 
         snapshots: list[SpatialSnapshot] = []
         capture = snapshot_interval is not None
@@ -456,8 +476,7 @@ class T3SpatialBackend:
             snapshots.append(self._snapshot(
                 state, 0.0,
                 float(np.max(np.abs(self.rates(
-                    state, external_gain=external_gain,
-                    external_loss=external_loss,
+                    state, external_gain=gain, external_loss=loss,
                 )))),
             ))
         next_capture = float(snapshot_interval) if capture else float("inf")
@@ -472,9 +491,13 @@ class T3SpatialBackend:
             if remaining <= 1e-12:
                 break
             step_dt = min(dt, remaining)
+            if not static_drive:
+                # Midpoint, matching the Strang composition around it: a drive
+                # sampled at the left endpoint drops the whole scheme to first
+                # order and systematically lags a rising pulse.
+                gain, loss = drive.sample(elapsed + 0.5 * step_dt)
             current = self.step(
-                current, step_dt,
-                external_gain=external_gain, external_loss=external_loss,
+                current, step_dt, external_gain=gain, external_loss=loss,
             )
             if self_consistent_gap:
                 # Re-solve the gap against the occupation the step produced,
@@ -485,9 +508,10 @@ class T3SpatialBackend:
                 )
             elapsed += step_dt
             n_steps += 1
+            if not static_drive:
+                gain, loss = drive.sample(elapsed)
             last_rate = float(np.max(np.abs(
-                self.rates(current, external_gain=external_gain,
-                           external_loss=external_loss)
+                self.rates(current, external_gain=gain, external_loss=loss)
             )))
             if elapsed >= next_capture:
                 snapshots.append(self._snapshot(current, elapsed, last_rate))
