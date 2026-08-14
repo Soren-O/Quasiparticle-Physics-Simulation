@@ -56,6 +56,8 @@ from qpsim.transport.diffusion.base import DiffusionModel
 from qpsim.transport.diffusion.base import from_name as diffusion_model_from_name
 from qpsim.webui.schemas import (
     AnySetup,
+    EdgeCondition,
+    EdgeConditions,
     EnergyProfileSpec,
     M25JunctionSetup,
     MaterialParams,
@@ -723,10 +725,7 @@ def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
     """Thermal-seed state on the setup's geometry."""
     geometry = build_geometry_2d(setup)
     spectral = build_spectral(setup)
-    condition = BoundaryCondition(
-        setup.boundary.kind,
-        None if setup.boundary.kind in ("reflective",) else setup.boundary.value,
-    )
+    conditions = build_boundary_conditions_2d(setup, geometry)
     thermal = fermi_dirac_distribution(spectral.E, setup.T_bath)
     return T3SpatialState(
         f=np.repeat(thermal[:, None], geometry.cell_count, axis=1),
@@ -734,7 +733,7 @@ def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
         spectral=spectral,
         material=material_from_params(setup.material),
         T_bath=setup.T_bath,
-        conditions=geometry.conditions(condition),
+        conditions=conditions,
         diffusion_model=DiffusionModel[setup.diffusion_model],
         gap_per_cell=build_gap_per_cell_2d(setup, geometry),
         interface_conductance=(
@@ -742,6 +741,73 @@ def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
             else setup.gap_regions.interface_G_N
         ),
     )
+
+
+def _boundary_condition(spec: EdgeCondition | EdgeConditions) -> BoundaryCondition:
+    """Schema condition -> engine condition.
+
+    `reflective` and `absorbing` carry no value at all: passing 0.0 for them
+    would read as a Dirichlet wall pinned at zero, which is a different
+    boundary and a silently different device.
+    """
+    if spec.kind in ("reflective", "absorbing"):
+        return BoundaryCondition(spec.kind)
+    return BoundaryCondition(spec.kind, spec.value, spec.aux_value)
+
+
+_DIRECTIONS = ("up", "down", "left", "right")
+
+
+def _edges_facing(geometry: Geometry, direction: str) -> list[str]:
+    """Edge ids whose every face points ``direction``.
+
+    Segments are run-merged and named ``edge_0001``..., which is the right
+    identity for a GDS-imported outline but useless to type: on a rectangle
+    nobody knows which number is the left end. Directions are how a person
+    describes a rim, so they are accepted as aliases. A merged segment that
+    turns a corner belongs to no single direction and is deliberately not
+    matched -- silently including it would apply a condition to a face the
+    author did not mean.
+    """
+    return [
+        edge.edge_id
+        for edge in geometry.edges
+        if edge.faces and all(f.direction == direction for f in edge.faces)
+    ]
+
+
+def build_boundary_conditions_2d(
+    setup: Spatial2DSetup, geometry: Geometry,
+) -> dict[str, BoundaryCondition]:
+    """Per-edge conditions: the rim default, then any named overrides.
+
+    An override key is either a real segment id or one of the four direction
+    aliases.
+    """
+    conditions = geometry.conditions(_boundary_condition(setup.boundary))
+    for key, spec in setup.boundary.per_edge.items():
+        condition = _boundary_condition(spec)
+        if key in conditions:
+            conditions[key] = condition
+            continue
+        if key in _DIRECTIONS:
+            matched = _edges_facing(geometry, key)
+            if not matched:
+                raise ValueError(
+                    f"This geometry has no edge facing {key!r}. Its segments "
+                    f"are: {', '.join(sorted(conditions))}."
+                )
+            for edge_id in matched:
+                conditions[edge_id] = condition
+            continue
+        # Assembly requires every outward face to be named, so an
+        # unrecognised id is a condition that would silently never apply.
+        raise ValueError(
+            f"This geometry has no edge {key!r}. Use one of "
+            f"{', '.join(_DIRECTIONS)}, or a segment id: "
+            f"{', '.join(sorted(conditions))}."
+        )
+    return conditions
 
 
 def build_gap_per_cell_2d(setup: Spatial2DSetup, geometry: Geometry) -> np.ndarray | None:

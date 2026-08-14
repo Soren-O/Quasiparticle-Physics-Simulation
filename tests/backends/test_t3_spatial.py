@@ -461,3 +461,80 @@ class TestRecordedFrames:
         )
         assert all(s.n_ph is not None for s in result.snapshots)
         assert result.snapshots[0].n_ph.shape == result.snapshots[-1].n_ph.shape
+
+
+class TestPerEdgeBoundaryConditions:
+    """Different edges mean different things, and the schema has to say so.
+
+    A rim-wide condition cannot express the standard quasiparticle-trapping
+    experiment -- an absorbing trap on one end, reflective elsewhere -- and on
+    a one-cell-wide strip it is actively wrong: "absorbing" then also absorbs
+    through the long sides, which a 1-D strip does not have.
+    """
+
+    @staticmethod
+    def _strip_mean(per_edge, kind="reflective"):
+        from qpsim.webui import execute
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 24
+        setup.geometry.rows, setup.geometry.cols = 1, 20
+        setup.dt = 2.0
+        setup.max_time = 200.0
+        setup.stop_tol = 0.0
+        setup.boundary.kind = kind
+        setup.boundary.per_edge = per_edge
+        payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
+        return float(payload.summary["x_qp_mean"])
+
+    def test_absorbing_ends_lose_far_less_than_an_absorbing_rim(self):
+        """The quantitative statement of the trap, on the 1-D reduction."""
+        from qpsim.webui.schemas import EdgeCondition
+        absorbing = EdgeCondition(kind="absorbing")
+        ends = self._strip_mean({"left": absorbing, "right": absorbing})
+        whole_rim = self._strip_mean({}, kind="absorbing")
+        assert whole_rim < ends / 1e4, (
+            "a rim-wide absorbing condition should leak through the long "
+            "sides that a 1-D strip does not have"
+        )
+
+    def test_one_absorbing_end_sits_between_the_two_limits(self):
+        from qpsim.webui.schemas import EdgeCondition
+        reflective = self._strip_mean({})
+        one_end = self._strip_mean({"left": EdgeCondition(kind="absorbing")})
+        both = self._strip_mean({
+            "left": EdgeCondition(kind="absorbing"),
+            "right": EdgeCondition(kind="absorbing"),
+        })
+        assert both < one_end < reflective
+
+    def test_robin_interpolates_between_reflective_and_absorbing(self):
+        """The continuum where every real contact actually sits.
+
+        Measured on this mesh: reflective 7.54e-6, robin(beta=0.05) 1.98e-6,
+        absorbing 6.00e-7. Note beta is NOT a dimensionless "transparency" --
+        robin(beta=0.5) reproduces the absorbing case to every digit here and
+        larger beta drains further still, so absorbing is one particular beta
+        for this spacing rather than the beta -> infinity limit. beta=0.05 is
+        chosen because it is unambiguously between the two.
+        """
+        from qpsim.webui.schemas import EdgeCondition
+        reflective = self._strip_mean({})
+        absorbing = self._strip_mean({"left": EdgeCondition(kind="absorbing")})
+        robin = self._strip_mean({
+            "left": EdgeCondition(kind="robin", value=0.05, aux_value=0.0),
+        })
+        assert absorbing < robin < reflective
+
+    def test_robin_without_its_second_coefficient_is_refused(self):
+        from pydantic import ValidationError
+        from qpsim.webui.schemas import EdgeConditions
+        with pytest.raises(ValidationError, match="needs aux_value"):
+            EdgeConditions(kind="robin", value=0.5)
+
+    def test_an_unknown_edge_names_what_is_available(self):
+        """A condition that silently never applies is worse than an error."""
+        from qpsim.webui.schemas import EdgeCondition
+        with pytest.raises(ValueError, match="no edge 'north'"):
+            self._strip_mean({"north": EdgeCondition(kind="absorbing")})

@@ -500,17 +500,55 @@ class GeometrySource(StrictModel):
     require_connected: bool = True
 
 
-class EdgeConditions(StrictModel):
-    """Boundary condition applied to the device rim.
+BoundaryKind = Literal[
+    "reflective", "absorbing", "dirichlet", "neumann", "robin"
+]
 
-    One condition for the whole boundary. Per-edge assignment is what the
-    geometry layer is built for, but naming individual run-merged segments
-    needs a picker the interface does not have yet, so this exposes the
-    uniform case honestly rather than pretending to more.
+
+class EdgeCondition(StrictModel):
+    """One boundary condition, for one edge.
+
+    ``robin`` is the physically interesting one and the reason this exists:
+    ``∂ₙφ + βφ = γ`` is the finite-transparency interface, the lossy contact,
+    the trap with a finite escape rate. ``absorbing`` is its β → ∞ limit and
+    ``reflective`` its β = 0 limit, so without it the whole continuum between
+    "nothing leaves" and "everything leaves" — which is where every real
+    contact sits — cannot be stated.
     """
 
-    kind: Literal["reflective", "absorbing", "dirichlet", "neumann"] = "reflective"
+    kind: BoundaryKind = "reflective"
+    value: float = 0.0          # dirichlet/neumann value, or robin β
+    aux_value: float | None = None   # robin γ
+
+
+class EdgeConditions(StrictModel):
+    """Boundary conditions on the device rim.
+
+    ``kind``/``value``/``aux_value`` set the default for every edge, and
+    ``per_edge`` overrides individual ones by id. For a rectangular mask the
+    ids are ``up``, ``down``, ``left`` and ``right``.
+
+    Per-edge assignment is what makes a *device* rather than a slab: an
+    absorbing normal-metal trap on one end with a reflective rim elsewhere is
+    the standard quasiparticle-trapping experiment. It also removes a trap in
+    the uniform form — on a one-cell-wide strip, a rim-wide "absorbing" also
+    absorbs through the long sides, so the 1-D reduction silently leaked.
+    """
+
+    kind: BoundaryKind = "reflective"
     value: float = 0.0
+    aux_value: float | None = None
+    per_edge: dict[str, EdgeCondition] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def robin_needs_a_coefficient(self) -> EdgeConditions:
+        for label, spec in [("boundary", self), *self.per_edge.items()]:
+            if spec.kind == "robin" and spec.aux_value is None:
+                raise ValueError(
+                    f"A robin condition on {label!r} needs aux_value (γ in "
+                    "∂ₙφ + βφ = γ); `value` is β."
+                )
+        return self
 
 
 class GapRegions(StrictModel):
