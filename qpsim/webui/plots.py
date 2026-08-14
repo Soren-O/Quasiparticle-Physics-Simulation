@@ -634,6 +634,53 @@ def _csv_m25_sweep(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(keys, [arrays[k] for k in keys])
 
 
+def _cell_coordinates(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Cell centres in mask order, in cell units.
+
+    Mask order is row-major over ``mask.nonzero()``, which is exactly what the
+    solver uses, so this is the mapping from a result column back to a place
+    on the device.
+    """
+    mask = np.asarray(arrays["mask"]).astype(bool)
+    rows, cols = np.nonzero(mask)
+    return cols.astype(float), rows.astype(float)
+
+
+def _csv_spatial_2d_profile(arrays: dict[str, np.ndarray]) -> str:
+    """Per-cell x_qp with the cell's place on the mask.
+
+    Without this a 2-D run's numbers cannot leave the browser at all: the
+    result was four PNGs and a handful of summary scalars, so replotting,
+    fitting, or comparing against another tool was impossible.
+    """
+    col, row = _cell_coordinates(arrays)
+    header = ["col", "row", "x_qp", "x_qp_paper"]
+    cols = [col, row, arrays["xqp_profile"], 2.0 * arrays["xqp_profile"]]
+    if "gap_per_cell" in arrays:
+        header.append("gap_ueV")
+        cols.append(arrays["gap_per_cell"])
+    return _csv_from_columns(header, cols)
+
+
+def _csv_spatial_2d_occupation(arrays: dict[str, np.ndarray]) -> str:
+    """f(E) per cell at the final time, one column per cell."""
+    col, row = _cell_coordinates(arrays)
+    f = arrays["f_final"]
+    return _csv_from_columns(
+        ["E_ueV", *[f"f_col={int(c)}_row={int(r)}" for c, r in zip(col, row, strict=True)]],
+        [arrays["E_bins"], *[f[:, j] for j in range(f.shape[1])]],
+    )
+
+
+def _csv_spatial_2d_time_series(arrays: dict[str, np.ndarray]) -> str:
+    """Recorded frames reduced to per-time observables."""
+    return _csv_from_columns(
+        ["t_ns", "max_rate_per_ns", "x_qp_mean", "x_qp_max"],
+        [arrays["snap_t_ns"], arrays["snap_max_rate"],
+         arrays["obs_x_qp_mean"], arrays["obs_x_qp_max"]],
+    )
+
+
 def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
     """The comparison as a table: abscissa, simulated, analytic, per series."""
     sim = np.atleast_2d(arrays["bench_sim"])
@@ -659,23 +706,33 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
         "occupation": _csv_spatial_occupation,
     },
     "m25_junction": {"sweep": _csv_m25_sweep},
-    "spatial_2d": {},
+    "spatial_2d": {
+        "profile": _csv_spatial_2d_profile,
+        "occupation": _csv_spatial_2d_occupation,
+        "time_series": _csv_spatial_2d_time_series,
+    },
 }
 
 # A table that needs an array the run did not produce must not be offered, or
-# the download 404s after the user has already clicked it. Only the benchmark
-# table is conditional today; the rest are always present for their mode.
-_CSV_REQUIRES: dict[str, str] = {"analytic_comparison": "bench_x"}
+# the download 404s after the user has already clicked it. Keyed by (mode,
+# name), not by name alone: "time_series" means a different array in each mode
+# -- transient_0d always has one, spatial_2d only when frames were requested --
+# and a single global entry would hide a table that is always there.
+_CSV_REQUIRES: dict[tuple[str, str], str] = {
+    ("spatial_2d", "time_series"): "snap_t_ns",
+}
 
-for _mode_csvs in _CSVS.values():
+for _mode, _mode_csvs in _CSVS.items():
     _mode_csvs["analytic_comparison"] = _csv_benchmark
+    _CSV_REQUIRES[(_mode, "analytic_comparison")] = "bench_x"
 
 
 def available_csvs(mode: str, array_names: Collection[str]) -> list[str]:
     return [
         name
         for name in _CSVS.get(mode, {})
-        if _CSV_REQUIRES.get(name) is None or _CSV_REQUIRES[name] in array_names
+        if (required := _CSV_REQUIRES.get((mode, name))) is None
+        or required in array_names
     ]
 
 

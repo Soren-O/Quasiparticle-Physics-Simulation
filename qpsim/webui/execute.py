@@ -656,7 +656,7 @@ def run_spatial_2d(
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("once")
-        final, n_steps, converged, last_rate = backend.run(
+        result = backend.run(
             state,
             dt=setup.dt,
             max_time=setup.max_time,
@@ -667,8 +667,13 @@ def run_spatial_2d(
             gap_quantum=(
                 setup.gap_quantum_over_dE * float(np.min(state.spectral.dE))
             ),
+            snapshot_interval=setup.snapshot_interval,
             progress_hook=hook,
         )
+    final = result.state
+    n_steps, converged, last_rate = (
+        result.n_steps, result.converged, result.last_max_rate
+    )
     payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
     if is_cancelled():
         raise RunCancelledError
@@ -683,6 +688,37 @@ def run_spatial_2d(
     payload.arrays["mask"] = geometry.mask.astype(np.int8)
     payload.arrays["xqp_field"] = field
     payload.arrays["xqp_profile"] = profile
+    payload.arrays["gap_per_cell"] = final.gaps()
+
+    if result.snapshots:
+        payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])
+        payload.arrays["snap_max_rate"] = np.array(
+            [s.max_rate for s in result.snapshots]
+        )
+        # (frames, NE, Ncells). Stored whole rather than reduced: which
+        # reduction a reader wants -- a per-energy map, the total, the profile
+        # along one axis -- is a question asked after the run, and a scalar
+        # recorded now cannot answer it later.
+        payload.arrays["snap_f"] = np.stack([s.f for s in result.snapshots])
+        payload.arrays["snap_gap"] = np.stack(
+            [s.gap_per_cell for s in result.snapshots]
+        )
+        if all(s.n_ph is not None for s in result.snapshots):
+            payload.arrays["snap_n_ph"] = np.stack(
+                [s.n_ph for s in result.snapshots]
+            )
+        payload.arrays["snap_xqp_profile"] = np.stack([
+            _xqp_profile_2d(replace(final, f=s.f, gap_per_cell=s.gap_per_cell),
+                            delta_0)
+            for s in result.snapshots
+        ])
+        payload.arrays["obs_x_qp_mean"] = np.array([
+            float(np.mean(p)) for p in payload.arrays["snap_xqp_profile"]
+        ])
+        payload.arrays["obs_x_qp_max"] = np.array([
+            float(np.max(p)) for p in payload.arrays["snap_xqp_profile"]
+        ])
+
     payload.summary.update({
         # The reference gap the figures normalise energy by. Without it
         # `plots._gap` falls back to 1.0 and the occupation spectrum plots

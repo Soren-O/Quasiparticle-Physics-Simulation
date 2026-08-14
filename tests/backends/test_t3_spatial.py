@@ -228,12 +228,10 @@ class TestResidualAndRun:
             T_bath=T_BATH,
         )
         before = float(np.max(np.abs(backend.rates(state))))
-        out, n_steps, _converged, after = backend.run(
-            state, dt=1.0, max_time=200.0, stop_tol=1e-14,
-        )
-        assert n_steps > 0
-        assert after < before
-        grid = out.f[peak].reshape(8, 8)
+        result = backend.run(state, dt=1.0, max_time=200.0, stop_tol=1e-14)
+        assert result.n_steps > 0
+        assert result.last_max_rate < before
+        grid = result.state.f[peak].reshape(8, 8)
         assert grid[3, 3] < f0[peak, 27]          # the spike drained
         assert grid[3, 2] > f0[peak, 26]          # a neighbour filled
         assert np.isclose(grid[3, 2], grid[2, 3])  # symmetric in both axes
@@ -376,3 +374,90 @@ class TestPhononPopulationSurvivesAGapChange:
         rebuilt = backend._collisions_for(replace(state, spectral=coarser))
         assert rebuilt.omega_bins.shape != collisions.omega_bins.shape
         assert not np.array_equal(rebuilt.n_ph, collisions.n_ph)
+
+
+class TestRecordedFrames:
+    """A spatial run has to be observable on the way, not only at the end.
+
+    Without frames the single observable is the endpoint, so "has it settled"
+    is indistinguishable from "is still drifting", and every dynamical
+    question -- how fast a front moves, when a transient decays -- has nowhere
+    to read an answer from.
+    """
+
+    @staticmethod
+    def _driven_state(cells: int = 6):
+        material, spectral = _setup(ne=16)
+        geom = strip(cells)
+        f0 = _occupations(spectral, material, geom.cell_count)
+        return T3SpatialState(
+            f=f0, geometry=geom, spectral=spectral,
+            material=material, T_bath=T_BATH,
+        )
+
+    def test_no_interval_records_nothing(self):
+        """The default path must be untouched: frames cost memory."""
+        result = T3SpatialBackend().run(
+            self._driven_state(), dt=1.0, max_time=10.0, stop_tol=0.0,
+        )
+        assert result.snapshots == []
+        assert result.n_steps == 10
+
+    def test_frames_span_the_run_including_both_ends(self):
+        result = T3SpatialBackend().run(
+            self._driven_state(), dt=0.5, max_time=10.0,
+            stop_tol=0.0, snapshot_interval=2.0,
+        )
+        times = [s.t for s in result.snapshots]
+        assert times[0] == 0.0
+        assert times[-1] == pytest.approx(result.elapsed)
+        assert times == sorted(times)
+        # 0, 2, 4, 6, 8, 10 -- the endpoint coincides with a boundary here, so
+        # it must not be recorded twice.
+        assert len(times) == len(set(times)) == 6
+
+    def test_the_initial_residual_is_measured_not_infinite(self):
+        result = T3SpatialBackend().run(
+            self._driven_state(), dt=1.0, max_time=4.0,
+            stop_tol=0.0, snapshot_interval=2.0,
+        )
+        assert np.isfinite(result.snapshots[0].max_rate)
+        assert result.snapshots[0].max_rate > 0.0
+
+    def test_a_frame_is_a_copy_not_a_view(self):
+        """A later step must not be able to rewrite recorded history."""
+        result = T3SpatialBackend().run(
+            self._driven_state(), dt=1.0, max_time=6.0,
+            stop_tol=0.0, snapshot_interval=2.0,
+        )
+        first, last = result.snapshots[0], result.snapshots[-1]
+        assert not np.shares_memory(first.f, result.state.f)
+        assert not np.array_equal(first.f, last.f), "the field never moved"
+
+    def test_a_cadence_finer_than_the_cap_is_refused(self):
+        with pytest.raises(ValueError, match=r"past the .* cap"):
+            T3SpatialBackend().run(
+                self._driven_state(), dt=1.0, max_time=1e6,
+                snapshot_interval=1e-3,
+            )
+
+    def test_the_phonon_history_starts_at_the_first_frame(self):
+        """t=0 is taken before any step, so the layer must be built for it.
+
+        Reading the cached attribute gave the first frame ``None`` and every
+        consumer then treated the run as having no phonon history at all.
+        """
+        from qpsim.webui.builders import build_state_2d
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 24
+        setup.geometry.rows, setup.geometry.cols = 2, 4
+        setup.phonons.mode = "dynamic_escape"
+        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        result = backend.run(
+            build_state_2d(setup), dt=1.0, max_time=4.0,
+            stop_tol=0.0, snapshot_interval=2.0,
+        )
+        assert all(s.n_ph is not None for s in result.snapshots)
+        assert result.snapshots[0].n_ph.shape == result.snapshots[-1].n_ph.shape

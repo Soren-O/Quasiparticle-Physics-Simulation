@@ -90,6 +90,40 @@ class T3SpatialState:
         )
 
 
+@dataclass(frozen=True)
+class SpatialSnapshot:
+    """One recorded frame of a spatial run.
+
+    Carries the whole field, not a reduction of it: a per-energy map and a
+    phonon map are questions a reader asks after the run, and a scalar
+    recorded now cannot answer them later.
+    """
+
+    t: float                          # simulation time (ns)
+    f: np.ndarray                     # (NE, Ncells)
+    gap_per_cell: np.ndarray          # (Ncells,)
+    n_ph: np.ndarray | None           # (Nomega, Ncells), None while pinned
+    max_rate: float                   # residual at this frame (1/ns)
+
+
+@dataclass(frozen=True)
+class SpatialRunResult:
+    """Outcome of :meth:`T3SpatialBackend.run`."""
+
+    state: T3SpatialState
+    n_steps: int
+    converged: bool
+    last_max_rate: float
+    elapsed: float                    # simulation time actually reached (ns)
+    snapshots: list[SpatialSnapshot] = field(default_factory=list)
+
+
+# Backstop on emitted frames. Each is a full (NE, Ncells) field plus a phonon
+# map, so an accidentally fine cadence exhausts memory rather than merely
+# running slowly; fail loud instead.
+_SNAPSHOT_HARD_CAP = 4_000
+
+
 class T3SpatialBackend:
     """Split-step T3 kinetics on a geometry of any dimensionality."""
 
@@ -382,14 +416,52 @@ class T3SpatialBackend:
         external_loss: np.ndarray | None = None,
         self_consistent_gap: bool = False,
         gap_quantum: float | None = None,
+        snapshot_interval: float | None = None,
         progress_hook: Callable[[float, float], bool] | None = None,
-    ) -> tuple[T3SpatialState, int, bool, float]:
+    ) -> SpatialRunResult:
         """Fixed-step dynamics until the residual falls below ``stop_tol``.
 
-        Returns ``(state, n_steps, converged, last_max_rate)``.
+        ``snapshot_interval`` records the evolving field on the way, which is
+        the difference between a solver and an instrument. Without it the only
+        observable is the endpoint, so "has it reached steady state" and "how
+        fast does the front move" are both unanswerable, and a run still
+        slowly drifting looks exactly like one that has settled.
+
+        Snapshots are taken at step boundaries at or after each requested
+        time, and each records the time actually reached rather than the time
+        asked for: interpolating a whole ``(NE, Ncells)`` field would be both
+        expensive and a claim about a state that was never computed.
         """
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive.")
+        if snapshot_interval is not None and (
+            not np.isfinite(snapshot_interval) or snapshot_interval <= 0.0
+        ):
+            raise ValueError("snapshot_interval must be positive when provided.")
+
+        snapshots: list[SpatialSnapshot] = []
+        capture = snapshot_interval is not None
+        if capture:
+            expected = int(max_time / float(snapshot_interval)) + 2
+            if expected > _SNAPSHOT_HARD_CAP:
+                raise ValueError(
+                    f"snapshot_interval={snapshot_interval:g} ns over "
+                    f"max_time={max_time:g} ns would emit about {expected} "
+                    f"frames of the full field, past the {_SNAPSHOT_HARD_CAP} "
+                    "cap. Coarsen the interval."
+                )
+            # The initial residual is a real measurement -- it says how far
+            # from steady the run started -- and recording it as inf would put
+            # a non-finite value in the first row of every exported series.
+            snapshots.append(self._snapshot(
+                state, 0.0,
+                float(np.max(np.abs(self.rates(
+                    state, external_gain=external_gain,
+                    external_loss=external_loss,
+                )))),
+            ))
+        next_capture = float(snapshot_interval) if capture else float("inf")
+
         current = state
         elapsed = 0.0
         n_steps = 0
@@ -417,12 +489,51 @@ class T3SpatialBackend:
                 self.rates(current, external_gain=external_gain,
                            external_loss=external_loss)
             )))
+            if elapsed >= next_capture:
+                snapshots.append(self._snapshot(current, elapsed, last_rate))
+                # Advance past every boundary already overtaken, so a coarse
+                # dt against a fine interval emits one frame per step instead
+                # of spinning out a backlog of duplicates at the same time.
+                while next_capture <= elapsed:
+                    next_capture += float(snapshot_interval)
             if last_rate < stop_tol:
                 converged = True
                 break
             if progress_hook is not None and not progress_hook(elapsed, max_time):
                 break
-        return current, n_steps, converged, last_rate
+
+        # The endpoint is the one frame a reader always wants, and a run that
+        # converges or is cancelled between cadence boundaries would otherwise
+        # end on a stale frame.
+        if capture and (not snapshots or snapshots[-1].t < elapsed):
+            snapshots.append(self._snapshot(current, elapsed, last_rate))
+        return SpatialRunResult(
+            state=current,
+            n_steps=n_steps,
+            converged=converged,
+            last_max_rate=last_rate,
+            elapsed=elapsed,
+            snapshots=snapshots,
+        )
+
+    def _snapshot(
+        self, state: T3SpatialState, t: float, max_rate: float
+    ) -> SpatialSnapshot:
+        """One frame, copied so a later step cannot rewrite recorded history.
+
+        Goes through ``_collisions_for`` rather than reading the cached
+        attribute: at t = 0 nothing has built the layer yet, so reading the
+        attribute gave the first frame a phonon map of ``None`` and every
+        consumer then treated the whole run as having no phonon history.
+        """
+        phonons = self._collisions_for(state).n_ph
+        return SpatialSnapshot(
+            t=float(t),
+            f=state.f.copy(),
+            gap_per_cell=state.gaps().copy(),
+            n_ph=None if phonons is None else phonons.copy(),
+            max_rate=float(max_rate),
+        )
 
     # -- self-consistent gap ----------------------------------------------
 

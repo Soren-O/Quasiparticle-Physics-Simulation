@@ -439,6 +439,18 @@ class Spatial2DSetup(StrictModel):
     dt: Annotated[float, Field(gt=0.0)] = 1.0
     max_time: Annotated[float, Field(gt=0.0)] = 5000.0
     stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
+    # Cadence for recording the evolving field (ns). ``None`` keeps only the
+    # final state, which is the right default for a steady-state search and
+    # the wrong one for every dynamical question: without frames, "has it
+    # settled" cannot be distinguished from "is still drifting". Each frame is
+    # a full (NE, Ncells) field plus the phonon map, so the cost is real and
+    # the choice is the user's.
+    snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
+
+    @model_validator(mode="after")
+    def snapshot_interval_not_pathological(self) -> Spatial2DSetup:
+        _reject_dense_snapshots(self.snapshot_interval, self.max_time)
+        return self
 
 
 AnySetup = (
