@@ -286,6 +286,10 @@ register(
         ),
         # The audit of the first derivation recommended tightening 1e-11 to
         # 1e-12, and the sweep below is why that is right in both directions.
+        headline_latex=(
+            r"\partial_t f(E_i,c) \;=\; g(E_i,c) \;\Rightarrow\; x_{qp}(t) \;=\; x_{qp}(0) + \dot "
+            r"S\,t"
+        ),
         rel_tol=1e-12,
         convergence=(
             "Metric: pointwise |sim − ana|/|ana|, over the 34 series × 21 "

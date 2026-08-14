@@ -454,6 +454,9 @@ register(Benchmark(
     # noise -- it is slack for a mesh that is not exactly this one. 4e-3 (the
     # original claim) was looser than the evidence needed; 1e-3 would need the
     # 32x64 mesh, which costs 51 s per run instead of 18 s.
+    headline_latex=(
+        r"\lambda(E) \;=\; D_{\rm eff}(E)\,k^2, \qquad D_{\rm eff}(E) \;=\; D_0\,N_1(E)^{\,q-p}"
+    ),
     rel_tol=3.5e-3,
     convergence=(
         "Headline case: 16x32 cells at 4 μm (128x64 μm), 64 energy bins, "

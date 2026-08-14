@@ -405,3 +405,34 @@ class TestIterationLoop:
         second = _wait_done(client, again.json()["id"])
         assert second["status"] == "done"
         assert second["setup"] == first["setup"]
+
+
+class TestFormulaRendering:
+    """A closed form is typeset, not shown as LaTeX source.
+
+    The formulas are 470-1600 characters of align environments; dropped into
+    a banner as text they are unreadable, which is what prompted this.
+    """
+
+    def test_every_benchmark_headline_typesets(self, client: TestClient) -> None:
+        catalogue = client.get("/api/benchmarks").json()
+        assert catalogue, "no benchmarks registered"
+        for name in catalogue:
+            resp = client.get(f"/api/benchmarks/{name}/formula.png")
+            assert resp.status_code == 200, f"{name}: {resp.text[:200]}"
+            assert resp.content[:4] == b"\x89PNG"
+
+    def test_the_headline_is_short_enough_to_be_one(self, client: TestClient) -> None:
+        """The bug was a derivation in a field rendered as a banner."""
+        for name, entry in client.get("/api/benchmarks").json().items():
+            headline = entry["headline_latex"]
+            assert headline, f"{name} has no headline"
+            assert len(headline) < 200, (
+                f"{name}: headline is {len(headline)} chars -- that is a "
+                "derivation, and belongs in the full statement"
+            )
+
+    def test_an_unknown_benchmark_is_a_404_not_a_broken_image(
+        self, client: TestClient
+    ) -> None:
+        assert client.get("/api/benchmarks/nope/formula.png").status_code == 404

@@ -393,6 +393,10 @@ register(
             "at five energies with D_0 = 0 keeps them independent, so one run "
             "measures five different rates against five closed forms."
         ),
+        headline_latex=(
+            r"\frac{f_{\rm top}(t)}{f_{\rm top}(0)} \;=\; e^{-\Gamma(E)\,t}, \qquad \Gamma(E) "
+            r"\;=\; \frac{J(E)}{\tau_0\,(k_BT_c)^3}"
+        ),
         rel_tol=1e-3,
         convergence=(
             "Measured residual on the shipped case: max 3.7003e-04, rms "

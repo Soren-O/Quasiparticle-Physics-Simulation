@@ -30,11 +30,13 @@ from qpsim.webui import benchmarks
 from qpsim.webui.builders import validate_setup
 from qpsim.webui.hosts import is_loopback_host
 from qpsim.webui.plots import (
+    FormulaRenderError,
     available_csvs,
     available_plots,
     plot_parameter_arrays,
     plot_parameters,
     render_csv,
+    render_formula,
     render_plot,
 )
 from qpsim.webui.runner import JobRunner
@@ -48,6 +50,11 @@ STATIC_DIR = Path(__file__).parent / "static"
 # DNS rebinding. It is not authentication: a direct HTTP client can choose its
 # Host header, which is why the bind restriction is the primary boundary.
 _TEST_HOSTS = frozenset({"testserver"})
+
+# A finished run's arrays never change and a benchmark's formula is fixed by
+# its module, so rendered artifacts can be cached — this also stops the
+# browser re-fetching plot PNGs every time the detail view re-renders.
+_CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
 
 def _hostname_from_header(host_header: str | None) -> str | None:
@@ -153,6 +160,7 @@ def create_app(workspace_root: Path | str) -> FastAPI:
                 "title": b.title,
                 "tier": b.tier,
                 "formula_latex": b.formula_latex,
+                "headline_latex": b.headline_latex,
                 "reason": b.reason,
                 "rel_tol": b.rel_tol,
                 "convergence": b.convergence,
@@ -163,6 +171,26 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             for name, b in ((n, benchmarks.get(n)) for n in benchmarks.names())
             if b is not None
         }
+
+    @app.get("/api/benchmarks/{name}/formula.png")
+    def benchmark_formula(name: str) -> Response:
+        """The headline equation, typeset.
+
+        Rendered here rather than in the browser because mathtext is already
+        the typesetting engine behind every figure in this app, so a formula
+        costs no JavaScript dependency and no build step. A benchmark with no
+        headline, or one mathtext cannot parse, is a 404: the interface then
+        shows the LaTeX source, which is honest, where a half-typeset
+        equation would not be.
+        """
+        bench = benchmarks.get(name)
+        if bench is None or not bench.headline_latex:
+            raise HTTPException(404, f"No headline formula for {name!r}.")
+        try:
+            png = render_formula(bench.headline_latex)
+        except FormulaRenderError as exc:
+            raise HTTPException(404, f"Formula is not typesettable: {exc}") from exc
+        return Response(png, media_type="image/png", headers=_CACHE_HEADERS)
 
     @app.get("/api/defaults/{mode}")
     def defaults(mode: str) -> dict[str, Any]:
@@ -291,11 +319,6 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         except (FileNotFoundError, ValueError, zipfile.BadZipFile) as exc:
             raise HTTPException(404, "Run or its arrays are missing/unreadable.") from exc
         return manifest, arrays
-
-    # A finished run's arrays never change, so rendered artifacts can
-    # be cached — this also stops the browser re-fetching plot PNGs
-    # when the detail view re-renders.
-    _CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
     @app.get("/api/runs/{run_id}/plots/{name}.png")
     def runs_plot(

@@ -97,6 +97,12 @@ class Benchmark:
     convergence: str
     modes: tuple[str, ...]
     build: Callable[[Any, dict[str, np.ndarray], dict[str, Any]], Curve]
+    # A single typeset equation for the interface banner. `formula_latex` is
+    # allowed to be the full statement -- several are align environments with
+    # the limit, the normalisation and the discretisation spelled out -- and
+    # that is worth keeping, but it is a derivation, not a headline. When this
+    # is empty the interface shows the source text rather than guessing.
+    headline_latex: str = ""
     caveat: str = ""
     # What proves the term under test is actually doing something in this
     # case. A benchmark that would pass with the term switched off measures

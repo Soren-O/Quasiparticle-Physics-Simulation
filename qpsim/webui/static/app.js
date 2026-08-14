@@ -532,7 +532,7 @@ async function showRunDetail() {
   let html = `<h2>${esc(r.name)} <span class="status ${esc(r.status)}">${esc(r.status)}</span></h2>
     <div class="hint">${esc(state.modeLabels[r.mode] || r.mode)} · ${esc(r.created || "")}
     ${r.elapsed_s != null ? " · " + fmt(r.elapsed_s) + " s" : ""}</div>
-    <div class="action-row"><button type="button" id="run-reopen">Open in editor</button></div>`;
+    <div class="action-row"><button type="button" id="run-settings">View settings</button></div>`;
   for (const n of r.notes || []) html += `<div class="note">⚠ ${esc(n)}</div>`;
   if (r.error) html += `<div class="note">✗ ${esc(r.error)}</div>`;
 
@@ -568,15 +568,14 @@ async function showRunDetail() {
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
-  // Iterating on a run meant reading its setup out of a JSON block and
-  // retyping it. It is already a valid setup for its own mode, so the
-  // editor can just be handed it -- as a COPY, since the editor mutates in
-  // place and a stored run must not change because somebody looked at it.
-  $("#run-reopen")?.addEventListener("click", async () => {
-    await switchMode(r.mode, JSON.parse(JSON.stringify(r.setup)));
-    $("#run-name").value = `${r.name} (edited)`;
-    showView("new-run");
-    window.scrollTo(0, 0);
+  // A simulation is something that already ran. Its settings are a record
+  // of what produced these numbers, so they are shown and never offered for
+  // editing: an edited run would pair one set of results with a different
+  // set of inputs, and for a test simulation it would also silently
+  // invalidate the analytic comparison the case exists to make. Editing
+  // belongs to SETUPS, which have not run yet.
+  $("#run-settings")?.addEventListener("click", () => {
+    openSettingsView(r.name, r.mode, r.setup);
   });
   document.querySelectorAll("#run-detail .scrubber").forEach(initScrubber);
   if (setupWasOpen) {
@@ -676,6 +675,49 @@ function initScrubber(figure) {
   figure.addEventListener("qpsim:teardown", stop);
 }
 
+/* ---------- settings, read-only ----------
+   Rendered from the same FORMS schema the editor uses, so a field carries the
+   same label and units in both places. Raw JSON stays available underneath --
+   it is the exact record -- but it is not what a reader should have to parse
+   to see what was run. */
+
+function settingsRows(mode, setup) {
+  const sections = FORMS[mode] || [];
+  let html = "";
+  for (const section of sections) {
+    const rows = section.fields.map((f) => {
+      const value = getByPath(setup, f.path);
+      if (value === undefined) return "";
+      const shown = f.type === "check"
+        ? (value ? "on" : "off")
+        : (value === null ? "—" : fmt(value));
+      return `<tr><td>${esc(f.label)}</td><td>${esc(shown)}</td></tr>`;
+    }).join("");
+    if (!rows) continue;
+    html += `<h3 class="settings-h">${esc(section.title)}</h3>`
+      + `<table class="list summary-table">${rows}</table>`;
+  }
+  return html || `<p class="hint">This mode has no editable fields.</p>`;
+}
+
+function openSettingsView(name, mode, setup) {
+  crumbs([
+    { label: "Home", go: () => showView("home") },
+    { label: "Simulations", go: () => showView("runs") },
+    { label: name },
+  ]);
+  $("#cat-title").textContent = `${name} — settings`;
+  $("#cat-blurb").textContent =
+    "The settings this simulation ran with. A simulation has already run, so "
+    + "these are a record and cannot be changed; edit a saved setup instead.";
+  $("#cat-body").innerHTML =
+    `<div class="settings">${settingsRows(mode, setup)}</div>`
+    + `<details class="ex-full"><summary>Exact stored setup (JSON)</summary>`
+    + `<pre class="json">${esc(JSON.stringify(setup, null, 2))}</pre></details>`;
+  showView("catalogue");
+  window.scrollTo(0, 0);
+}
+
 /* ---------- materials view ---------- */
 
 async function refreshMaterials() {
@@ -748,22 +790,29 @@ async function buildCaseSetup(tc) {
   return { setup: body, unknown };
 }
 
-async function openCase(tc) {
+/* The settings a case would run with, resolved the same way running it
+   resolves them -- defaults for the mode with the case's overrides applied --
+   so what is shown is what would run, not a second description of it. */
+async function viewCaseSettings(tc) {
   const { setup, unknown } = await buildCaseSetup(tc);
-  $("#run-name").value = tc.title;
-  await switchMode(tc.mode, setup);
-  showView("new-run");
+  openSettingsView(tc.title, tc.mode, setup);
   if (unknown.length) {
-    $("#feedback").innerHTML =
+    $("#cat-body").insertAdjacentHTML("afterbegin",
       `<div class="err">This case names setup fields that do not exist: ${
-        unknown.map(esc).join(", ")}. It was loaded without them.</div>`;
+        unknown.map(esc).join(", ")}.</div>`);
   }
 }
+
+/* `openCase` used to load a test case into the editor. It is deliberately
+   gone rather than merely unreferenced: a test case's settings are chosen so
+   that a particular closed form applies to them, so an edited copy keeps the
+   analytic comparison while no longer being the case it describes. Editing
+   belongs to setups. `viewCaseSettings` shows the same values, read-only. */
 
 async function runCase(tc, btn) {
   const label = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Starting…";
+  btn.textContent = "Generating…";
   try {
     const { setup, unknown } = await buildCaseSetup(tc);
     if (unknown.length) {
@@ -999,20 +1048,25 @@ async function openItem(catId, itemId) {
           + `${esc(declared.tier)}</span>`
         : "";
       stated.innerHTML =
-        `<div class="ex-head"><span class="ex-verdict">Expected</span>${tier}`
-        + `<span class="ex-formula">${esc(declared.formula_latex)}</span></div>`
+        `<div class="ex-head"><span class="ex-verdict">Expected</span>${tier}</div>`
+        + formulaBlock(
+            tc.benchmark, declared.headline_latex || declared.formula_latex)
         + `<p class="ex-reason">${esc(declared.reason)}</p>`;
       card.insertBefore(stated, card.querySelector(".tc-actions"));
     }
     const actions = card.querySelector(".tc-actions");
-    const open = document.createElement("button");
-    open.textContent = "Open in editor";
-    open.addEventListener("click", () => openCase(tc));
+    // A test simulation is a fixed experiment: its settings are chosen to make
+    // a specific closed form apply, so editing them would leave the analytic
+    // comparison attached to a case it no longer describes. The settings are
+    // therefore viewable and not editable, and the only action is to run it.
+    const view = document.createElement("button");
+    view.textContent = "View settings";
+    view.addEventListener("click", () => viewCaseSettings(tc));
     const run = document.createElement("button");
     run.className = "primary";
-    run.textContent = "Run";
+    run.textContent = "Generate & save";
     run.addEventListener("click", () => runCase(tc, run));
-    actions.append(open, run);
+    actions.append(view, run);
     host.appendChild(card);
   }
 }
@@ -1472,6 +1526,32 @@ function evaluateExpectation(expect, summary) {
   };
 }
 
+/* A formula is typeset by the server (matplotlib mathtext, the same engine
+   behind every figure here) rather than shown as LaTeX source. `formula_latex`
+   is the FULL statement -- several are align environments carrying the limit,
+   the normalisation and the discretisation -- so it is not a banner; the
+   headline is. If the image 404s the source is revealed instead, which is
+   honest, where a half-typeset equation would not be. */
+function formulaBlock(name, sourceLatex) {
+  const src = name
+    ? `/api/benchmarks/${encodeURIComponent(name)}/formula.png` : "";
+  const fallback = sourceLatex
+    ? `<code class="ex-source">${esc(sourceLatex)}</code>` : "";
+  if (!src) return fallback;
+  return `<span class="ex-formula">`
+    + `<img class="formula" src="${src}" alt="${esc(sourceLatex || name)}"`
+    + ` onerror="this.classList.add('failed');`
+    + `this.nextElementSibling&&(this.nextElementSibling.hidden=false)">`
+    + `<span class="ex-source" hidden>${esc(sourceLatex || "")}</span></span>`;
+}
+
+/* The full statement, kept reachable but out of the banner. */
+function fullStatement(latex) {
+  if (!latex) return "";
+  return `<details class="ex-full"><summary>Full statement (LaTeX)</summary>`
+    + `<pre class="ex-source">${esc(latex)}</pre></details>`;
+}
+
 function renderExpectation(host, expect, summary) {
   const result = evaluateExpectation(expect, summary);
   const box = document.createElement("div");
@@ -1514,7 +1594,8 @@ function renderBenchmark(host, bench, runId) {
   let html =
     `<div class="ex-head"><span class="ex-verdict">${label[verdict] || verdict}</span>`
     + `<span class="ex-tier" title="${esc(TIER_NOTE[tier] || "")}">${esc(tier)}</span>`
-    + `<span class="ex-formula">${esc(bench.formula_latex || "")}</span></div>`
+    + formulaBlock(bench.name, bench.headline_latex || bench.formula_latex)
+    + `</div>`
     + `<p class="ex-reason">${esc(bench.reason || "")}</p>`;
 
   if (runId) {
@@ -1545,6 +1626,7 @@ function renderBenchmark(host, bench, runId) {
   if (bench.caveat) {
     html += `<p class="ex-detail ex-caveat">${esc(bench.caveat)}</p>`;
   }
+  html += fullStatement(bench.formula_latex);
   box.innerHTML = html;
   host.appendChild(box);
   return bench;

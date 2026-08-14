@@ -362,6 +362,10 @@ register(
             "every grid spacing, and the only approximation left in the run is "
             "the ETD2 time step."
         ),
+        headline_latex=(
+            r"\langle E\rangle(t)/\Delta \quad \mathrm{with} \quad \sum_i \rho_i f_i = "
+            r"\mathrm{const}"
+        ),
         rel_tol=3e-07,
         convergence=(
             "TIME STEP (N_E=16, m=9, the same 201 snapshot times; max relative "

@@ -520,6 +520,11 @@ register(
         # 3.0x the shipped residual, which is itself a minimum: one decade
         # either way in the reduction parameter costs a factor 10 (shallower)
         # or 2.5 (deeper, where cancellation takes over). See ``convergence``.
+        headline_latex=(
+            r"n_\omega(t) \;=\; n_\omega^\infty + "
+            r"\left(n_\omega(0)-n_\omega^\infty\right)e^{-\lambda_\omega t}, \quad \lambda_\omega "
+            r"= \frac{1}{\tau_l} + |b_\omega|"
+        ),
         rel_tol=1.2e-04,
         convergence=(
             "THE REDUCTION PARAMETER is tau_l/tau_0 — the phonon escape time "

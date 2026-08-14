@@ -448,6 +448,10 @@ register(
             "it contributes and once as the surviving bath fraction "
             "n_∞/n_bath = τ_eff/τ_l, which is the escape term's own statement."
         ),
+        headline_latex=(
+            r"\frac{n_\infty(\omega)}{n_{\rm bath}(\omega)} = \frac{\tau_{\rm eff}}{\tau_l}, "
+            r"\qquad \frac{1}{\tau_{\rm eff}} = \frac{1}{\tau_l} + \Gamma_{\rm pb}(\omega)"
+        ),
         rel_tol=1e-10,
         convergence=(
             "Every number here is measured through benchmarks.evaluate() on the "

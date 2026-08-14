@@ -288,6 +288,9 @@ register(
             "cell measures are elementary integrals, so S_i is written rather than "
             "quadratured."
         ),
+        headline_latex=(
+            r"f_i(t) \;=\; f_i(0) \;+\; S_i\,t \;+\; \mathcal{O}(f^2)"
+        ),
         rel_tol=2e-5,
         convergence=(
             "Case: 405 bins over [1, 10]Δ (δE = 4 μeV exactly), dt = 0.1 ns, 12 ns, "

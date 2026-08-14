@@ -542,6 +542,45 @@ def _plot_phonon_frame(
     )
 
 
+# -- formulas ---------------------------------------------------------
+
+
+class FormulaRenderError(ValueError):
+    """A formula matplotlib's mathtext cannot typeset."""
+
+
+def render_formula(latex: str, *, fontsize: float = 15.0, dpi: int = 200) -> bytes:
+    """Typeset one equation to a transparent PNG.
+
+    Rendered on the server with matplotlib's mathtext, which is already the
+    typesetting engine behind every axis label in this app -- so a formula
+    costs no new dependency and no build step, matching the frontend's
+    no-build design. The cost is mathtext's LaTeX SUBSET: no ``	ext``, no
+    ``align`` environments, no ``oxed``. That is a real constraint and it
+    is the right one here, because this string is a HEADLINE. A statement
+    that needs an align environment is a derivation, and belongs in prose
+    where it can be read, not in a one-line banner.
+
+    Raises :class:`FormulaRenderError` rather than emitting a broken image:
+    the interface falls back to showing the source, which is honest, where a
+    half-typeset equation would not be.
+    """
+    fig = plt.figure(figsize=(0.01, 0.01))
+    fig.patch.set_alpha(0.0)
+    fig.text(0.0, 0.0, f"${latex}$", fontsize=fontsize, color=INK)
+    buf = io.BytesIO()
+    try:
+        fig.savefig(
+            buf, format="png", dpi=dpi, transparent=True,
+            bbox_inches="tight", pad_inches=0.05,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise FormulaRenderError(str(exc).strip().splitlines()[-1]) from exc
+    finally:
+        plt.close(fig)
+    return buf.getvalue()
+
+
 # -- registry ---------------------------------------------------------
 
 

@@ -485,6 +485,9 @@ register(Benchmark(
         "elementary BCS cell integrals with no free parameter, so the height "
         "AND the rate of the whole curve are predicted rather than fitted."
     ),
+    headline_latex=(
+        r"x_{qp}(t) \;=\; x_{qp}^{\rm th} \;+\; \frac{X_0}{1 + R_x X_0\,t}"
+    ),
     rel_tol=5e-05,
     convergence=(
         "SHIPPED CASE: NE = 180 cells over [1, 4]Delta (dE = 3 ueV), a 1x1 mask, "

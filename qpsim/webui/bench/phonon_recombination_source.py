@@ -374,6 +374,10 @@ register(Benchmark(
     # limit-bounded residual the original spec proposed, this one is pure
     # discretisation and shrinks as dE² under refinement. The tolerance is
     # therefore an upper bound that only gets easier, not one that erodes.
+    headline_latex=(
+        r"a_{\rm rec}(\omega) \;=\; \frac{S_+(\omega/\Delta)}{\pi\,\tau_0^{\rm "
+        r"PB}}\,e^{-\omega/k_BT}, \qquad S_+(x) = x\,E\!\left(1-4/x^2\right)"
+    ),
     rel_tol=3e-7,
     convergence=(
         "ENERGY GRID, at the shipped dt = 0.025 ns and window ω ≥ E_top + 2Δ. "

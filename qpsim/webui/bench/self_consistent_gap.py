@@ -341,6 +341,9 @@ register(Benchmark(
         "arctangent series with a Hurwitz-zeta remainder -- no quadrature "
         "rule, no engine array, no root of an engine residual."
     ),
+    headline_latex=(
+        r"\frac{1}{N_0V} \;=\; \int_\Delta^{\hbar\omega_D}\frac{1-2f(E)}{\sqrt{E^2-\Delta^2}}\,dE"
+    ),
     rel_tol=1.5e-3,
     convergence=(
         "MEASURED ON THIS CASE. Abscissa T_eff/T_c = 0.3923 .. 0.8958 over 24 "
