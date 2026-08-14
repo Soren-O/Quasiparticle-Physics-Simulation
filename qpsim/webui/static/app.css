@@ -513,3 +513,26 @@ ul.cons li.bad .mk { background: var(--critical); }
 .ex-detail {
   margin: 0; font-family: var(--mono); font-size: 12px; color: var(--muted);
 }
+
+/* ---- full-curve benchmark ----
+   The tier badge is deliberately prominent. A T2 result reuses the kernel it
+   is testing, so it cannot fail for the reason a reader assumes it can; the
+   badge is the only thing standing between that and being read as proof. */
+.ex-tier {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: .06em; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid var(--grid); color: var(--ink-2); background: var(--page);
+  cursor: help;
+}
+.bench-fig { margin: 12px 0 10px; }
+.bench-fig img {
+  display: block; width: 100%; max-width: 720px; height: auto;
+  border: 1px solid var(--grid); border-radius: 4px; background: var(--surface);
+}
+.ex-detail + .ex-detail { margin-top: 5px; }
+.ex-quiet { color: var(--muted); font-family: var(--ui); font-size: 12px; }
+.ex-caveat {
+  color: var(--ink-2); font-family: var(--ui); font-size: 12px;
+  max-width: 74ch; border-top: 1px solid var(--grid);
+  margin-top: 9px !important; padding-top: 8px;
+}

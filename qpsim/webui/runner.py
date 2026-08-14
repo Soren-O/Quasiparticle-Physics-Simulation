@@ -24,6 +24,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from qpsim.webui import benchmarks
 from qpsim.webui.execute import RunCancelledError, execute_setup
 from qpsim.webui.schemas import SetupEnvelope
 from qpsim.webui.store import Workspace
@@ -133,6 +134,20 @@ class JobRunner:
             payload = execute_setup(
                 envelope.setup, progress, job.cancel_event.is_set
             )
+            if envelope.benchmark:
+                # After the solve and before persistence, so the comparison
+                # curve is stored in the same NPZ as the run it scores. A
+                # benchmark that cannot be built adds a note and nothing else:
+                # the physics result is already computed and correct, and
+                # losing it because a check misfired would be the wrong trade.
+                payload.notes.extend(
+                    benchmarks.attach(
+                        envelope.benchmark,
+                        envelope.setup,
+                        payload.arrays,
+                        payload.summary,
+                    )
+                )
             if job.cancel_event.is_set():
                 raise RunCancelledError
             # Result persistence is part of the worker transaction. Keeping it

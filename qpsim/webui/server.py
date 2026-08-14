@@ -26,6 +26,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from qpsim import __version__
 from qpsim.materials import list_materials, load_material
+from qpsim.webui import benchmarks
 from qpsim.webui.builders import validate_setup
 from qpsim.webui.hosts import is_loopback_host
 from qpsim.webui.plots import available_csvs, available_plots, render_csv, render_plot
@@ -130,6 +131,31 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     @app.get("/api/materials")
     def materials() -> list[dict[str, Any]]:
         return [_material_payload(name) for name in list_materials()]
+
+    @app.get("/api/benchmarks")
+    def benchmarks_list() -> dict[str, dict[str, Any]]:
+        """Every analytic benchmark, so a case can name one without restating it.
+
+        The catalogue names a benchmark; the formula, tier, tolerance and
+        convergence evidence all come from here. That keeps one source of
+        truth: the statement shown before a run and the statement checked
+        after it are literally the same string, so they cannot drift apart.
+        """
+        return {
+            name: {
+                "title": b.title,
+                "tier": b.tier,
+                "formula_latex": b.formula_latex,
+                "reason": b.reason,
+                "rel_tol": b.rel_tol,
+                "convergence": b.convergence,
+                "caveat": b.caveat,
+                "activity": b.activity,
+                "modes": list(b.modes),
+            }
+            for name, b in ((n, benchmarks.get(n)) for n in benchmarks.names())
+            if b is not None
+        }
 
     @app.get("/api/defaults/{mode}")
     def defaults(mode: str) -> dict[str, Any]:

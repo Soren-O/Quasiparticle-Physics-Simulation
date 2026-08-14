@@ -310,6 +310,7 @@ const state = {
   lastDetailKey: null,
   catalogue: null,      // the catalogue is static; fetch it once
   catId: null,
+  benchmarks: {},       // name -> declared closed form, from /api/benchmarks
 };
 
 /* ---------- new-run view ---------- */
@@ -651,12 +652,14 @@ async function runCase(tc, btn) {
     if (unknown.length) {
       throw new Error(`unknown setup fields: ${unknown.join(", ")}`);
     }
-    const { ok, status, body } = await postJSON("/api/runs", { name: tc.title, setup });
+    const { ok, status, body } = await postJSON("/api/runs", {
+      name: tc.title, setup, benchmark: tc.benchmark ?? null,
+    });
     if (!ok) {
       const problems = (body.errors || [String(status)]).join("; ");
       throw new Error(problems);
     }
-    if (!tc.expect) {
+    if (!tc.expect && !tc.benchmark) {
       showView("runs");
       return;
     }
@@ -672,8 +675,19 @@ async function runCase(tc, btn) {
       if (finished === null || finished.status !== "done") {
         holder.innerHTML = `<div class="err">The run did not finish`
           + `${finished && finished.error ? `: ${esc(finished.error)}` : "."}</div>`;
+        return;
+      }
+      const summary = finished.summary || {};
+      // A curve comparison supersedes the scalar one where both exist: it is
+      // the same statement checked at every point rather than at one.
+      if (summary.benchmark) {
+        renderBenchmark(holder, summary.benchmark, body.id);
+      } else if (tc.benchmark) {
+        holder.innerHTML = `<div class="err">This case asks for the `
+          + `<code>${esc(tc.benchmark)}</code> comparison, but the run reported `
+          + `none. The benchmark may not apply to this mode.</div>`;
       } else {
-        renderExpectation(holder, tc.expect, finished.summary || {});
+        renderExpectation(holder, tc.expect, summary);
       }
     }
     return;
@@ -857,13 +871,20 @@ async function openItem(catId, itemId) {
        <p class="tc-summary">${esc(tc.summary)}</p>
        <div class="tc-actions"></div>
        <div id="case-msg-${esc(tc.id)}"></div>`;
-    if (tc.expect) {
+    // The claim is stated BEFORE the run, from the server's registry, so the
+    // form shown here is the identical string the verdict is computed against.
+    const declared = (tc.benchmark && state.benchmarks[tc.benchmark]) || tc.expect;
+    if (declared) {
       const stated = document.createElement("div");
       stated.className = "expectation";
+      const tier = declared.tier
+        ? `<span class="ex-tier" title="${esc(TIER_NOTE[declared.tier] || "")}">`
+          + `${esc(declared.tier)}</span>`
+        : "";
       stated.innerHTML =
-        `<div class="ex-head"><span class="ex-verdict">Expected</span>`
-        + `<span class="ex-formula">${esc(tc.expect.formula_latex)}</span></div>`
-        + `<p class="ex-reason">${esc(tc.expect.reason)}</p>`;
+        `<div class="ex-head"><span class="ex-verdict">Expected</span>${tier}`
+        + `<span class="ex-formula">${esc(declared.formula_latex)}</span></div>`
+        + `<p class="ex-reason">${esc(declared.reason)}</p>`;
       card.insertBefore(stated, card.querySelector(".tc-actions"));
     }
     const actions = card.querySelector(".tc-actions");
@@ -902,11 +923,12 @@ function showView(name) {
 }
 
 async function init() {
-  const [{ body: meta }, { body: mats }] = await Promise.all([
-    api("/api/meta"), api("/api/materials"),
+  const [{ body: meta }, { body: mats }, { body: bench }] = await Promise.all([
+    api("/api/meta"), api("/api/materials"), api("/api/benchmarks"),
   ]);
   state.modeLabels = meta.modes || {};
   state.materials = mats || [];
+  state.benchmarks = bench || {};
   $("#meta").textContent = `qpsim ${meta.qpsim_version} · workspace ${meta.workspace}`;
   $("#home-workspace").textContent = meta.workspace;
 
@@ -1319,4 +1341,67 @@ function renderExpectation(host, expect, summary) {
     + `${result.got === undefined ? "—" : fmt(result.got)}; ${esc(result.detail)}</p>`;
   host.appendChild(box);
   return result;
+}
+
+/* ---------- full-curve analytic benchmarks ----------
+   A scalar check can be satisfied by a solution that is wrong everywhere
+   except the moment it is read. These compare the WHOLE curve -- the server
+   builds the closed form on the run's own grid and scores it pointwise -- so
+   what is shown here is the trajectory, not one number off the end of it. */
+
+const TIER_NOTE = {
+  T1: "Closed form, written from the physics. The analytic side never consults "
+     + "the engine's kernels, so agreement is evidence about the physics.",
+  T2: "Exact solution of the reduced problem, assembled from the engine's own "
+     + "kernel arrays. It checks operator assembly and time integration, but it "
+     + "reuses the kernel under test and so cannot detect a wrong kernel.",
+  T3: "An independently written quadrature of the same physics.",
+};
+
+function renderBenchmark(host, bench, runId) {
+  const verdict = bench.verdict || "unknown";
+  const box = document.createElement("div");
+  box.className = `expectation benchmark ${verdict}`;
+  const label = { pass: "Matches", fail: "Does not match", unknown: "Not checked" };
+  const tier = bench.tier || "";
+  const err = Number(bench.error);
+  const tol = Number(bench.rel_tol);
+
+  let html =
+    `<div class="ex-head"><span class="ex-verdict">${label[verdict] || verdict}</span>`
+    + `<span class="ex-tier" title="${esc(TIER_NOTE[tier] || "")}">${esc(tier)}</span>`
+    + `<span class="ex-formula">${esc(bench.formula_latex || "")}</span></div>`
+    + `<p class="ex-reason">${esc(bench.reason || "")}</p>`;
+
+  if (runId) {
+    html += `<div class="bench-fig"><img src="/api/runs/${esc(runId)}`
+          + `/plots/analytic_comparison.png" alt="simulated against the closed form"`
+          + ` loading="lazy"></div>`;
+  }
+
+  // The metric is named, not just the number: "relative to the curve's peak"
+  // and "relative at each point" differ by orders of magnitude on a curve that
+  // decays, and a reader who assumes the wrong one misreads the result.
+  const metric = bench.metric === "scale"
+    ? "relative to the curve's peak"
+    : "pointwise relative";
+  html += `<p class="ex-detail">Largest disagreement `
+        + `<strong>${Number.isFinite(err) ? err.toExponential(2) : "—"}</strong> `
+        + `(${metric}) over ${bench.n_points ?? "?"} points`
+        + `${bench.n_series > 1 ? ` in ${bench.n_series} series` : ""}, `
+        + `against a tolerance of ${Number.isFinite(tol) ? tol.toExponential(0) : "—"}.</p>`;
+
+  if (bench.convergence) {
+    html += `<p class="ex-detail ex-quiet">Tolerance from refinement: `
+          + `${esc(bench.convergence)}</p>`;
+  }
+  if (bench.activity) {
+    html += `<p class="ex-detail ex-quiet">Term is active: ${esc(bench.activity)}</p>`;
+  }
+  if (bench.caveat) {
+    html += `<p class="ex-detail ex-caveat">${esc(bench.caveat)}</p>`;
+  }
+  box.innerHTML = html;
+  host.appendChild(box);
+  return bench;
 }

@@ -357,6 +357,103 @@ def _plot_m25_p1(arrays: dict[str, np.ndarray]) -> bytes:
     return _finish(fig)
 
 
+# -- analytic comparison ----------------------------------------------
+
+
+def _plot_analytic_comparison(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any]
+) -> bytes:
+    """Simulated curve against its closed form, with the residual beneath.
+
+    Two panels rather than one. The overlay answers "do these lie on top of
+    each other", which at a glance is nearly always yes; the residual answers
+    "by how much, and is the disagreement structured", which is the question
+    that actually distinguishes a discretisation floor from a wrong term. A
+    residual that sits flat under the tolerance line is convergence; one that
+    grows with the abscissa, or changes sign in a pattern, is a bug — and only
+    the second panel shows the difference.
+    """
+    bench = summary.get("benchmark") or {}
+    x = arrays["bench_x"]
+    sim = np.atleast_2d(arrays["bench_sim"])
+    ana = np.atleast_2d(arrays["bench_analytic"])
+    labels = list(bench.get("series_labels") or [])
+
+    fig, (ax, axr) = plt.subplots(
+        2, 1, figsize=(7.0, 5.8), dpi=130, layout="constrained",
+        sharex=True, height_ratios=(2.1, 1.0),
+    )
+    fig.patch.set_facecolor(SURFACE)
+    for a in (ax, axr):
+        a.set_facecolor(SURFACE)
+        a.grid(True, color=GRID, linewidth=0.8)
+        a.set_axisbelow(True)
+        for spine in a.spines.values():
+            spine.set_color(BASELINE)
+        a.tick_params(colors=MUTED, labelcolor=INK)
+
+    if bench.get("log_x"):
+        ax.set_xscale("log")
+        axr.set_xscale("log")
+    if bench.get("log_y"):
+        ax.set_yscale("log")
+
+    n = sim.shape[0]
+    # One series is the common case and reads best with an explicit legend
+    # naming which line is which. Many series would drown in one, so they are
+    # distinguished by the sequential ramp and labelled by the axis instead.
+    for i in range(n):
+        colour = SERIES[i % len(SERIES)] if n <= len(SERIES) else SEQ_BLUE(
+            0.25 + 0.7 * (i / max(n - 1, 1))
+        )
+        label = labels[i] if i < len(labels) else (f"series {i + 1}" if n > 1 else "")
+        y_s = _positive(sim[i]) if bench.get("log_y") else sim[i]
+        y_a = _positive(ana[i]) if bench.get("log_y") else ana[i]
+        ax.plot(
+            x, y_a, color=colour, linewidth=2.0, zorder=2,
+            label=f"{label} — analytic".strip(" —") if label else "analytic",
+        )
+        # Simulated points sit ON the analytic line as open markers: a filled
+        # marker hides the line it is meant to be compared against.
+        ax.plot(
+            x, y_s, linestyle="none", marker=MARKERS[i % len(MARKERS)],
+            markersize=5, markerfacecolor="none", markeredgecolor=colour,
+            markeredgewidth=1.3, zorder=3,
+            label=f"{label} — simulated".strip(" —") if label else "simulated",
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            peak = float(np.max(np.abs(ana[i]))) if ana[i].size else 0.0
+            denom = (
+                np.full_like(ana[i], peak)
+                if bench.get("metric") == "scale"
+                else np.abs(ana[i])
+            )
+            rel = np.abs(sim[i] - ana[i]) / np.where(denom > 0.0, denom, np.nan)
+        axr.plot(x, rel, color=colour, linewidth=1.6, marker=None)
+
+    tol = bench.get("rel_tol")
+    if isinstance(tol, (int, float)) and tol > 0:
+        axr.axhline(
+            float(tol), color=SERIES[5], linewidth=1.4, linestyle="--",
+            label=f"tolerance {float(tol):.0e}",
+        )
+        axr.legend(loc="best", fontsize=8)
+    axr.set_yscale("log")
+
+    ax.set_ylabel(bench.get("y_label", ""), color=INK)
+    axr.set_ylabel("relative error", color=INK)
+    axr.set_xlabel(bench.get("x_label", ""), color=INK)
+    tier = bench.get("tier", "")
+    verdict = bench.get("verdict", "")
+    ax.set_title(
+        f"{bench.get('title', 'Analytic comparison')}  [{tier}, {verdict}]",
+        color=INK, fontsize=11,
+    )
+    if n <= 3:
+        ax.legend(fontsize=8)
+    return _finish(fig)
+
+
 # -- registry ---------------------------------------------------------
 
 
@@ -426,6 +523,15 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
         "qubit_p1": _PlotSpec(lambda a, s: _plot_m25_p1(a)),
     },
 }
+
+# Every mode can carry an analytic comparison and the figure is the same one in
+# all of them: a benchmark either wrote its bench_* arrays into the payload or
+# it did not, and `requires` decides whether the figure is offered. Registering
+# it in a loop keeps that a single fact instead of five copies free to drift.
+for _mode_plots in _PLOTS.values():
+    _mode_plots["analytic_comparison"] = _PlotSpec(
+        _plot_analytic_comparison, requires="bench_analytic"
+    )
 
 
 def available_plots(mode: str, array_names: Collection[str]) -> list[str]:
@@ -528,6 +634,19 @@ def _csv_m25_sweep(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(keys, [arrays[k] for k in keys])
 
 
+def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
+    """The comparison as a table: abscissa, simulated, analytic, per series."""
+    sim = np.atleast_2d(arrays["bench_sim"])
+    ana = np.atleast_2d(arrays["bench_analytic"])
+    header = ["x"]
+    cols: list[np.ndarray] = [arrays["bench_x"]]
+    for i in range(sim.shape[0]):
+        suffix = "" if sim.shape[0] == 1 else f"_{i}"
+        header += [f"simulated{suffix}", f"analytic{suffix}"]
+        cols += [sim[i], ana[i]]
+    return _csv_from_columns(header, cols)
+
+
 _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
     "steady_state_0d": {"occupation": _csv_ss_occupation, "phonons": _csv_ss_phonons},
     "transient_0d": {
@@ -540,11 +659,24 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
         "occupation": _csv_spatial_occupation,
     },
     "m25_junction": {"sweep": _csv_m25_sweep},
+    "spatial_2d": {},
 }
+
+# A table that needs an array the run did not produce must not be offered, or
+# the download 404s after the user has already clicked it. Only the benchmark
+# table is conditional today; the rest are always present for their mode.
+_CSV_REQUIRES: dict[str, str] = {"analytic_comparison": "bench_x"}
+
+for _mode_csvs in _CSVS.values():
+    _mode_csvs["analytic_comparison"] = _csv_benchmark
 
 
 def available_csvs(mode: str, array_names: Collection[str]) -> list[str]:
-    return list(_CSVS.get(mode, {}))
+    return [
+        name
+        for name in _CSVS.get(mode, {})
+        if _CSV_REQUIRES.get(name) is None or _CSV_REQUIRES[name] in array_names
+    ]
 
 
 def render_csv(mode: str, name: str, arrays: dict[str, np.ndarray]) -> str:

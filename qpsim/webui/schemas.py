@@ -455,6 +455,15 @@ class SetupEnvelope(StrictModel):
 
     name: str = "Untitled setup"
     setup: AnySetup = Field(discriminator="mode")
+    # Name of an analytic benchmark to check this run against
+    # (:mod:`qpsim.webui.benchmarks`). It lives on the envelope rather than
+    # inside the setup because it is an assertion ABOUT the run, not part of
+    # the physics being solved: the same setup is the same physics whether or
+    # not anybody checks it against a closed form. Keeping it out of the setup
+    # models also keeps the solved result independent of whether a check was
+    # requested. Unknown names are reported as a note, not an error, so a run
+    # is never lost to a mistyped check.
+    benchmark: str | None = None
 
 
 MODE_LABELS: dict[str, str] = {
