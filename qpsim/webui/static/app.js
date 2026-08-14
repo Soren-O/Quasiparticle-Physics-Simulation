@@ -590,14 +590,36 @@ async function refreshMaterials() {
     ["v_F", "v_F (m/s)"], ["rho_F", "ρ_F (eV⁻¹m⁻³)"], ["film_thickness", "d (nm)"],
     ["substrate_transmission_eta", "η"],
   ];
+  // D_0 is shown against the band its own references support, because it
+  // varies by a factor of five or more across film qualities of the same
+  // material -- so the stored scalar is not by itself something to choose
+  // with, and where it sits outside its band the reader should see that.
+  const outOfBand = (m) => Array.isArray(m.D_0_range) && m.D_0 != null
+    && (m.D_0 < m.D_0_range[0] || m.D_0 > m.D_0_range[1]);
+
   $("#materials-list").innerHTML =
-    `<table class="list"><tr><th>Material</th>${cols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th>Substrate</th></tr>` +
+    `<table class="list"><tr><th>Material</th>${cols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}` +
+    `<th>D₀ band</th><th>Substrate</th></tr>` +
     state.materials.map((m) => `<tr><td><b>${esc(m.name)}</b></td>` +
-      cols.map(([k]) => `<td>${m[k] == null ? "—" : esc(fmt(m[k]))}</td>`).join("") +
+      cols.map(([k]) => k === "D_0" && outOfBand(m)
+        ? `<td class="out-of-band" title="Outside the band this entry's own references support">${esc(fmt(m[k]))} ⚠</td>`
+        : `<td>${m[k] == null ? "—" : esc(fmt(m[k]))}</td>`).join("") +
+      `<td>${Array.isArray(m.D_0_range)
+        ? `${esc(fmt(m.D_0_range[0]))}–${esc(fmt(m.D_0_range[1]))}` : "—"}</td>` +
       `<td>${m.substrate ? esc(m.substrate.name) : "—"}</td></tr>`).join("") +
     `</table>
     <p class="hint">From the YAML database at qpsim/materials/data/. Picking a material in the
-    setup editor copies these values; edits there don't touch the database.</p>`;
+    setup editor copies these values; edits there don't touch the database.
+    A ⚠ marks a stored D₀ outside the band its own references support — the
+    value is used as stored, and the sources below say what it should be.</p>` +
+    `<div class="sources">` + state.materials.map((m) => `
+      <details${outOfBand(m) ? " open" : ""}>
+        <summary><b>${esc(m.name)}</b>${outOfBand(m)
+          ? ` <span class="out-of-band">D₀ outside its sourced band</span>` : ""}</summary>
+        ${m.notes ? `<p>${esc(m.notes)}</p>` : ""}
+        <ul>${(m.references || []).map((r) => `<li>${esc(r)}</li>`).join("")
+          || "<li>no references recorded</li>"}</ul>
+      </details>`).join("") + `</div>`;
 }
 
 /* ---------- view switching & init ---------- */
