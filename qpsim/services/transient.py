@@ -96,6 +96,8 @@ def run_time_dependent(
     stop_tol: float | None = None,
     enable_scattering: bool = True,
     enable_recombination: bool = True,
+    enable_phonon_scattering_source: bool = True,
+    enable_phonon_recombination_source: bool = True,
     phonon_escape_time: float | None = None,
     use_phonon_side_kernel: bool = True,
     backend: T3DiffusionBackend | None = None,
@@ -288,6 +290,14 @@ def run_time_dependent(
         if phonon_escape_time is not None:
             term_kwargs["phonon_escape_time"] = phonon_escape_time
             term_kwargs["use_phonon_side_kernel"] = use_phonon_side_kernel
+            # Only meaningful while the phonons are live, and only passed when
+            # off, matching the rule above: a backend predating these kwargs
+            # must keep working at the defaults and fail loudly rather than
+            # silently ignore a term that was switched off.
+            if not enable_phonon_scattering_source:
+                term_kwargs["enable_phonon_scattering_source"] = False
+            if not enable_phonon_recombination_source:
+                term_kwargs["enable_phonon_recombination_source"] = False
         step_flux = _flux_at(t + 0.5 * step_dt)
         raw_rate: np.ndarray | None = None
         diagnostics_method = getattr(

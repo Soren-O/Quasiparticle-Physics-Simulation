@@ -1235,6 +1235,8 @@ class T3DiffusionBackend:
         external_flux: ExternalFlux | None = None,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         phonon_escape_time: float | None = None,
         use_phonon_side_kernel: bool = True,
         _diagnostics: dict[str, object] | None = None,
@@ -1366,8 +1368,16 @@ class T3DiffusionBackend:
                     idx_sum,
                     diff_sign,
                     int(omega_bins.size),
-                    enable_scattering=enable_scattering,
-                    enable_recombination=enable_recombination,
+                    # The PHONON-side switches, not the quasiparticle-side
+                    # ones. Each pair is one process booked on both sides of
+                    # the ledger, and the steady-state path has always kept
+                    # them independent; passing the quasiparticle flags here
+                    # left the two phonon switches with nothing to do -- they
+                    # were bit-for-bit inert in every transient run -- while
+                    # silently tying the phonon source to a switch that names
+                    # the other side of the ledger.
+                    enable_scattering=enable_phonon_scattering_source,
+                    enable_recombination=enable_phonon_recombination_source,
                     K_s0_phonon_side=K_s0_ph,
                     K_r0_phonon_side=K_r0_ph,
                 )
@@ -1490,6 +1500,8 @@ class T3DiffusionBackend:
         external_flux: ExternalFlux | None = None,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         phonon_escape_time: float | None = None,
         use_phonon_side_kernel: bool = True,
         evaluate_residual: bool = False,
@@ -1513,6 +1525,8 @@ class T3DiffusionBackend:
             external_flux=external_flux,
             enable_scattering=enable_scattering,
             enable_recombination=enable_recombination,
+            enable_phonon_scattering_source=enable_phonon_scattering_source,
+            enable_phonon_recombination_source=enable_phonon_recombination_source,
             phonon_escape_time=phonon_escape_time,
             use_phonon_side_kernel=use_phonon_side_kernel,
             _diagnostics=diagnostics,

@@ -600,3 +600,50 @@ class TestSharedConstants:
         from qpsim.webui import builders
 
         assert builders.COMMENSURATE_TOL is ENGINE_TOL
+
+
+class TestPhononSourceSwitchesActOnEveryPath:
+    """Four collision switches are offered; all four must do something.
+
+    Two of them were bit-for-bit inert in `transient_0d`. The transient path
+    passed the QUASIPARTICLE-side flags into the phonon-side source, so
+    `phonon_scattering_source` and `phonon_recombination_source` had nothing
+    to do, while `scattering=False` silently switched off the phonon source
+    as well -- a different model from the same switches in `steady_state_0d`,
+    where the two sides have always been independent.
+    """
+
+    @staticmethod
+    def _driven(mode: str, flag: str, value: bool) -> float:
+        import qpsim.webui.execute as execute
+        from qpsim.webui.schemas import SteadyState0DSetup, Transient0DSetup
+
+        setup = (
+            Transient0DSetup() if mode == "transient_0d" else SteadyState0DSetup()
+        )
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 405
+        setup.phonons.mode = "dynamic_escape"
+        setup.pb_drive.enabled = True
+        setup.pb_drive.omega_PB = 400.0
+        setup.pb_drive.n_bar_PB = 1000.0
+        setup.pb_drive.c_phot_PB = 1e-9
+        if mode == "transient_0d":
+            setup.total_time = 4.0
+        setattr(setup.collisions, flag, value)
+        payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
+        return float(
+            payload.summary["x_qp_final" if mode == "transient_0d" else "x_qp"]
+        )
+
+    @pytest.mark.parametrize(
+        "flag", ["phonon_scattering_source", "phonon_recombination_source"]
+    )
+    @pytest.mark.parametrize("mode", ["transient_0d", "steady_state_0d"])
+    def test_the_switch_changes_the_answer(self, mode: str, flag: str) -> None:
+        on = self._driven(mode, flag, True)
+        off = self._driven(mode, flag, False)
+        assert on != off, (
+            f"{flag} is inert in {mode}: the interface offers a switch that "
+            f"does nothing (both runs gave x_qp = {on!r})."
+        )

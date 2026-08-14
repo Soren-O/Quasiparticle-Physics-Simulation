@@ -301,6 +301,12 @@ def run_transient_0d(
             stop_tol=setup.stop_tol,
             enable_scattering=setup.collisions.scattering,
             enable_recombination=setup.collisions.recombination,
+            enable_phonon_scattering_source=(
+                setup.collisions.phonon_scattering_source
+            ),
+            enable_phonon_recombination_source=(
+                setup.collisions.phonon_recombination_source
+            ),
             # None keeps the phonon field frozen. The dynamic modes hand the
             # driver an escape time; 0.0 is the no-substrate sentinel, so it
             # must be passed through as a real value, not treated as "off".

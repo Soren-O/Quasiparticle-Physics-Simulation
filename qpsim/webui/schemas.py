@@ -190,6 +190,142 @@ class ProbeConfig(StrictModel):
     Q_ext: Annotated[float, Field(gt=0.0)] | None = None  # extrinsic-loss cap
 
 
+class EnergyProfileSpec(StrictModel):
+    """A shape in energy, peak-normalised to 1.
+
+    Peak-normalised so that the amplitude beside it means the same thing
+    whichever shape is chosen: with unit-integral normalisation, narrowing a
+    spectral line would silently raise its height and "the same amplitude"
+    would be a different experiment on every grid.
+    """
+
+    kind: Literal[
+        "flat", "thermal", "monoenergetic", "gap_edge", "expression"
+    ] = "flat"
+    T_eff: Annotated[float, Field(gt=0.0)] | None = None   # thermal (K)
+    E_0: Annotated[float, Field(gt=0.0)] | None = None     # line centre (μeV)
+    width: Annotated[float, Field(gt=0.0)] | None = None   # line σ (μeV)
+    # Variables in scope: E (μeV), gap (μeV), params.
+    expression: str | None = None
+
+
+class SpatialProfileSpec(StrictModel):
+    """A shape over the cells, peak-normalised to 1.
+
+    Coordinates are normalised cell centres over the mask's bounding box, so
+    ``0.5`` is the middle of the device whatever its size, and a single-cell
+    device sits at 0.5 rather than at an end.
+    """
+
+    kind: Literal["uniform", "gaussian", "point", "expression"] = "uniform"
+    x_0: float = 0.5
+    y_0: float = 0.5
+    sigma: Annotated[float, Field(gt=0.0)] = 0.12
+    # Variables in scope: x, y (normalised), x_um, y_um (μm), params.
+    expression: str | None = None
+
+
+class TimeProfileSpec(StrictModel):
+    """How a drive varies in time, as a dimensionless factor.
+
+    ``pulse`` is the one that matters: switch a drive on, switch it off, and
+    fit the decay. That measurement was inexpressible while a drive was a
+    fixed array held for the whole run.
+    """
+
+    kind: Literal[
+        "constant", "pulse", "ramp", "exponential", "expression"
+    ] = "constant"
+    t_on: Annotated[float, Field(ge=0.0)] = 0.0            # (ns)
+    t_off: Annotated[float, Field(gt=0.0)] | None = None   # (ns)
+    tau: Annotated[float, Field(gt=0.0)] | None = None     # decay/rise (ns)
+    # Variables in scope: t (ns), params.
+    expression: str | None = None
+
+    @model_validator(mode="after")
+    def window_is_ordered(self) -> TimeProfileSpec:
+        if self.t_off is not None and self.t_off <= self.t_on:
+            raise ValueError(
+                f"t_off={self.t_off:g} ns is not after t_on={self.t_on:g} ns, "
+                "so the pulse would never be on."
+            )
+        if self.kind in ("ramp", "exponential") and self.tau is None:
+            raise ValueError(f"A {self.kind!r} time profile needs tau (ns).")
+        if self.kind == "expression" and not self.expression:
+            raise ValueError("An expression time profile needs an expression.")
+        return self
+
+
+class InitialCondition(StrictModel):
+    """Where the run starts.
+
+    ``thermal`` is equilibrium at ``T_bath`` and is the default, so every
+    existing setup is unaffected. The other kinds are deliberate departures
+    from equilibrium, which is what makes a *relaxation* observable: a term
+    acting on a state that is already its own fixed point has nothing to
+    relax, and its rate cannot be measured.
+
+    ``amplitude`` is a peak excess **occupation**, not a particle count. The
+    state here is an occupation ``f in [0, 1]``; the archived implementation
+    carried a density and its numbers do not transfer.
+    """
+
+    kind: Literal["thermal", "excess", "absolute"] = "thermal"
+    amplitude: Annotated[float, Field(ge=0.0)] = 0.0
+    energy: EnergyProfileSpec = EnergyProfileSpec()
+    space: SpatialProfileSpec = SpatialProfileSpec()
+    # Non-separable f(E, x, y). Variables: E, gap, x, y, x_um, y_um, params.
+    expression: str | None = None
+    params: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def amplitude_present_when_it_matters(self) -> InitialCondition:
+        if self.kind == "excess" and self.amplitude == 0.0 and not self.expression:
+            raise ValueError(
+                "kind='excess' with amplitude=0 prepares exactly the thermal "
+                "state, so the run would measure nothing. Set an amplitude, or "
+                "use kind='thermal' if that is what you meant."
+            )
+        return self
+
+
+class DriveSpec(StrictModel):
+    """A prescribed external source over energy, space and time.
+
+    ``A · g_E(E) · g_S(x,y) · g_T(t)`` by default, with ``expression`` as the
+    escape hatch for a drive that is not separable — a spot that moves, a
+    spectrum that hardens as it decays.
+
+    ``channel`` says which side of the kinetic equation it enters. ``gain`` is
+    a source added to df/dt; ``loss`` is a rate coefficient multiplying f, so
+    it drains in proportion to what is there — a trap, or an out-tunnelling
+    channel.
+    """
+
+    enabled: bool = False
+    channel: Literal["gain", "loss"] = "gain"
+    amplitude: Annotated[float, Field(ge=0.0)] = 0.0      # (1/ns)
+    energy: EnergyProfileSpec = EnergyProfileSpec()
+    space: SpatialProfileSpec = SpatialProfileSpec()
+    time: TimeProfileSpec = TimeProfileSpec()
+    # Non-separable g(E, x, y, t). Variables: E, gap, x, y, x_um, y_um, t, params.
+    expression: str | None = None
+    params: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def an_enabled_drive_must_do_something(self) -> DriveSpec:
+        # The recurring failure in this codebase is a default that makes the
+        # measurement inert while the code looks right. An enabled drive at
+        # zero amplitude is exactly that, so it is refused rather than run.
+        if self.enabled and self.amplitude == 0.0 and not self.expression:
+            raise ValueError(
+                "An enabled drive with amplitude=0 applies nothing, so the run "
+                "would look driven and be undriven. Set an amplitude, or set "
+                "enabled=false."
+            )
+        return self
+
+
 class SteadyState0DSetup(StrictModel):
     """0-D T3 kinetic steady state."""
 
