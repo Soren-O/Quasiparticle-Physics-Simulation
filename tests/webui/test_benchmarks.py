@@ -57,9 +57,26 @@ def _bench(name: str, build: Any, *, rel_tol: float = 1e-6, **kw: Any) -> Benchm
     )
 
 
+# Tests that read the SHIPPED registry rather than registering their own.
+_USES_REAL_REGISTRY = ("TestCatalogueBenchmarkCases",)
+
+
 @pytest.fixture(autouse=True)
-def _clean_registry() -> Any:
-    """Each test registers into a pristine registry and leaves none behind."""
+def _clean_registry(request: Any) -> Any:
+    """A pristine registry for the framework tests, the real one for the rest.
+
+    Two things have to hold at once. The framework tests register throwaway
+    benchmarks and must not see or leave the shipped ten. The catalogue tests
+    check the shipped ten against catalogue.json and must see exactly them.
+    Emptying the registry for both makes the second group fail for a reason
+    that exists only under this fixture -- and, because registration is lazy
+    and its already-imported flag is global, clearing it once poisons every
+    later test rather than only the one.
+    """
+    benchmarks._ensure_registered()
+    if request.cls is not None and request.cls.__name__ in _USES_REAL_REGISTRY:
+        yield
+        return
     saved = dict(benchmarks._REGISTRY)
     benchmarks._REGISTRY.clear()
     yield
