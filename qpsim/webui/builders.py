@@ -14,7 +14,9 @@ testable without the ``ui`` extra's server stack.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 
@@ -27,6 +29,20 @@ from qpsim.collisions.pair_breaking_photon import (
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.collisions.sub_gap_photon import COMMENSURATE_TOL
 from qpsim.constants import H_OVER_KB_K_PER_HZ
+from qpsim.fields.drive import (
+    ExpressionDrive,
+    ExternalDrive,
+    SeparableDrive,
+    SumDrive,
+    cell_coordinates,
+)
+from qpsim.fields.initial import (
+    energy_profile,
+    seed_occupation,
+    separable_excess,
+    spatial_profile,
+)
+from qpsim.fields.safe_eval import compile_expression
 from qpsim.geometries import Geometry, from_gds, gds_support_available, rectangle
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.grid.spatial_grid import BoundaryCondition
@@ -40,12 +56,15 @@ from qpsim.transport.diffusion.base import DiffusionModel
 from qpsim.transport.diffusion.base import from_name as diffusion_model_from_name
 from qpsim.webui.schemas import (
     AnySetup,
+    EnergyProfileSpec,
     M25JunctionSetup,
     MaterialParams,
     ProbeConfig,
     Spatial1DSetup,
     Spatial2DSetup,
+    SpatialProfileSpec,
     SteadyState0DSetup,
+    TimeProfileSpec,
     Transient0DSetup,
 )
 
@@ -763,3 +782,173 @@ def build_injection_2d(
         nearest = int(np.argmin((rows - centre_row) ** 2 + (cols - centre_col) ** 2))
         gain[:, nearest] = injection.rate_per_ns * line
     return gain, np.zeros_like(gain)
+
+
+# -- prescribed fields: initial conditions and drives ------------------
+#
+# The schema states a field; these turn it into the engine object. Kept here
+# rather than in qpsim.fields so the engine layer stays free of pydantic and
+# can be driven from a plain script.
+
+
+def _compiled(source: str | None, variables: tuple[str, ...]) -> Any:
+    """Compile a prescribed expression, or None when none was given."""
+    if not source:
+        return None
+    return compile_expression(source, variables=variables)
+
+
+_ENERGY_VARS = ("E", "gap")
+_SPACE_VARS = ("x", "y", "x_um", "y_um")
+_TIME_VARS = ("t",)
+
+
+def _energy_shape(
+    spec: EnergyProfileSpec, spectral: SpectralContext
+) -> np.ndarray:
+    return energy_profile(
+        spec.kind, spectral,
+        T_eff=spec.T_eff, E_0=spec.E_0, width=spec.width,
+        expression=_compiled(spec.expression, _ENERGY_VARS),
+    )
+
+
+def _space_shape(spec: SpatialProfileSpec, geometry: Geometry) -> np.ndarray:
+    x_um, y_um, x_norm, y_norm = cell_coordinates(geometry)
+    return spatial_profile(
+        spec.kind, x_norm, y_norm,
+        x_0=spec.x_0, y_0=spec.y_0, sigma=spec.sigma,
+        expression=_compiled(spec.expression, _SPACE_VARS),
+        x_um=x_um, y_um=y_um,
+    )
+
+
+def _time_factor(
+    spec: TimeProfileSpec, params: dict[str, float],
+) -> tuple[Callable[[float], float], bool]:
+    """``(factor(t), is_static)`` for a time profile.
+
+    The static flag is what lets a steady drive cost nothing: the run loop
+    samples once and hoists it out of the step loop entirely.
+    """
+    if spec.kind == "constant":
+        return (lambda t: 1.0), True
+
+    t_on = float(spec.t_on)
+    if spec.kind == "pulse":
+        t_off = float("inf") if spec.t_off is None else float(spec.t_off)
+
+        def pulse(t: float) -> float:
+            return 1.0 if t_on <= t < t_off else 0.0
+
+        return pulse, False
+
+    if spec.kind == "ramp":
+        tau = float(spec.tau)  # validated present on the model
+
+        def ramp(t: float) -> float:
+            return float(np.clip((t - t_on) / tau, 0.0, 1.0))
+
+        return ramp, False
+
+    if spec.kind == "exponential":
+        tau = float(spec.tau)
+
+        def decay(t: float) -> float:
+            return float(np.exp(-(t - t_on) / tau)) if t >= t_on else 0.0
+
+        return decay, False
+
+    compiled = _compiled(spec.expression, _TIME_VARS)
+
+    def prescribed(t: float) -> float:
+        return float(compiled(t=float(t), params=params))
+
+    return prescribed, False
+
+
+def build_initial_state_2d(
+    setup: Spatial2DSetup, state: T3SpatialState,
+) -> tuple[T3SpatialState, list[str]]:
+    """Apply the setup's initial condition, returning the state and any notes.
+
+    ``kind='thermal'`` returns the state untouched, so every setup written
+    before initial conditions existed produces exactly the run it always did.
+    """
+    spec = setup.initial
+    if spec.kind == "thermal":
+        return state, []
+
+    spectral = state.spectral
+    n_cells = state.f.shape[1]
+    if spec.expression is not None:
+        x_um, y_um, x_norm, y_norm = cell_coordinates(state.geometry)
+        fn = compile_expression(
+            spec.expression, variables=_ENERGY_VARS + _SPACE_VARS,
+        )
+        ones = np.ones((spectral.E.size, 1))
+        field = np.asarray(
+            fn(
+                E=np.broadcast_to(
+                    spectral.E[:, None], (spectral.E.size, n_cells)
+                ),
+                gap=float(spectral.gap),
+                x=ones * x_norm[None, :], y=ones * y_norm[None, :],
+                x_um=ones * x_um[None, :], y_um=ones * y_um[None, :],
+                params=dict(spec.params),
+            ),
+            dtype=float,
+        )
+        field = np.broadcast_to(field, (spectral.E.size, n_cells))
+        seeded = seed_occupation(
+            spectral, n_cells, setup.T_bath,
+            **({"absolute": field} if spec.kind == "absolute" else {"excess": field}),
+        )
+    else:
+        excess = separable_excess(
+            _energy_shape(spec.energy, spectral),
+            _space_shape(spec.space, state.geometry),
+            spec.amplitude,
+        )
+        seeded = seed_occupation(
+            spectral, n_cells, setup.T_bath,
+            **({"absolute": excess} if spec.kind == "absolute" else {"excess": excess}),
+        )
+    return replace(state, f=seeded.f), list(seeded.notes)
+
+
+def build_drives_2d(
+    setup: Spatial2DSetup, state: T3SpatialState,
+) -> ExternalDrive | None:
+    """Every enabled drive on the setup, summed, or None if there are none."""
+    parts: list[ExternalDrive] = []
+    for spec in setup.drives:
+        if not spec.enabled:
+            continue
+        params = dict(spec.params)
+        if spec.expression is not None:
+            x_um, y_um, x_norm, y_norm = cell_coordinates(state.geometry)
+            parts.append(ExpressionDrive(
+                fn=compile_expression(
+                    spec.expression,
+                    variables=_ENERGY_VARS + _SPACE_VARS + _TIME_VARS,
+                ),
+                energies=state.spectral.E,
+                gap=float(state.spectral.gap),
+                x_um=x_um, y_um=y_um, x_norm=x_norm, y_norm=y_norm,
+                params=params,
+                channel=spec.channel,
+            ))
+            continue
+        pattern = spec.amplitude * np.outer(
+            _energy_shape(spec.energy, state.spectral),
+            _space_shape(spec.space, state.geometry),
+        )
+        factor, static = _time_factor(spec.time, params)
+        parts.append(SeparableDrive(
+            pattern=pattern, time_factor=factor,
+            channel=spec.channel, static=static,
+        ))
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else SumDrive(tuple(parts))

@@ -561,6 +561,12 @@ class Spatial2DSetup(StrictModel):
     collisions: CollisionTerms = CollisionTerms()
     gap_regions: GapRegions = GapRegions()
     injection: Injection2D = Injection2D()
+    initial: InitialCondition = InitialCondition()
+    # Any number of prescribed drives, summed. A device can be under a steady
+    # bias and a pulse at once, and that is two drives rather than one harder
+    # expression. `injection` above is the older, narrower knob and still
+    # works; these are the general form.
+    drives: list[DriveSpec] = Field(default_factory=list)
     subgap_drive: SubGapDrive = SubGapDrive()
     pb_drive: PairBreakingDrive = PairBreakingDrive()
     phonons: PhononSector = PhononSector()

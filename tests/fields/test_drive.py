@@ -141,7 +141,7 @@ class TestGenerality:
             variables=("E", "x", "y", "x_um", "y_um", "t"),
         )
         drive = ExpressionDrive(
-            fn=fn, energies=state.spectral.E,
+            fn=fn, energies=state.spectral.E, gap=float(state.spectral.gap),
             x_um=x_um, y_um=y_um, x_norm=x_norm, y_norm=y_norm,
             params={"gap": float(state.spectral.gap)},
         )
@@ -160,7 +160,7 @@ class TestGenerality:
         x_um, y_um, x_norm, y_norm = cell_coordinates(state.geometry)
         drive = ExpressionDrive(
             fn=compile_expression("1.0 / (t - 5.0)", variables=("E", "x", "y", "t")),
-            energies=state.spectral.E,
+            energies=state.spectral.E, gap=float(state.spectral.gap),
             x_um=x_um, y_um=y_um, x_norm=x_norm, y_norm=y_norm,
         )
         with pytest.raises(DriveEvaluationError, match="failed at t=5"):

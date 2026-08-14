@@ -125,6 +125,7 @@ class ExpressionDrive:
 
     fn: Callable[..., np.ndarray]
     energies: np.ndarray          # (NE,)
+    gap: float                    # reference gap (ueV)
     x_um: np.ndarray              # (Ncells,)
     y_um: np.ndarray              # (Ncells,)
     x_norm: np.ndarray            # (Ncells,) in [0, 1]
@@ -139,6 +140,7 @@ class ExpressionDrive:
         try:
             value = self.fn(
                 E=np.broadcast_to(e, shape),
+                gap=float(self.gap),
                 x=ones * self.x_norm[None, :],
                 y=ones * self.y_norm[None, :],
                 x_um=ones * self.x_um[None, :],

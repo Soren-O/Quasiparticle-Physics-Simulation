@@ -27,6 +27,7 @@ from qpsim.backends.t3_diffusion import T3DiffusionBackend
 from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
 from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.constants import H_OVER_KB_K_PER_HZ
+from qpsim.fields.drive import StaticDrive, SumDrive
 from qpsim.grid.spatial_grid import reconstruct_field
 from qpsim.observables import (
     compute_ac_conductivity,
@@ -51,6 +52,8 @@ from qpsim.services.rate_equation_coefficients import (
 )
 from qpsim.services.transient import run_time_dependent
 from qpsim.webui.builders import (
+    build_drives_2d,
+    build_initial_state_2d,
     build_injection_2d,
     build_injection_flux,
     build_m25_inputs,
@@ -637,9 +640,20 @@ def run_spatial_2d(
     progress(0.02, "building geometry")
 
     state = build_state_2d(setup)
+    state, seed_notes = build_initial_state_2d(setup, state)
+    payload.notes.extend(seed_notes)
     geometry = state.geometry
     injection = build_injection_2d(setup, state)
     external_gain, external_loss = (None, None) if injection is None else injection
+    prescribed = build_drives_2d(setup, state)
+    if prescribed is not None and injection is not None:
+        # Both would be legitimate sources, but `run` refuses a drive
+        # alongside raw arrays on purpose, so fold the older narrow knob into
+        # the general one rather than silently dropping either.
+        prescribed = SumDrive((
+            StaticDrive(external_gain, external_loss), prescribed,
+        ))
+        external_gain = external_loss = None
     delta_0 = setup.material.Delta_0
     photon_params, pb_photon_params = drive_dicts(setup)
     backend = T3SpatialBackend(
@@ -669,6 +683,7 @@ def run_spatial_2d(
             stop_tol=setup.stop_tol,
             external_gain=external_gain,
             external_loss=external_loss,
+            drive=prescribed,
             self_consistent_gap=setup.self_consistent_gap,
             gap_quantum=(
                 setup.gap_quantum_over_dE * float(np.min(state.spectral.dE))

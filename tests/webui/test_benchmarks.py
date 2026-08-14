@@ -240,3 +240,109 @@ def test_unknown_tier_is_rejected_at_registration() -> None:
         benchmarks.register(
             _bench("b", lambda s, a, m: _curve(np.ones(3), np.ones(3)), tier="T9")
         )
+
+
+# -- prescribed fields through the web schema --------------------------
+
+
+class TestPrescribedFieldsReachTheRun:
+    """The engine can express these; the question is whether the API can.
+
+    The gap that started this work was exactly here: `run_time_dependent`
+    accepted any starting state, but nothing in the schema could ask for one,
+    so no user could reach it.
+    """
+
+    @staticmethod
+    def _run(setup):
+        import qpsim.webui.execute as execute
+        return execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
+
+    @staticmethod
+    def _base():
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = 24
+        setup.geometry.rows, setup.geometry.cols = 5, 5
+        setup.dt = 1.0
+        setup.max_time = 40.0
+        setup.snapshot_interval = 10.0
+        setup.stop_tol = 0.0
+        return setup
+
+    def test_thermal_is_still_the_default(self):
+        """Every setup written before this existed must be unaffected."""
+        setup = self._base()
+        assert setup.initial.kind == "thermal"
+        assert setup.drives == []
+
+    def test_a_seeded_excess_decays_from_the_start(self):
+        setup = self._base()
+        setup.initial.kind = "excess"
+        setup.initial.amplitude = 5e-4
+        series = self._run(setup).arrays["obs_x_qp_mean"]
+        assert series[0] > series[-1], "the seeded excess never relaxed"
+
+    def test_a_pulse_rises_while_on_and_falls_after(self):
+        """The canonical measurement, through the schema."""
+        from qpsim.webui.schemas import (
+            DriveSpec,
+            EnergyProfileSpec,
+            SpatialProfileSpec,
+            TimeProfileSpec,
+        )
+        setup = self._base()
+        setup.max_time = 60.0
+        setup.snapshot_interval = 5.0
+        setup.drives = [DriveSpec(
+            enabled=True, amplitude=3e-5,
+            energy=EnergyProfileSpec(kind="monoenergetic", E_0=400.0, width=40.0),
+            space=SpatialProfileSpec(kind="uniform"),
+            time=TimeProfileSpec(kind="pulse", t_on=10.0, t_off=30.0),
+        )]
+        payload = self._run(setup)
+        t = payload.arrays["snap_t_ns"]
+        y = payload.arrays["obs_x_qp_mean"]
+        during = y[(t > 10.0) & (t <= 30.0)]
+        after = y[t > 30.0]
+        assert during[-1] > during[0], "the pulse did not raise the population"
+        assert after[-1] < during[-1], "nothing decayed once the drive stopped"
+
+    def test_an_enabled_drive_with_no_amplitude_is_refused(self):
+        """The recurring failure here is a default that makes a run inert."""
+        from pydantic import ValidationError
+        from qpsim.webui.schemas import DriveSpec
+        with pytest.raises(ValidationError, match="applies nothing"):
+            DriveSpec(enabled=True, amplitude=0.0)
+
+    def test_a_clipped_initial_condition_says_so(self):
+        setup = self._base()
+        setup.initial.kind = "excess"
+        setup.initial.amplitude = 5.0        # far past f = 1
+        notes = self._run(setup).notes
+        assert any("clipped to [0, 1]" in n for n in notes)
+
+    def test_a_non_separable_expression_drive_runs(self):
+        from qpsim.webui.schemas import DriveSpec
+        setup = self._base()
+        setup.drives = [DriveSpec(
+            enabled=True, amplitude=1.0,
+            expression=(
+                "np.where(E > gap * 1.5, "
+                "  params.get('a', 2e-5) * (1.0 + x) * np.exp(-t / 30.0), 0.0)"
+            ),
+            params={"a": 2e-5},
+        )]
+        series = self._run(setup).arrays["obs_x_qp_mean"]
+        assert series[-1] > series[0], "the expression drive created nothing"
+
+    def test_a_mistyped_expression_is_reported_before_the_solve(self):
+        from qpsim.fields.safe_eval import SafeExpressionError
+        from qpsim.webui.schemas import DriveSpec
+        setup = self._base()
+        setup.drives = [DriveSpec(
+            enabled=True, amplitude=1.0, expression="np.exp(-Q / 30.0)",
+        )]
+        with pytest.raises(SafeExpressionError, match="Unknown name 'Q'"):
+            self._run(setup)
