@@ -311,6 +311,7 @@ const state = {
   catalogue: null,      // the catalogue is static; fetch it once
   catId: null,
   benchmarks: {},       // name -> declared closed form, from /api/benchmarks
+  termStatus: {},       // term -> {state, reason}, from /api/terms
 };
 
 /* ---------- new-run view ---------- */
@@ -1273,6 +1274,11 @@ initCopyEditing();
    `why` says what is missing. Showing the term greyed with a reason is
    honest; hiding it would misrepresent the model, and wiring it to nothing
    would be worse. */
+/* What the client still needs to know about a term: where to WRITE when the
+   user toggles it, and what to call it. Whether a term is in the model, and
+   whether it is acting, is NOT decided here -- it comes from /api/terms, so
+   there is one implementation of that question rather than two. See
+   qpsim/webui/terms.py for why. */
 const TERM_FIELDS = {
   diff:    { path: "material.D_0", kind: "zeroable", label: "Diffusion" },
   scat:    { path: "collisions.scattering", kind: "flag",
@@ -1314,36 +1320,44 @@ const WIZARD_STEPS = ["equations", "geometry", "conditions"];
 // it: the same renderers run, and only interaction is withdrawn.
 const wizard = { index: 0, offD0: null, readOnly: false, title: "", from: "runs" };
 
-/* The panel's paths are the 2-D setup's. Other modes do not carry all of
-   them, and an absent field must NOT read as a term that is switched off:
-   "off" says the model contains this term and it is not acting, which is a
-   statement about the physics. Absent says the mode cannot express the term
-   at all. Writing to one is worse than displaying it wrongly -- setByPath
-   throws, or the value reaches an extra="forbid" model and 422s. */
-function termFieldExists(spec) {
-  if (!spec || spec.path === null || state.setup === null) return false;
-  const parts = spec.path.split(".");
-  let node = state.setup;
-  for (const key of parts.slice(0, -1)) {
-    if (node === null || typeof node !== "object" || !(key in node)) return false;
-    node = node[key];
-  }
-  return node !== null && typeof node === "object"
-    && parts[parts.length - 1] in node;
+/* Term state comes from the server, which derives it from the same gates the
+   engine branches on. Three states, and the difference between the last two
+   is the point: `on` means the model contains the term and it is acting,
+   `off` means it contains it and it is switched off, `absent` means it is not
+   in the model at all -- a single cell has no transport, a pinned phonon bath
+   has no phonon equation, and a drive at zero photon number applies nothing.
+   Before this, the panel worked all that out for itself and got three of them
+   wrong while the numbers were right. */
+
+async function refreshTerms() {
+  if (state.setup === null) return;
+  const { ok, body } = await postJSON("/api/terms", {
+    name: "term-status", setup: state.setup,
+  });
+  state.termStatus = ok ? body : {};
+}
+
+function termState(id) {
+  const status = state.termStatus && state.termStatus[id];
+  return status ? status.state : "absent";
 }
 
 function termIsOn(id) {
-  const spec = TERM_FIELDS[id];
-  if (!termFieldExists(spec)) return false;
-  const value = getByPath(state.setup, spec.path);
-  if (spec.kind === "zeroable") return Number(value) > 0;
-  if (spec.kind === "mode") return value === spec.on;
-  return Boolean(value);
+  return termState(id) === "on";
+}
+
+function termApplies(id) {
+  return termState(id) !== "absent";
+}
+
+function termReason(id) {
+  const status = state.termStatus && state.termStatus[id];
+  return (status && status.reason) || "";
 }
 
 function setTerm(id, on) {
   const spec = TERM_FIELDS[id];
-  if (!termFieldExists(spec)) return;
+  if (!spec || spec.path === null || !termApplies(id)) return;
   if (spec.kind === "zeroable") {
     // D_0 = 0 IS the transport off switch, so remember the value being
     // switched away from rather than forcing the user to retype it.
@@ -1369,7 +1383,7 @@ function renderTermPanel() {
     const spec = TERM_FIELDS[id];
     if (button.classList.contains("locked")) continue;
     const declared = spec && spec.path !== null;
-    const expressible = termFieldExists(spec);
+    const expressible = termApplies(id);
     const unavailable = !expressible;
     const on = termIsOn(id);
     // Deliberately exclusive. "off" carries a strike-through, which asserts
@@ -1377,13 +1391,12 @@ function renderTermPanel() {
     // cannot express has no business making that claim.
     button.classList.toggle("off", expressible && !on);
     button.classList.toggle("clamped", unavailable);
-    const mode = state.modeLabels[state.mode] || state.mode;
+    const label = spec ? spec.label : id;
+    const reason = termReason(id);
     button.title = expressible
-      ? `${spec.label} — click to ${on ? "drop" : "restore"} it.`
-      : declared
-        ? `${spec.label}: not part of the ${mode} model, so it can be `
-          + `neither switched on nor off here.`
-        : `${spec ? spec.label : id}: ${spec ? spec.why : "not available"}.`;
+      ? `${label} — click to ${on ? "drop" : "restore"} it.`
+        + (reason ? ` (${reason})` : "")
+      : `${label}: ${reason || (declared ? "not in this model" : (spec && spec.why) || "not available")}.`;
   }
   // A sign belongs to the term it introduces and fades with it.
   for (const op of document.querySelectorAll(".op[data-op-for]")) {
@@ -1392,8 +1405,7 @@ function renderTermPanel() {
     op.classList.toggle("dim", target !== null && target.classList.contains("off"));
   }
 
-  const live = Object.keys(TERM_FIELDS).filter(
-    (id) => termFieldExists(TERM_FIELDS[id]) && termIsOn(id));
+  const live = Object.keys(TERM_FIELDS).filter((id) => termIsOn(id));
   if (!live.includes("scat") && !live.includes("recomb")) {
     cons.push(["bad", "No electron-phonon collisions: nothing relaxes the "
       + "quasiparticle energies or changes their number."]);
@@ -1463,7 +1475,7 @@ function showWizardStep(index) {
         { label: "New run" },
       ]);
   const mode = wizard.readOnly ? state.mode : "spatial_2d";
-  if (name === "equations") renderTermPanel();
+  if (name === "equations") refreshTerms().then(renderTermPanel);
   if (name === "geometry") {
     renderStepForm("#form-geometry", geometrySections(mode));
   }
@@ -1507,7 +1519,10 @@ function initWizard() {
       }
       if (!TERM_FIELDS[id] || TERM_FIELDS[id].path === null) return;
       setTerm(id, !termIsOn(id));
-      renderTermPanel();
+      // Re-ask rather than assume: a toggle can change what OTHER terms are,
+      // and the server is the one that knows. Switching the phonon sector to
+      // a dynamic mode, for instance, brings three terms into the model.
+      refreshTerms().then(renderTermPanel);
     });
   }
   $("#btn-next").addEventListener("click", () => showWizardStep(wizard.index + 1));

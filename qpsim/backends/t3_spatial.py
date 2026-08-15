@@ -133,6 +133,8 @@ class T3SpatialBackend:
         *,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
@@ -140,6 +142,10 @@ class T3SpatialBackend:
     ) -> None:
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
+        self.enable_phonon_scattering_source = bool(enable_phonon_scattering_source)
+        self.enable_phonon_recombination_source = bool(
+            enable_phonon_recombination_source
+        )
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
         self.phonon_escape_time = phonon_escape_time
@@ -225,6 +231,10 @@ class T3SpatialBackend:
             float(state.material.T_c), state.spectral.E.tobytes(),
             repr(self.photon_params), repr(self.pb_photon_params),
             repr(self.phonon_escape_time),
+            # In the signature so switching a phonon source rebuilds the
+            # layer rather than reusing kernels built under the old setting.
+            self.enable_phonon_scattering_source,
+            self.enable_phonon_recombination_source,
         )
         if self._collisions is None or signature != self._collision_signature:
             previous = self._collisions
@@ -235,6 +245,12 @@ class T3SpatialBackend:
                 T_bath=state.T_bath,
                 enable_scattering=self.enable_scattering,
                 enable_recombination=self.enable_recombination,
+                enable_phonon_scattering_source=(
+                    self.enable_phonon_scattering_source
+                ),
+                enable_phonon_recombination_source=(
+                    self.enable_phonon_recombination_source
+                ),
                 photon_params=self.photon_params,
                 pb_photon_params=self.pb_photon_params,
                 phonon_escape_time=self.phonon_escape_time,

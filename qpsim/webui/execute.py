@@ -660,6 +660,12 @@ def run_spatial_2d(
     backend = T3SpatialBackend(
         enable_scattering=setup.collisions.scattering,
         enable_recombination=setup.collisions.recombination,
+        enable_phonon_scattering_source=(
+            setup.collisions.phonon_scattering_source
+        ),
+        enable_phonon_recombination_source=(
+            setup.collisions.phonon_recombination_source
+        ),
         photon_params=photon_params,
         pb_photon_params=pb_photon_params,
         # thermal_bath pins n_ph, which is the shipped behaviour; the dynamic

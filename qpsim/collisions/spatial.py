@@ -78,6 +78,8 @@ class SpatialCollisions:
         T_bath: float,
         enable_scattering: bool = True,
         enable_recombination: bool = True,
+        enable_phonon_scattering_source: bool = True,
+        enable_phonon_recombination_source: bool = True,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
@@ -115,6 +117,13 @@ class SpatialCollisions:
         self.T_bath = float(T_bath)
         self.enable_scattering = bool(enable_scattering)
         self.enable_recombination = bool(enable_recombination)
+        # The phonon side is booked separately. Each pair is ONE process
+        # recorded on both sides of the ledger, and whether both sides are
+        # recorded is exactly what these control.
+        self.enable_phonon_scattering_source = bool(enable_phonon_scattering_source)
+        self.enable_phonon_recombination_source = bool(
+            enable_phonon_recombination_source
+        )
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
 
@@ -305,8 +314,13 @@ class SpatialCollisions:
                     f[:, cell], spectral, k_s0, k_r0,
                     self._idx_diff, self._idx_sum, self._diff_sign,
                     int(self.omega_bins.size),
-                    enable_scattering=self.enable_scattering,
-                    enable_recombination=self.enable_recombination,
+                    # The PHONON-side switches, not the quasiparticle-side
+                    # ones. Passing the latter left both phonon switches with
+                    # nothing to act on -- bit-for-bit inert -- while tying the
+                    # phonon source to a flag naming the other side of the
+                    # ledger.
+                    enable_scattering=self.enable_phonon_scattering_source,
+                    enable_recombination=self.enable_phonon_recombination_source,
                 )
                 if self.phonon_escape_time == 0.0:
                     a_eff, b_eff = a_ph, b_ph

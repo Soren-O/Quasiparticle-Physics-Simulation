@@ -42,6 +42,7 @@ from qpsim.webui.plots import (
 from qpsim.webui.runner import JobRunner
 from qpsim.webui.schemas import MODE_CLASSES, MODE_LABELS, SetupEnvelope
 from qpsim.webui.store import Workspace
+from qpsim.webui.terms import term_status_payload
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -209,6 +210,17 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     def validate(envelope: SetupEnvelope) -> dict[str, Any]:
         report = validate_setup(envelope.setup)
         return {"ok": report.ok, "errors": report.errors, "warnings": report.warnings}
+
+    @app.post("/api/terms")
+    def terms(envelope: SetupEnvelope) -> dict[str, dict[str, str]]:
+        """Which kinetic-equation terms this setup actually solves.
+
+        The interface used to work this out for itself, which meant two
+        implementations of one question and, inevitably, three places where
+        they disagreed. This is the authority; the panel renders what it is
+        told. See :mod:`qpsim.webui.terms`.
+        """
+        return term_status_payload(envelope.setup)
 
     # -- setups -------------------------------------------------------
 
