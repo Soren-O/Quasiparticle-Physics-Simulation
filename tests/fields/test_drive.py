@@ -117,17 +117,41 @@ class TestSpatialAndSpectralShape:
         assert excess[0] == max(excess)
         assert excess[0] > excess[-1]
 
-    def test_a_drive_below_the_gap_cannot_create_anything(self):
-        """The measurement must be able to fail: this is the null case."""
+    def test_a_zero_drive_creates_nothing(self):
+        """The measurement must be able to fail: this is the null case.
+
+        A zero amplitude rather than a sub-gap spectrum, because the latter is
+        now refused outright (below) and a test cannot be both the null case
+        and the error case.
+        """
+        state = _state(min_factor=0.8)
+        result = T3SpatialBackend().run(
+            state, dt=1.0, max_time=10.0, stop_tol=0.0,
+            drive=StaticDrive(np.zeros_like(state.f)),
+        )
+        assert np.sum(result.state.f) == pytest.approx(np.sum(state.f), rel=1e-9)
+
+    def test_a_drive_aimed_below_the_gap_is_refused(self):
+        """Asking for quasiparticles where there are no states is an error.
+
+        This used to run and return the state unchanged, because the spatial
+        path added the source and then zeroed every unsupported row. Silence
+        is the wrong answer twice over: it is indistinguishable from a drive
+        that was applied and did nothing, and on a gap-step device the same
+        code discarded a source the user had asked for on BOTH sides of the
+        step while delivering it on one. Both backends this one replaced
+        raise here (t3_spatial_1d._validate_group_gain_support,
+        t3_diffusion via external_flux._validate_gain_support).
+        """
         state = _state(min_factor=0.8)
         _ne, ncells = state.f.shape
         below = (state.spectral.cell_density == 0).astype(float)
         assert below.sum() > 0, "this grid has no sub-gap bins -- the test is inert"
-        result = T3SpatialBackend().run(
-            state, dt=1.0, max_time=10.0, stop_tol=0.0,
-            drive=StaticDrive(2e-4 * np.outer(below, np.ones(ncells))),
-        )
-        assert np.sum(result.state.f) == pytest.approx(np.sum(state.f), rel=1e-9)
+        with pytest.raises(ValueError, match="zero-spectral-capacity"):
+            T3SpatialBackend().run(
+                state, dt=1.0, max_time=10.0, stop_tol=0.0,
+                drive=StaticDrive(2e-4 * np.outer(below, np.ones(ncells))),
+            )
 
 
 class TestGenerality:

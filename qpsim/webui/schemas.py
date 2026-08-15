@@ -38,7 +38,15 @@ _AL = load_material("Al")
 # integration step would otherwise drain an unbounded inner cadence loop
 # before cancellation is ever polled (single-worker runner → memory blow-up
 # and an uninterruptible job). Reject such setups at validation time.
-_MAX_SNAPSHOTS = 100_000
+#
+# Taken from the ENGINE rather than restated. This was written twice with
+# values 25x apart -- 100_000 here against the spatial backend's 4_000 -- so
+# the 2-D mode's own defaults sat in the gap: a setup asking for a frame per
+# step validated green in the editor and then died at run time with a bare
+# engine ValueError, in the one place the message could not be acted on. Two
+# numbers for one rule also means tuning either silently moves where setups
+# are rejected.
+from qpsim.backends.t3_spatial import _SNAPSHOT_HARD_CAP as _MAX_SNAPSHOTS
 
 
 def _reject_dense_snapshots(snapshot_interval: float | None, run_time: float) -> None:

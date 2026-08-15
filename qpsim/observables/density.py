@@ -29,6 +29,8 @@ missing occupation there cannot be reconstructed honestly.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.materials.database import validate_rho_F_eV
@@ -36,6 +38,12 @@ from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext
 
 _UEV_PER_EV = 1.0e6
+# Top-of-grid occupation above which the integral is missing a real tail. The
+# same number the two sibling observables already use for the same test
+# (ac_conductivity.py:130, gap_equation.py:501), deliberately: one grid is
+# either long enough for all three or short for all three, and three
+# thresholds would let a run be warned about its gap and not its density.
+_TAIL_WARN_OCCUPATION = 1e-5
 
 
 def _finite_real_scalar(name: str, raw: float) -> float:
@@ -92,6 +100,28 @@ def _qp_integral_uev(f: np.ndarray, ctx: SpectralContext) -> float:
                 "finite occupied weight on [0, Delta), which dominates n_qp "
                 "at low T; start the grid at zero for a Dynes context."
             )
+    # The LOW edge is enforced by raising, a few lines up, with a long note
+    # about mass that "cannot be reconstructed honestly". The HIGH edge was
+    # dropped in silence: cell_weights stops at the last cell edge, so an
+    # occupation still populated at the top of the grid is truncated without a
+    # word, even though the docstrings promise [Delta, inf). Both sibling
+    # observables detect exactly this condition on exactly this state and warn
+    # -- compute_ac_conductivity and solve_gap each emit a RuntimeWarning when
+    # f(E_max) > 1e-5 -- so a run could be told its grid was too short for Q_i
+    # and for the gap, while the quasiparticle density it was reading was
+    # wrong for the same reason and said nothing.
+    tail = float(f_arr[-1])
+    if tail > _TAIL_WARN_OCCUPATION:
+        warnings.warn(
+            f"qp_fraction: f at the top of the grid is {tail:.3g} "
+            f"(> {_TAIL_WARN_OCCUPATION:g}), so the occupation has not decayed "
+            "within the represented domain and this integral is missing its "
+            "tail. The result is a LOWER BOUND on the physical density; raise "
+            "grid.max_factor until the top-of-grid occupation is negligible "
+            "before quoting an absolute x_qp or n_qp.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return float(np.sum(f_arr * ctx.cell_weights))
 
 

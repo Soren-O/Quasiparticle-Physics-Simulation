@@ -214,12 +214,27 @@ def cell_coordinates(
     """
     rows, cols = np.nonzero(np.asarray(geometry.mask, dtype=bool))
     mesh = float(geometry.mesh_size)
-    nrow, ncol = geometry.mask.shape
     x_um = (cols + 0.5) * mesh
     y_um = (rows + 0.5) * mesh
+    if rows.size == 0:
+        return (x_um.astype(float), y_um.astype(float),
+                x_um.astype(float), y_um.astype(float))
+    # The DEVICE's bounding box, not the raster's extent. Normalising by
+    # mask.shape is the same thing only when the mask fills its array, which a
+    # rectangle does and an imported layout does not: a GDS raster is padded by
+    # a mesh cell and floored at 8x8, so a device occupying the middle of its
+    # array had "x = 0.5" land off-centre, and the default centred Gaussian hot
+    # spot peaked on an edge column -- or off the device entirely, leaving only
+    # a tail, which spatial_profile then peak-normalises to 1.0 so the
+    # amplitude stops meaning the requested excess. Nothing raises: the
+    # peak == 0 check cannot catch a Gaussian, which is never exactly zero.
+    row_lo, row_hi = int(rows.min()), int(rows.max())
+    col_lo, col_hi = int(cols.min()), int(cols.max())
+    n_rows = row_hi - row_lo + 1
+    n_cols = col_hi - col_lo + 1
     return (
         x_um.astype(float),
         y_um.astype(float),
-        ((cols + 0.5) / ncol).astype(float),
-        ((rows + 0.5) / nrow).astype(float),
+        ((cols - col_lo + 0.5) / n_cols).astype(float),
+        ((rows - row_lo + 0.5) / n_rows).astype(float),
     )

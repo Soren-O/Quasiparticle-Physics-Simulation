@@ -219,7 +219,7 @@ def _plot_xqp_field(arrays: dict[str, np.ndarray], summary: dict[str, Any]) -> b
     dark would read as the latter.
     """
     field = np.asarray(arrays["xqp_field"], dtype=float)
-    mesh_size = float(summary.get("mesh_size_um", 1.0) or 1.0)
+    mesh_size = _mesh(summary)
     rows, cols = field.shape
     fig, ax = _new_axes("x (μm)", "y (μm)", "x_qp over the device")
 
@@ -255,7 +255,7 @@ def _plot_geometry_mask(arrays: dict[str, np.ndarray], summary: dict[str, Any]) 
     a stray polygon, is obvious here and very hard to diagnose from a number.
     """
     mask = np.asarray(arrays["mask"], dtype=float)
-    mesh_size = float(summary.get("mesh_size_um", 1.0) or 1.0)
+    mesh_size = _mesh(summary)
     rows, cols = mask.shape
     cells = int(np.count_nonzero(mask))
     fig, ax = _new_axes(
@@ -456,7 +456,7 @@ def _plot_analytic_comparison(
 
 def _frame_axes(arrays, summary, title):
     """A device-shaped axes in microns, with the mask's aspect preserved."""
-    mesh = float(summary.get("mesh_size_um", 1.0)) or 1.0
+    mesh = _mesh(summary)
     rows, cols = np.asarray(arrays["mask"]).shape
     fig, ax = _new_axes("x (μm)", "y (μm)", title)
     ax.grid(False)
@@ -584,8 +584,32 @@ def render_formula(latex: str, *, fontsize: float = 15.0, dpi: int = 200) -> byt
 # -- registry ---------------------------------------------------------
 
 
+def _required_scale(summary: dict[str, Any], key: str, what: str) -> float:
+    """A physical scale the figure cannot be drawn without.
+
+    These used to default to 1.0, which is not a neutral choice: it is a
+    specific claim about the device, silently substituted for a missing one.
+    Every energy axis is in units of the gap, so a missing gap_ueV drew a
+    correctly-labelled E/Delta axis that was wrong by a factor of ~180; a
+    missing mesh_size_um did the same to the micron axes and the scale bar.
+    Refuse instead -- a figure that fails is recoverable, one that lies is not.
+    """
+    value = summary.get(key)
+    if value is None or not np.isfinite(float(value)) or float(value) <= 0.0:
+        raise ValueError(
+            f"this run reports no usable {key} ({value!r}), and {what} is the "
+            "scale of the axis being drawn, so the figure would be mislabelled "
+            "rather than merely imprecise."
+        )
+    return float(value)
+
+
 def _gap(summary: dict[str, Any]) -> float:
-    return float(summary.get("gap_ueV", 1.0)) or 1.0
+    return _required_scale(summary, "gap_ueV", "the gap")
+
+
+def _mesh(summary: dict[str, Any]) -> float:
+    return _required_scale(summary, "mesh_size_um", "the cell size")
 
 
 @dataclass(frozen=True)

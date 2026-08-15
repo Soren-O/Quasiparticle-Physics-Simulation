@@ -389,6 +389,22 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 f"2D geometry: a {setup.boundary.kind} boundary needs a finite "
                 "value."
             )
+        # The 1-D branch has always checked this and the 2-D branch never did,
+        # so the identical setup was rejected on one mode and silently ran on
+        # the other. A line outside the grid is not a small source: at
+        # centre = 6Delta on a grid stopping at 4Delta the peak gain is 5e-95
+        # against a nominal 2e-5, and terms.py reads only `enabled`, so the
+        # panel reports "External injection: on" for a device that reaches the
+        # bath value and nothing else.
+        if setup.injection.enabled:
+            e_center = setup.injection.center_over_delta
+            if not (setup.grid.min_factor < e_center < setup.grid.max_factor):
+                report.errors.append(
+                    f"Injection: line center {e_center:g}×Δ lies outside the "
+                    f"energy grid [{setup.grid.min_factor:g}, "
+                    f"{setup.grid.max_factor:g}]×Δ, so the source would be "
+                    "numerically absent."
+                )
         _validate_gap_map_against_grid(report, setup)
 
     elif isinstance(setup, Spatial1DSetup):
@@ -861,8 +877,10 @@ def _validate_gap_map_against_grid(
     if regions.kind == "uniform":
         return
     delta_0 = setup.material.Delta_0
+    largest: float | None = None
     if regions.kind == "column_step":
         smallest = min(regions.gap_left, regions.gap_right)
+        largest = max(regions.gap_left, regions.gap_right)
     else:
         try:
             geometry = build_geometry_2d(setup)
@@ -873,6 +891,21 @@ def _validate_gap_map_against_grid(
         if gaps is None:
             return
         smallest = float(np.min(gaps))
+        largest = float(np.max(gaps))
+    # Only the LOW end was checked. A region above the grid top validates
+    # clean and then dies inside SpectralContext with a message naming
+    # neither the gap nor the field that set it -- an Al/Nb bilayer entered
+    # in micro-eV is the obvious way in. The 1-D branch checks both ends.
+    ceiling = setup.grid.max_factor * delta_0
+    if largest is not None and largest >= ceiling:
+        needed = largest / delta_0
+        report.errors.append(
+            f"2D gap map: a local gap of {largest:.4g} micro-eV is at or above "
+            f"the grid top {ceiling:.4g} "
+            f"(max_factor={setup.grid.max_factor:g} x Delta_0={delta_0:g}), so "
+            "no quasiparticle states would exist there. Set grid.max_factor > "
+            f"{needed:.4g}, or lower the gap."
+        )
     floor = setup.grid.min_factor * delta_0
     if smallest < floor:
         needed = smallest / delta_0
@@ -935,22 +968,36 @@ _TIME_VARS = ("t",)
 
 
 def _energy_shape(
-    spec: EnergyProfileSpec, spectral: SpectralContext
+    spec: EnergyProfileSpec,
+    spectral: SpectralContext,
+    params: dict[str, float] | None = None,
 ) -> np.ndarray:
+    # `params` was not forwarded, so every constant an author defined for a
+    # separable expression was silently discarded -- and the whitelisted
+    # `params.get('E0', 400.0)` form the codebase steers them toward then
+    # returns its DEFAULT, so the run completes at the wrong line centre with
+    # no error, no warning and no note. The schema documents params as in
+    # scope for exactly these expressions.
     return energy_profile(
         spec.kind, spectral,
         T_eff=spec.T_eff, E_0=spec.E_0, width=spec.width,
         expression=_compiled(spec.expression, _ENERGY_VARS),
+        params=params,
     )
 
 
-def _space_shape(spec: SpatialProfileSpec, geometry: Geometry) -> np.ndarray:
+def _space_shape(
+    spec: SpatialProfileSpec,
+    geometry: Geometry,
+    params: dict[str, float] | None = None,
+) -> np.ndarray:
     x_um, y_um, x_norm, y_norm = cell_coordinates(geometry)
     return spatial_profile(
         spec.kind, x_norm, y_norm,
         x_0=spec.x_0, y_0=spec.y_0, sigma=spec.sigma,
         expression=_compiled(spec.expression, _SPACE_VARS),
         x_um=x_um, y_um=y_um,
+        params=params,
     )
 
 
@@ -1037,8 +1084,8 @@ def build_initial_state_2d(
         )
     else:
         excess = separable_excess(
-            _energy_shape(spec.energy, spectral),
-            _space_shape(spec.space, state.geometry),
+            _energy_shape(spec.energy, spectral, spec.params),
+            _space_shape(spec.space, state.geometry, spec.params),
             spec.amplitude,
         )
         seeded = seed_occupation(
@@ -1072,8 +1119,8 @@ def build_drives_2d(
             ))
             continue
         pattern = spec.amplitude * np.outer(
-            _energy_shape(spec.energy, state.spectral),
-            _space_shape(spec.space, state.geometry),
+            _energy_shape(spec.energy, state.spectral, params),
+            _space_shape(spec.space, state.geometry, params),
         )
         factor, static = _time_factor(spec.time, params)
         parts.append(SeparableDrive(
