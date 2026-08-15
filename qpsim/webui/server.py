@@ -331,7 +331,7 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     def _load_run_artifacts(run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             manifest = workspace.read_manifest(run_id)
-            arrays = workspace.read_arrays(run_id)
+            arrays = workspace.open_arrays(run_id)
         except (FileNotFoundError, ValueError, zipfile.BadZipFile) as exc:
             raise HTTPException(404, "Run or its arrays are missing/unreadable.") from exc
         return manifest, arrays

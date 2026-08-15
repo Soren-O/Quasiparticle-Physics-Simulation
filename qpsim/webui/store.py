@@ -23,12 +23,14 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Collection
+import zipfile
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from numpy.lib import format as npy_format
 
 from qpsim.materials.database import _LEGACY_RHO_F_MAX
 from qpsim.webui.schemas import SetupEnvelope
@@ -157,6 +159,47 @@ def _rmdir_with_retry(path: Path) -> None:
     path.rmdir()
 
 
+class LazyArrays(Mapping[str, np.ndarray]):
+    """A run's NPZ as a read-only mapping that inflates on first access.
+
+    Behaves like the dict the plot and CSV layers already expect -- they do
+    ``arrays["snap_f"]``, ``"mask" in arrays`` and iterate the keys -- so it
+    substitutes without touching them. The zip is opened per member rather
+    than held: a lingering handle is what makes delete_run fail on Windows.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._cache: dict[str, np.ndarray] = {}
+        with zipfile.ZipFile(path) as archive:
+            self._names = tuple(
+                sorted(
+                    member[:-4]
+                    for member in archive.namelist()
+                    if member.endswith(".npy")
+                )
+            )
+
+    def __getitem__(self, name: str) -> np.ndarray:
+        if name in self._cache:
+            return self._cache[name]
+        if name not in self._names:
+            raise KeyError(name)
+        with np.load(self._path, allow_pickle=False) as data:
+            value = np.asarray(data[name])
+        self._cache[name] = value
+        return value
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._names)
+
+    def __len__(self) -> int:
+        return len(self._names)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._names
+
+
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     # Atomic replace: run manifests are re-written by the worker thread
     # while request handlers read them; a plain write_text would let a
@@ -168,7 +211,18 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     # atomic, so this is last-writer-wins without spurious failures.
     tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(json_sanitize(data), indent=2), encoding="utf-8")
-    _replace_with_retry(tmp, path)
+    try:
+        _replace_with_retry(tmp, path)
+    except BaseException:
+        # The tmp name carries a fresh uuid, so a failure that repeats leaves a
+        # NEW orphan every time rather than overwriting one. A manifest that
+        # cannot be replaced (read-only attribute, an indexer or backup agent
+        # holding a handle) is retried from overlay() on every runs poll, i.e.
+        # every two seconds for as long as a browser tab is open, and nothing
+        # but delete_run ever cleans these up. Same guard the NPZ writer
+        # already uses.
+        _unlink_with_retry(tmp)
+        raise
 
 
 def _read_text_with_retry(path: Path) -> str:
@@ -392,6 +446,20 @@ class Workspace:
         with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
             return {name: np.asarray(data[name]) for name in data.files}
 
+    def open_arrays(self, run_id: str) -> LazyArrays:
+        """The payload as a mapping that inflates members ON ACCESS.
+
+        A single-frame PNG indexes one array and reads one slice of it, but
+        went through read_arrays, which materialises EVERY array in the file.
+        The frontend then preloads one request per frame per figure family the
+        moment a run detail opens, so a 2-D run with three families issued 3N
+        full-payload decompressions. Lazy access does not make a member cheaper
+        -- a deflate stream has no random access, so a frame still costs its
+        whole array -- but it stops a phonon-field figure paying for the
+        quasiparticle stack and vice versa.
+        """
+        return LazyArrays(self.run_dir(run_id) / "result.npz")
+
     def delete_arrays(self, run_id: str) -> None:
         """Remove a result payload, if present, without deleting its manifest."""
         _unlink_with_retry(self.run_dir(run_id) / "result.npz")
@@ -402,19 +470,47 @@ class Workspace:
             return set(data.files)
 
     def array_shapes(self, run_id: str, names: Collection[str]) -> dict[str, tuple[int, ...]]:
-        """Shapes of the NAMED arrays only.
+        """Shapes of the NAMED arrays only, from their .npy HEADERS.
 
-        Decompresses just those members. The run-detail poll runs on a timer,
-        and reading a whole result payload on each one would undo the
-        namelist-only design of :meth:`array_names` -- a 2-D run's frame stack
-        is the largest array in the file.
+        The docstring already said "decompresses just those members", but
+        ``data[name].shape`` inflates each member in full to build an array and
+        then reads one attribute off it -- and this sits on the two-second
+        run-detail poll, whose only use for the answer is the scrubber's frame
+        range, a number that cannot change for a finished run. On a 72 MB
+        payload that measured ~1 s of CPU and ~100 MB of transient allocation
+        every two seconds, forever.
+
+        A .npy header is about a hundred bytes at the front of the member, so
+        reading it inflates that much and stops.
         """
-        with np.load(self.run_dir(run_id) / "result.npz", allow_pickle=False) as data:
-            return {
-                name: tuple(data[name].shape)
-                for name in names
-                if name in data.files
-            }
+        path = self.run_dir(run_id) / "result.npz"
+        shapes: dict[str, tuple[int, ...]] = {}
+        with zipfile.ZipFile(path) as archive:
+            members = set(archive.namelist())
+            for name in names:
+                member = f"{name}.npy"
+                if member not in members:
+                    continue
+                with archive.open(member) as handle:
+                    try:
+                        version = npy_format.read_magic(handle)
+                        if version == (1, 0):
+                            shape, _fortran, _dtype = (
+                                npy_format.read_array_header_1_0(handle)
+                            )
+                        elif version == (2, 0):
+                            shape, _fortran, _dtype = (
+                                npy_format.read_array_header_2_0(handle)
+                            )
+                        else:
+                            # An unknown .npy revision is not worth guessing
+                            # at; fall back rather than report a wrong shape.
+                            raise ValueError(f"unsupported .npy version {version}")
+                    except (ValueError, OSError):
+                        with np.load(path, allow_pickle=False) as data:
+                            shape = tuple(data[name].shape)
+                shapes[name] = tuple(shape)
+        return shapes
 
     def list_runs(self) -> list[dict[str, Any]]:
         """Run manifests, newest first (run ids sort chronologically).
