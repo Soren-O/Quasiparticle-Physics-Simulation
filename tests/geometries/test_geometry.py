@@ -13,6 +13,7 @@ from qpsim.geometries import (
     rectangle,
     strip,
 )
+from qpsim.geometries import gds as gds_module
 from qpsim.geometries.gds import rasterize_polygons
 from qpsim.grid import build_laplacian_with_boundaries
 from qpsim.grid.spatial_grid import BoundaryCondition
@@ -185,3 +186,48 @@ class TestGdsOptionality:
     def test_from_gds_explains_the_missing_dependency(self):
         with pytest.raises(RuntimeError, match="gdstk"):
             from_gds("nonexistent.gds", layer=0, mesh_size=1.0)
+
+
+class _FakePolygon:
+    """Enough of a gdstk polygon for the layer filter: points and a layer."""
+
+    def __init__(self, points, layer):
+        self.points = np.asarray(points, dtype=float)
+        self.layer = int(layer)
+
+
+class TestGdsLayerSelection:
+    """The layer filter, without gdstk and without a GDS file.
+
+    Every test naming the import path was gated on `skipif(gds_support_
+    available())`, so it ran ONLY when gdstk was absent -- where all it could
+    assert was the "not installed" RuntimeError. With gdstk present it was
+    skipped outright. No configuration of the repo executed the real filter,
+    and dropping it would have silently imported the union of every layer in
+    the file: ground plane, wiring and alignment markers simulated as one
+    device. Stubbing the polygon iterator tests it either way.
+    """
+
+    @staticmethod
+    def _two_layer_file(monkeypatch):
+        square = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
+        far_square = [(20.0, 20.0), (28.0, 20.0), (28.0, 28.0), (20.0, 28.0)]
+        monkeypatch.setattr(
+            gds_module, "_iter_top_polygons",
+            lambda _path: [_FakePolygon(square, 0), _FakePolygon(far_square, 1)],
+        )
+
+    def test_only_the_requested_layer_is_rasterised(self, monkeypatch):
+        self._two_layer_file(monkeypatch)
+        mask_0, _ = gds_module.rasterize_gds_layer("fake.gds", layer=0, mesh_size=1.0)
+        mask_1, _ = gds_module.rasterize_gds_layer("fake.gds", layer=1, mesh_size=1.0)
+        # The 4x4 square and the 8x8 square are different devices, and neither
+        # is the union: dropping the filter would give both the same mask.
+        assert np.count_nonzero(mask_0) == pytest.approx(16, abs=4)
+        assert np.count_nonzero(mask_1) == pytest.approx(64, abs=8)
+        assert np.count_nonzero(mask_0) != np.count_nonzero(mask_1)
+
+    def test_an_empty_layer_is_an_error_not_an_empty_device(self, monkeypatch):
+        self._two_layer_file(monkeypatch)
+        with pytest.raises(ValueError, match="layer 7"):
+            gds_module.rasterize_gds_layer("fake.gds", layer=7, mesh_size=1.0)

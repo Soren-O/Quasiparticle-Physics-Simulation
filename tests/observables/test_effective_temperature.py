@@ -25,15 +25,33 @@ class TestPureBoseEinsteinRecovery:
         assert T_star == pytest.approx(T_true, rel=1e-3)
 
     def test_bath_BE_recovered(self) -> None:
+        """At the bath point, and NOT merely because of the clamp.
+
+        This asserted only the clamped call. `effective_phonon_temperature`
+        floors its result at T_bath, so with T_true == T_bath the assertion
+        was satisfied by the floor alone: replacing the entire shape fit with
+        `return float(T_bath)` left this test green, reporting a fitted
+        phonon temperature that was the bath value echoed back.
+
+        Fitting the SAME distribution with the floor moved out of the way is
+        what makes the round-trip claim testable. The two calls must agree,
+        and only the second can fail.
+        """
         gap = 180.0
         omega = np.linspace(2.0 * gap, 10.0 * gap, 200)
         T_true = 0.1
         n_ph = thermal_phonon_occupation(omega, T_true)
 
-        T_star = effective_phonon_temperature(
-            n_ph, omega, gap, T_bath=T_true,
+        clamped = effective_phonon_temperature(n_ph, omega, gap, T_bath=T_true)
+        assert clamped == pytest.approx(T_true, rel=1e-3)
+
+        # Floor an order of magnitude below the answer: now the fit, not the
+        # clamp, has to produce it.
+        unclamped = effective_phonon_temperature(
+            n_ph, omega, gap, T_bath=0.1 * T_true,
         )
-        assert T_star == pytest.approx(T_true, rel=1e-3)
+        assert unclamped == pytest.approx(T_true, rel=1e-3)
+        assert unclamped > 0.1 * T_true
 
 
     def test_sub_millikelvin_recovery_uses_relative_temperature_tolerance(
