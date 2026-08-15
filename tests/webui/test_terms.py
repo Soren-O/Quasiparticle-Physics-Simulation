@@ -217,14 +217,39 @@ class TestTheThreeDisagreementsThatPromptedThis:
         setup.material.D_0 = 0.0
         assert _change(before, _observable(setup)) <= _TOLERANCE
 
-    def test_a_drive_with_no_photons_is_not_on(self) -> None:
-        """`enabled` alone was the test, and n_bar defaults to zero."""
+    def test_a_drive_with_no_photons_is_still_on(self) -> None:
+        """n_bar = 0 is NOT an off-switch, and this test used to say it was.
+
+        The kernels carry ``(n_bar + 1)``, so zero photons removes the
+        stimulated term and leaves spontaneous emission acting at full
+        strength. Asserted by measurement, because the previous version of
+        this test asserted the panel's claim against nothing at all and so
+        certified it while it was false.
+        """
         setup = _base()
         setup.subgap_drive.enabled = True
         setup.subgap_drive.n_bar = 0.0
+        setup.subgap_drive.c_phot = 1e-4
+        status = term_status(setup)["photsg"]
+        assert status.state == ON
+
+        before = _observable(setup)
+        setup.subgap_drive.enabled = False
+        assert _change(before, _observable(setup)) > _TOLERANCE
+
+    def test_the_coupling_is_the_off_switch(self) -> None:
+        """c_phot = 0 multiplies every term of the channel by zero."""
+        setup = _base()
+        setup.subgap_drive.enabled = True
+        setup.subgap_drive.n_bar = 1e7
+        setup.subgap_drive.c_phot = 0.0
         status = term_status(setup)["photsg"]
         assert status.state == OFF
-        assert "n_bar = 0" in status.reason
+        assert "c_phot = 0" in status.reason
+
+        before = _observable(setup)
+        setup.subgap_drive.enabled = False
+        assert _change(before, _observable(setup)) <= _TOLERANCE
 
     def test_the_same_drive_with_photons_is_on(self) -> None:
         setup = _base()

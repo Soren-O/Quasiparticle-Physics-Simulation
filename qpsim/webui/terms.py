@@ -34,6 +34,11 @@ from typing import Any
 ON = "on"
 OFF = "off"
 ABSENT = "absent"
+# Not a fourth kind of physics -- the absence of an answer. Some facts about a
+# setup are only settled when the run starts (a layout is rasterised then), and
+# reporting one of the three states anyway is how "we have not looked" became
+# "there is no transport here".
+UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -57,17 +62,27 @@ def _get(setup: Any, path: str, default: Any = None) -> Any:
 
 
 def _cell_count(setup: Any) -> int | None:
-    """Cells in the mask, or None when only the engine can know.
+    """Cells in the mask, or None when the setup genuinely does not say.
 
-    A GDS import is rasterised at build time, so its count is not available
-    from the setup alone. None means "assume it has neighbours": claiming an
-    imported device cannot diffuse would be a worse error than the one this
-    avoids.
+    None means UNKNOWN and is reported as such. It used to mean "assume it has
+    neighbours", which turned a missing answer into a definite claim -- a GDS
+    layout that rasterises to one cell was told it was diffusing. Guessing the
+    less-bad direction is still guessing, and the panel exists to stop the
+    interface asserting things the engine has not agreed to.
     """
     geometry = getattr(setup, "geometry", None)
     if geometry is None:
-        return 1  # a mode with no geometry is a single cell by construction
+        # A mode with no `geometry` may still carry its extent under another
+        # name. spatial_1d keeps it in `num_cells`, and reading only
+        # `geometry` reported a 31-cell strip -- a mode whose whole purpose is
+        # diffusion -- as a single cell with no transport at all.
+        cells = getattr(setup, "num_cells", None)
+        if cells is not None:
+            return int(cells)
+        return 1  # genuinely 0-D: no geometry and no extent field
     if getattr(geometry, "kind", "rectangle") != "rectangle":
+        # A layout is rasterised when the run starts, so the setup alone
+        # cannot say how many cells it has.
         return None
     return int(getattr(geometry, "rows", 1)) * int(getattr(geometry, "cols", 1))
 
@@ -91,7 +106,14 @@ def _transport(setup: Any) -> TermStatus:
     # Gate: T3SpatialBackend.rates builds the transport operator only under
     # `if state.f.shape[1] > 1`, and the flux weight carries D_0.
     cells = _cell_count(setup)
-    if cells is not None and cells <= 1:
+    if cells is None:
+        return TermStatus(
+            UNKNOWN,
+            "this layout is rasterised when the run starts, so whether it has "
+            "more than one cell -- and therefore whether it transports at all "
+            "-- is not known yet",
+        )
+    if cells <= 1:
         return TermStatus(
             ABSENT,
             "a single-cell device has no faces, so there is nothing to "
@@ -123,21 +145,36 @@ def _escape(setup: Any) -> TermStatus:
 
 
 def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatus:
-    """A drive applies nothing at zero photon number or zero coupling.
+    """A photon drive applies nothing at zero COUPLING. Not at zero n_bar.
 
-    This is the failure this module exists for: both default to values that
-    make an "enabled" drive inert, and an interface that reads only `enabled`
-    reports a driven run that is undriven.
+    This function used to test the photon number first and report
+    "enabled, but n_bar = 0, so the drive applies nothing". That is false, and
+    measurably so: both kernels carry ``(n_bar + 1)``
+    (``sub_gap_photon.py:143,151``, ``pair_breaking_photon.py:299,306,326``),
+    so n_bar = 0 removes only the STIMULATED term and leaves spontaneous
+    emission at full strength. Measured on a 1x1 spatial_2d at n_bar = 0: the
+    drive moves the final f by 19% at c_phot = 1e-4 and 80% at 1e-2, while the
+    panel said "off". The coupling is the real switch -- every term is
+    multiplied by it -- and c_phot = 0 with n_bar = 1e7 is inert to 0.000e+00.
+
+    So this is the same defect the module exists to prevent, inverted: not a
+    switch shown on that does nothing, but a channel shown off that is doing
+    most of the work.
     """
     if not bool(_get(setup, f"{prefix}.enabled", False)):
         return TermStatus(OFF)
-    if float(_get(setup, f"{prefix}.{occupancy}", 0.0)) <= 0.0:
-        return TermStatus(
-            OFF, f"enabled, but {occupancy} = 0, so the drive applies nothing"
-        )
     if float(_get(setup, f"{prefix}.{coupling}", 0.0)) <= 0.0:
         return TermStatus(
             OFF, f"enabled, but {coupling} = 0, so the drive applies nothing"
+        )
+    if float(_get(setup, f"{prefix}.{occupancy}", 0.0)) <= 0.0:
+        # On, and worth saying which half is acting: with no photons present
+        # the absorption/stimulated channel is gone and what remains is
+        # spontaneous emission, which relaxes rather than drives.
+        return TermStatus(
+            ON,
+            f"{occupancy} = 0, so only the spontaneous term acts -- the "
+            "channel relaxes quasiparticles rather than driving them",
         )
     return TermStatus(ON)
 
