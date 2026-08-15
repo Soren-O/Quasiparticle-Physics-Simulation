@@ -37,7 +37,9 @@ from qpsim.collisions.phonon import (
     _thermal_phonon_scattering_occupation,
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
@@ -57,6 +59,12 @@ _MAX_BATCHED_GAPS = 2
 _MAX_CACHED_OPERATORS = 2
 # Past this many distinct gaps the exact-gap grouping is the wrong tool.
 _GAP_COUNT_WARN = 64
+# How much of an external source may land on unrepresented states before the
+# run is refused. Not zero: an injection line is a Gaussian and has a tail
+# everywhere, so zero would reject ordinary setups over e^-50. Small enough
+# that a real truncation -- the gap-step case discards tens of percent -- can
+# never slip through.
+_MAX_DISCARDED_GAIN_FRACTION = 1e-6
 
 # (K_s_eff, K_r_emit, K_r_abs, cell weights, represented mask)
 CollisionOperator = tuple[
@@ -83,6 +91,8 @@ class SpatialCollisions:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
+        tau_0_pb_ns: float | None = None,
+        use_phonon_side_kernel: bool = True,
         gap_quantum: float | None = None,
         phonon_seed: np.ndarray | None = None,
     ) -> None:
@@ -132,6 +142,28 @@ class SpatialCollisions:
         # solves the phonon population per cell; 0.0 is the engine's
         # no-substrate tau -> infinity sentinel, not instantaneous escape.
         self.phonon_escape_time = phonon_escape_time
+        # The phonon equation is written on its OWN kernels (F&C 2023 Eq. 12).
+        # This path used to pass the quasiparticle-side matrices instead, which
+        # carry an extra omega^2/(tau_0 (kB T_c)^3) and a tau_0 about 1700x
+        # larger than tau_0^PB: measured n_ph 28x low at omega = 2 Delta and 6x
+        # at 3.8 Delta, so the same setup landed on a different fixed point
+        # here than in the steady-state solver. Same defect, same reason, as
+        # the phonon-source flags that were crossed on this call.
+        self.use_phonon_side_kernel = bool(use_phonon_side_kernel)
+        self.tau_0_pb_ns = tau_0_pb_ns
+        if phonon_escape_time is not None and self.use_phonon_side_kernel:
+            if (
+                tau_0_pb_ns is None
+                or not np.isfinite(tau_0_pb_ns)
+                or tau_0_pb_ns <= 0.0
+            ):
+                raise ValueError(
+                    "A dynamic spatial phonon sector with "
+                    "use_phonon_side_kernel=True requires a finite, positive "
+                    f"tau_0_pb_ns; got {tau_0_pb_ns!r}. Set tau_0_pb_ns on the "
+                    "Material, or pass use_phonon_side_kernel=False to reuse "
+                    "the quasiparticle-side kernel as the legacy path did."
+                )
         self.omega_bins, self._idx_diff, self._idx_sum, self._diff_sign = (
             build_phonon_frequency_map(spectral.E)
         )
@@ -261,6 +293,33 @@ class SpatialCollisions:
         )
         return k_s0, k_r0
 
+    def phonon_side_kernels(
+        self, local_gap: float,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """``(K_s0, K_r0)`` for the PHONON equation at one local gap.
+
+        Gated on the phonon-side switches, not the quasiparticle-side ones.
+        That matters twice over: these kernels carry F&C Eq. 12's own
+        prefactor ``1/(pi Delta tau_0^PB)`` rather than the QP-side
+        ``omega^2/(tau_0 (kB T_c)^3)``, and supplying them is also what frees
+        the phonon source from the QP-side flags -- with ``None`` the callee
+        falls back to the QP matrices, so switching off quasiparticle
+        scattering would switch off the phonon source with it.
+        """
+        if not self.use_phonon_side_kernel:
+            return None, None
+        spectral = self._local_spectral(local_gap)
+        tau_0_pb = float(self.tau_0_pb_ns)  # __init__ has already validated it
+        k_s0_ph = (
+            build_scattering_kernel_phonon_side(spectral, tau_0_pb_ns=tau_0_pb)
+            if self.enable_phonon_scattering_source else None
+        )
+        k_r0_ph = (
+            build_recombination_kernel_phonon_side(spectral, tau_0_pb_ns=tau_0_pb)
+            if self.enable_phonon_recombination_source else None
+        )
+        return k_s0_ph, k_r0_ph
+
     def dynamic_group_rates(
         self,
         f_group: np.ndarray,
@@ -309,6 +368,9 @@ class SpatialCollisions:
         for gap, columns in self._groups():
             spectral = self._local_spectral(gap)
             k_s0, k_r0 = self.raw_kernels(gap)
+            # Built once per gap group, not per cell: they depend on the local
+            # gap and nothing else, while n_ph is what varies cell to cell.
+            k_s0_ph, k_r0_ph = self.phonon_side_kernels(gap)
             for cell in columns:
                 a_ph, b_ph = compute_phonon_source_sink(
                     f[:, cell], spectral, k_s0, k_r0,
@@ -321,6 +383,12 @@ class SpatialCollisions:
                     # ledger.
                     enable_scattering=self.enable_phonon_scattering_source,
                     enable_recombination=self.enable_phonon_recombination_source,
+                    # F&C Eq. 12 kernels. Passing these also enables the Kaplan
+                    # S+ threshold quadrature correction, which the callee gates
+                    # on K_r0_phonon_side being present -- worth up to ~56% on
+                    # the bins just above 2 Delta.
+                    K_s0_phonon_side=k_s0_ph,
+                    K_r0_phonon_side=k_r0_ph,
                 )
                 if self.phonon_escape_time == 0.0:
                     a_eff, b_eff = a_ph, b_ph
@@ -455,15 +523,59 @@ class SpatialCollisions:
         if photon is not None:
             gain = gain + photon[0]
             loss = loss + photon[1]
+        unsupported = ~operator[4]
+        # Refuse an external source aimed at states that do not exist here,
+        # rather than deleting it below. Injection into an unrepresented bin is
+        # undefined, and BOTH backends this one replaces raise on it
+        # (t3_spatial_1d._validate_group_gain_support, and t3_diffusion via
+        # external_flux._validate_gain_support). Silently zeroing it is how a
+        # gap-step device could be asked for the same injection on both sides
+        # and get it on only one, with nothing in the output saying so.
         if external_gain is not None:
+            self._reject_unsupported_gain(external_gain, columns, unsupported)
             gain = gain + external_gain
         if external_loss is not None:
             loss = loss + external_loss
 
-        unsupported = ~operator[4]
         gain[unsupported, :] = 0.0
         loss[unsupported, :] = 0.0
         return gain, loss
+
+    @staticmethod
+    def _reject_unsupported_gain(
+        external_gain: np.ndarray,
+        columns: np.ndarray,
+        unsupported: np.ndarray,
+    ) -> None:
+        """Fail before advancing a group that would DISCARD a real source.
+
+        The test is what fraction of the requested gain lands on states that
+        do not exist here, not whether any lands there at all. A Gaussian
+        injection line has an exponential tail on every bin -- at the shipped
+        2.0 Delta centre and 0.1 Delta width it is ~e^-50 below the gap -- and
+        refusing that would reject an ordinary setup over floating-point dust.
+        What must not pass silently is a materially truncated source, which is
+        what a gap-step device produces: injection asked for on both sides of
+        the step and delivered on only one.
+        """
+        gain = np.asarray(external_gain, dtype=float)
+        total = float(np.sum(np.abs(gain)))
+        if total <= 0.0:
+            return
+        discarded = float(np.sum(np.abs(gain[unsupported, :])))
+        fraction = discarded / total
+        if fraction <= _MAX_DISCARDED_GAIN_FRACTION:
+            return
+        rows = np.flatnonzero(np.any(gain[unsupported, :] > 0.0, axis=1))
+        bins = np.flatnonzero(unsupported)[rows][:5]
+        preview = ", ".join(str(int(b)) for b in bins)
+        raise ValueError(
+            f"{fraction:.1%} of the external gain lands on zero-spectral-"
+            f"capacity states (energy bins {preview}, ... at this cell's gap) "
+            "and would be discarded. Injection into an unrepresented state is "
+            "undefined: move the source onto supported energies, or widen the "
+            "energy grid so those states exist at every gap in the device."
+        )
 
     # -- stepping ---------------------------------------------------------
 

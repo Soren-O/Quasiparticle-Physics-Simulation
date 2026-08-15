@@ -124,8 +124,21 @@ class SpatialTransport:
         face_overrides: dict[tuple[int, int], float] | None = None,
     ) -> EnergyTransportOp | None:
         active = flux_weight > 0.0
-        if int(np.count_nonzero(active)) < 2:
-            return None  # nothing to diffuse in this bin
+        n_active = int(np.count_nonzero(active))
+        if n_active == 0:
+            return None
+        if n_active < 2 and not self._has_acting_face(
+            cell_rows[active], cell_cols[active]
+        ):
+            # Nothing to diffuse BETWEEN, and no wall to lose to either.
+            #
+            # The second half used to be assumed rather than checked, so a
+            # trap on the rim was silently inert wherever a bin's active
+            # region was a single cell -- exactly the low-gap-pocket-beside-a-
+            # trap geometry the boundary conditions exist for. Losing to a
+            # device face is not transport between cells and does not need a
+            # neighbour.
+            return None
 
         submask = np.zeros_like(self.mask)
         submask[cell_rows[active], cell_cols[active]] = True
@@ -159,6 +172,30 @@ class SpatialTransport:
         # not have to carry dt around and cannot forget the factor.
         return (b_mat, lu, np.flatnonzero(active), density_weight[active],
                 n_substeps, sub_dt * source, operator)
+
+    def _has_acting_face(
+        self, rows: np.ndarray, cols: np.ndarray,
+    ) -> bool:
+        """Does any of these cells sit on a face that removes or adds density?
+
+        ``reflective`` contributes nothing to the Laplacian by definition, so
+        a rim made entirely of it is genuinely equivalent to no rim at all.
+        Every other kind is a term in the equation.
+        """
+        if not self.device_faces:
+            return False
+        cells = set(zip(rows.tolist(), cols.tolist()))
+        for (i, j, _side), condition in self.device_faces.items():
+            if (i, j) in cells and condition.normalized_kind() != "reflective":
+                return True
+        return False
+
+    def has_acting_device_faces(self) -> bool:
+        """True when any device face would contribute to the operator."""
+        return any(
+            condition.normalized_kind() != "reflective"
+            for condition in self.device_faces.values()
+        )
 
     def _cache_key(
         self,

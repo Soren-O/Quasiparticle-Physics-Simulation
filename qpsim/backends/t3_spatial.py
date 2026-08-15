@@ -138,6 +138,7 @@ class T3SpatialBackend:
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         phonon_escape_time: float | None = None,
+        use_phonon_side_kernel: bool = True,
         phonon_seed: np.ndarray | None = None,
     ) -> None:
         self.enable_scattering = bool(enable_scattering)
@@ -149,6 +150,10 @@ class T3SpatialBackend:
         self.photon_params = photon_params
         self.pb_photon_params = pb_photon_params
         self.phonon_escape_time = phonon_escape_time
+        # Defaults True to match the 0-D/diffusion backend, so the two solve
+        # the SAME phonon equation for the same setup. False reproduces the
+        # legacy quasiparticle-side path this route used to take unavoidably.
+        self.use_phonon_side_kernel = bool(use_phonon_side_kernel)
         # Applied only when the collision layer is first built; a later
         # rebuild carries the EVOLVED population forward instead (see
         # _collisions_for), because re-seeding mid-run would silently discard
@@ -235,6 +240,11 @@ class T3SpatialBackend:
             # layer rather than reusing kernels built under the old setting.
             self.enable_phonon_scattering_source,
             self.enable_phonon_recombination_source,
+            # Likewise: these SELECT the phonon-equation kernel, so leaving
+            # them out would let a run reuse matrices built under the other
+            # one -- the cache-signature version of the same defect.
+            self.use_phonon_side_kernel,
+            repr(state.material.tau_0_pb_ns),
         )
         if self._collisions is None or signature != self._collision_signature:
             previous = self._collisions
@@ -254,6 +264,8 @@ class T3SpatialBackend:
                 photon_params=self.photon_params,
                 pb_photon_params=self.pb_photon_params,
                 phonon_escape_time=self.phonon_escape_time,
+                tau_0_pb_ns=state.material.tau_0_pb_ns,
+                use_phonon_side_kernel=self.use_phonon_side_kernel,
                 phonon_seed=self.phonon_seed,
             )
             # The collision layer is a KERNEL CACHE keyed on the gap, but it
@@ -300,12 +312,18 @@ class T3SpatialBackend:
         weights, density = self._transport_weights(state)
         return self._transport_for(state).build(weights, density, dt)
 
-    def apply_transport(
+    def _transport_ops(
         self, state: T3SpatialState, dt: float,
-    ) -> T3SpatialState:
-        """One CN transport step. A single cell has nothing to transport."""
-        if state.f.shape[1] == 1:
-            return state
+    ) -> tuple[SpatialTransport, list[EnergyTransportOp | None]]:
+        """The transport operators for this state. ONE builder, deliberately.
+
+        The stepper and the convergence residual must see the SAME faces.
+        They did not: `rates` built without the Kupriyanov-Lukichev overrides,
+        so a barrier the stepper throttled flux through was bit-for-bit absent
+        from the certificate -- `interface_G_N` could be swept without moving
+        the reported residual at all. Same lesson, and same remedy, as
+        `SpatialCollisions.combined_group_rates`.
+        """
         weights, density = self._transport_weights(state)
         transport = self._transport_for(state)
 
@@ -323,6 +341,24 @@ class T3SpatialBackend:
             cache_key=(weights.tobytes(), density.tobytes(), interface_key),
             face_overrides=overrides,
         )
+        return transport, ops
+
+    def apply_transport(
+        self, state: T3SpatialState, dt: float,
+    ) -> T3SpatialState:
+        """One CN transport step.
+
+        A single cell has no neighbour to transport TO, but it can still lose
+        to (or gain from) its own rim, so the shortcut is only valid when every
+        device face is reflective. Skipping on cell count alone made an
+        absorbing rim inert on a 1x1 mask, which is the 0-D reduction the whole
+        mode rests on.
+        """
+        if state.f.shape[1] == 1 and not self._transport_for(
+            state
+        ).has_acting_device_faces():
+            return state
+        transport, ops = self._transport_ops(state, dt)
         f_new, _diagnostics = transport.apply(state.f, ops)
         return replace(state, f=f_new)
 
@@ -415,18 +451,31 @@ class T3SpatialBackend:
             )
             total[:, columns] = gain - loss * state.f[:, columns]
 
-        if state.f.shape[1] > 1:
-            weights, density = self._transport_weights(state)
-            transport = self._transport_for(state)
-            # dt only sets the substep count, which the rate does not use.
-            for i, op in enumerate(transport.build(weights, density, 1.0)):
+        # Same condition as apply_transport, for the same reason: a rim that
+        # removes density is part of df/dt even with one cell.
+        if state.f.shape[1] > 1 or self._transport_for(
+            state
+        ).has_acting_device_faces():
+            # dt only sets the substep count, which the rate does not use --
+            # but it DOES set the scaling of the stored forcing, so unpick it
+            # below rather than assuming dt = 1 makes the two equal.
+            _transport, ops = self._transport_ops(state, 1.0)
+            for i, op in enumerate(ops):
                 if op is None:
                     continue
-                _b, _lu, idx, rho_p, _n, _forcing, operator = op
+                _b, _lu, idx, rho_p, n_substeps, forcing, operator = op
                 # The state carried is f while the operator acts on the
                 # conserved density u = rho_p f, so divide back through.
                 u = rho_p * state.f[i, idx]
-                total[i, idx] += (operator @ u) / rho_p
+                # The inhomogeneous boundary source is part of du/dt and was
+                # being dropped, so the certificate was not df/dt for any
+                # dirichlet / neumann / robin edge: a device being injected
+                # into at 5.9e-04 /ns reported a residual of 1.0e-27 and was
+                # certified steady on its first step. `forcing` is stored
+                # pre-multiplied by the substep (spatial_transport.py:158), so
+                # recover the rate by dividing that factor back out.
+                source = forcing * float(n_substeps)
+                total[i, idx] += (operator @ u + source) / rho_p
         return total
 
     def run(

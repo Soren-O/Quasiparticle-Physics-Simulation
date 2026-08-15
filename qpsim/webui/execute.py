@@ -675,6 +675,10 @@ def run_spatial_2d(
             else (setup.phonons.tau_l_ns
                   if setup.phonons.mode == "dynamic_escape" else 0.0)
         ),
+        # Was not forwarded, so the setup carried this switch and the spatial
+        # engine could not read it: every 2-D dynamic-phonon run took the
+        # quasiparticle-side kernel regardless of what the setup said.
+        use_phonon_side_kernel=setup.phonons.use_phonon_side_kernel,
         phonon_seed=build_phonon_seed_2d(setup, geometry),
     )
 

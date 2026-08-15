@@ -258,15 +258,37 @@ def _source_sink(
     has to be part of the check, and it is the mutation the table in
     ``activity`` catches at 3.0e-02.
 
-    ``K⁰ˢ`` is the QUASIPARTICLE-side kernel ``(E_i−E_j)²K⁻/(τ₀(k_BT_c)³)``,
-    because that is the one this route puts in the phonon equation — see
-    ``caveat`` item 2.
+    ``K⁰ˢ`` is the PHONON-side kernel ``2K⁻/(π Δ τ₀^PB)`` (F&C 2023 Eq. 12),
+    which is the one the phonon equation is written on. It used to be the
+    quasiparticle-side ``(E_i−E_j)²K⁻/(τ₀(k_BT_c)³)`` because the engine put
+    that one in the phonon equation — so this closed form agreed with the
+    engine about the wrong equation and scored 4.0e-05 against a 1.2e-04
+    tolerance while n_ph was out by a factor of order 30. A T2 check assembles
+    from the engine's own kernels and therefore cannot detect that those
+    kernels are the wrong ones; only the tier rule warns you, and the fix is
+    to correct the engine, not to loosen this.
     """
     ne = E.size
     kBTc = _KB_UEV_PER_K * float(setup.material.T_c)
     coherence = np.maximum(1.0 - r[:, None] * r[None, :], 0.0)
-    transfer = E[:, None] - E[None, :]
-    kernel = (transfer * transfer) * coherence / (float(setup.material.tau_0) * kBTc**3)
+    if setup.phonons.use_phonon_side_kernel:
+        tau_0_pb_ns = setup.material.tau_0_pb_ns
+        if tau_0_pb_ns is None or not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
+            raise ValueError(
+                "the phonon-side kernel needs a finite positive "
+                f"material.tau_0_pb_ns; got {tau_0_pb_ns!r}."
+            )
+        # This form builds ONE pair-breaking spectrum at the material gap, and
+        # _build refuses a self-consistent gap for exactly that reason, so
+        # Delta_0 is the gap the engine used.
+        gap = float(setup.material.Delta_0)
+        kernel = (2.0 / (np.pi * gap * float(tau_0_pb_ns))) * coherence
+    else:
+        transfer = E[:, None] - E[None, :]
+        kernel = (
+            (transfer * transfer) * coherence
+            / (float(setup.material.tau_0) * kBTc**3)
+        )
     np.fill_diagonal(kernel, 0.0)
 
     # dE·ρ̄_i f_i · K · ρ̄_j(1−f_j): one emission event from i to j. The uniform

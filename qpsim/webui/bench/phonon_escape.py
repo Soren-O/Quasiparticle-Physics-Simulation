@@ -89,7 +89,9 @@ import numpy as np
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
+    build_recombination_kernel_phonon_side,
     build_scattering_kernel_base,
+    build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
 )
 from qpsim.webui.benchmarks import Benchmark, Curve, register
@@ -128,12 +130,15 @@ from qpsim.webui.builders import build_spectral
 #     is given, so 1×3 and 2×3 produce 285 and 570 series instead of 95 — and
 #     the identical residual, 3.439589e-12, with cell-to-cell spread exactly
 #     0.000e+00, at 6× the runtime.
-#   phonons.use_phonon_side_kernel is deliberately ABSENT. It is an inert knob
-#     on this path — SpatialCollisions is never given it and uses the QP-side
-#     kernels in the phonon equation — and the audit was right that listing it
-#     makes a case read as if a kernel choice were part of the setup when it is
-#     not. The two phonon_source flags are absent for the same reason:
-#     run_spatial_2d does not forward them to the spatial backend either.
+#   phonons.use_phonon_side_kernel is absent because it is left at its DEFAULT
+#     (True), not because it does nothing. It was an inert knob on this path
+#     until 2026-08-15: SpatialCollisions was never given it and drove the
+#     phonon equation with the QP-side kernels, so this closed form was written
+#     against those and scored 3.4e-12 against a 1e-10 tolerance while n_ph was
+#     out by more than an order of magnitude. That is the T2 tier rule in the
+#     wild — an analytic side assembled from the engine's own kernels cannot
+#     detect that those kernels are the wrong ones. Both this form and the
+#     engine now take the F&C Eq. 12 phonon-side kernel.
 CASE_OVERRIDES: dict[str, Any] = {
     "mode": "spatial_2d",
     "material.name": "Al",
@@ -250,6 +255,29 @@ def _empty_state_coefficients(
         if setup.collisions.recombination
         else None
     )
+    # The phonon equation is on its OWN kernels (F&C Eq. 12), and this is a T2
+    # check -- its whole definition is that it assembles from the kernels the
+    # engine actually uses. It used to assemble from the quasiparticle-side
+    # ones because the engine did too, so it certified the wrong equation and
+    # could not have noticed: the error was 3.4e-12 against a 1e-10 tolerance
+    # while n_ph was out by more than an order of magnitude.
+    k_s0_ph = k_r0_ph = None
+    if setup.phonons.use_phonon_side_kernel:
+        tau_0_pb_ns = setup.material.tau_0_pb_ns
+        if tau_0_pb_ns is None or not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
+            raise ValueError(
+                "this closed form follows the engine onto the phonon-side "
+                "kernel, which needs a finite positive material.tau_0_pb_ns; "
+                f"got {tau_0_pb_ns!r}."
+            )
+        if setup.collisions.phonon_scattering_source:
+            k_s0_ph = build_scattering_kernel_phonon_side(
+                spectral, tau_0_pb_ns=float(tau_0_pb_ns),
+            )
+        if setup.collisions.phonon_recombination_source:
+            k_r0_ph = build_recombination_kernel_phonon_side(
+                spectral, tau_0_pb_ns=float(tau_0_pb_ns),
+            )
     a_ph, b_ph = compute_phonon_source_sink(
         np.zeros(spectral.E.size),
         spectral,
@@ -259,8 +287,12 @@ def _empty_state_coefficients(
         idx_sum,
         diff_sign,
         int(omega.size),
-        enable_scattering=setup.collisions.scattering,
-        enable_recombination=setup.collisions.recombination,
+        # The phonon-side switches, matching the engine: these decide what the
+        # phonon equation contains, and the quasiparticle-side flags do not.
+        enable_scattering=setup.collisions.phonon_scattering_source,
+        enable_recombination=setup.collisions.phonon_recombination_source,
+        K_s0_phonon_side=k_s0_ph,
+        K_r0_phonon_side=k_r0_ph,
     )
     return spectral.E, omega, a_ph, b_ph
 
