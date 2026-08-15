@@ -615,6 +615,11 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
         # different root).
         kwargs["coupled_newton_tol"] = s.newton_tol
         kwargs["coupled_newton_max_iter"] = s.newton_max_iter
+        # The one that actually gates this route. Without it the displayed
+        # "Newton tolerance" was routed into `coupled_newton_tol`, which is
+        # read only when step_rtol <= 0 -- so tightening it from 1e-12 to
+        # 1e-20, or loosening it to 1e-2, returned bit-identical f and n_ph.
+        kwargs["coupled_newton_step_rtol"] = s.coupled_newton_step_rtol
     kwargs["picard_tol"] = s.picard_tol
     kwargs["picard_max_iter"] = s.picard_max_iter
     kwargs["picard_mixing"] = s.picard_mixing

@@ -721,6 +721,27 @@ def coupled_newton_solve(
         delta_n = delta[n_active_f:]
 
         # Backtracking line search on the combined residual norm.
+        #
+        # KNOWN LIMITATION, deliberately not changed here. The acceptance test
+        # below is `max(|R_f|, |R_ph|) decreased`, but the two blocks are
+        # dimensionally unrelated and on a cold solve differ by 7 to 23
+        # decades, so that max IS the phonon residual and the quasiparticle
+        # block gets no globalization at all. Measured at T_bath = 0.1 K: a
+        # step is accepted at alpha = 1 while max|R_f| rises from 1.997e-16 to
+        # 4.716e-13 (x2361), and any trial growing it by up to ~1e15 would
+        # still "reduce" the merit.
+        #
+        # The obvious repair -- scale each block by its own current value and
+        # combine in quadrature -- was tried and is WRONG here: normalising by
+        # the current residual makes the bar unreachable near machine
+        # precision, where no trial improves either block, and it broke
+        # test_step_rtol_refines_warm_seed_below_abs_tol (line search exhausted
+        # at max|residual| = 5.26e-23) and the external-flux forwarding test.
+        # A correct fix needs a merit with a fixed reference scale and a
+        # sufficient-decrease (Armijo) condition rather than strict monotone
+        # decrease, which is numerical work with its own validation, not a
+        # sweep-response patch. Recorded here so the next attempt starts from
+        # the measurement rather than the idea.
         alpha = 1.0
         accepted = False
         rel_step = np.inf
@@ -728,6 +749,23 @@ def coupled_newton_solve(
         for _ in range(20):
             f_trial = np.clip(f + alpha * delta_f, 0.0, 1.0)
             n_trial = np.maximum(n_ph + alpha * delta_n, 0.0)
+            # A direction that clips EVERY active bin to exactly zero is the
+            # quasiparticle vacuum, and a smaller residual does not make that
+            # boundary point physical while the state it came from was not
+            # vacuum. Accepting it destroys the whole spectral shape, after
+            # which Newton overshoots to f == 1 and the solve dies on the next
+            # iteration. The sibling newton_solve_f rejects the same collapse
+            # (newton_steady_state.py:1309); this is the cheap half of that
+            # test -- it backtracks instead of analysing whether the vacuum is
+            # absorbing, so a genuine vacuum is still reached continuously,
+            # just not in one clipped jump.
+            collapsed = (
+                np.any(f[active_f] > 0.0)
+                and not np.any(f_trial[active_f] > 0.0)
+            )
+            if collapsed:
+                alpha *= 0.5
+                continue
             R_f_t, R_ph_t, balance_ratio_t = residual(f_trial, n_trial)
             norm_t = max(
                 float(np.max(np.abs(R_f_t))), float(np.max(np.abs(R_ph_t)))

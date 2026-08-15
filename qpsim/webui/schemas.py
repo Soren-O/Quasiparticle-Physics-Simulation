@@ -217,6 +217,16 @@ class SolverOptions(StrictModel):
     anderson_depth: Annotated[int, Field(ge=0, le=50)] = 3
     newton_tol: Annotated[float, Field(gt=0.0)] = 1e-12
     newton_max_iter: Annotated[int, Field(ge=1, le=100000)] = 300
+    # The tolerance that actually gates the COUPLED Newton route. Its `tol`
+    # (which newton_tol feeds) is read only under `step_rtol <= 0`, so with
+    # the shipped default it gates nothing and the displayed "Newton
+    # tolerance" had no effect on that route at all -- an inert control. `tol`
+    # is disabled there deliberately: an absolute residual is unreliable when
+    # every amplitude is ~1e-10, where a warm seed can sit below it and exit
+    # at iteration 0 with a stale state. So the fix is to expose the knob that
+    # acts, not to re-enable the one that was switched off for a reason.
+    # Default matches the engine exactly, so numerics are unchanged.
+    coupled_newton_step_rtol: Annotated[float, Field(gt=0.0)] = 1e-8
 
 
 class ProbeConfig(StrictModel):

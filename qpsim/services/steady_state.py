@@ -25,6 +25,8 @@ as the no-substrate-coupling sentinel (τ_l → ∞ limit of the escape term).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from qpsim.collisions.phonon import (
@@ -38,7 +40,7 @@ from qpsim.phonon_models.ph0_local import (
 )
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
-from qpsim.solvers.anderson import anderson_extrapolate
+from qpsim.solvers.anderson import AndersonAccelerationError, anderson_extrapolate
 from qpsim.solvers.newton_steady_state import newton_solve_f
 
 
@@ -649,10 +651,34 @@ def solve_steady_state(
         # so Anderson doesn't wander into unphysical territory.
         n_ph_mixed = (1.0 - picard_mixing) * n_ph + picard_mixing * n_ph_new
         if use_anderson:
-            n_ph_aa = anderson_extrapolate(
-                n_ph, n_ph_mixed, X_hist, G_hist, anderson_depth,
-                clip_non_negative=True,
-            )
+            try:
+                n_ph_aa = anderson_extrapolate(
+                    n_ph, n_ph_mixed, X_hist, G_hist, anderson_depth,
+                    clip_non_negative=True,
+                )
+            except AndersonAccelerationError as exc:
+                # AndersonAccelerationError subclasses only Exception so a
+                # caller can catch it and retry without acceleration -- and no
+                # caller under qpsim/ did, so it escaped this function,
+                # T3DiffusionBackend.steady_state and solve_device_steady_state
+                # and aborted the whole run, losing every region already
+                # converged. Acceleration is a convergence aid, not physics:
+                # the exact recovery it asks for is the `n_ph_aa is None`
+                # branch four lines down, which this route already implements.
+                # It matters most on the only path that reaches it, since both
+                # this function and the diffusion backend FORCE anderson_depth
+                # >= 1 whenever external_flux is non-zero on finite tau_l.
+                warnings.warn(
+                    f"Anderson acceleration failed ({exc}); continuing with "
+                    "plain Picard for the rest of this solve. The answer is "
+                    "unaffected; convergence may take more iterations.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                use_anderson = False
+                X_hist.clear()
+                G_hist.clear()
+                n_ph_aa = None
             X_hist.append(n_ph.copy())
             G_hist.append(n_ph_mixed.copy())
             if len(X_hist) > anderson_depth + 1:
