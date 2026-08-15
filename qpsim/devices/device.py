@@ -172,6 +172,46 @@ class DeviceSolution:
     final_max_delta_n_ph: float = 0.0
 
 
+def _map_output_is_stationary(
+    new_states: dict[str, T3DiffusionState],
+    previous: dict[str, tuple[np.ndarray, np.ndarray]],
+    *,
+    rtol: float = 1e-12,
+) -> bool:
+    """Has F(x) stopped moving between outer iterations?
+
+    Damping exists to break the period-2 orbits of the undamped Jacobi map.
+    When the map's OUTPUT is the same as last time, there is no orbit: the
+    iteration is simply walking toward a fixed point it has already computed,
+    in steps of theta. Detecting that lets the update take the full step
+    without weakening the guard in the case it was written for -- an
+    oscillating map moves its output every iteration by construction.
+
+    Compared relative to each block's own scale, because f and n_ph differ by
+    many orders of magnitude and an absolute tolerance would be a test on
+    whichever is larger.
+    """
+    if set(new_states) != set(previous):
+        return False
+    for name, state in new_states.items():
+        for current, before in (
+            (state.f, previous[name][0]),
+            (state.phonon.n_ph, previous[name][1]),
+        ):
+            current = np.asarray(current, dtype=float)
+            before = np.asarray(before, dtype=float)
+            if current.shape != before.shape:
+                return False
+            scale = float(np.max(np.abs(current)))
+            if scale <= 0.0:
+                if np.any(before != 0.0):
+                    return False
+                continue
+            if float(np.max(np.abs(current - before))) > rtol * scale:
+                return False
+    return True
+
+
 def _aggregate_flux(
     a: ExternalFlux | None, b: ExternalFlux
 ) -> ExternalFlux:
@@ -917,6 +957,9 @@ def solve_device_steady_state(
     # stale even when f is already fixed. The first quiet evaluation promotes
     # the exact map output and a second evaluation certifies that snapshot.
     current_is_map_output = False
+    # The previous iteration's F(x), for deciding whether damping has an orbit
+    # to break. None on the first pass, where there is nothing to compare to.
+    previous_map_output: dict[str, tuple[np.ndarray, np.ndarray]] | None = None
     for outer_iter in range(outer_max_iter):
         # Step 1: aggregate junction fluxes per region + pool qubit channels
         fluxes: dict[str, ExternalFlux | None] = dict.fromkeys(device.regions)
@@ -1160,12 +1203,34 @@ def solve_device_steady_state(
 
         # Step 4: damped update x_next = x + θ(F(x) − x). Damping breaks
         # the period-2 orbits of the undamped simultaneous (Jacobi) map.
+        #
+        # Applied UNCONDITIONALLY, the iteration count is pinned at
+        # ceil(log(outer_tol)/log(theta)) + 2 however well-conditioned the map
+        # is, because the state can only approach the fixed point as theta^k.
+        # A map whose OUTPUT does not move between iterations has no period-2
+        # orbit to break, and damping it just walks in geometrically shrinking
+        # steps toward an answer already in hand. That is exactly the shipped
+        # M25GapAsymmetricJJ, whose junction flux is state-independent:
+        # measured on the real Fig-3a setup, theta = 0.5 gave 22 iterations and
+        # 43.44 s where theta = 1.0 gave 2 and 0.19 s -- the same answer, with
+        # 20 of the 22 iterations bit-identical and a final defect of exactly
+        # 0.00e+00. It also turned a converged state into a hard
+        # non-convergence failure whenever outer_max_iter sat below that floor.
+        step = outer_damping
+        if previous_map_output is not None and _map_output_is_stationary(
+            new_states, previous_map_output
+        ):
+            step = 1.0
+        previous_map_output = {
+            name: (state.f.copy(), state.phonon.n_ph.copy())
+            for name, state in new_states.items()
+        }
         damped_states: dict[str, T3DiffusionState] = {}
         for name in states:
-            f_damped = states[name].f + outer_damping * (
+            f_damped = states[name].f + step * (
                 new_states[name].f - states[name].f
             )
-            n_ph_damped = states[name].phonon.n_ph + outer_damping * (
+            n_ph_damped = states[name].phonon.n_ph + step * (
                 new_states[name].phonon.n_ph - states[name].phonon.n_ph
             )
             phonon_damped = replace(
@@ -1179,7 +1244,7 @@ def solve_device_steady_state(
             )
         states = damped_states
         if qubit_state is not None and new_qubit_state is not None:
-            p_damped = qubit_state.p + outer_damping * (
+            p_damped = qubit_state.p + step * (
                 new_qubit_state.p - qubit_state.p
             )
             p_damped = np.maximum(p_damped, 0.0)
@@ -1187,7 +1252,7 @@ def solve_device_steady_state(
             qubit_state = QubitState(p=p_damped)
         else:
             qubit_state = new_qubit_state
-        current_is_map_output = outer_damping == 1.0
+        current_is_map_output = step == 1.0
 
     if conservation_components:
         last_slow_mode_error = _component_conserved_mode_error(states)
