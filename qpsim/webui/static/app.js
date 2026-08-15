@@ -312,6 +312,9 @@ const state = {
   catId: null,
   benchmarks: {},       // name -> declared closed form, from /api/benchmarks
   termStatus: {},       // term -> {state, reason}, from /api/terms
+  // Why termStatus is empty, when it is. An empty map means "not known", which
+  // the panel must SAY rather than draw as "no terms in this model".
+  termError: "",
 };
 
 /* ---------- new-run view ---------- */
@@ -1280,7 +1283,11 @@ initCopyEditing();
    there is one implementation of that question rather than two. See
    qpsim/webui/terms.py for why. */
 const TERM_FIELDS = {
-  diff:    { path: "material.D_0", kind: "zeroable", label: "Diffusion" },
+  // `governedBy` is the wizard page that decides whether the term EXISTS, as
+  // opposed to the page that sets its value. Only transport has one: the mask
+  // is what gives it faces to act across.
+  diff:    { path: "material.D_0", kind: "zeroable", label: "Diffusion",
+             governedBy: "geometry" },
   scat:    { path: "collisions.scattering", kind: "flag",
              label: "Quasiparticle–phonon scattering" },
   recomb:  { path: "collisions.recombination", kind: "flag",
@@ -1315,7 +1322,11 @@ const conditionSections = (mode) =>
 const GEOMETRY_SECTIONS = geometrySections("spatial_2d");
 const CONDITION_SECTIONS = conditionSections("spatial_2d");
 
-const WIZARD_STEPS = ["equations", "geometry", "conditions"];
+/* Geometry first, because it decides part of the model rather than merely
+   parameterising it: a single-cell mask has no faces, so there is no transport
+   operator to switch on or off. Asking for the terms first offered a choice
+   the geometry then overruled, and the panel had no way to say so. */
+const WIZARD_STEPS = ["geometry", "equations", "conditions"];
 // `readOnly` is what makes the settings view the wizard rather than a copy of
 // it: the same renderers run, and only interaction is withdrawn.
 const wizard = { index: 0, offD0: null, readOnly: false, title: "", from: "runs" };
@@ -1329,30 +1340,87 @@ const wizard = { index: 0, offD0: null, readOnly: false, title: "", from: "runs"
    Before this, the panel worked all that out for itself and got three of them
    wrong while the numbers were right. */
 
+/* "I have not been told" is NOT one of the three states, and must never be
+   rendered as one. This defaulted to `absent` -- so a failed or not-yet-made
+   request drew every term greyed, which reads as "this model contains no
+   physics at all". The numbers were fine and the statement about them was
+   false, which is the same failure the module was written to end. */
+const UNKNOWN = "unknown";
+
 async function refreshTerms() {
-  if (state.setup === null) return;
-  const { ok, body } = await postJSON("/api/terms", {
+  if (state.setup === null) {
+    state.termStatus = {};
+    state.termError = "no setup is loaded, so the model cannot be read";
+    return false;
+  }
+  const { ok, status, body } = await postJSON("/api/terms", {
     name: "term-status", setup: state.setup,
   });
   state.termStatus = ok ? body : {};
+  state.termError = ok
+    ? ""
+    : `the server could not read this setup (HTTP ${status}), so which terms `
+      + `it solves is unknown`;
+  return ok;
+}
+
+function termsKnown() {
+  return !!state.termStatus && Object.keys(state.termStatus).length > 0;
 }
 
 function termState(id) {
   const status = state.termStatus && state.termStatus[id];
-  return status ? status.state : "absent";
+  return status ? status.state : UNKNOWN;
 }
 
 function termIsOn(id) {
   return termState(id) === "on";
 }
 
+/* Unknown is not "applies": a term nobody has asked about must not be offered
+   for switching, but it must not be drawn as absent either. */
 function termApplies(id) {
-  return termState(id) !== "absent";
+  const s = termState(id);
+  return s !== "absent" && s !== UNKNOWN;
 }
 
 function termReason(id) {
   const status = state.termStatus && state.termStatus[id];
   return (status && status.reason) || "";
+}
+
+function nudge(button) {
+  button.classList.remove("nudge");
+  void button.offsetWidth;              // restart the animation
+  button.classList.add("nudge");
+}
+
+function clearTermNote() {
+  const host = $("#term-note");
+  if (host) host.innerHTML = "";
+}
+
+/* Why a term cannot be switched. The REASON is the server's -- there is one
+   implementation of that question -- and only the "which page governs it"
+   hint is the client's, because that is navigation rather than physics. */
+function showTermNote(id) {
+  const host = $("#term-note");
+  if (!host) return;
+  const spec = TERM_FIELDS[id];
+  const label = spec ? spec.label : id;
+  const reason = termReason(id)
+    || (spec && spec.why)
+    || "this term is not part of the model being solved";
+  const step = spec && spec.governedBy;
+  const jump = step && !wizard.readOnly
+    ? ` <button type="button" class="link" data-goto-step="${step}">Change it</button>`
+    : "";
+  host.innerHTML = `<b>${esc(label)}</b> is not in this model: ${esc(reason)}.${jump}`;
+  const button = host.querySelector("[data-goto-step]");
+  if (button) {
+    button.addEventListener("click", () =>
+      showWizardStep(WIZARD_STEPS.indexOf(button.dataset.gotoStep)));
+  }
 }
 
 function setTerm(id, on) {
@@ -1378,6 +1446,25 @@ function setTerm(id, on) {
 
 function renderTermPanel() {
   const cons = [];
+  // Nothing is known about this setup, so the panel must assert nothing. Draw
+  // every term plain and say why, rather than greying them all -- an all-grey
+  // panel is a claim ("this model solves no physics"), and it would be false.
+  if (!termsKnown()) {
+    for (const button of document.querySelectorAll(".term[data-term]")) {
+      button.classList.remove("off", "clamped");
+      button.title = "";
+    }
+    for (const op of document.querySelectorAll(".op[data-op-for]")) {
+      op.classList.remove("dim");
+    }
+    const host = $("#term-note");
+    if (host) {
+      host.innerHTML = `<b>Which terms this model solves is not known:</b> ${
+        esc(state.termError || "the model has not been read yet")}.`;
+    }
+    $("#cons").innerHTML = "";
+    return;
+  }
   for (const button of document.querySelectorAll(".term[data-term]")) {
     const id = button.dataset.term;
     const spec = TERM_FIELDS[id];
@@ -1475,7 +1562,13 @@ function showWizardStep(index) {
         { label: "New run" },
       ]);
   const mode = wizard.readOnly ? state.mode : "spatial_2d";
-  if (name === "equations") refreshTerms().then(renderTermPanel);
+  // The note answers a click, so it must not outlive the page it was asked on
+  // -- and the geometry may have changed in between, which is the whole point.
+  clearTermNote();
+  // Asked on EVERY page, not just the equations one. The geometry step changes
+  // which terms exist, and moving it in front of the equations opened a window
+  // where the panel could be reached before anything had been asked.
+  refreshTerms().then(renderTermPanel);
   if (name === "geometry") {
     renderStepForm("#form-geometry", geometrySections(mode));
   }
@@ -1512,12 +1605,19 @@ function initWizard() {
       if (wizard.readOnly) return;
       const id = button.dataset.term;
       if (button.classList.contains("locked")) {
-        button.classList.remove("nudge");
-        void button.offsetWidth;          // restart the animation
-        button.classList.add("nudge");
+        nudge(button);
+        return;
+      }
+      // A term the model does not contain cannot be switched. Refusing
+      // silently is what made a greyed term look like a live one: say which
+      // term, and say what would have to change for it to exist.
+      if (!termApplies(id)) {
+        nudge(button);
+        showTermNote(id);
         return;
       }
       if (!TERM_FIELDS[id] || TERM_FIELDS[id].path === null) return;
+      clearTermNote();
       setTerm(id, !termIsOn(id));
       // Re-ask rather than assume: a toggle can change what OTHER terms are,
       // and the server is the one that knows. Switching the phonon sector to

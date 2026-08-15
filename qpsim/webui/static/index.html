@@ -124,14 +124,30 @@
       <div class="home">
         <nav class="crumbs" id="wizard-crumbs"></nav>
         <ol class="steps" id="wizard-steps">
-          <li data-step="equations"><span class="n">1</span> Equations</li>
-          <li data-step="geometry"><span class="n">2</span> Geometry</li>
+          <li data-step="geometry"><span class="n">1</span> Geometry</li>
+          <li data-step="equations"><span class="n">2</span> Equations</li>
           <li data-step="conditions"><span class="n">3</span> Conditions</li>
         </ol>
 
-        <div class="step-panel" id="step-equations">
+        <!-- Geometry comes first because it DECIDES part of the model: a mask
+             one cell across has no faces, so there is no transport operator to
+             switch. Asking for the terms first would offer a choice the
+             geometry then overrules. -->
+        <div class="step-panel" id="step-geometry">
           <div class="home-head">
-            <p class="eyebrow">Step 1 &middot; Dirty-limit Keldysh&ndash;Usadel &middot; A1</p>
+            <p class="eyebrow">Step 1</p>
+            <h1>Import the device, or state its extent.</h1>
+            <p class="lede">The mask decides the dimensionality: a rectangle one cell wide is a 1-D
+              strip and a single cell is 0-D, both solved by the same core. It also decides which
+              terms exist &mdash; a single cell has no neighbours to diffuse to, so the next step
+              will show the transport term greyed.</p>
+          </div>
+          <form id="form-geometry" onsubmit="return false"></form>
+        </div>
+
+        <div class="step-panel hidden" id="step-equations">
+          <div class="home-head">
+            <p class="eyebrow">Step 2 &middot; Dirty-limit Keldysh&ndash;Usadel &middot; A1</p>
             <h1>Choose which terms the model solves.</h1>
             <p class="lede">Click a term to drop it. Only right-hand sides switch &mdash; each rate
               equation&rsquo;s left side is the quantity being solved for, and emptying a right-hand
@@ -184,20 +200,21 @@
     </div>
   </div>
 
+          <!-- The three states are not self-evident from the marks alone, and
+               the reason a term is greyed used to live only in a hover title,
+               where nobody found it. -->
+          <p class="term-note" id="term-note" role="status" aria-live="polite"></p>
+
+          <ul class="term-key" aria-label="What the marks mean">
+            <li><span class="term">acting</span> in the model and acting</li>
+            <li><span class="term off">switched off</span> in the model, switched off &mdash; click to restore</li>
+            <li><span class="term clamped">not in this model</span> not in the model at all &mdash; click to see why</li>
+          </ul>
+
           <section class="cons-wrap">
             <h2>Consequences</h2>
             <ul class="cons" id="cons"></ul>
           </section>
-        </div>
-
-        <div class="step-panel hidden" id="step-geometry">
-          <div class="home-head">
-            <p class="eyebrow">Step 2</p>
-            <h1>Import the device, or state its extent.</h1>
-            <p class="lede">The mask decides the dimensionality: a rectangle one cell wide is a 1-D
-              strip and a single cell is 0-D, both solved by the same core.</p>
-          </div>
-          <form id="form-geometry" onsubmit="return false"></form>
         </div>
 
         <div class="step-panel hidden" id="step-conditions">

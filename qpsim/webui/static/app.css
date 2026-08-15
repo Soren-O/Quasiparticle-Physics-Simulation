@@ -436,6 +436,32 @@ body.editing .action:hover:not(:disabled) { background: none; }
   .term.nudge{animation:nudge .26s ease}
   @media (prefers-reduced-motion:reduce){.term.nudge{animation:none}.term{transition:none}}
 
+  /* ---- what the marks mean, and why a term is greyed ------------------
+     The three states were distinguishable only by a strike-through, a
+     dotted underline and two opacities, with the reason in a hover title.
+     An absent term therefore read as a live one. */
+  .term-key{
+    list-style:none; margin:18px 0 0; padding:0;
+    display:flex; flex-wrap:wrap; gap:6px 22px;
+    font-family:var(--ui); font-size:12.5px; color:var(--ink-2);
+  }
+  .term-key li{display:flex; align-items:baseline; gap:8px}
+  .term-key .term{
+    cursor:default; pointer-events:none; font-family:var(--math);
+    color:var(--ink); flex:none;
+  }
+  .term-note{
+    margin:16px 0 0; padding:9px 13px; font-size:13.5px; line-height:1.5;
+    border-left:2px solid var(--sector,var(--ink-faint)); background:var(--page);
+    border-radius:0 4px 4px 0;
+  }
+  .term-note:empty{display:none}   /* no empty box on a page nobody asked */
+  button.link{
+    font:inherit; color:var(--sector,var(--ink)); background:transparent;
+    border:0; padding:0; margin-left:.35em; cursor:pointer;
+    text-decoration:underline; text-underline-offset:2px;
+  }
+
   /* ---- math primitives ----------------------------------------------- */
   .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.12; margin:0 .14em; position:relative; top:-.05em}
   .frac>.num{display:block; padding:0 .3em .07em}
