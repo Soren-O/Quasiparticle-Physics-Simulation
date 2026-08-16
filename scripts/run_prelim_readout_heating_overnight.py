@@ -103,10 +103,20 @@ class ReadoutOvernightConfig:
     readout_resonator_indices: tuple[int, ...]
 
 
+# NE must keep the two phonon lattices commensurate. The omega grid is the
+# union of the difference lattice k*dE (scattering) and the sum lattice
+# 2*E_face + m*dE (pair breaking), and they share bins only when 2*E_face/dE
+# is an integer. On [Delta, 5*Delta] that means NE even: NE=101 gives 50.5 and
+# leaves 49 difference bins above the pair threshold with no sum-lattice
+# partner, so scattering-emitted phonons above 2*Delta cannot break pairs and
+# recombination phonons cannot be reabsorbed by scattering. The two channels
+# then evolve on disjoint sublattices -- an inconsistent discretisation rather
+# than a coarse one, which converges to a different limit per grid parity.
+# NE=100 measures 50.0 with zero orphans.
 SMOKE_CONFIG = ReadoutOvernightConfig(
     name="smoke",
     NX=5,
-    NE=101,
+    NE=100,
     dt_ns=1.0,
     max_time_ns=3.0,
     stop_tol=1e-6,
@@ -123,7 +133,7 @@ SMOKE_CONFIG = ReadoutOvernightConfig(
 OVERNIGHT_CONFIG = ReadoutOvernightConfig(
     name="overnight",
     NX=21,
-    NE=101,
+    NE=100,  # commensurate; see the note on SMOKE_CONFIG
     dt_ns=0.5,
     max_time_ns=30_000.0,
     stop_tol=5e-10,

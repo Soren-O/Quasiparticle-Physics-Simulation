@@ -30,7 +30,14 @@ artifact is mesh-convergent rather than a fixed offset), which manufactured
 center-of-mass motion for the undressed ``q = 0`` flux. The A1 residual it
 reported was that weighting artifact, not transport: -2.6e-3 um/ns at
 ``NE = 12`` and -4.9e-4 um/ns at the published ``NE = 40``, against
-~1.3e-8 um/ns -- Crank-Nicolson round-off -- in the correct measure.
+~1.3e-8 um/ns in the correct measure. That residue is NOT Crank-Nicolson
+round-off, as this note used to claim -- round-off would not be reproducible
+or mesh-ordered. It is the reflective-wall tail: with no flux through either
+end, the first moment obeys ``dM1/dt = (D0/dx)(f_first - f_last)`` exactly, so
+a device whose occupation has not fully decayed at one end carries a real,
+deterministic drift of that size. It is physics of the closed box, and it
+scales with the end-to-end occupation difference rather than with the solver
+tolerance.
 
 Because the artifact was negative while the A1P drift is positive, the old
 *relative* A1 gate also admitted a genuine positive leak of up to
@@ -160,8 +167,12 @@ def _center_of_mass(
 ) -> np.ndarray:
     """Per-energy first moment of ``u = N_1^p f`` for the supplied ``N_1``.
 
-    ``run`` supplies the point-sampled BCS DOS, which is *not* the backend's
-    conserved cell-average measure -- see the module docstring's oracle note.
+    ``run`` supplies ``_n1_columns``, the backend's own conserved cell-average
+    measure -- the SAME array the operator conserves, which is what makes this
+    moment an oracle rather than a second opinion. (It used to supply the
+    point-sampled DOS, and this docstring still said so long after that
+    changed; the module docstring above already described the corrected
+    behaviour, so the two disagreed.)
     """
     u = np.power(N1, p) * f
     weight = np.sum(u, axis=1)
