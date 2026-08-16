@@ -36,16 +36,27 @@ TWO CONSEQUENCES OF TAKING THE SPATIAL ROUTE, STATED UP FRONT.
 * The kernel is the quasiparticle-side ``K⁰ʳ = (1/τ_0)(E_i+E_j)²K⁺/(k_BT_c)³``,
   not the paper's phonon-side ``K⁺/(πΔτ_0^PB)``. The rate here is set by
   τ_0 = 438 ns and **not** by τ_0^PB = 0.255 ns; those differ by ~1718× and
-  confusing them is a documented trap. ``phonons.use_phonon_side_kernel`` is
-  not read by ``SpatialCollisions``, so the flag is recorded as ``false`` in
-  ``CASE_OVERRIDES`` to describe the path actually taken rather than to select
-  it.
+  confusing them is a documented trap.
+
+  ``phonons.use_phonon_side_kernel`` USED TO BE unread by ``SpatialCollisions``,
+  and this case recorded it as ``false`` merely to describe the path it was
+  forced onto. As of 2026-08-15 the spatial path reads the flag and DEFAULTS to
+  the phonon-side kernel, so that ``false`` is now a deliberate SELECTION of
+  the legacy quasiparticle-side path. The closed form below is written for that
+  path and is scored against it, which is self-consistent -- but it means the
+  DEFAULT path has no coverage for this term: run this case at the schema
+  default and it fails at 7.5e-01 against a 3e-07 tolerance, because the
+  closed form describes the other kernel. Re-deriving it onto ``K⁺/(πΔτ_0^PB)``
+  (as ``phonon_scattering_source`` and ``phonon_escape`` were) is the open work.
 * ``collisions.phonon_recombination_source`` — the switch this benchmark is
-  named after — is **inert in spatial_2d**. ``SpatialCollisions`` carries only
-  the shared ``enable_recombination`` pair, so flipping the named switch off
-  leaves ``snap_n_ph`` byte-identical (verified). The term is gated here by
-  ``collisions.recombination``, and switching *that* off freezes n_ph at its
-  seed exactly and drives the residual to 1.0. See ``caveat`` item 2.
+  named after — WAS inert in spatial_2d, because the collision layer was
+  handed the quasiparticle-side ``enable_recombination`` in its place. That was
+  fixed on 2026-08-14 (``7e15175``), and the phonon-side kernels added on
+  2026-08-15 removed the last coupling to the quasiparticle flags: the named
+  switch is now the gate, and flipping it off freezes ``snap_n_ph`` at its seed
+  and drives the residual to 1.0. Any statement below that this switch is
+  inert, or that ``collisions.recombination`` is what gates this term, is
+  describing the pre-fix engine.
 
 WHERE THE CLOSED FORM IS SCORED. Only where the pair interval is bounded away
 from the BCS singularity: ω ≥ E_top + 2Δ, so the lower limit E = ω − E_top sits
@@ -448,23 +459,30 @@ register(Benchmark(
         "why the frames are placed from 0.003 to 8 relaxation times rather "
         "than at the plateau. A reader should treat a green verdict here as a "
         "statement about J(ω), not about the phonon fixed point.\n\n"
-        "2. THE NAMED SWITCH IS INERT IN THIS MODE. "
-        "collisions.phonon_recombination_source is not forwarded on the "
-        "spatial path — SpatialCollisions.advance_phonons receives only the "
-        "shared enable_scattering/enable_recombination pair — so setting it "
-        "false leaves snap_n_ph byte-identical (verified, not inferred). It IS "
-        "plumbed through on the transient_0d route, but that route publishes "
-        "no phonon array, so there is no mode today in which this benchmark "
-        "could both be built and be gated by its own switch. What is gated "
-        "here is the physics: collisions.recombination = false removes the "
-        "term completely.\n\n"
-        "3. NOT THE PAPER'S PHONON-SIDE KERNEL. The spatial route uses the "
-        "quasiparticle-side K⁰ʳ with the (E_i+E_j)²/(τ_0 (k_BT_c)³) "
-        "prefactor. τ_0^PB and the F&C Eq. 12 normalisation are untouched by "
-        "this benchmark, as is _pair_breaking_quadrature_correction and every "
-        "bin it acts on. The Kaplan S₊ item under adjudication in "
-        "docs/HELD-BACK-ADJUDICATION-2026-08-11.md concerns that correction "
-        "and could change the 0-D numbers without changing anything here.\n\n"
+        "2. THE NAMED SWITCH GATES THIS TERM (corrected 2026-08-15). It used "
+        "to be inert on the spatial path, because SpatialCollisions received "
+        "the quasiparticle-side enable_recombination in its place, and this "
+        "caveat said so on the strength of a measurement that was true then. "
+        "Both halves of that coupling are now fixed (7e15175, then the "
+        "phonon-side kernels), so setting "
+        "collisions.phonon_recombination_source = false freezes snap_n_ph at "
+        "its seed and drives the residual to 1.0. The claim that "
+        "collisions.recombination is what gates this term is likewise "
+        "obsolete.\n\n"
+        "3. NOT THE PAPER'S PHONON-SIDE KERNEL — BY THIS CASE'S OWN CHOICE. "
+        "The spatial route now DEFAULTS to the phonon-side K⁺/(πΔτ_0^PB), and "
+        "this case pins phonons.use_phonon_side_kernel = false to select the "
+        "legacy quasiparticle-side K⁰ʳ with the (E_i+E_j)²/(τ_0 (k_BT_c)³) "
+        "prefactor, which is what the closed form below is written for. That "
+        "pairing is self-consistent, and it is also the limit of what this "
+        "verdict certifies: the DEFAULT path this term takes in every other "
+        "run is not covered here. Scored at the schema default the case fails "
+        "at 7.5e-01 against a 3e-07 tolerance — the closed form describing the "
+        "other kernel, not the engine being wrong. τ_0^PB, the F&C Eq. 12 "
+        "normalisation and _pair_breaking_quadrature_correction are therefore "
+        "still untouched by this benchmark, which is why the Kaplan S₊ item in "
+        "docs/HELD-BACK-ADJUDICATION-2026-08-11.md can move the 0-D numbers "
+        "without moving anything here.\n\n"
         "4. f IS FROZEN BY CONSTRUCTION, NOT BY PHYSICS. The quasiparticle "
         "side is on (it is what enables the term); the case simply chooses an "
         "amplitude at which it cannot move f over 0.5 ns. The run reports the "
