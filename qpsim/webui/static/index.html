@@ -68,6 +68,12 @@
 
           <section class="group">
             <h2>Reference</h2>
+            <button class="action" data-go="physics">
+              <span class="name">Physics</span>
+              <span class="go">Browse</span>
+              <span class="desc">Every term of the kinetic equations, what it does physically, and
+                the algorithm that solves it &mdash; click a term in the equation to read it.</span>
+            </button>
             <button class="action" data-go="materials">
               <span class="name">Materials</span>
               <span class="go">Browse</span>
@@ -251,6 +257,36 @@
 
     <section id="view-materials" class="view hidden">
       <div id="materials-list"></div>
+    </section>
+
+    <!-- The equation here is CLONED from the setup wizard's panel at runtime
+         rather than written out a second time. Two copies of the same equation
+         drift, and the one a reader learns from would eventually stop being the
+         one the solver runs. -->
+    <section id="view-physics" class="view hidden">
+      <div class="home">
+        <nav class="crumbs" id="physics-crumbs"></nav>
+        <div class="home-head">
+          <p class="eyebrow">Dirty-limit Keldysh&ndash;Usadel &middot; A1</p>
+          <h1>The equations this solver integrates.</h1>
+          <p class="lede">Three coupled equations: the quasiparticle occupation on a BCS density of
+            states, the phonon occupation it exchanges energy with, and the order parameter both
+            depend on. Every term below is one you can switch on or off when you build a run.
+            <strong>Click a term</strong> to read what it does and how it is solved.</p>
+        </div>
+        <div id="physics-equation"></div>
+        <section class="cons-wrap">
+          <h2>How they are advanced</h2>
+          <ul class="cons" id="physics-solvers"></ul>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-physics-term" class="view hidden">
+      <div class="home">
+        <nav class="crumbs" id="physics-term-crumbs"></nav>
+        <div id="physics-term-body"></div>
+      </div>
     </section>
   </main>
 

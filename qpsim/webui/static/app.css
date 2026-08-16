@@ -456,6 +456,24 @@ body.editing .action:hover:not(:disabled) { background: none; }
     border-radius:0 4px 4px 0;
   }
   .term-note:empty{display:none}   /* no empty box on a page nobody asked */
+  /* ---- physics reference ---------------------------------------------- */
+  /* The cloned equation is for reading, so the terms invite a click without
+     pretending to be switches: no strike-through, no dotted underline. */
+  #physics-equation .term{cursor:pointer}
+  #physics-equation .term:not(.locked):hover{background:var(--wash,rgba(0,0,0,.05))}
+  #physics-equation .term.locked{cursor:default}
+  #physics-equation .term.locked::before{border:0}
+  .physics-formula{
+    font-family:var(--math); font-size:clamp(15px,2vw,21px); color:var(--ink);
+    margin:10px 0 0;
+  }
+  .physics-section{padding-top:22px}
+  .physics-section h2{
+    margin:0 0 8px; font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:700;
+  }
+  .physics-section p{margin:0; max-width:68ch; font-size:15px; line-height:1.62}
+
   button.link{
     font:inherit; color:var(--sector,var(--ink)); background:transparent;
     border:0; padding:0; margin-left:.35em; cursor:pointer;

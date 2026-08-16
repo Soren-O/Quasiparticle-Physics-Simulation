@@ -1103,6 +1103,10 @@ async function init() {
         openTestSimulations();
         return;
       }
+      if (b.dataset.go === "physics") {
+        openPhysics();
+        return;
+      }
       showView(b.dataset.go);
       window.scrollTo(0, 0);
     }));
@@ -1594,6 +1598,288 @@ function openSettingsView(name, mode, setup, { from = "runs" } = {}) {
   $("#feedback").innerHTML = "";
   showView("new-run");
   showWizardStep(0);
+}
+
+/* =====================================================================
+   Physics reference
+   The same equation panel the wizard uses, read rather than operated.
+   Each entry says three separable things: what the term IS physically,
+   how it is DISCRETISED, and what a user most often gets wrong about it.
+   The last of those is not padding -- every gotcha listed here cost
+   somebody a wrong run at some point.
+   ===================================================================== */
+
+const PHYSICS = {
+  diff: {
+    title: "Diffusion",
+    sector: "Quasiparticles",
+    formula: "∇·(D₀∇f)",
+    physics: `Quasiparticles spread through the film. The flux carries the BCS
+      density weight, so transport is energy-dependent: states just above the gap
+      have a large density and move differently from states well above it. This is
+      the only term that couples one cell of the device to another — collisions,
+      the phonon sector and the gap closure are all strictly local.`,
+    algorithm: `Finite volume on the device mask. Each face coefficient is the
+      harmonic mean of its two cells, which is exact wherever the neighbours share
+      a gap. Time stepping is Crank–Nicolson with automatic substepping bounded by
+      a monotonicity limit, so a large step cannot produce a negative occupation.
+      A separate operator is built for every energy bin, because the diffusion
+      weight depends on E.`,
+    gotchas: [
+      "A single-cell device has no faces, so this term is ABSENT rather than off — there is nothing to transport between, whatever D₀ is.",
+      "D₀ = 0 is the off switch: the flux coefficient is D₀·N₁^q, so zero gives an identically zero operator.",
+      "The shipped D₀ for Al, Nb and TiN sit outside their own sourced bands; the material record says so on load.",
+    ],
+  },
+  scat: {
+    title: "Quasiparticle–phonon scattering",
+    sector: "Quasiparticles",
+    formula: "N₁ I_sc[f, n]",
+    physics: `A quasiparticle absorbs or emits a phonon and moves in energy. The
+      number of quasiparticles is unchanged — this term redistributes them, and it
+      is what relaxes a driven distribution back toward the bath. Switch it off and
+      nothing sets the energy distribution.`,
+    algorithm: `A dense (N_E × N_E) kernel carrying the coherence factor
+      K⁻ = 1 − Δ²/EE′ and the prefactor ω²/(τ₀(k_BT_c)³). Advanced with ETD2, a
+      two-stage exponential integrator: the quasiparticle equation is quadratic in
+      f (the Pauli factors depend on the quantity being stepped), so a
+      predictor–corrector is needed for second order.`,
+    gotchas: [
+      "This is the QUASIPARTICLE side of the ledger. The same events appear in the phonon equation with a different prefactor — see the phonon scattering source.",
+      "Switching it off leaves a model with no thermal fixed point, so detailed-balance and number-conservation certificates do not apply to the result.",
+    ],
+  },
+  recomb: {
+    title: "Recombination and pair breaking",
+    sector: "Quasiparticles",
+    formula: "N₁ I_r[f, n]",
+    physics: `Two quasiparticles recombine into a Cooper pair and emit a phonon at
+      ω = E + E′ ≥ 2Δ; the reverse absorbs such a phonon and breaks a pair. This is
+      the number-changing channel — it is what fixes how many quasiparticles a
+      driven device settles at.`,
+    algorithm: `Same ETD2 stepper as scattering, with the coherence factor
+      K⁺ = 1 + Δ²/EE′. The pair kinematics are what make this term numerically
+      hard: at threshold both partners sit at the gap edge simultaneously, so the
+      two density-of-states singularities coalesce.`,
+    gotchas: [
+      "With this off, an injected device has nothing to remove quasiparticles and there is no steady state to find.",
+      "The threshold structure ω → 2Δ is where the discretisation is weakest; see the phonon recombination source.",
+    ],
+  },
+  photsg: {
+    title: "Sub-gap photon drive",
+    sector: "Quasiparticles",
+    formula: "N₁ I_γ,sg[f]",
+    physics: `Photons below 2Δ cannot break a pair, but they move existing
+      quasiparticles up and down in energy in steps of ω₀ — a ladder. This is the
+      readout-power channel: it heats the distribution without directly creating
+      quasiparticles.`,
+    algorithm: `A ladder coupling bins separated by ω₀. Both the absorption and the
+      emission terms carry (n̄ + 1), so the channel has a stimulated part
+      proportional to the photon number and a spontaneous part that does not vanish
+      with it.`,
+    gotchas: [
+      "n̄ = 0 does NOT switch this off. The (n̄+1) factor leaves spontaneous emission acting at full strength — measured, the drive still moves f by 19% at c_phot = 1e−4 and 80% at 1e−2.",
+      "c_phot is the real off switch: every term is multiplied by it.",
+      "ω₀ must be commensurate with the energy grid, or the ladder lands between bins.",
+    ],
+  },
+  photpb: {
+    title: "Pair-breaking photon drive",
+    sector: "Quasiparticles",
+    formula: "N₁ I_γ,pb[f]",
+    physics: `A photon at ω ≥ 2Δ breaks a Cooper pair directly, creating two
+      quasiparticles at E and ω − E. Unlike the sub-gap drive this changes the
+      quasiparticle number.`,
+    algorithm: `Couples each bin to its reflection partner about ω/2. Both partners
+      must exist on the energy lattice, which is a stronger grid condition than the
+      sub-gap ladder needs.`,
+    gotchas: [
+      "Needs the reflection partners on-lattice: 2·min_factor·N/(max−min) must be integral, or the setup is rejected.",
+      "Like the sub-gap drive, c_phot_PB is the off switch rather than n̄_PB.",
+    ],
+  },
+  src: {
+    title: "External injection",
+    sector: "Quasiparticles",
+    formula: "N₁ S(E, r, t)",
+    physics: `A prescribed source of quasiparticles — a tunnel junction, a
+      normal-metal contact, an absorbed photon event. Whatever creates
+      quasiparticles by a mechanism this model does not resolve.`,
+    algorithm: `Added directly to the gain side of the collision step. The general
+      form accepts an arbitrary g(E, x, y, t) as a compiled expression, so a source
+      can be shaped in energy, in space and in time independently.`,
+    gotchas: [
+      "A source aimed at energies the grid does not represent is refused rather than silently discarded — injecting into a state that does not exist is undefined.",
+      "On a gap-step device, bins below the local gap of the high-gap region are unrepresented there; the same nominal source is not the same source on both sides.",
+    ],
+  },
+  psc: {
+    title: "Phonon scattering source",
+    sector: "Phonons",
+    formula: "Σ_sc[f, n]",
+    physics: `The other side of the ledger from quasiparticle scattering. Every
+      scattering event that moves a quasiparticle in energy also creates or destroys
+      a phonon, and this term books that into the phonon equation.`,
+    algorithm: `Uses the phonon-side kernel 2K⁻/(πΔτ₀^PB) from F&C 2023 Eq. 12 —
+      a genuinely different prefactor from the quasiparticle side, and τ₀^PB is
+      about 1700× smaller than τ₀. The phonon equation is linear in n, so it is
+      integrated exactly rather than by a multi-stage scheme.`,
+    gotchas: [
+      "This switch is independent of quasiparticle scattering. They are one physical process recorded on two sides, and whether BOTH sides are recorded is what these controls decide.",
+      "Confusing τ₀ with τ₀^PB is a documented trap in this codebase and was a real shipped defect — the two differ by ~1700×.",
+    ],
+  },
+  prc: {
+    title: "Phonon recombination source",
+    sector: "Phonons",
+    formula: "Σ_r[f, n]",
+    physics: `Phonons created by recombination and consumed by pair breaking. These
+      are the ω ≥ 2Δ phonons that can break pairs again — the feedback loop behind
+      phonon trapping.`,
+    algorithm: `The pair integral at fixed ω runs along the line E + E′ = ω, so it
+      has two density-of-states singularities that coalesce as ω → 2Δ. The exact
+      value there is Kaplan's Δ·S₊(ω/Δ); a naive sum over an energy-aligned grid
+      instead gives 4Δ, off by 4/π, and that error does not shrink under grid
+      refinement.`,
+    gotchas: [
+      "This threshold structure is the numerically weakest point of the whole scheme, and the treatment of it is under active review.",
+      "Recombination phonons and scattering phonons live on two different frequency lattices; a grid where they share no bins is now refused, because the two channels would evolve independently.",
+    ],
+  },
+  pesc: {
+    title: "Phonon escape",
+    sector: "Phonons",
+    formula: "(n − n_B(T_b)) / τ_esc",
+    physics: `Phonons leak into the substrate at a finite rate, relaxing the phonon
+      population toward the bath. A long escape time traps them in the film, where
+      they break pairs again — which is why phonon trapping raises the steady-state
+      quasiparticle density well above what the drive alone would give.`,
+    algorithm: `A linear relaxation term. Together with the source terms it makes the
+      phonon equation affine in n, dn/dt = a(f) + b(f)·n, which an exponential
+      integrator solves EXACTLY at frozen f — no iteration and no truncation error
+      in the phonon step itself.`,
+    gotchas: [
+      "The default phonon seed IS this term's own fixed point, so escape is unmeasurable until the initial population is moved away from the bath.",
+      "τ_l = 0 is the τ → ∞ sentinel meaning NO substrate coupling, not instantaneous escape — the opposite of what the number suggests.",
+    ],
+  },
+  gapeq: {
+    title: "Self-consistent gap",
+    sector: "Order parameter",
+    formula: "1/(N₀V) = ∫ (1−2f)/√(E²−Δ²) dE",
+    physics: `The order parameter is not a fixed parameter but a functional of the
+      occupation. Quasiparticles occupying states above the gap suppress it, which
+      moves the band edge, which changes every other term. Switching this off pins
+      Δ at its material value.`,
+    algorithm: `Brent's method, NOT Newton — a bracketing root find. The integration
+      limit is the unknown and the integrand is singular exactly there, so a
+      derivative-based step would need d/dΔ through the singularity. Out of
+      equilibrium the residual can have several roots, so the solver carries the
+      previous Δ as a reference and takes the nearest sign change. The outer
+      self-consistency loop is under-relaxed Picard.`,
+    gotchas: [
+      "Even-multiplicity (tangent) roots produce no sign change and are invisible to a bracketing scan.",
+      "It refuses to report Δ = 0 unless it has an analytic certificate: not finding a root is never treated as proof the material went normal.",
+      "A self-consistent gap needs sub-gap grid cells, so min_factor must be below 1.",
+    ],
+  },
+};
+
+const PHYSICS_SOLVERS = [
+  ["", "<b>Quasiparticles — ETD2.</b> The occupation equation is quadratic in f, "
+     + "so its rates depend on the very quantity being advanced. A two-stage "
+     + "predictor–corrector, with the linear relaxation handled exactly at each "
+     + "stage, gives second order."],
+  ["", "<b>Phonons — exponential Euler, and it is EXACT.</b> The phonon equation is "
+     + "linear in n at frozen f, so a one-stage exponential step is the exact flow "
+     + "of that sub-problem. A second stage could not improve on it."],
+  ["", "<b>Composition.</b> Transport half-step, collisions, transport half-step. "
+     + "Because both sub-flows are exact for their own frozen-coefficient problem, "
+     + "ALL remaining time-integration error lives in this composition rather than "
+     + "in either integrator."],
+  ["bad", "<b>Known, being corrected:</b> the 0-D transient advances the phonons "
+     + "symmetrically about the quasiparticle step, which is second order; the "
+     + "spatial engine advances them once afterwards, which is first order. The two "
+     + "are not equivalent, and the spatial docstring currently claims they are."],
+  ["", "<b>Steady state.</b> Three routes: Newton on f with the phonons pinned at the "
+     + "bath; Picard over n with an inner Newton on f, optionally Anderson-accelerated; "
+     + "or a coupled Newton on (f, n) together. They should agree, and where they do "
+     + "not, that disagreement is itself a measurement."],
+  ["derived", "The gap is the exception: a bracketing root find, because its unknown "
+     + "is an integration limit sitting on a singularity."],
+];
+
+function openPhysics() {
+  crumbsInto("#physics-crumbs", [
+    { label: "Home", go: () => showView("home") },
+    { label: "Physics" },
+  ]);
+  const host = $("#physics-equation");
+  host.innerHTML = "";
+  // Cloned, never re-authored: the reader must be looking at the same equation
+  // the wizard operates and the solver integrates.
+  const source = document.querySelector("#step-equations .stack");
+  if (source !== null) {
+    const stack = source.cloneNode(true);
+    stack.querySelectorAll(".term").forEach((button) => {
+      button.classList.remove("off", "clamped", "nudge");
+      const id = button.dataset.term;
+      const entry = id && PHYSICS[id];
+      button.disabled = false;
+      if (entry) {
+        button.title = `${entry.title} — click to read how it works.`;
+        button.addEventListener("click", () => openPhysicsTerm(id));
+      } else {
+        // The left-hand sides carry no term of their own to describe.
+        button.classList.add("locked");
+        button.title = "The quantity being solved for.";
+      }
+    });
+    host.appendChild(stack);
+  }
+  const solvers = $("#physics-solvers");
+  solvers.innerHTML = "";
+  for (const [cls, text] of PHYSICS_SOLVERS) {
+    const li = document.createElement("li");
+    li.className = cls;
+    li.innerHTML = `<span class="mk"></span><span>${text}</span>`;
+    solvers.appendChild(li);
+  }
+  showView("physics");
+  window.scrollTo(0, 0);
+}
+
+function openPhysicsTerm(id) {
+  const entry = PHYSICS[id];
+  if (!entry) return openPhysics();
+  crumbsInto("#physics-term-crumbs", [
+    { label: "Home", go: () => showView("home") },
+    { label: "Physics", go: () => openPhysics() },
+    { label: entry.title },
+  ]);
+  const list = (items) =>
+    items.map((g) => `<li><span class="mk"></span><span>${g}</span></li>`).join("");
+  $("#physics-term-body").innerHTML = `
+    <div class="home-head">
+      <p class="eyebrow">${esc(entry.sector)}</p>
+      <h1>${esc(entry.title)}</h1>
+      <p class="physics-formula">${esc(entry.formula)}</p>
+    </div>
+    <section class="physics-section">
+      <h2>What it is</h2>
+      <p>${entry.physics}</p>
+    </section>
+    <section class="physics-section">
+      <h2>How it is solved</h2>
+      <p>${entry.algorithm}</p>
+    </section>
+    <section class="cons-wrap">
+      <h2>Worth knowing</h2>
+      <ul class="cons">${list(entry.gotchas)}</ul>
+    </section>`;
+  showView("physics-term");
+  window.scrollTo(0, 0);
 }
 
 function initWizard() {
