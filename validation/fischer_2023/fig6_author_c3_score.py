@@ -623,8 +623,12 @@ def _derive_grid(
     weights = xi_hi - xi_lo
     density = weights / dE
 
+    # Factored arcsinh, matching physics/spectral.py operation for operation --
+    # this mirror is compared bit-exact against the engine, so the algebraic
+    # composition here is part of the contract, not a style choice. xi_lo and
+    # xi_hi are the same quantities already built above for `weights`.
     anomalous_weight = gap_ueV * (
-        np.arccosh(np.maximum(hi / gap_ueV, 1.0)) - np.arccosh(np.maximum(lo / gap_ueV, 1.0))
+        np.arcsinh(xi_hi / gap_ueV) - np.arcsinh(xi_lo / gap_ueV)
     )
     anomalous_density = anomalous_weight / dE
     ratio = np.zeros_like(E)

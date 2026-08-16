@@ -124,7 +124,16 @@ def bcs_density_of_states(E: np.ndarray, gap: float) -> np.ndarray:
     gap = _non_negative_scalar("gap", gap)
     rho = np.zeros_like(E, dtype=float)
     valid = gap < E
-    rho[valid] = E[valid] / np.sqrt(E[valid] ** 2 - gap ** 2)
+    # Factored, not E**2 - gap**2. Squaring first destroys the significance of
+    # E - gap exactly where this function is most singular: the two squares
+    # agree to many digits near the gap edge and their difference is nearly all
+    # cancellation. By Sterbenz's lemma E - gap is EXACT in floating point for
+    # gap/2 <= E <= 2*gap, which covers the whole gap-edge region, so the
+    # factored form carries the small factor at full precision and only the
+    # benign sum is rounded. Same convention already used by
+    # bcs_quadrature.py:142-145 and gap_equation.py:192-200 -- this brings the
+    # two remaining sites onto it.
+    rho[valid] = E[valid] / np.sqrt((E[valid] - gap) * (E[valid] + gap))
     return rho
 
 
@@ -139,7 +148,8 @@ def bcs_anomalous_weight(E: np.ndarray, gap: float) -> np.ndarray:
     gap = _non_negative_scalar("gap", gap)
     n2 = np.zeros_like(E, dtype=float)
     valid = gap < E
-    n2[valid] = gap / np.sqrt(E[valid] ** 2 - gap ** 2)
+    # Factored for the same reason as bcs_density_of_states above.
+    n2[valid] = gap / np.sqrt((E[valid] - gap) * (E[valid] + gap))
     return n2
 
 
@@ -432,9 +442,23 @@ class SpectralContext:
             edges = cell_edges_from_widths(E, self._dE)
             lo = np.maximum(edges[:-1], gap)
             hi = np.maximum(edges[1:], lo)
+            # asinh(sqrt(E^2 - D^2)/D) == acosh(E/D) identically, but the two
+            # differ sharply in floating point at the gap edge. acosh(x) loses
+            # half its significant digits as x -> 1, and the argument E/gap is
+            # ALREADY rounded before acosh sees it, so the information is gone
+            # before the function is called. The arcsinh form carries the small
+            # quantity xi = sqrt((E-D)(E+D)) explicitly, and E - gap is exact
+            # in floating point over gap/2 <= E <= 2*gap by Sterbenz's lemma --
+            # precisely the gap-edge region where this cell measure matters.
+            # The same operation sequence is mirrored in
+            # backends/t3_spatial_1d.py and in the C3 author-score script;
+            # sequence identity there is load-bearing, because the C3 mirror is
+            # compared bit-exact and the 1-D backend is the bit reference for
+            # the unified 2-D core.
+            xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
+            xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))
             anomalous_weight = gap * (
-                np.arccosh(np.maximum(hi / gap, 1.0))
-                - np.arccosh(np.maximum(lo / gap, 1.0))
+                np.arcsinh(xi_hi / gap) - np.arcsinh(xi_lo / gap)
             )
             cell_anomalous_density = anomalous_weight / self._dE
             ratio = np.zeros_like(E)

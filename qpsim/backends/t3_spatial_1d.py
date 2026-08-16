@@ -119,9 +119,14 @@ def _bcs_anomalous_cell_density(
     edges = cell_edges_from_widths(E, dE)
     lo = np.maximum(edges[:-1], float(gap))
     hi = np.maximum(edges[1:], lo)
+    # Factored arcsinh; see physics/spectral.py for the derivation. The
+    # operation sequence must stay IDENTICAL to that site and to the C3 author
+    # mirror -- this backend is the bit reference the unified 2-D core is
+    # compared against.
+    xi_lo = np.sqrt(np.maximum((lo - float(gap)) * (lo + float(gap)), 0.0))
+    xi_hi = np.sqrt(np.maximum((hi - float(gap)) * (hi + float(gap)), 0.0))
     integral = float(gap) * (
-        np.arccosh(np.maximum(hi / float(gap), 1.0))
-        - np.arccosh(np.maximum(lo / float(gap), 1.0))
+        np.arcsinh(xi_hi / float(gap)) - np.arcsinh(xi_lo / float(gap))
     )
     return integral / dE
 
