@@ -80,7 +80,18 @@ class TestValidateSetup:
         assert any("ω_PB" in e for e in report.errors)
 
     def test_pb_reflection_partner_misalignment_is_rejected(self) -> None:
+        """Pins its own grid: the misalignment must be the test's construction.
+
+        This used to inherit ``EnergyGrid``'s default bin count and pick a
+        multiplier that happened to be misaligned on it. When that default
+        moved for an unrelated reason (the phonon-lattice commensurability
+        guard, 400 -> 405) the very same multiplier became ALIGNED and the test
+        failed -- not because reflection-partner checking broke, but because
+        the misalignment it meant to build no longer existed. A test about
+        alignment must not depend on a default it does not set.
+        """
         setup = SteadyState0DSetup()
+        setup.grid.num_bins = 400
         setup.pb_drive.enabled = True
         dE = (
             (setup.grid.max_factor - setup.grid.min_factor)

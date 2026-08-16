@@ -94,7 +94,15 @@ class EnergyGrid(StrictModel):
     # Delta_0. They are inert (rho=0) for the initial pure-BCS spectrum.
     min_factor: Annotated[float, Field(ge=0.0)] = 1.0
     max_factor: Annotated[float, Field(gt=1.0)] = 10.0
-    num_bins: Annotated[int, Field(ge=8, le=5000)] = 400
+    # 405, not 400. The phonon frequency grid is the union of a difference
+    # lattice (scattering) and a sum lattice (pair breaking), and they share
+    # bins only when 2*E_face/dE is an integer. On the default [Delta, 10*Delta]
+    # window 400 gives 88.889 and the two channels land on disjoint
+    # sublattices, so a scattering-emitted phonon above 2*Delta can never break
+    # a pair. 405 gives 90 exactly. Only dynamic-phonon runs are affected --
+    # a thermal bath never builds the map -- but the default must be one a
+    # dynamic run can legally use.
+    num_bins: Annotated[int, Field(ge=8, le=5000)] = 405
 
     @model_validator(mode="after")
     def max_must_exceed_min(self) -> EnergyGrid:
@@ -465,7 +473,10 @@ class Spatial1DSetup(StrictModel):
     # Gap-edge x_qp and Mattis-Bardeen observables require the first physical
     # cell edge at Delta; a grid starting above Delta silently drops the BCS
     # singular spectral weight.
-    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=64)
+    # 66 rather than 64: on [Delta, 4*Delta] the two phonon lattices share
+    # bins only for a multiple of 3, and 64 gives 42.667. (The 2-D preset's 48
+    # is already valid -- 32 exactly.) See EnergyGrid.num_bins.
+    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=66)
     length_um: Annotated[float, Field(gt=0.0)] = 100.0
     num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
     diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"

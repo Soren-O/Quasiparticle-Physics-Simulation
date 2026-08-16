@@ -26,6 +26,7 @@ with the numba acceleration path dropped. Provides:
 from __future__ import annotations
 
 import weakref
+from fractions import Fraction
 from enum import Enum
 
 import numpy as np
@@ -349,6 +350,122 @@ def build_phonon_frequency_map(
         omega_idx_sum = inverse[n_pairs:].reshape((n, n))
     diff_sign = np.sign(E[:, None] - E[None, :]).astype(np.int8)
     return omega_bins, omega_idx_diff, omega_idx_sum, diff_sign
+
+
+def commensurate_bin_counts(
+    E_bins: np.ndarray, *, count: int = 2,
+) -> list[int]:
+    """Bin counts nearest ``E_bins.size`` that keep the two lattices coupled.
+
+    ``2*E_face/dE = 2*E_face*N/(E_top - E_face)`` must be an integer. Writing
+    ``2*E_face/(E_top - E_face) = p/q`` in lowest terms, that holds exactly
+    when ``N`` is a multiple of ``q`` -- so the valid counts are a lattice, and
+    the useful answer is the nearest members of it. Returns ``[]`` when the
+    window is not a ratio of small integers, rather than inventing a value.
+    """
+    E = np.asarray(E_bins, dtype=float)
+    if E.size < 2:
+        return []
+    dE = float(E[1] - E[0])
+    face = float(E[0]) - 0.5 * dE
+    top = float(E[-1]) + 0.5 * dE
+    if face <= 0.0 or top <= face:
+        return []
+    ratio = Fraction(2.0 * face / (top - face)).limit_denominator(4096)
+    # Reject a limit_denominator fit that does not actually reproduce the
+    # window: a suggestion computed from the wrong rational is worse than none.
+    if abs(float(ratio) - 2.0 * face / (top - face)) > 1e-9:
+        return []
+    q = ratio.denominator
+    n = int(E.size)
+    below = (n // q) * q
+    out: list[int] = []
+    for candidate in (below, below + q, below - q, below + 2 * q):
+        if candidate >= 2 and candidate != n and candidate not in out:
+            out.append(candidate)
+    return sorted(out, key=lambda c: (abs(c - n), c))[:count]
+
+
+def validate_phonon_lattice_coupling(
+    omega_bins: np.ndarray,
+    omega_idx_diff: np.ndarray,
+    omega_idx_sum: np.ndarray,
+    diff_sign: np.ndarray,
+    *,
+    E_bins: np.ndarray | None = None,
+) -> None:
+    """Refuse an omega grid on which the two F&C Eq. 12 integrals decouple.
+
+    The omega grid is the union of a DIFFERENCE lattice ``k*dE`` (scattering
+    emits and absorbs there) and a SUM lattice ``2*E_face + m*dE`` (pair
+    breaking and recombination live there). Equation 12 shares one ``n(omega)``
+    between the two, but nothing downstream re-couples the bins: the source
+    terms bincount on the two index maps separately and the Ph0 balance solves
+    each bin independently. When the lattices do not share bins, a phonon
+    emitted by scattering above the pair threshold can never break a pair, and
+    a recombination phonon can never be reabsorbed by scattering -- the two
+    channels evolve on disjoint sublattices.
+
+    That is an INCONSISTENT discretisation, not a coarse one: each grid parity
+    converges under refinement to a different limit (a factor ~180 in the
+    quasiparticle pair-breaking gain on a high-energy-injected Al state,
+    NE=100 vs 101 over [Delta, 5*Delta]). Detailed balance holds on each
+    sublattice separately, which is exactly why no equilibrium test sees it.
+
+    The check is STRUCTURAL and tolerance-free -- it runs on the built maps,
+    not on a ratio compared against an arbitrary epsilon. The threshold is the
+    smallest sum-lattice frequency actually present rather than a literal
+    ``2*Delta``, which makes it exact on gap-cut grids and immune to a bin
+    landing a half-width either side of 2*Delta by rounding.
+
+    Passing configurations, all by construction rather than by tolerance:
+    commensurate grids; a grid starting at zero energy; single-bin grids; and
+    narrow windows where no difference bin reaches the pair threshold at all,
+    where the split is physically harmless because scattering absorption above
+    that threshold is kinematically impossible anyway.
+
+    Raises
+    ------
+    ValueError
+        If any scattering frequency at or above the pair threshold is absent
+        from the sum lattice.
+    """
+    omega = np.asarray(omega_bins, dtype=float)
+    sign = np.asarray(diff_sign)
+    # Off-diagonal only: the diagonal carries omega = 0 and no channel.
+    used_diff = np.unique(np.asarray(omega_idx_diff)[sign != 0])
+    used_sum = np.unique(np.asarray(omega_idx_sum))
+    if used_diff.size == 0 or used_sum.size == 0:
+        return
+    pair_threshold = float(np.min(omega[used_sum]))
+    orphans = [
+        int(b) for b in used_diff
+        if b not in set(used_sum.tolist()) and float(omega[b]) >= pair_threshold
+    ]
+    if not orphans:
+        return
+
+    suggestion = ""
+    if E_bins is not None:
+        counts = commensurate_bin_counts(E_bins)
+        if counts:
+            suggestion = (
+                " Commensurate bin counts nearest this grid: "
+                + ", ".join(str(c) for c in counts)
+                + "."
+            )
+    preview = ", ".join(f"{omega[b]:.4g}" for b in orphans[:4])
+    raise ValueError(
+        f"The phonon frequency grid decouples its two channels: {len(orphans)} "
+        f"scattering frequency bin(s) at or above the pair threshold "
+        f"{pair_threshold:.6g} micro-eV (e.g. {preview}) carry no "
+        "recombination partner. Phonons emitted by scattering there could "
+        "never break a pair, and recombination phonons could never be "
+        "reabsorbed by scattering, so the two Eq. 12 integrals would evolve on "
+        "disjoint sublattices and converge to different limits under "
+        "refinement. Choose an energy bin count for which 2*E_face/dE is an "
+        "integer." + suggestion
+    )
 
 
 def phonon_occupation_matrices_from_state(

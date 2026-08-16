@@ -26,7 +26,10 @@ from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
 from qpsim.collisions.pair_breaking_photon import (
     validate_pair_breaking_photon_grid,
 )
-from qpsim.collisions.phonon import build_phonon_frequency_map
+from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
+    validate_phonon_lattice_coupling,
+)
 from qpsim.collisions.sub_gap_photon import COMMENSURATE_TOL
 from qpsim.constants import H_OVER_KB_K_PER_HZ
 from qpsim.fields.drive import (
@@ -250,9 +253,39 @@ def _validate_drives_and_probe(
         )
 
 
+def _validate_phonon_lattice(report: ValidationReport, setup: Any) -> None:
+    """Reject an energy grid whose two phonon channels would decouple.
+
+    Only for a LIVE phonon population: a thermal bath never builds the omega
+    map, so the constraint does not apply to it and enforcing it there would
+    reject grids that are perfectly fine for the run being asked for.
+
+    Checked here as well as in the engine so the answer arrives at submission,
+    with the corrected bin counts, rather than as a ValueError from inside a
+    collision layer after the job has been queued.
+    """
+    phonons = getattr(setup, "phonons", None)
+    if phonons is None or getattr(phonons, "mode", "thermal_bath") == "thermal_bath":
+        return
+    try:
+        E = build_energy_grid(
+            gap=setup.material.Delta_0,
+            energy_min_factor=setup.grid.min_factor,
+            energy_max_factor=setup.grid.max_factor,
+            num_energy_bins=setup.grid.num_bins,
+        )[0]
+        omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(E)
+        validate_phonon_lattice_coupling(
+            omega, idx_diff, idx_sum, sign, E_bins=E,
+        )
+    except ValueError as exc:
+        report.errors.append(f"Phonon frequency grid: {exc}")
+
+
 def validate_setup(setup: AnySetup) -> ValidationReport:
     """Cross-field physics validation (schema-level checks already passed)."""
     report = ValidationReport()
+    _validate_phonon_lattice(report, setup)
 
     if isinstance(setup, SteadyState0DSetup):
         _validate_drives_and_probe(report, setup)
