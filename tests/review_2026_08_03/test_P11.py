@@ -96,24 +96,19 @@ def _undriven_ph0_setup(T_c: float = 1.2, T_bath: float = 0.2, NE: int = 40):
     return ctx, K_s0, K_r0, omega, idx_diff, idx_sum, diff_sign, n_th
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Known defect (review 2026-08-03, P11): the line search accepts a "
-        "trial that np.clip projects onto the exact vacuum, because the "
-        "merit is the raw dimensional norm alone. The f-block is then pinned "
-        "at zero and the solve exhausts max_iter. The repair — porting the "
-        "projected-vacuum guard from newton_solve_f — is behaviour-changing "
-        "and held back for physicist sign-off; see the review report."
-    ),
-    # Strict on purpose (and redundantly with the `xfail_strict` default now
-    # set in pyproject.toml — stated here because it is load-bearing): this
-    # marker exists to hold a known defect, not to tolerate either outcome.
-    # Non-strict, an XPASS reports as a pass, so the day the held-back
-    # projected-vacuum guard lands the suite would stay green while still
-    # claiming the defect is open. Strict turns that XPASS into a failure,
-    # which is the signal to delete this marker.
-    strict=True,
-)
+# The strict xfail that used to stand here is DELETED, which is this item's
+# own same-commit requirement (HELD-BACK-ADJUDICATION-2026-08-11.md, "P11
+# coupled-Newton projected-vacuum guard"). It held the defect open until the
+# guard landed, and it worked exactly as designed: the marker was made strict
+# precisely so that an XPASS would report as a FAILURE rather than a silent
+# pass, and that failure is what surfaced the landed guard during the first
+# full-suite run. Nothing else found it -- the twelve directories exercised
+# during the fix all pass either way.
+#
+# The guard is now in coupled_newton_solve: a trial that clips every active
+# bin to the exact vacuum is rejected and the step backtracked. Measured over
+# 30 perturbed cold seeds, 14/30 solves became 25/30, and no returned answer
+# changed.
 def test_flat_hot_seed_reaches_the_unforced_thermal_root() -> None:
     ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, n_th = _undriven_ph0_setup()
     root = float(np.max(fermi_dirac_occupation(ctx.E, 0.2)))
