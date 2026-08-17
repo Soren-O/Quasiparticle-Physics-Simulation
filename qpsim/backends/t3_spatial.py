@@ -336,10 +336,17 @@ class T3SpatialBackend:
             overrides = self._interface_overrides(state, float(conductance))
             interface_key = (float(conductance), len(overrides))
 
+        # An indicator weight composes at a face as the OVERLAP of the two
+        # cells (min), a genuine diffusivity as series resistance (harmonic).
+        # Selecting on the member is what makes the 2-D core agree with the
+        # 1-D backend it replaced; composing an indicator harmonically
+        # over-weights a gap-cut bin by up to 2x.
+        composition = "min" if state.diffusion_model.q == 0 else "harmonic"
         ops = transport.build(
             weights, density, dt,
             cache_key=(weights.tobytes(), density.tobytes(), interface_key),
             face_overrides=overrides,
+            face_composition=composition,
         )
         return transport, ops
 

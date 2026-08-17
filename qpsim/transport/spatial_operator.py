@@ -137,6 +137,7 @@ def spatial_diffusion_operator(
     flux_weight_active: np.ndarray,
     density_weight_active: np.ndarray,
     face_conductances: dict[tuple[int, int], float] | None = None,
+    face_composition: str = "harmonic",
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
     """Assemble ``L = div(W grad .) / rho_p`` on one energy's active region.
 
@@ -145,16 +146,20 @@ def spatial_diffusion_operator(
     order. Returns ``(operator, source)``; ``source`` is nonzero only where an
     inhomogeneous boundary condition contributes.
 
-    The face coefficient is the harmonic mean of the two cell values, which is
-    exact wherever the neighbours share a gap. Where they do not, the exact
-    energy-cell average of the face coefficient is ``min`` of the two supported
-    fractions instead, so the single bin cut by the larger gap is over-weighted
-    (up to 2x in that bin). The bias is first order in dx and vanishes under
-    energy refinement -- carried over from the 1-D operator, still uncorrected.
+    ``face_composition`` selects how two cell values combine at an interior
+    face, and which is right depends on what the weight MEANS. For a genuine
+    continuum diffusivity (``q != 0``) the cells are media in series and the
+    harmonic mean is correct. For the ``q == 0`` dirty-limit member the weight
+    is an above-gap indicator: sub-energies conduct in parallel and only where
+    supported on BOTH sides, so the exact bin-averaged face coefficient is the
+    overlap measure ``min(s_L, s_R)``. Using the harmonic mean there
+    over-weights the bin cut by the larger gap by up to 2x -- which this
+    operator did unconditionally until the composition became selectable.
     """
     edges, conditions = active_submask_boundary(submask, device_faces)
     laplacian, source = build_variable_diffusion_laplacian(
         submask, edges, conditions, dx=dx, D_spatial=flux_weight_active,
+        face_composition=face_composition,
     )
     if face_conductances:
         laplacian = apply_face_conductances(laplacian, face_conductances)

@@ -423,12 +423,24 @@ def build_variable_diffusion_laplacian(
     edge_conditions: dict[str, BoundaryCondition],
     dx: float,
     D_spatial: np.ndarray,
+    face_composition: str = "harmonic",
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
     """Assemble ``∇ · (D ∇ ·)`` with spatially-varying diffusion coefficient.
 
-    Uses the harmonic mean ``D_face = 2 D_p D_q / (D_p + D_q)`` at each
-    interior face to preserve discrete conservation. BC contributions
-    are scaled by the boundary-cell's local ``D_p``.
+    ``face_composition`` selects how the two cell values combine at an
+    interior face, and the right answer depends on what ``D`` MEANS:
+
+    * ``"harmonic"`` — ``D_face = 2 D_p D_q / (D_p + D_q)``. Correct when ``D``
+      is a genuine continuum diffusivity, because the two cells are then media
+      in series across the face.
+    * ``"min"`` — ``D_face = min(D_p, D_q)``. Correct when ``D`` is an
+      above-gap INDICATOR (the ``q == 0`` dirty-limit member), where each
+      sub-energy conducts in parallel and only where it is supported on both
+      sides, so the exact bin-averaged face coefficient is the overlap
+      measure. The harmonic mean over-weights a cut bin by up to 2x there.
+
+    BC contributions are scaled by the boundary cell's local ``D_p`` and are
+    unaffected by this choice.
 
     ``D_spatial`` must be a 1D array of length ``N`` (the interior-point
     count), indexed the same as the output of :func:`mask_to_index`.
@@ -485,9 +497,20 @@ def build_variable_diffusion_laplacian(
                 D_q = float(D_arr[q])
                 lo = min(D_p, D_q)
                 hi = max(D_p, D_q)
-                # Algebraically equal to 2*Dp*Dq/(Dp+Dq), but avoids both
-                # product and sum overflow for large finite diffusivities.
-                D_face = 0.0 if lo == 0.0 else lo * (2.0 / (1.0 + lo / hi))
+                if face_composition == "min":
+                    # The coefficient is an INDICATOR, not a diffusivity: each
+                    # sub-energy in this bin either has states on both sides of
+                    # the face or it does not. Sub-energies conduct in
+                    # parallel, and each conducts only where it is supported on
+                    # both sides, so the exact bin-averaged face coefficient is
+                    # the measure of the overlap. A harmonic mean answers the
+                    # series-resistance question instead and over-weights the
+                    # bin cut by the larger gap by up to 2x.
+                    D_face = lo
+                else:
+                    # Algebraically equal to 2*Dp*Dq/(Dp+Dq), but avoids both
+                    # product and sum overflow for large finite diffusivities.
+                    D_face = 0.0 if lo == 0.0 else lo * (2.0 / (1.0 + lo / hi))
                 rows.append(p)
                 cols.append(p)
                 data.append(-D_face * inv_dx2)

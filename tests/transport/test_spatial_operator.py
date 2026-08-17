@@ -176,3 +176,45 @@ class TestBoundaryInheritance:
         geom = rectangle(2, 2)
         with pytest.raises(KeyError, match="boundary condition"):
             face_condition_lookup(geom.edges, {})
+
+
+class TestFaceComposition:
+    """min vs harmonic at an unequal face, and that the choice is not inert.
+
+    The parity gate against the 1-D backend cannot catch this on its own: if
+    both engines composed the face the same WRONG way they would still agree
+    with each other. These assert the value itself.
+    """
+
+    @staticmethod
+    def _face_weight(mode):
+        # Two cells, unequal supported fractions -- the gap-step situation.
+        submask = np.ones((1, 2), dtype=bool)
+        flux = np.array([1.0, 0.25])
+        operator, _source = spatial_diffusion_operator(
+            submask, {}, 1.0, flux, np.ones(2), None, mode,
+        )
+        # Off-diagonal of a two-cell Laplacian is +D_face / dx^2, and rho_p = 1.
+        return float(operator.toarray()[0, 1])
+
+    def test_min_composition_takes_the_overlap(self):
+        assert self._face_weight("min") == pytest.approx(0.25)
+
+    def test_harmonic_composition_takes_the_series_mean(self):
+        assert self._face_weight("harmonic") == pytest.approx(0.4)
+
+    def test_the_two_differ_so_neither_is_a_no_op(self):
+        assert self._face_weight("min") != self._face_weight("harmonic")
+
+    def test_equal_neighbours_agree(self):
+        """No spurious difference where the physics has none."""
+        submask = np.ones((1, 2), dtype=bool)
+        flux = np.array([0.7, 0.7])
+        got = []
+        for mode in ("min", "harmonic"):
+            op, _s = spatial_diffusion_operator(
+                submask, {}, 1.0, flux, np.ones(2), None, mode,
+            )
+            got.append(float(op.toarray()[0, 1]))
+        assert got[0] == pytest.approx(got[1])
+        assert got[0] == pytest.approx(0.7)

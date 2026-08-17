@@ -73,6 +73,7 @@ class SpatialTransport:
         *,
         cache_key: tuple[Any, ...] | None = None,
         face_overrides: dict[int, dict[tuple[int, int], float]] | None = None,
+        face_composition: str = "harmonic",
     ) -> list[EnergyTransportOp | None]:
         """Operators for every energy bin.
 
@@ -89,7 +90,9 @@ class SpatialTransport:
         enters: the barrier weight is energy dependent, so the affected faces
         differ bin by bin.
         """
-        key = self._cache_key(flux_weight_grid, density_weight_grid, dt, cache_key)
+        key = self._cache_key(
+            flux_weight_grid, density_weight_grid, dt, cache_key, face_composition,
+        )
         cached = self._cache.get(key)
         if cached is not None:
             self._cache.move_to_end(key)
@@ -109,6 +112,7 @@ class SpatialTransport:
                     flux_weight_grid[i], density_weight_grid[i],
                     cell_rows, cell_cols, dt,
                     None if face_overrides is None else face_overrides.get(i),
+                    face_composition,
                 )
             )
         self._cache[key] = ops
@@ -122,6 +126,7 @@ class SpatialTransport:
         cell_cols: np.ndarray,
         dt: float,
         face_overrides: dict[tuple[int, int], float] | None = None,
+        face_composition: str = "harmonic",
     ) -> EnergyTransportOp | None:
         active = flux_weight > 0.0
         n_active = int(np.count_nonzero(active))
@@ -150,6 +155,7 @@ class SpatialTransport:
             flux_weight[active],
             density_weight[active],
             face_overrides,
+            face_composition,
         )
         exit_rate = float(np.max(-operator.diagonal()))
         stiffness = dt * exit_rate
@@ -203,13 +209,18 @@ class SpatialTransport:
         density_weight_grid: np.ndarray,
         dt: float,
         supplied: tuple[Any, ...] | None,
+        face_composition: str = "harmonic",
     ) -> tuple[Any, ...]:
         # The mask is part of the key on purpose: an operator built for one
         # active region carries flux where another has no states, and nothing
         # downstream would notice.
+        # face_composition is IN THE KEY. It selects a different operator
+        # from identical weights, so two runs differing only in it must not
+        # share cached operators -- the same cache-selector lesson this layer
+        # already records for the interface conductance.
         base: tuple[Any, ...] = (
             self.mask.tobytes(), self.mask.shape, float(self.dx), float(dt),
-            len(self.device_faces),
+            len(self.device_faces), str(face_composition),
         )
         if supplied is not None:
             return (*base, *supplied)

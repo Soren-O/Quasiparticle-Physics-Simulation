@@ -599,14 +599,26 @@ class T3Spatial1DBackend:
                 # finite-volume average is the supported fraction of a cut
                 # cell, not one merely because the cell has some capacity.
                 w_cell = D0 * support_fraction[i, idx]
-            # Face weights are the harmonic mean of those cell averages.
-            # That is exact wherever the two neighbours share a gap.  On a
-            # face whose neighbours have different gaps the exact energy-cell
-            # average of the face coefficient is min(s_L, s_R) instead, so the
-            # one bin cut by the larger gap is over-weighted (up to 2x in that
-            # bin); the bias is first order in dx and vanishes under energy
-            # refinement.  Documented limitation, not yet corrected.
-            g_face = _harmonic_face_weights(w_cell) * inv_dx2
+                # And then the face is min(s_L, s_R), NOT the harmonic mean.
+                #
+                # For q == 0 the coefficient is an indicator: within this
+                # energy bin, each sub-energy either has states on both sides
+                # of the face or it does not. Sub-energies conduct in
+                # PARALLEL, and each conducts only if supported on both sides,
+                # so the exact bin-averaged face coefficient is the measure of
+                # the overlap -- min(s_L, s_R). A harmonic mean of the two
+                # cell averages answers a different question (series
+                # resistance of two averaged media) and over-weights the bin
+                # cut by the larger gap by up to 2x. Same convention as the
+                # Kupriyanov-Lukichev interface cell average.
+                g_face = np.minimum(w_cell[:-1], w_cell[1:]) * inv_dx2
+            else:
+                # q != 0: the coefficient is a genuine continuum diffusivity,
+                # so the two cells really are media in series across the face
+                # and the harmonic mean is right. (On cut cells it still
+                # carries a Jensen gap -- harmonic-of-averages exceeds
+                # average-of-harmonic -- which is uncorrected here.)
+                g_face = _harmonic_face_weights(w_cell) * inv_dx2
             if interface_faces:
                 for m in range(na - 1):
                     if int(idx[m]) in interface_faces:
