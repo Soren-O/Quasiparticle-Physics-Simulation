@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -84,20 +85,23 @@ def compute_gap_suppression(
     to the normal state therefore needs support down to zero; missing low-edge
     occupation data is rejected rather than extrapolated.
 
-    Quadrature caveat: the two gaps are *not* computed by the same rule.  The
-    reference comes from :func:`calibrate_gap` (an ``E = Δ cosh(u)`` trapezoid
-    that is essentially exact for this integrand) while ``Δ_final`` comes from
-    :func:`solve_gap` (cell-constant finite volume on the caller's cells), so
-    the discretizations do not cancel in the difference: an exactly thermal
-    ``f`` returns a small non-zero suppression whose sign is set by where
-    ``Δ_eq`` falls inside its cell, and :func:`solve_gap`'s coarse-cell warning
-    stays silent throughout.  Measured for Al at ``energy_min_factor=0.9`` with
-    thermal ``f``, as a fraction of the thermal suppression
-    ``Δ_0,BCS − Δ_eq(T_bath)``: below 1% on a 400-bin grid over
-    ``T_bath = 0.15…0.5 K``, but 5–50% on a 64-bin grid.  Prefer the
-    cancellation-free :func:`compute_gap_suppression_direct` family (used by
-    the Fischer Fig. 6 path) whenever the driven signal is not large compared
-    with that bias.
+    Both gaps now come through :func:`solve_gap` on the caller's own cells.
+    The reference used to come from :func:`calibrate_gap` — an ``E = Δ cosh(u)``
+    trapezoid, essentially exact — while ``Δ_final`` came from the cell-constant
+    finite volume, so the two discretizations did not cancel and an exactly
+    thermal ``f`` returned a spurious non-zero suppression whose sign was set by
+    where ``Δ_eq`` happened to fall inside its cell.  Measured for Al at
+    ``energy_min_factor=0.9``, as a fraction of the thermal suppression: below
+    1% on a 400-bin grid but 5–50% on a 64-bin grid.  An exactly thermal ``f``
+    now returns exactly ``0.0``.
+
+    This does NOT mean the discretizations cancel identically.  What cancels is
+    the common thermal part; the surviving error is proportional to the DRIVE
+    (about 0.4% of signal at 400 bins, ``energy_min_factor=0.9``), and it is
+    both grid- and temperature-dependent through the ``O((dE/Δ)^{3/2})``
+    gap-edge law and its amplification near ``T_c``.  The cancellation-free
+    :func:`compute_gap_suppression_direct` family, used by the Fischer Fig. 6
+    path, remains the better choice for a small driven signal.
     """
     from qpsim.physics.gap_equation import calibrate_gap, solve_gap
 
@@ -110,12 +114,23 @@ def compute_gap_suppression(
     if T_bath < 0.0:
         raise ValueError("T_bath must be non-negative.")
     calibration = calibrate_gap(T_c=T_c, T_bath=T_bath)
+    # Reference FIRST, and through the same discrete rule on the same cells as
+    # the driven solve -- no reference_gap, no xtol, no dE_bins, so the two
+    # calls share every convention and the thermal part cancels exactly.
+    # Solving it first also means a grid that cannot represent the thermal
+    # state fails with the REFERENCE solve's error, which is the honest
+    # attribution: the grid is inadequate, the drive is not at fault.
+    delta_reference = solve_gap(
+        calibration,
+        fermi_dirac_occupation(E_arr, T_bath),
+        E_arr,
+    )
     delta_final = solve_gap(
         calibration,
         f_arr,
         E_arr,
     )
-    return gap_suppression_from_deltas(calibration.delta_eq, delta_final)
+    return gap_suppression_from_deltas(delta_reference, delta_final)
 
 
 def left_edges_from_centers(E_bins: np.ndarray) -> np.ndarray:
@@ -139,10 +154,12 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
 
     Every node but the first interpolates in-range centers and is bounded by
     them.  The first node is the linear extrapolation ``1.5*f[0] - 0.5*f[1]``,
-    which leaves ``[0, 1]`` for a sharply structured, strongly occupied ``f``
-    even though the input itself is physical; the returned array is only
-    clamped from below.  :func:`gap_integral_from_distribution_direct` rejects
-    a super-unity gap-edge sample in both of its sampling modes.
+    which can leave ``[0, 1]`` for a sharply structured, strongly occupied
+    ``f`` even though the input itself is physical.  The result is projected
+    onto ``[0, 1]`` — both ends, where it used to be clamped only from below —
+    and an upward projection emits a ``RuntimeWarning``, because it costs the
+    direct gap integral a bounded conservative bias that the caller should
+    know about rather than discover.
     """
     E = _finite_real_array("E_bins", E_bins).reshape(-1)
     f_arr = _finite_real_array("f", f).reshape(-1)
@@ -152,7 +169,28 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     out = np.interp(edges, E, f_arr)
     slope_left = (f_arr[1] - f_arr[0]) / (E[1] - E[0])
     out[0] = f_arr[0] + slope_left * (edges[0] - E[0])
-    return np.maximum(out, 0.0)
+    # The gap-edge value is EXTRAPOLATED, not interpolated, so it can leave
+    # [0, 1] on a sharply structured f. The lower clamp was already here; the
+    # upper one was not, and an occupation above 1 is not a small numerical
+    # blemish -- it is a Pauli violation entering the gap integral, which then
+    # reports a suppression no physical distribution could produce.
+    #
+    # Warn on the way past, rather than clipping in silence: the projection
+    # costs the direct gap integral a bounded, conservative O(h^2)-class bias,
+    # and a reader is entitled to know their f was steep enough at the gap edge
+    # to need it.
+    overshoot = float(out[0]) - 1.0
+    if overshoot > 64.0 * np.finfo(float).eps:
+        warnings.warn(
+            f"gap-edge occupation extrapolate {float(out[0]):.6g} exceeds 1 "
+            "and was projected onto the Pauli bound; the direct gap integral "
+            "carries a bounded conservative O(h^2)-class bias for an f this "
+            "sharply structured at the edge. Refine the energy grid near "
+            "Delta if the suppression matters at that level.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return np.clip(out, 0.0, 1.0)
 
 
 def fermi_dirac_distribution(E: np.ndarray, T_bath: float) -> np.ndarray:

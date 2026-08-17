@@ -127,16 +127,41 @@ class TestFermiDiracValidation:
 
 
 class TestComputeGapSuppression:
-    def test_thermal_roundtrip_gives_near_zero_suppression(self) -> None:
+    def test_thermal_roundtrip_gives_exactly_zero_suppression(self) -> None:
+        """Exactly zero, not nearly — and that is the point of the change.
+
+        The reference gap used to come from calibrate_gap, a continuum
+        quadrature, while the driven gap came from solve_gap on the caller's
+        cells. The two discretisations did not cancel, so a perfectly thermal
+        f reported a spurious suppression whose sign depended on where the
+        equilibrium gap happened to fall inside its cell: measured under 1% of
+        the thermal suppression at 400 bins, but 5-50% at 64. This assertion
+        was `abs=3e-3` to accommodate exactly that artefact.
+
+        Both gaps now come through the same rule on the same cells, so the
+        thermal part cancels identically.
+        """
         T_c, T_bath = 1.2, 0.3
         E, f = _thermal_f(T_bath=T_bath, T_c=T_c, num=300)
         cal = calibrate_gap(T_c=T_c, T_bath=T_bath)
 
         result = compute_gap_suppression(f, E, T_c=T_c, T_bath=T_bath)
 
-        assert result.delta_eq == pytest.approx(cal.delta_eq, rel=1e-12)
-        assert result.delta_final == pytest.approx(cal.delta_eq, rel=3e-3)
-        assert result.rel_suppression == pytest.approx(0.0, abs=3e-3)
+        assert result.delta_suppression == 0.0
+        assert result.rel_suppression == 0.0
+        assert result.delta_final == result.delta_eq
+        # The grid-consistent reference is close to the continuum one, but is
+        # deliberately NOT it: that difference is the discretisation this
+        # observable now cancels instead of reporting as physics.
+        assert result.delta_eq == pytest.approx(cal.delta_eq, rel=3e-3)
+
+    def test_a_coarse_grid_no_longer_manufactures_suppression(self) -> None:
+        """The artefact was worst where the grid was coarsest."""
+        T_c, T_bath = 1.2, 0.3
+        for num in (40, 64, 300):
+            E, f = _thermal_f(T_bath=T_bath, T_c=T_c, num=num)
+            result = compute_gap_suppression(f, E, T_c=T_c, T_bath=T_bath)
+            assert result.delta_suppression == 0.0, f"num={num}"
 
     def test_hot_nonequilibrium_suppresses_gap(self) -> None:
         E, _ = _thermal_f(T_bath=0.3, T_c=1.2, num=300)
