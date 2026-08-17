@@ -172,20 +172,38 @@ def compute_ac_conductivity(
         span = gap - E_lo
         E_sub = gap - span * cos_theta**2
 
+        if int(np.count_nonzero(ctx.active_mask)) < 2:
+            # With one active centre there is nothing to interpolate between:
+            # every node lands beyond it and `right=0.0` would silently
+            # zero-fill the whole partner reconstruction, returning a
+            # confident sigma_2 built from no occupation at all.
+            raise ValueError(
+                "sigma_2 needs at least two active energy cells to "
+                "reconstruct the partner occupation; this context has "
+                f"{int(np.count_nonzero(ctx.active_mask))}. Widen the energy "
+                "grid above the gap."
+            )
         E_sub_partner = E_sub + omega_0
-        # KNOWN CONVENTION MISMATCH (2026-08-03 review, fix deferred): this
-        # reconstructs f from ALL centers. On a sub-gap-extended grid (first
-        # cell edge below Δ) the centers below the gap carry zero spectral
-        # capacity and stay frozen at whatever seed the caller supplied, yet
-        # the low-θ nodes here sit just above Δ and blend that placeholder
-        # into f. gap_suppression.edge_samples_from_centers masks exactly
-        # those nodes for exactly this reason; restricting the interpolation
-        # to ctx.active_mask would move σ₂ (and hence δω/ω) on such grids, so
-        # it needs the physics sign-off this review deferred. σ₁ above is
-        # structurally immune: sub-gap cells carry zero DOS weight there, and
-        # every weighted cell's partner E_i+ω₀ lies above the first active
-        # center, so no frozen center ever enters its interpolation bracket.
-        f_sub_partner = np.interp(E_sub_partner, E, f, right=0.0)
+        # Reconstruct f from the ACTIVE centers only. On a grid extended below
+        # the gap, the sub-gap centers carry zero spectral capacity and stay
+        # frozen at whatever seed the caller supplied -- they are placeholders,
+        # not occupations. Interpolating over all centers blended those
+        # placeholders into sigma_2 through the low-theta nodes, which sit just
+        # above Delta. So sigma_2 depended on a value that means nothing, and
+        # the dependence was invisible on any grid starting at Delta.
+        # gap_suppression.edge_samples_from_centers already masks exactly these
+        # nodes for exactly this reason; this brings sigma_2 onto the same
+        # convention. np.interp's left clamp holds the first active cell value
+        # below that centre, which is the bound-preserving finite-volume choice.
+        #
+        # sigma_1 above is structurally immune and is deliberately untouched:
+        # sub-gap cells carry zero DOS weight there, and every weighted cell's
+        # partner E_i + omega_0 lies above the first active centre, so no frozen
+        # centre can enter its bracket.
+        active = ctx.active_mask
+        f_sub_partner = np.interp(
+            E_sub_partner, E[active], f[active], right=0.0,
+        )
         rho_sub_partner = bcs_density_of_states(E_sub_partner, gap)
         K_plus_sub = 1.0 + gap ** 2 / np.maximum(E_sub * E_sub_partner, 1e-30)
         U_plus_sub = rho_sub_partner * K_plus_sub

@@ -235,3 +235,47 @@ class TestComputeAcConductivity:
         ))
         assert abs(legacy / reference - 1.0) > 0.015
         assert sigma_2 == pytest.approx(reference, rel=2e-11)
+
+
+class TestSigma2IgnoresSubGapPlaceholders:
+    """Sub-gap cells carry no spectral capacity, so their f is a placeholder.
+
+    sigma_2 used to interpolate the partner occupation across ALL centres,
+    which blended those placeholders in through the low-theta nodes just above
+    the gap. The dependence was invisible on any grid starting at Delta, which
+    is every shipped preset -- so a fixture at min_factor = 1 is vacuously
+    green and proves nothing. This one extends below the gap on purpose.
+    """
+
+    @staticmethod
+    def _sigma2(placeholder, *, min_factor=0.9, num_bins=64):
+        gap = 180.0
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=min_factor,
+            energy_max_factor=4.0, num_energy_bins=num_bins,
+        )
+        ctx = SpectralContext(
+            E_bins=E, dE_bins=integration_widths_from_centers(E), gap=gap,
+        )
+        f = 1e-4 * np.exp(-(E - gap) / 50.0)
+        f = np.where(ctx.active_mask, f, placeholder)
+        return compute_ac_conductivity(f, ctx, 22.0)[1]
+
+    def test_placeholder_value_cannot_move_sigma2(self):
+        assert self._sigma2(0.0) == self._sigma2(1.0)
+
+    def test_a_grid_starting_at_the_gap_is_unaffected(self):
+        """The masked and unmasked conventions must agree where no cell is
+        inactive -- otherwise this fix would have moved published numbers."""
+        assert self._sigma2(0.0, min_factor=1.0) == pytest.approx(
+            self._sigma2(1.0, min_factor=1.0), rel=0.0, abs=0.0,
+        )
+
+    def test_one_active_cell_is_refused_not_silently_zero_filled(self):
+        gap = 180.0
+        E = np.array([gap - 1.0, gap + 1.0])
+        ctx = SpectralContext(
+            E_bins=E, dE_bins=np.full(2, 2.0), gap=gap,
+        )
+        with pytest.raises(ValueError, match="at least two active"):
+            compute_ac_conductivity(np.array([0.5, 1e-4]), ctx, 22.0)
