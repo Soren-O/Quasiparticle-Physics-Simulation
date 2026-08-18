@@ -721,10 +721,45 @@ class KineticsSetup(StrictModel):
     # a full (NE, Ncells) field plus the phonon map, so the cost is real and
     # the choice is the user's.
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
+    # WHICH engine entry point runs -- deliberately not inside SolverOptions.
+    # `solver.method` there selects the root-find ALGORITHM; this selects
+    # whether a root-find happens at all. It also decides which of the two
+    # knob groups is live (dt/max_time/stop_tol, or solver.*), so it sits
+    # above both rather than inside one of them.
+    #
+    # "steady_state" routes to T3DiffusionBackend.steady_state, whose state is
+    # f:(NE,) with a SCALAR gap -- it has no cell axis, so it requires a
+    # one-cell mask. That is a property of the solver, not of the geometry:
+    # multi-cell devices reach a steady state perfectly well by time-marching
+    # to stop_tol, which is what "time_march" does.
+    strategy: Literal["time_march", "steady_state"] = "time_march"
+    solver: SolverOptions = SolverOptions()
+    probe: ProbeConfig = ProbeConfig()
 
     @model_validator(mode="after")
     def snapshot_interval_not_pathological(self) -> KineticsSetup:
         _reject_dense_snapshots(self.snapshot_interval, self.max_time)
+        return self
+
+    @model_validator(mode="after")
+    def one_authority_for_the_gap_switch(self) -> KineticsSetup:
+        """``self_consistent_gap`` is the top-level field, and only that one.
+
+        SolverOptions carries a field of the same name for the 0-D mode this
+        one is replacing. Two settable fields meaning the same thing is the
+        two-authorities defect that keeps producing an interface which claims
+        one thing while the engine does another, so the duplicate is refused
+        out loud rather than silently losing to whichever is read last.
+        Transitional: it disappears with the 0-D mode.
+        """
+        if self.solver.self_consistent_gap:
+            raise ValueError(
+                "Set self_consistent_gap at the top level of the setup, not on "
+                "solver. The top-level field is what the term panel's 'gapeq' "
+                "switch and the time-march path both read; solver."
+                "self_consistent_gap belongs to the 0-D mode this one replaces "
+                "and is ignored here."
+            )
         return self
 
 

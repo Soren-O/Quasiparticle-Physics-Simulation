@@ -53,6 +53,7 @@ from qpsim.services.rate_equation_coefficients import (
 from qpsim.services.transient import run_time_dependent
 from qpsim.webui.builders import (
     build_drives_2d,
+    build_geometry_2d,
     build_initial_state_2d,
     build_injection_2d,
     build_injection_flux,
@@ -159,8 +160,18 @@ def _mb_observables(
 
 
 def run_steady_state_0d(
-    setup: SteadyState0DSetup, progress: ProgressFn, is_cancelled: CancelledFn
+    setup: SteadyState0DSetup | KineticsSetup,
+    progress: ProgressFn,
+    is_cancelled: CancelledFn,
 ) -> RunPayload:
+    """The 0-D steady-state route, for either mode that selects it.
+
+    Shared rather than mirrored ON PURPOSE. ``KineticsSetup`` with
+    ``strategy="steady_state"`` on a one-cell mask must reproduce the 0-D mode
+    bit for bit, and the only way to be sure of that is for both to run this
+    function -- a parallel implementation could agree today and drift on the
+    next edit, which is how this repo's recurring defect starts.
+    """
     payload = RunPayload()
     _check_cancel(is_cancelled)
     progress(0.05, "building state")
@@ -615,6 +626,26 @@ def execute_setup(
     return run_m25_junction(setup, progress, is_cancelled)
 
 
+def _require_single_cell_for_steady_state(setup: KineticsSetup) -> None:
+    """The steady-state solver has no cell axis, so it needs a one-cell mask.
+
+    The message names the SOLVER rather than the geometry, because a 40-cell
+    strip is a perfectly good device and there is nothing to fix about it --
+    what cannot be done is asking this particular solver for its fixed point.
+    ``T3DiffusionBackend.steady_state`` carries ``f:(NE,)`` and a scalar gap;
+    there is nowhere to put a second cell.
+    """
+    cells = build_geometry_2d(setup).cell_count
+    if cells != 1:
+        raise ValueError(
+            f"strategy='steady_state' uses the 0-D steady-state solver, whose "
+            f"state has no cell axis, and this geometry has {cells} cells. "
+            "Either reduce the mask to a single cell, or keep the geometry and "
+            "use strategy='time_march', which reaches a steady state by "
+            "advancing to stop_tol and imposes no such restriction."
+        )
+
+
 def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
     """Per-cell ``x_qp`` on a geometry, one quadrature per distinct gap.
 
@@ -636,6 +667,10 @@ def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
 def run_kinetics(
     setup: KineticsSetup, progress: ProgressFn, is_cancelled: CancelledFn
 ) -> RunPayload:
+    if setup.strategy == "steady_state":
+        _require_single_cell_for_steady_state(setup)
+        return run_steady_state_0d(setup, progress, is_cancelled)
+
     payload = RunPayload()
     _check_cancel(is_cancelled)
     progress(0.02, "building geometry")

@@ -380,19 +380,19 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         # Dynes broadening is reported by _validate_drives_and_probe above,
         # which covers every kinetic mode; do not repeat it here.
         if setup.material.D_0 < 0.0:
-            report.errors.append("2D geometry: D₀ (μm²/ns) cannot be negative.")
+            report.errors.append("Kinetics: D₀ (μm²/ns) cannot be negative.")
         elif setup.material.D_0 == 0.0:
             report.warnings.append(
-                "2D geometry: D₀ = 0 switches spatial transport off entirely; "
+                "Kinetics: D₀ = 0 switches spatial transport off entirely; "
                 "every cell then evolves independently."
             )
         source = setup.geometry
         if source.kind == "gds":
             if not source.gds_path:
-                report.errors.append("2D geometry: a GDS source needs gds_path.")
+                report.errors.append("Kinetics: a GDS source needs gds_path.")
             elif not gds_support_available():
                 report.errors.append(
-                    "2D geometry: GDS import needs the optional 'gdstk' "
+                    "Kinetics: GDS import needs the optional 'gdstk' "
                     'package. Install it with: pip install -e ".[gds]" — or '
                     "choose the rectangle geometry."
                 )
@@ -400,26 +400,35 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             cells = source.rows * source.cols
             if cells > 40_000:
                 report.warnings.append(
-                    f"2D geometry: {source.rows}×{source.cols} is {cells:,} "
+                    f"Kinetics: {source.rows}×{source.cols} is {cells:,} "
                     "cells. Each energy bin factorises its own sparse operator, "
                     "so both memory and time grow with this; start smaller and "
                     "refine once the physics looks right."
                 )
-            dimensionality = (
-                0 if cells <= 1 else (1 if 1 in (source.rows, source.cols) else 2)
-            )
-            if dimensionality < 2:
-                report.warnings.append(
-                    f"2D geometry: a {source.rows}×{source.cols} mask is the "
-                    f"{dimensionality}-D reduction, which is intended and "
-                    "supported — the same core solves it — but say so "
-                    "deliberately rather than by accident."
+            # There used to be a warning here that a mask of reduced rank "is
+            # the N-D reduction ... but say so deliberately rather than by
+            # accident". It is gone, because it stopped being true: with the
+            # 0-D and 1-D modes retired, a 1x1 mask is not an accident to flag,
+            # it is HOW you ask for 0-D. The warning would now fire on the
+            # ordinary path, and a warning that fires when nothing is wrong
+            # teaches people to ignore warnings.
+            if setup.strategy == "steady_state" and cells != 1:
+                # Caught here as well as at execution so the UI can say it
+                # before a run starts. Blames the solver, not the device: a
+                # multi-cell mask is a perfectly good device, and the thing
+                # that cannot be done is asking THIS solver for its fixed point.
+                report.errors.append(
+                    f"Kinetics: strategy 'steady_state' uses the 0-D "
+                    f"steady-state solver, whose state has no cell axis, and "
+                    f"this mask has {cells} cells. Use a single cell, or keep "
+                    "the geometry and switch to 'time_march', which reaches a "
+                    "steady state by advancing to stop_tol."
                 )
         if setup.boundary.kind in ("dirichlet", "neumann") and (
             not np.isfinite(setup.boundary.value)
         ):
             report.errors.append(
-                f"2D geometry: a {setup.boundary.kind} boundary needs a finite "
+                f"Kinetics: a {setup.boundary.kind} boundary needs a finite "
                 "value."
             )
         # The 1-D branch has always checked this and the 2-D branch never did,
@@ -557,13 +566,22 @@ def build_spectral(
 
 
 def build_state_0d(
-    setup: SteadyState0DSetup | Transient0DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | KineticsSetup,
 ) -> T3DiffusionState:
-    """Thermal-seed 0-D T3 state on the physics ω-grid."""
+    """Thermal-seed 0-D T3 state on the physics ω-grid.
+
+    Also serves ``KineticsSetup`` under ``strategy="steady_state"``, which is
+    what makes the merged mode reproduce the 0-D mode BIT-IDENTICALLY: the two
+    do not build equivalent states by parallel code, they build the same state
+    by the same code. A second implementation that merely agreed today is the
+    standing defect of this repo.
+    """
     spectral = build_spectral(setup)
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
 
-    has_sector = isinstance(setup, (SteadyState0DSetup, Transient0DSetup))
+    has_sector = isinstance(
+        setup, (SteadyState0DSetup, Transient0DSetup, KineticsSetup),
+    )
     if has_sector and setup.phonons.mode == "dynamic_escape":
         tau_l_value = setup.phonons.tau_l_ns
     else:
@@ -610,11 +628,21 @@ def drive_dicts(
     return photon_params, pb_params
 
 
-def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
+def steady_state_solver_kwargs(
+    setup: SteadyState0DSetup | KineticsSetup,
+) -> dict[str, object]:
     """Backend ``steady_state`` kwargs for the chosen phonon sector + method."""
     s = setup.solver
+    # ONE authority for the gap switch. The 0-D mode carries it on `solver`;
+    # the merged mode carries it at the top level, which is also what the term
+    # panel's `gapeq` switch and the time-march path read. Reading `solver` for
+    # both would make the merged mode's displayed switch inert.
+    self_consistent_gap = (
+        setup.self_consistent_gap if isinstance(setup, KineticsSetup)
+        else s.self_consistent_gap
+    )
     kwargs: dict[str, object] = {
-        "self_consistent_gap": s.self_consistent_gap,
+        "self_consistent_gap": self_consistent_gap,
         "use_phonon_side_kernel": setup.phonons.use_phonon_side_kernel,
         "enable_scattering": setup.collisions.scattering,
         "enable_recombination": setup.collisions.recombination,

@@ -15,6 +15,7 @@ from qpsim.webui.schemas import (
     KineticsSetup,
     M25JunctionSetup,
     SetupEnvelope,
+    SolverOptions,
     Spatial1DSetup,
     SteadyState0DSetup,
     Transient0DSetup,
@@ -237,6 +238,112 @@ class TestSteadyState0DExecutor:
     def test_cancel_before_solve(self) -> None:
         with pytest.raises(RunCancelledError):
             execute_setup(_tiny_steady_state(), _noop_progress, lambda: True)
+
+
+class TestSteadyStateStrategyReducesToTheZeroDMode:
+    """A 1x1 mask asking for a steady state must BE the 0-D mode.
+
+    This is the gate the whole mode collapse rests on. It is bit-identity
+    rather than agreement to a tolerance, and it holds structurally because
+    both routes call the same ``run_steady_state_0d`` on a state built by the
+    same ``build_state_0d`` -- a parallel implementation could agree today and
+    drift on the next edit, which is exactly how this repo's recurring defect
+    starts.
+    """
+
+    @staticmethod
+    def _pair(**on_old):
+        old = SteadyState0DSetup()
+        old.grid.num_bins = 24
+        old.phonons.mode = "dynamic_escape"
+        for path, value in on_old.items():
+            target, _, attr = path.rpartition(".")
+            obj = old
+            for part in target.split(".") if target else []:
+                obj = getattr(obj, part)
+            setattr(obj, attr, value)
+        new = KineticsSetup(strategy="steady_state")
+        for field in (
+            "material", "T_bath", "grid", "phonons", "collisions",
+            "subgap_drive", "pb_drive", "probe",
+        ):
+            setattr(new, field, getattr(old, field))
+        # The gap switch has ONE authority on the merged mode, and it is the
+        # top-level field -- solver.self_consistent_gap is refused there.
+        new.self_consistent_gap = old.solver.self_consistent_gap
+        new.solver = old.solver.model_copy(update={"self_consistent_gap": False})
+        new.geometry.rows = new.geometry.cols = 1
+        return old, new
+
+    def _assert_identical(self, old, new) -> None:
+        a = execute_setup(old, _noop_progress, _never)
+        b = execute_setup(new, _noop_progress, _never)
+        assert sorted(a.arrays) == sorted(b.arrays)
+        for name in a.arrays:
+            assert np.array_equal(a.arrays[name], b.arrays[name]), name
+        assert a.summary == b.summary
+        # Guard against a vacuous pass: an empty payload compares equal to an
+        # empty payload.
+        assert a.summary["x_qp"] > 0.0
+
+    def test_thermal_bath(self) -> None:
+        self._assert_identical(*self._pair(**{"phonons.mode": "thermal_bath"}))
+
+    def test_dynamic_escape(self) -> None:
+        self._assert_identical(*self._pair())
+
+    def test_self_consistent_gap_reads_the_top_level_field(self) -> None:
+        # min_factor < 1 because a self-consistent gap needs sub-gap cells.
+        self._assert_identical(*self._pair(**{
+            "solver.self_consistent_gap": True, "grid.min_factor": 0.9,
+        }))
+
+    def test_both_drives(self) -> None:
+        """Both photon drives on, at frequencies the grid actually admits.
+
+        The pair-breaking drive has to satisfy TWO conditions at once --
+        omega_PB on the dE lattice, and (omega_PB - 2*E[0])/dE integral so
+        every generation/recombination partner lands on a represented energy.
+        Since 2*E[0] = 2*Delta + dE, the two are simultaneously satisfiable
+        only when 2*Delta/dE is itself an integer, which is the same
+        commensurability condition the phonon lattices obey. 24 bins does not
+        satisfy it and 27 does, so the bin count is pinned here and asserted
+        rather than inherited.
+        """
+        from qpsim.webui.builders import build_spectral
+
+        old, new = self._pair(**{
+            "subgap_drive.enabled": True, "pb_drive.enabled": True,
+            "grid.num_bins": 27,
+        })
+        new.grid = old.grid
+        E = build_spectral(old).E
+        dE = float(E[1] - E[0])
+        ratio = 2.0 * old.material.Delta_0 / dE
+        assert abs(ratio - round(ratio)) < 1e-9, (
+            f"2*Delta/dE = {ratio} is not integral, so no omega_PB satisfies "
+            "both grid conditions and this test cannot run"
+        )
+        for s in (old, new):
+            s.subgap_drive.omega_0 = dE                     # < Delta, on-lattice
+            s.pb_drive.omega_PB = round(540.0 / dE) * dE    # > 2*Delta
+        self._assert_identical(old, new)
+
+    def test_a_multi_cell_mask_is_refused_by_name(self) -> None:
+        """And the message must blame the solver, not the device."""
+        _old, new = self._pair()
+        new.geometry.rows, new.geometry.cols = 2, 3
+
+        with pytest.raises(ValueError, match=r"steady-state solver") as excinfo:
+            execute_setup(new, _noop_progress, _never)
+
+        message = str(excinfo.value)
+        assert "6 cells" in message
+        assert "time_march" in message, "the message must offer the way forward"
+
+    def test_the_duplicate_gap_switch_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="top level"):
+            KineticsSetup(solver=SolverOptions(self_consistent_gap=True))
 
 
 class TestTransient0DExecutor:
