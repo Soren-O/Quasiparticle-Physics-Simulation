@@ -5,17 +5,25 @@ name: TiN
 Delta_0: 700.0       # μeV (typical for ~40 nm films)
 T_c: 4.5             # K
 tau_0: 0.5           # ns (varies with film quality)
-# D_0 provenance (2026-08-03 review — flagged, NOT corrected): the stored
-# 10.0 μm²/ns is a starter value, not a measured one, and it does not describe
-# the disordered film class this file's rho_F cites. Via the Einstein relation
-# σ = e² N(0) D with N(0) = 2·rho_F it implies ρ = 0.82 μΩ·cm, a 30 nm mean
-# free path inside a 40 nm film, and a dirty-limit ξ = √(ħD/Δ) = 97 nm. TiN
-# KID films of the cited Gao/Leduc class are ρ ≈ 30-200 μΩ·cm, i.e.
-# D ≈ 0.27-0.04 μm²/ns and ξ ≈ 16-6 nm — roughly 100× smaller than stored.
-# Correcting the number is a physics change (it shortens every spatial TiN
-# diffusion length √(Dτ) by ~11×) and needs a physicist sign-off, so the
-# shipped value is left alone and the inconsistency recorded here.
-D_0: 10.0            # μm²/ns (normal-state; see the provenance note above)
+# D_0 provenance (flagged by the 2026-08-03 review, CORRECTED 2026-08-17 under
+# the adjudicated P14). The former 10.0 μm²/ns was a starter value, not a
+# measured one, and it described no real TiN film: via the Einstein relation
+# σ = e² N(0) D with N(0) = 2·rho_F it implied ρ = 0.82 μΩ·cm, a 30 nm mean
+# free path inside a 40 nm film, and a dirty-limit ξ = √(ħD/Δ) = 97 nm — a
+# clean elemental metal, not the disordered nitride this file's rho_F cites.
+#
+# The stored value is now derived rather than assumed: at ρ = 100 μΩ·cm, the
+# canonical Leduc/Gao KID film, the same Einstein relation with this file's
+# rho_F = 3.8e28 eV⁻¹ m⁻³ gives D = 8.21/ρ[μΩ·cm] = 0.082 μm²/ns. That implies
+# a mean free path 3D/v_F ≈ 0.25 nm — near the Ioffe-Regel limit, as expected
+# for a strongly disordered nitride — and a dirty-limit ξ = 8.8 nm, consistent
+# with TiN's multi-tesla B_c2. It now also falls inside this file's own
+# D_0_range, which the old value did not.
+#
+# This is a physics change and it moves numbers: every spatial TiN diffusion
+# length √(Dτ) shortens by ~11×, and D itself drops by 122×. No published
+# figure uses TiN.
+D_0: 0.082           # μm²/ns (normal-state; derived above from ρ = 100 μΩ·cm)
 D_0_range: [0.041, 0.274]
 notes: >-
   Tunable T_c via nitrogen content; the KID material. Strongly disordered,

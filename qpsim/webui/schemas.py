@@ -235,6 +235,14 @@ class SolverOptions(StrictModel):
     # acts, not to re-enable the one that was switched off for a reason.
     # Default matches the engine exactly, so numerics are unchanged.
     coupled_newton_step_rtol: Annotated[float, Field(gt=0.0)] = 1e-8
+    # Selects how the coupled-Newton cross blocks are BUILT, not what is
+    # solved: True is the exact closed-form derivative of the discrete
+    # residual (two assemblies per iteration, what every certified driver
+    # runs); False is the legacy finite-difference secant, which needs
+    # NE + N_omega residual assemblies per iteration for the same root.
+    # Defaults True because the alternative is a large, silent cost for no
+    # difference in the answer.
+    coupled_newton_analytic_cross: bool = True
 
 
 class ProbeConfig(StrictModel):

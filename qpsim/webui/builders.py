@@ -637,17 +637,17 @@ def steady_state_solver_kwargs(setup: SteadyState0DSetup) -> dict[str, object]:
         # The UI exposes one pair of Newton controls. The backend's monolithic
         # path deliberately has distinct keyword names, so map the displayed
         # values rather than silently falling back to its 1e-10 / 50 defaults.
-        # NOT mapped: ``coupled_newton_analytic_cross``. SolverOptions has no
-        # field for it, so this route takes the backend default (False) and
-        # builds the cross blocks by finite differences — (NE + N_ω) residual
-        # evaluations per Newton iteration instead of two assemblies (the
-        # 2026-08-03 review measured 0.38 s vs 34 s per iteration at the
-        # shipped 400-bin default). Every in-tree driver passes
-        # analytic_cross=True. Exposing it is a 2026-08-03 review item held
-        # for recertification (it selects a different Jacobian, not a
-        # different root).
         kwargs["coupled_newton_tol"] = s.newton_tol
         kwargs["coupled_newton_max_iter"] = s.newton_max_iter
+        # How the cross blocks are BUILT, not what is solved: the same root,
+        # reached by an exact closed-form derivative of the discrete residual
+        # instead of a finite-difference secant. This route used to take the
+        # backend's legacy default and rebuild the cross blocks by finite
+        # differences -- NE + N_omega residual assemblies per Newton iteration
+        # rather than two -- so every web-UI coupled-Newton run paid tens of
+        # seconds per iteration for a Jacobian every in-tree driver already
+        # builds analytically.
+        kwargs["coupled_newton_analytic_cross"] = s.coupled_newton_analytic_cross
         # The one that actually gates this route. Without it the displayed
         # "Newton tolerance" was routed into `coupled_newton_tol`, which is
         # read only when step_rtol <= 0 -- so tightening it from 1e-12 to

@@ -546,18 +546,19 @@ def _source_scaled_residual_tolerances(
     granularity in a large qubit flux without loosening any density row enough
     to admit a slope pseudo-root.
 
-    The ``1e-14`` term is an absolute Hz floor inside an otherwise scale-free
-    criterion, so the gate is a *relative* certificate only while each row's
-    un-floored tolerance stays above it — for a density row at the default
-    ``residual_tol_relative = 1e-3``, while that row's aggregate generation
-    exceeds ~1e-11 Hz.  Measured headroom at the shipped M25 Fig. 3 operating
-    points: the smallest un-floored density tolerance is 2.4e-12 Hz (Fig 3a)
-    and 1.0e-11 Hz (Fig 3b), i.e. 240x-1000x the floor, so the floor is
-    inactive there.  Below that crossing the density rows degrade to an
-    absolute gate and no longer certify a relative accuracy.  The multi-seed
-    picker (which scores candidates by residual) still recovers the root, but
-    a direct single-seed solve on a near-zero-drive bundle can be accepted
-    while carrying an order-unity relative density error.
+    The gate is now scale-free throughout: ``|R_i| <= rel * source_i +
+    64 eps * sum_j |term_ij|``.  There used to be an absolute ``1e-14`` Hz
+    floor inside it, which made the criterion relative only while a row's
+    un-floored tolerance stayed above that number.  It was inactive at the
+    shipped M25 Fig. 3 points (240x-1000x headroom), but below the crossing
+    the density rows silently degraded to an absolute gate that certifies no
+    relative accuracy at all: a direct single-seed solve on a near-zero-drive
+    bundle could be accepted while carrying an order-unity density error.
+
+    Weak-drive solves that used to pass on the floor alone now RAISE rather
+    than return a non-root.  That is the intended behaviour change: the
+    multi-seed picker still recovers the true root, and a solve that cannot
+    should say so.
     """
     if not (
         np.isfinite(residual_tol_relative)
@@ -579,11 +580,15 @@ def _source_scaled_residual_tolerances(
         abs(float(rows[2][0])),
         abs(float(rows[3][0])),
     ])
+    # No absolute floor. `64 * eps * sum_j |term_ij|` is already the
+    # satisfiability guarantee -- about 9x over the Higham bound -- so the
+    # certificate is scale-free, and an exactly-zero row still passes via the
+    # `<=` comparison at 0 <= 0. The old max(1e-14, ...) wrapper accepted any
+    # residual below an absolute rate that means nothing on its own: on a
+    # weak drive it admitted densities wrong by up to sqrt(1e-14/g), which is
+    # a non-root reported as a converged solve.
     backward_error = 64.0 * np.finfo(float).eps * term_sums
-    return np.maximum(
-        1e-14,
-        residual_tol_relative * row_sources + backward_error,
-    )
+    return residual_tol_relative * row_sources + backward_error
 
 
 def _passes_source_scaled_residual_gate(

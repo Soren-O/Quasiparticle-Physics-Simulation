@@ -26,6 +26,10 @@ from qpsim.webui.schemas import (
 )
 
 
+class _StopForCapture(Exception):
+    """Abort the solve once the forwarded keyword has been captured."""
+
+
 class TestSchemas:
     def test_every_mode_default_constructs_and_round_trips(self) -> None:
         for mode, cls in MODE_CLASSES.items():
@@ -315,6 +319,48 @@ class TestBuilders:
 
         assert kwargs["coupled_newton_tol"] == 2.5e-7
         assert kwargs["coupled_newton_max_iter"] == 73
+        # Defaults to the analytic cross blocks. This used to be unmapped, so
+        # the route silently took the backend's legacy finite-difference
+        # default and paid NE + N_omega residual assemblies per iteration for
+        # the same root.
+        assert kwargs["coupled_newton_analytic_cross"] is True
+
+        setup.solver.coupled_newton_analytic_cross = False
+        assert steady_state_solver_kwargs(setup)["coupled_newton_analytic_cross"] is False
+
+    def test_analytic_cross_reaches_the_solver_not_just_the_kwargs(
+        self, monkeypatch
+    ) -> None:
+        """The kwargs dict is not the contract; what the solver receives is.
+
+        Asserting on steady_state_solver_kwargs alone would pass even if the
+        backend dropped the keyword on the floor -- which is exactly the class
+        of defect this repo keeps finding. Capture it at the solver boundary.
+        """
+        import qpsim.backends.t3_diffusion as t3
+
+        captured: dict[str, object] = {}
+
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            raise _StopForCapture
+
+        monkeypatch.setattr(t3, "coupled_newton_solve", _capture)
+
+        setup = SteadyState0DSetup()
+        setup.phonons.mode = "dynamic_escape"
+        setup.solver.method = "coupled_newton"
+        for requested in (True, False):
+            captured.clear()
+            setup.solver.coupled_newton_analytic_cross = requested
+            state = build_state_0d(setup)
+            with pytest.raises(_StopForCapture):
+                t3.T3DiffusionBackend().steady_state(
+                    state, **steady_state_solver_kwargs(setup),
+                )
+            assert captured.get("analytic_cross") is requested, (
+                f"backend did not forward analytic_cross={requested}"
+            )
 
     def test_drive_dicts_match_backend_keys(self) -> None:
         setup = Transient0DSetup()
