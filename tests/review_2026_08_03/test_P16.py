@@ -47,23 +47,74 @@ def _sharp_gap_edge_occupation() -> tuple[np.ndarray, np.ndarray]:
 
 
 class TestDirectGapIntegralEdgeDomain:
-    def test_centers_mode_rejects_super_unity_gap_edge_reconstruction(self) -> None:
-        # 1.5*f[0] - 0.5*f[1] = 1.35 is not an occupation, and it would weight
-        # the BCS endpoint of the most singular cell.
+    """The gap-edge node is reconstructed, and the reconstruction can overshoot.
+
+    ``1.5*f[0] - 0.5*f[1] = 1.35`` is not an occupation, and it multiplies the
+    BCS square-root endpoint weight of the most singular cell. Both routes to
+    it now project onto the Pauli bound rather than raise: the overshoot is
+    truncation error of the reconstruction, not a property of the caller's
+    data, and raising left the headline observable undefined for the whole
+    smooth saturated-edge class. The ``[0, 1]`` contract on INPUT data is a
+    separate check and stays strict.
+    """
+
+    def test_centers_mode_projects_the_super_unity_reconstruction(self) -> None:
         f, E = _sharp_gap_edge_occupation()
 
-        with pytest.raises(ValueError, match="leaves the physical occupation domain"):
-            gap_integral_from_distribution_direct(f, E, gap=GAP_UEV, samples="centers")
+        with pytest.warns(RuntimeWarning, match="projected onto the Pauli bound"):
+            integral = gap_integral_from_distribution_direct(
+                f, E, gap=GAP_UEV, samples="centers"
+            )
+
+        # Re-derived on this code, NOT copied from the prepared patch, which
+        # proposed 0.212047 for this fixture -- 1.9% away from what the
+        # implementation actually computes.
+        assert integral == pytest.approx(0.21609093087522843, rel=1e-12)
 
     def test_edge_producer_and_consumer_agree_on_the_same_array(self) -> None:
+        """The two reconstructions of one quantity must not disagree.
+
+        This is the test that failed while the clip was applied to only one of
+        them: the producer projected onto [0, 1] and the centers branch still
+        raised, so the same f gave a number one way and an exception the other,
+        and the exception's own advice -- "pass samples='edges'" -- routed the
+        caller to the number it had just refused to compute.
+        """
         f, E = _sharp_gap_edge_occupation()
 
-        edge_samples = edge_samples_from_centers(f, E)
-        assert edge_samples[0] > 1.0
+        with pytest.warns(RuntimeWarning, match="projected onto the Pauli bound"):
+            edge_samples = edge_samples_from_centers(f, E)
+        assert edge_samples[0] == 1.0, "the extrapolate was not projected"
+
+        via_edges = gap_integral_from_distribution_direct(
+            edge_samples, E, gap=GAP_UEV, samples="edges"
+        )
+        with pytest.warns(RuntimeWarning):
+            via_centers = gap_integral_from_distribution_direct(
+                f, E, gap=GAP_UEV, samples="centers"
+            )
+        # Bit-identical, not approx: one shared projection means there is no
+        # arithmetic left for the two paths to differ in.
+        assert via_edges == via_centers
+
+    def test_out_of_range_input_data_is_still_refused(self) -> None:
+        """The projection is for the reconstruction, not for caller data.
+
+        Clipping what a caller hands in would turn a genuine unit or sign error
+        into a plausible number, which is the opposite of what the projection
+        is for.
+        """
+        f, E = _sharp_gap_edge_occupation()
+        bad = f.copy()
+        bad[3] = 1.4
 
         with pytest.raises(ValueError, match="physical occupations"):
             gap_integral_from_distribution_direct(
-                edge_samples, E, gap=GAP_UEV, samples="edges"
+                bad, E, gap=GAP_UEV, samples="edges"
+            )
+        with pytest.raises(ValueError, match="physical occupations"):
+            gap_integral_from_distribution_direct(
+                bad, E, gap=GAP_UEV, samples="centers"
             )
 
     @pytest.mark.parametrize(

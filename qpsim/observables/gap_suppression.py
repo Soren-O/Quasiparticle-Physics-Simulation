@@ -149,6 +149,43 @@ def left_edges_from_centers(E_bins: np.ndarray) -> np.ndarray:
     return E - 0.5 * h
 
 
+_PAULI_TOL = 64.0 * np.finfo(float).eps
+
+
+def _project_onto_pauli_bound(vals: np.ndarray, node: int) -> np.ndarray:
+    """Clip reconstructed gap-edge nodes to ``[0, 1]``, warning when it bites.
+
+    ONE implementation, called from both reconstructions. The left-edge value
+    at the gap is EXTRAPOLATED rather than interpolated, so it can leave the
+    occupation domain on a sharply structured ``f`` even though the input is
+    perfectly physical; ``node`` is the index of that extrapolated node, the
+    only one carrying the BCS square-root endpoint weight.
+
+    Clipping rather than raising, because the overshoot is truncation error of
+    the reconstruction and not a property of the caller's data: the raise left
+    the headline observable undefined for the whole smooth saturated-edge
+    class, with a remediation ("pass samples='edges'") that silently produced a
+    different number. The ``[0, 1]`` contract on INPUT data is enforced
+    separately and stays strict.
+
+    Warn on the way past rather than clip in silence: the projection costs the
+    direct gap integral a bounded, conservative O(h^2)-class bias, and a reader
+    is entitled to know their ``f`` was steep enough at the gap edge to need it.
+    """
+    value = float(vals[node])
+    if value > 1.0 + _PAULI_TOL:
+        warnings.warn(
+            f"gap-edge occupation extrapolate {value:.6g} exceeds 1 and was "
+            "projected onto the Pauli bound; the direct gap integral carries a "
+            "bounded conservative O(h^2)-class bias for an f this sharply "
+            "structured at the edge. Refine the energy grid near Delta if the "
+            "suppression matters at that level.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return np.clip(vals, 0.0, 1.0)
+
+
 def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     """Map center-grid occupations to the left-edge nodes used by Fischer Fig. 6.
 
@@ -156,10 +193,11 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     them.  The first node is the linear extrapolation ``1.5*f[0] - 0.5*f[1]``,
     which can leave ``[0, 1]`` for a sharply structured, strongly occupied
     ``f`` even though the input itself is physical.  The result is projected
-    onto ``[0, 1]`` — both ends, where it used to be clamped only from below —
-    and an upward projection emits a ``RuntimeWarning``, because it costs the
-    direct gap integral a bounded conservative bias that the caller should
-    know about rather than discover.
+    onto ``[0, 1]`` by :func:`_project_onto_pauli_bound` — both ends, where it
+    used to be clamped only from below — which is the SAME projection the
+    ``samples="centers"`` branch of :func:`gap_integral_from_distribution_direct`
+    applies, so the two reconstructions cannot disagree about the saturated
+    gap edge.
     """
     E = _finite_real_array("E_bins", E_bins).reshape(-1)
     f_arr = _finite_real_array("f", f).reshape(-1)
@@ -169,28 +207,7 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     out = np.interp(edges, E, f_arr)
     slope_left = (f_arr[1] - f_arr[0]) / (E[1] - E[0])
     out[0] = f_arr[0] + slope_left * (edges[0] - E[0])
-    # The gap-edge value is EXTRAPOLATED, not interpolated, so it can leave
-    # [0, 1] on a sharply structured f. The lower clamp was already here; the
-    # upper one was not, and an occupation above 1 is not a small numerical
-    # blemish -- it is a Pauli violation entering the gap integral, which then
-    # reports a suppression no physical distribution could produce.
-    #
-    # Warn on the way past, rather than clipping in silence: the projection
-    # costs the direct gap integral a bounded, conservative O(h^2)-class bias,
-    # and a reader is entitled to know their f was steep enough at the gap edge
-    # to need it.
-    overshoot = float(out[0]) - 1.0
-    if overshoot > 64.0 * np.finfo(float).eps:
-        warnings.warn(
-            f"gap-edge occupation extrapolate {float(out[0]):.6g} exceeds 1 "
-            "and was projected onto the Pauli bound; the direct gap integral "
-            "carries a bounded conservative O(h^2)-class bias for an f this "
-            "sharply structured at the edge. Refine the energy grid near "
-            "Delta if the suppression matters at that level.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-    return np.clip(out, 0.0, 1.0)
+    return _project_onto_pauli_bound(out, 0)
 
 
 def fermi_dirac_distribution(E: np.ndarray, T_bath: float) -> np.ndarray:
@@ -272,26 +289,22 @@ def gap_integral_from_distribution_direct(
         vals[below_first_active] = f_active[0] + slope_left * (
             edges[below_first_active] - E_active[0]
         )
-        vals = np.maximum(vals, 0.0)
         # Exactly one extrapolated node carries weight: the transformed bounds
         # of every cell below the first active one are both clamped to zero
         # below, so its endpoint weight and its linear weight vanish
         # identically and its node value is irrelevant.  The surviving node
         # is 1.5*f[k] - 0.5*f[k+1], which leaves the [0, 1] occupation domain
-        # this function demands of its input once f[k] > (2 + f[k+1]) / 3, and
-        # it then multiplies the BCS square-root endpoint weight in the most
-        # singular cell and over-reports I[f].  The sibling samples="edges"
-        # branch rejects an array carrying such a value, so reject it here
-        # rather than integrate an unphysical occupation silently.
+        # once f[k] > (2 + f[k+1]) / 3, and it then multiplies the BCS
+        # square-root endpoint weight in the most singular cell.
+        #
+        # Projected onto the Pauli bound through the SAME helper as
+        # edge_samples_from_centers, not rejected. This branch used to raise
+        # while that one clipped, which made the two reconstructions of one
+        # quantity disagree on exactly the class of f where it matters -- and
+        # the raise pointed the caller at samples='edges', which by then
+        # answered with a clipped and therefore different number.
         first_active = int(np.flatnonzero(active)[0])
-        if vals[first_active] > 1.0 + 64.0 * np.finfo(float).eps:
-            raise ValueError(
-                "Center-sampled gap-edge reconstruction leaves the physical "
-                "occupation domain: extrapolated f="
-                f"{float(vals[first_active]):.6g} at the first positive-capacity "
-                "cell edge. Pass left-edge samples with samples='edges', or "
-                "refine the grid so f varies smoothly across the gap edge."
-            )
+        vals = _project_onto_pauli_bound(vals, first_active)
     elif mode in {"edge", "edges", "authors"}:
         # The final interval is held constant, matching the bundled author code.
         vals = np.maximum(f_arr, 0.0)

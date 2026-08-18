@@ -482,6 +482,30 @@ class TestDirectGapSuppression:
         # a convention swap cannot hide inside the pinned artifacts.
         assert centers / raw_edges == pytest.approx(1.2677486, rel=1e-6)
 
+    def test_the_two_copies_also_agree_where_the_gap_edge_saturates(self) -> None:
+        # The smooth case above cannot see a divergence in how the two copies
+        # handle an OVERSHOOTING gap-edge extrapolate, because on a smooth f
+        # there is no overshoot -- and that is exactly where they did diverge:
+        # one projected onto the Pauli bound while the other raised. Pin the
+        # agreement on an f steep enough to make the projection bite.
+        gap = 180.0
+        h = 0.6
+        E = gap + 0.5 * h + h * np.arange(64)
+        f = 0.3 * np.exp(-np.arange(64) / 5.0)
+        f[0], f[1] = 1.0, 0.3
+        assert 1.5 * f[0] - 0.5 * f[1] > 1.0, "the extrapolate does not overshoot"
+
+        with pytest.warns(RuntimeWarning, match="projected onto the Pauli bound"):
+            centers = gap_integral_from_distribution_direct(
+                f, E, gap=gap, samples="centers",
+            )
+        with pytest.warns(RuntimeWarning, match="projected onto the Pauli bound"):
+            via_edge_map = gap_integral_from_distribution_direct(
+                edge_samples_from_centers(f, E), E, gap=gap, samples="edges",
+            )
+
+        assert centers == via_edge_map
+
     def test_constant_distribution_matches_analytic_integral(self) -> None:
         gap = 180.0
         E, _ = build_energy_grid(
