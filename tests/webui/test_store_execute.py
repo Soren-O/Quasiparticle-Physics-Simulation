@@ -10,7 +10,9 @@ import numpy as np
 import pytest
 from qpsim.physics.gap_equation import calibrate_gap
 from qpsim.webui.execute import RunCancelledError, execute_setup
+from pydantic import ValidationError
 from qpsim.webui.schemas import (
+    KineticsSetup,
     M25JunctionSetup,
     SetupEnvelope,
     Spatial1DSetup,
@@ -40,6 +42,50 @@ class TestWorkspace:
         assert loaded.setup == envelope.setup
         ws.delete_setup(slug)
         assert ws.list_setups() == []
+
+    def test_a_setup_saved_under_the_retired_mode_name_still_loads(
+        self, tmp_path: Path,
+    ) -> None:
+        """Renaming a mode must not make saved work unloadable.
+
+        `store.py` round-trips `setup["mode"]` through JSON, so every setup
+        already on disk names the mode it was saved under. The rename is only
+        safe because `SetupEnvelope` upgrades the string before the
+        discriminated union resolves on it.
+        """
+        ws = Workspace(tmp_path)
+        setup_dir = tmp_path / "setups"
+        setup_dir.mkdir(parents=True)
+        legacy = KineticsSetup().model_dump()
+        legacy["mode"] = "spatial_2d"          # what a saved file says today
+        (setup_dir / "legacy-mode.json").write_text(
+            json.dumps({"name": "legacy mode", "setup": legacy}),
+            encoding="utf-8",
+        )
+
+        loaded = ws.load_setup("legacy-mode")
+
+        assert loaded.setup.mode == "kinetics"
+        assert loaded.setup == KineticsSetup()
+        # The listing reads raw JSON rather than parsing an envelope, so it
+        # needs the alias applied separately or it reports a mode the picker
+        # no longer offers for a setup that loads and runs perfectly.
+        assert [s["mode"] for s in ws.list_setups()] == ["kinetics"]
+
+    def test_an_unknown_mode_is_still_refused(self, tmp_path: Path) -> None:
+        """The alias map is a rename table, not a way to accept anything."""
+        ws = Workspace(tmp_path)
+        setup_dir = tmp_path / "setups"
+        setup_dir.mkdir(parents=True)
+        bogus = KineticsSetup().model_dump()
+        bogus["mode"] = "spatial_3d"
+        (setup_dir / "bogus.json").write_text(
+            json.dumps({"name": "bogus", "setup": bogus}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValidationError):
+            ws.load_setup("bogus")
 
     def test_load_migrates_legacy_rho_f_units(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)

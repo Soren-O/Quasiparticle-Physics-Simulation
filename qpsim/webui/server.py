@@ -40,7 +40,12 @@ from qpsim.webui.plots import (
     render_plot,
 )
 from qpsim.webui.runner import JobRunner
-from qpsim.webui.schemas import MODE_CLASSES, MODE_LABELS, SetupEnvelope
+from qpsim.webui.schemas import (
+    MODE_CLASSES,
+    MODE_LABELS,
+    SetupEnvelope,
+    canonical_mode,
+)
 from qpsim.webui.store import Workspace
 from qpsim.webui.terms import term_status_payload
 
@@ -199,7 +204,10 @@ def create_app(workspace_root: Path | str) -> FastAPI:
 
     @app.get("/api/defaults/{mode}")
     def defaults(mode: str) -> dict[str, Any]:
-        setup_cls = MODE_CLASSES.get(mode)
+        # A bookmarked URL or an older client can still name a retired mode,
+        # and 404ing it here while /api/validate accepts the same name in a
+        # setup would be an inconsistency the caller cannot act on.
+        setup_cls = MODE_CLASSES.get(canonical_mode(mode))
         if setup_cls is None:
             raise HTTPException(404, f"Unknown mode {mode!r}.")
         return setup_cls().model_dump()

@@ -190,7 +190,7 @@ const FORMS = {
       ],
     },
   ],
-  spatial_2d: [
+  kinetics: [
     MATERIAL_FIELDS(true),
     { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: "Spatial transport needs Dynes Γ = 0." },
     {
@@ -1116,7 +1116,7 @@ async function init() {
 
   // One mode: the geometry decides the dimensionality, so there is nothing
   // for the user to pick between.
-  await switchMode("spatial_2d");
+  await switchMode("kinetics");
   initWizard();
   showWizardStep(0);
 }
@@ -1312,7 +1312,7 @@ const TERM_FIELDS = {
              label: "Self-consistent gap" },
 };
 
-/* The wizard builds spatial_2d, but the read-only view has to show any mode a
+/* The wizard builds kinetics, but the read-only view has to show any mode a
    saved run or a test case used -- several are 0-D, which has no geometry at
    all. Sections are therefore taken from the mode being shown rather than
    pinned to one, and the geometry step says so when a mode has none, instead
@@ -1323,8 +1323,8 @@ const geometrySections = (mode) => (FORMS[mode] || []).filter(isGeometrySection)
 const conditionSections = (mode) =>
   (FORMS[mode] || []).filter((section) => !isGeometrySection(section));
 
-const GEOMETRY_SECTIONS = geometrySections("spatial_2d");
-const CONDITION_SECTIONS = conditionSections("spatial_2d");
+const GEOMETRY_SECTIONS = geometrySections("kinetics");
+const CONDITION_SECTIONS = conditionSections("kinetics");
 
 /* Geometry first, because it decides part of the model rather than merely
    parameterising it: a single-cell mask has no faces, so there is no transport
@@ -1565,7 +1565,7 @@ function showWizardStep(index) {
         { label: "Home", go: () => showView("home") },
         { label: "New run" },
       ]);
-  const mode = wizard.readOnly ? state.mode : "spatial_2d";
+  const mode = wizard.readOnly ? state.mode : "kinetics";
   // The note answers a click, so it must not outlive the page it was asked on
   // -- and the geometry may have changed in between, which is the whole point.
   clearTermNote();

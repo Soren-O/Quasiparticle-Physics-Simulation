@@ -461,8 +461,8 @@ class TestPrescribedGapMap:
 
     @staticmethod
     def _setup(expression: str, min_factor: float = 0.7):
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 24
         setup.grid.min_factor = min_factor

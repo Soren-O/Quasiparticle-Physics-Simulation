@@ -30,7 +30,7 @@
             {
               "id": "diff-benchmark",
               "title": "Diffusion against its eigenmode decay rate",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "A cosine mode on a 2-D film with every collision channel off. Its amplitude decays at a rate that depends on energy, and that dependence is the whole content of the diffusion operator.",
               "benchmark": "diffusion",
               "overrides": {
@@ -117,7 +117,7 @@
             {
               "id": "scat-benchmark",
               "title": "Scattering against its closed-form out-rate",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "Five columns, each seeded with an excess in a different energy cell. One run measures five independent decay rates spanning a factor of 7.",
               "benchmark": "scattering",
               "overrides": {
@@ -190,7 +190,7 @@
             {
               "id": "recomb-benchmark",
               "title": "Recombination against the two-body 1/t law",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "A uniform excess left to annihilate with nothing else acting. Two quasiparticles per event makes the decay second order, not exponential.",
               "benchmark": "recombination",
               "overrides": {
@@ -264,7 +264,7 @@
             {
               "id": "photsg-benchmark",
               "title": "Sub-gap drive against the exact ladder solution",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "A grid-commensurate photon energy, so each bin has at most one ladder partner and the drive alone is exactly solvable.",
               "benchmark": "subgap-drive",
               "overrides": {
@@ -338,7 +338,7 @@
             {
               "id": "photpb-benchmark",
               "title": "Pair breaking against its exactly linear growth",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "Photons above 2 Delta creating quasiparticles with every sink switched off, so nothing removes what is made.",
               "benchmark": "pb-drive",
               "overrides": {
@@ -409,7 +409,7 @@
             {
               "id": "src-benchmark",
               "title": "Injection against its exact accumulation rate",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "Transport off and both collision channels off, so each cell simply accumulates what is injected into it.",
               "benchmark": "injection",
               "overrides": {
@@ -469,7 +469,7 @@
             {
               "id": "psc-benchmark",
               "title": "The phonon scattering source against its affine relaxation",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "The phonon side of the scattering channel, relaxing at fixed f, where its equation is exactly affine.",
               "benchmark": "phonon-scattering-source",
               "overrides": {
@@ -551,7 +551,7 @@
             {
               "id": "prc-benchmark",
               "title": "The recombination source against Kaplan's S+",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "The 2 Delta phonons recombination emits, checked against Kaplan's closed form for their spectrum.",
               "benchmark": "phonon-recombination-source",
               "overrides": {
@@ -619,7 +619,7 @@
             {
               "id": "pesc-benchmark",
               "title": "Escape against pure exponential relaxation",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "An emptied superconductor, where only pair breaking survives on the phonon side and escape sets both the rate and the level.",
               "benchmark": "phonon-escape",
               "overrides": {
@@ -703,7 +703,7 @@
             {
               "id": "gapeq-benchmark",
               "title": "The BCS closure against an independent solve of it",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "A row of cells each prepared at its own effective temperature, so one run sweeps the gap across a real temperature range.",
               "benchmark": "self-consistent-gap",
               "overrides": {
@@ -1055,7 +1055,7 @@
             {
               "id": "square-reflective",
               "title": "Square film, nothing escapes",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "A 16x16 film with reflective edges. Quasiparticles stay in, so the film settles at its thermal value.",
               "overrides": {
                 "T_bath": 0.2,
@@ -1070,7 +1070,7 @@
             {
               "id": "square-absorbing",
               "title": "The same film with an absorbing rim",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "Identical but the edge absorbs. Quasiparticles now leave the film and the population collapses far below thermal. Run it against the case above.",
               "overrides": {
                 "T_bath": 0.2,
@@ -1085,7 +1085,7 @@
             {
               "id": "reduction-1d",
               "title": "The 1-D strip as a one-cell-wide mask",
-              "mode": "spatial_2d",
+              "mode": "kinetics",
               "summary": "rows = 1 makes the 5-point stencil the 3-point chain exactly. This is the same physics the dedicated 1D strip mode solves, reached by choosing the geometry rather than the mode.",
               "overrides": {
                 "T_bath": 0.2,

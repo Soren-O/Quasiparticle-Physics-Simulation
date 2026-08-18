@@ -22,7 +22,7 @@ the Gaussian -- and the check is about the source term rather than about the
 observable's quadrature. The price is stated in the caveat: this says nothing
 about the ``x_qp`` weights.
 
-Derived and numerically verified 2026-08-13/14 against the ``spatial_2d``
+Derived and numerically verified 2026-08-13/14 against the ``kinetics``
 executor at web-API level; the adversarial audit of the first derivation is
 applied here (tolerance tightened to 1e-12, the "2-D has no snapshot cadence"
 claim withdrawn -- it does, and this case uses it -- the unverifiable
@@ -72,7 +72,7 @@ _LINE_HALF_WIDTH_SIGMA = 3.0
 # The photon drives (subgap_drive, pb_drive) are off by default; enabling
 # either adds a gain term and breaks the closed form.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material": {"D_0": 0.0},
     "T_bath": 0.3,
     "grid": {"min_factor": 1.0, "max_factor": 3.0, "num_bins": 64},
@@ -344,7 +344,7 @@ register(
             "not (3.02e-13, pass), so this is where the check's resolution "
             "genuinely ends."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "1. NOTHING COUPLED. Transport and both collision channels are "

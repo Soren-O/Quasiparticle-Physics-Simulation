@@ -60,7 +60,7 @@ _KB_UEV_PER_K = 86.17333262145
 # phonon field is per cell and this term needs no transport to act.
 #
 # NOT SET HERE, deliberately: ``collisions.phonon_scattering_source``. On this
-# route it is INERT — run_spatial_2d does not forward it, T3SpatialBackend does
+# route it is INERT — run_kinetics does not forward it, T3SpatialBackend does
 # not accept it, and SpatialCollisions.advance_phonons calls
 # compute_phonon_source_sink with ``enable_scattering`` alone. Writing it into
 # the case would state a switch that is not honoured, which is exactly the
@@ -87,7 +87,7 @@ _KB_UEV_PER_K = 86.17333262145
 # could be certified steady while n_ph was still relaxing. The cost is one
 # "did not reach stop_tol" note on a run that was never meant to.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.name": "Al",
     "material.Delta_0": 180.0,
     "material.T_c": 1.1837,
@@ -621,7 +621,7 @@ register(
             "STATE BOTH NUMBERS: 1.2e-04 is agreement with the DISCRETE model; "
             "~2e-03 is how well that model represents the integral it stands for."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "1. THE ω RATE CONSTANT IS NOT INDEPENDENTLY DERIVED. rho_bar, r, K- "
@@ -643,8 +643,8 @@ register(
             "SpatialCollisions.advance_phonons called compute_phonon_source_sink "
             "with the raw quasiparticle-side K_s0 = (E_i-E_j)^2 "
             "K-/(tau_0 (k_B T_c)^3), never passed K_s0_phonon_side, and "
-            "run_spatial_2d did not forward phonons.use_phonon_side_kernel at "
-            "all — so spatial_2d solved a different phonon equation from the "
+            "run_kinetics did not forward phonons.use_phonon_side_kernel at "
+            "all — so kinetics solved a different phonon equation from the "
             "0-D routes, with n_ph out by an omega-dependent factor of order "
             "30. This caveat reported that as a finding a benchmark could not "
             "fix; it has since been fixed in the engine. Both sides now run "
@@ -659,8 +659,8 @@ register(
             "3. THE TERM IS SWITCHED BY collisions.scattering, NOT BY "
             "collisions.phonon_scattering_source (AUDIT: the original reported "
             "three wiring gaps and this is a fourth of the same kind, on a "
-            "different route). On spatial_2d the phonon-source flags reach "
-            "nothing: run_spatial_2d does not forward them and T3SpatialBackend "
+            "different route). On kinetics the phonon-source flags reach "
+            "nothing: run_kinetics does not forward them and T3SpatialBackend "
             "does not take them. So the null run removes the quasiparticle-side "
             "scattering channel as well. That is harmless HERE — at frozen f the "
             "quasiparticle side moves nothing measurable, and the phonon field "

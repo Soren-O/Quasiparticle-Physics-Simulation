@@ -91,7 +91,7 @@ _KB_UEV_PER_K = 86.17333262145
 #     states the arrangement instead of leaving it to a schema default.
 #   material.D_0 = 0.0 has no work to do for the same reason and is set so the
 #     intent is explicit: this case is collisions only.
-#   stop_tol = 0.0 because Spatial2DSetup's stop_tol is a float where the
+#   stop_tol = 0.0 because KineticsSetup's stop_tol is a float where the
 #     transient's was an optional None. Any positive threshold would end the run
 #     the moment the residual dropped under it, and the trajectory — not the
 #     endpoint — is what this benchmark scores. The run therefore reports
@@ -103,7 +103,7 @@ _KB_UEV_PER_K = 86.17333262145
 #     the thermal one so the analytic side stays a Fermi function written from
 #     T_bath rather than a re-implementation of the seeding code.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.Delta_0": 180,
     "material.D_0": 0.0,
     "T_bath": 0.5,
@@ -523,7 +523,7 @@ register(
             "and it is why the case is pinned at T_bath = 0.5 K where the smallest "
             "occupation is 4.7e-06."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "1. THE 'BOTH PARTNERS' KERNEL BRANCH IS NEVER EXECUTED. The two-rung "
@@ -628,7 +628,7 @@ register(
             "one -- with more than one cell the closed form would have to say "
             "what transport does to f, and it does not, so _build refuses it. "
             "Also untested: x_qp (this mode records obs_x_qp_mean and the "
-            "benchmark does not score it), the Mattis-Bardeen probe (Spatial2DSetup "
+            "benchmark does not score it), the Mattis-Bardeen probe (KineticsSetup "
             "carries no probe at all), the "
             "dense-output interpolation (deliberately avoided by making "
             "snapshot_interval/dt an exact integer of exact binary fractions), the "

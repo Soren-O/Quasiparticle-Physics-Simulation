@@ -52,7 +52,7 @@ class TestMetaAndMaterials:
     def test_meta_lists_modes(self, client: TestClient) -> None:
         body = client.get("/api/meta").json()
         assert set(body["modes"]) == {
-            "steady_state_0d", "transient_0d", "spatial_1d", "spatial_2d",
+            "steady_state_0d", "transient_0d", "spatial_1d", "kinetics",
             "m25_junction",
         }
 
@@ -306,7 +306,7 @@ class TestFigureFamilies:
 
     @staticmethod
     def _recorded_run(client: TestClient) -> dict[str, Any]:
-        setup = client.get("/api/defaults/spatial_2d").json()
+        setup = client.get("/api/defaults/kinetics").json()
         setup["T_bath"] = 0.2
         setup["grid"]["num_bins"] = 24
         setup["geometry"]["rows"] = 4
@@ -361,7 +361,7 @@ class TestFigureFamilies:
         self, client: TestClient
     ) -> None:
         """snapshot_interval is opt-in, so most runs have nothing to replay."""
-        setup = client.get("/api/defaults/spatial_2d").json()
+        setup = client.get("/api/defaults/kinetics").json()
         setup["grid"]["num_bins"] = 24
         setup["geometry"]["rows"] = 3
         setup["geometry"]["cols"] = 3
@@ -386,7 +386,7 @@ class TestIterationLoop:
         Without this the only way to iterate on a run is to read its setup
         out of a JSON block and retype it.
         """
-        setup = client.get("/api/defaults/spatial_2d").json()
+        setup = client.get("/api/defaults/kinetics").json()
         setup["grid"]["num_bins"] = 24
         setup["geometry"]["rows"] = 3
         setup["geometry"]["cols"] = 3

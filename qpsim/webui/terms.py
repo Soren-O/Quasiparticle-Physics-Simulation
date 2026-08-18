@@ -152,7 +152,7 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
     measurably so: both kernels carry ``(n_bar + 1)``
     (``sub_gap_photon.py:143,151``, ``pair_breaking_photon.py:299,306,326``),
     so n_bar = 0 removes only the STIMULATED term and leaves spontaneous
-    emission at full strength. Measured on a 1x1 spatial_2d at n_bar = 0: the
+    emission at full strength. Measured on a 1x1 kinetics at n_bar = 0: the
     drive moves the final f by 19% at c_phot = 1e-4 and 80% at 1e-2, while the
     panel said "off". The coupling is the real switch -- every term is
     multiplied by it -- and c_phot = 0 with n_bar = 1e7 is inert to 0.000e+00.

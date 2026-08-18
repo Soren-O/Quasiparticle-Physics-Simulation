@@ -49,7 +49,7 @@ TWO CONSEQUENCES OF TAKING THE SPATIAL ROUTE, STATED UP FRONT.
   closed form describes the other kernel. Re-deriving it onto ``K⁺/(πΔτ_0^PB)``
   (as ``phonon_scattering_source`` and ``phonon_escape`` were) is the open work.
 * ``collisions.phonon_recombination_source`` — the switch this benchmark is
-  named after — WAS inert in spatial_2d, because the collision layer was
+  named after — WAS inert in kinetics, because the collision layer was
   handed the quasiparticle-side ``enable_recombination`` in its place. That was
   fixed on 2026-08-14 (``7e15175``), and the phonon-side kernels added on
   2026-08-15 removed the last coupling to the quasiparticle flags: the named
@@ -121,7 +121,7 @@ _GL_X, _GL_W = np.polynomial.legendre.leggauss(_GL_NODES)
 #   material.tau_0_pb_ns is NOT set for the same reason — this path runs on
 #                  tau_0.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material": {
         "name": "Al",
         "Delta_0": 180.0,
@@ -447,7 +447,7 @@ register(Benchmark(
         "e^{−2Δ/k_BT} and repopulates f; it is not the phonon integral. Flat "
         "to 0.15 K, so 0.10 K is not a cliff edge."
     ),
-    modes=("spatial_2d",),
+    modes=("kinetics",),
     build=_build,
     caveat=(
         "WHAT THIS DOES NOT PROVE.\n\n"

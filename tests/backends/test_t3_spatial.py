@@ -252,8 +252,8 @@ class TestFeatureParityWithTheStrip:
 
     def _driven_step(self, conductance, max_time=300.0):
         from qpsim.webui import execute
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 32
         setup.dt = 2.0
@@ -283,10 +283,10 @@ class TestFeatureParityWithTheStrip:
 
     def test_injection_raises_the_population(self):
         from qpsim.webui import execute
-        from qpsim.webui.schemas import Spatial2DSetup
+        from qpsim.webui.schemas import KineticsSetup
         results = []
         for enabled in (False, True):
-            setup = Spatial2DSetup()
+            setup = KineticsSetup()
             setup.T_bath = 0.2
             setup.grid.num_bins = 32
             setup.dt = 2.0
@@ -302,8 +302,8 @@ class TestFeatureParityWithTheStrip:
 
     def test_a_column_step_gives_two_distinct_gaps(self):
         from qpsim.webui.builders import build_state_2d
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.geometry.rows = 4
         setup.geometry.cols = 8
         setup.gap_regions.kind = "column_step"
@@ -325,8 +325,8 @@ class TestPhononPopulationSurvivesAGapChange:
     @staticmethod
     def _backend_and_state(rows: int = 4, cols: int = 4):
         from qpsim.webui.builders import build_state_2d
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 48
         setup.geometry.rows, setup.geometry.cols = rows, cols
@@ -394,8 +394,8 @@ class TestThePhononAdvanceIsSymmetric:
     @staticmethod
     def _backend_and_state(bins: int = 24):
         from qpsim.webui.builders import build_state_2d
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = bins
         setup.geometry.rows, setup.geometry.cols = 2, 3
@@ -554,8 +554,8 @@ class TestRecordedFrames:
         consumer then treated the run as having no phonon history at all.
         """
         from qpsim.webui.builders import build_state_2d
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 24
         setup.geometry.rows, setup.geometry.cols = 2, 4
@@ -581,8 +581,8 @@ class TestPerEdgeBoundaryConditions:
     @staticmethod
     def _strip_mean(per_edge, kind="reflective"):
         from qpsim.webui import execute
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 24
         setup.geometry.rows, setup.geometry.cols = 1, 20

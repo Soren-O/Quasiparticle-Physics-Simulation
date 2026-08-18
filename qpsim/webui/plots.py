@@ -208,7 +208,7 @@ def _plot_occupation_heatmap(arrays: dict[str, np.ndarray], gap: float) -> bytes
     return _finish(fig)
 
 
-# -- spatial_2d -------------------------------------------------------
+# -- kinetics -------------------------------------------------------
 
 
 def _plot_xqp_field(arrays: dict[str, np.ndarray], summary: dict[str, Any]) -> bytes:
@@ -667,7 +667,7 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             )
         ),
     },
-    "spatial_2d": {
+    "kinetics": {
         "xqp_field": _PlotSpec(lambda a, s: _plot_xqp_field(a, s)),
         # Figure families: one image per recorded frame, so the interface can
         # scrub through a run instead of showing only where it ended.
@@ -864,7 +864,7 @@ def _cell_coordinates(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, np.nda
     return cols.astype(float), rows.astype(float)
 
 
-def _csv_spatial_2d_profile(arrays: dict[str, np.ndarray]) -> str:
+def _csv_kinetics_profile(arrays: dict[str, np.ndarray]) -> str:
     """Per-cell x_qp with the cell's place on the mask.
 
     Without this a 2-D run's numbers cannot leave the browser at all: the
@@ -880,7 +880,7 @@ def _csv_spatial_2d_profile(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(header, cols)
 
 
-def _csv_spatial_2d_occupation(arrays: dict[str, np.ndarray]) -> str:
+def _csv_kinetics_occupation(arrays: dict[str, np.ndarray]) -> str:
     """f(E) per cell at the final time, one column per cell."""
     col, row = _cell_coordinates(arrays)
     f = arrays["f_final"]
@@ -890,7 +890,7 @@ def _csv_spatial_2d_occupation(arrays: dict[str, np.ndarray]) -> str:
     )
 
 
-def _csv_spatial_2d_time_series(arrays: dict[str, np.ndarray]) -> str:
+def _csv_kinetics_time_series(arrays: dict[str, np.ndarray]) -> str:
     """Recorded frames reduced to per-time observables."""
     return _csv_from_columns(
         ["t_ns", "max_rate_per_ns", "x_qp_mean", "x_qp_max"],
@@ -924,20 +924,20 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
         "occupation": _csv_spatial_occupation,
     },
     "m25_junction": {"sweep": _csv_m25_sweep},
-    "spatial_2d": {
-        "profile": _csv_spatial_2d_profile,
-        "occupation": _csv_spatial_2d_occupation,
-        "time_series": _csv_spatial_2d_time_series,
+    "kinetics": {
+        "profile": _csv_kinetics_profile,
+        "occupation": _csv_kinetics_occupation,
+        "time_series": _csv_kinetics_time_series,
     },
 }
 
 # A table that needs an array the run did not produce must not be offered, or
 # the download 404s after the user has already clicked it. Keyed by (mode,
 # name), not by name alone: "time_series" means a different array in each mode
-# -- transient_0d always has one, spatial_2d only when frames were requested --
+# -- transient_0d always has one, kinetics only when frames were requested --
 # and a single global entry would hide a table that is always there.
 _CSV_REQUIRES: dict[tuple[str, str], str] = {
-    ("spatial_2d", "time_series"): "snap_t_ns",
+    ("kinetics", "time_series"): "snap_t_ns",
 }
 
 for _mode, _mode_csvs in _CSVS.items():

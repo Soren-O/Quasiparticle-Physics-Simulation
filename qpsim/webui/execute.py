@@ -70,7 +70,7 @@ from qpsim.webui.schemas import (
     M25JunctionSetup,
     ProbeConfig,
     Spatial1DSetup,
-    Spatial2DSetup,
+    KineticsSetup,
     SteadyState0DSetup,
     Transient0DSetup,
 )
@@ -610,8 +610,8 @@ def execute_setup(
         return run_transient_0d(setup, progress, is_cancelled)
     if isinstance(setup, Spatial1DSetup):
         return run_spatial_1d(setup, progress, is_cancelled)
-    if isinstance(setup, Spatial2DSetup):
-        return run_spatial_2d(setup, progress, is_cancelled)
+    if isinstance(setup, KineticsSetup):
+        return run_kinetics(setup, progress, is_cancelled)
     return run_m25_junction(setup, progress, is_cancelled)
 
 
@@ -633,8 +633,8 @@ def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
     return np.einsum("ec,ec->c", weights, state.f) / delta_0
 
 
-def run_spatial_2d(
-    setup: Spatial2DSetup, progress: ProgressFn, is_cancelled: CancelledFn
+def run_kinetics(
+    setup: KineticsSetup, progress: ProgressFn, is_cancelled: CancelledFn
 ) -> RunPayload:
     payload = RunPayload()
     _check_cancel(is_cancelled)

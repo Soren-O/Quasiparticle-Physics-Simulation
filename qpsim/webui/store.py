@@ -33,7 +33,7 @@ import numpy as np
 from numpy.lib import format as npy_format
 
 from qpsim.materials.database import _LEGACY_RHO_F_MAX
-from qpsim.webui.schemas import SetupEnvelope
+from qpsim.webui.schemas import SetupEnvelope, canonical_mode
 
 _SETUP_SCHEMA_VERSION = 2
 
@@ -355,6 +355,11 @@ class Workspace:
                     mode = setup_data.get("mode", "?")
                     if not isinstance(mode, str):
                         raise ValueError(f"{path} has a non-string setup mode.")
+                    # Report the CURRENT name. This listing reads the raw JSON
+                    # rather than parsing an envelope, so without this a saved
+                    # setup would be listed under a mode the picker no longer
+                    # offers while still loading and running perfectly.
+                    mode = canonical_mode(mode)
                     entries.append(
                         {
                             "slug": path.stem,

@@ -232,8 +232,8 @@ class TestPhononInitialCondition:
     @staticmethod
     def _departure(initial):
         from qpsim.webui import execute
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.4
         setup.grid.num_bins = 32
         setup.geometry.rows, setup.geometry.cols = 1, 3
@@ -279,8 +279,8 @@ class TestPhononInitialCondition:
 
     def test_a_negative_seed_is_refused(self):
         from qpsim.webui.builders import build_geometry_2d, build_phonon_seed_2d
-        from qpsim.webui.schemas import PhononInitialCondition, Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import PhononInitialCondition, KineticsSetup
+        setup = KineticsSetup()
         setup.grid.num_bins = 24
         setup.phonons.mode = "dynamic_escape"
         setup.phonons.initial = PhononInitialCondition(

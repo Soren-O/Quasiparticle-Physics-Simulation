@@ -89,7 +89,7 @@ _MAX_KT_OVER_GAP = 0.1
 #   T_bath = 1 mK. The T -> 0 limit: n_BE(dE) = 3.9e-21 and the thermal f
 #     underflows to exactly 0 in every bin, so the limit is exact in float64.
 #     Every web run used to start thermal, which at this temperature is
-#     identically zero -- this case was unreachable until Spatial2DSetup.initial
+#     identically zero -- this case was unreachable until KineticsSetup.initial
 #     existed.
 #   num_bins = 400 and dt. AUDIT finding 5: the tolerance is a measured
 #     discretisation floor and is valid ONLY at this pair. dt = total/320 gives
@@ -105,7 +105,7 @@ _MAX_KT_OVER_GAP = 0.1
 #     0 is the only value that never fires. The run then reports "did not reach
 #     stop_tol", which is the truth.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.name": "Al",
     "material.Delta_0": 180,
     "material.T_c": 1.18,
@@ -309,7 +309,7 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
             raise ValueError(
                 f"column {cell} starts at (or below) equilibrium, so there is "
                 "nothing to relax and no rate to measure. Prepare an excess "
-                "with Spatial2DSetup.initial."
+                "with KineticsSetup.initial."
             )
         # 1e-6 of the peak, not "nonzero": a Gaussian seed has a tail, and a
         # cell whose excess is a millionth of the peak perturbs the cell below
@@ -487,7 +487,7 @@ register(
             "exponential, and essentially the whole residual is the rate, i.e. "
             "the kernel."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "1. IT TESTS ROW SUMS, NOT THE DISTRIBUTION OF THE OUTGOING FLUX. "

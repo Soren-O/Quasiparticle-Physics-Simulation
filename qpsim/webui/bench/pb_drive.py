@@ -19,7 +19,7 @@ closed form itself.
 
 The mode
 --------
-The case runs on the unified spatial core (``spatial_2d``) with a 1×1 mask.
+The case runs on the unified spatial core (``kinetics``) with a 1×1 mask.
 Dimensionality is read off the mask extent rather than set by a flag, so one
 cell *is* the 0-D reduction — the run's summary reports ``dimensionality = 0``
 — and the single-cell transport operator is identically zero, which is why
@@ -84,7 +84,7 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #     so no positive stop_tol truncates this particular run; 0 states that the
 #     run is meant to reach `max_time` rather than to find a steady state, and
 #     the run then reports "did not reach stop_tol", which is the truth.
-#   snapshot_interval = 0.2.  Without it `spatial_2d` records no frames at all
+#   snapshot_interval = 0.2.  Without it `kinetics` records no frames at all
 #     and there is no slope to measure — only the endpoint, which cannot
 #     distinguish "linear in t" from "arrived at the right place along a curve".
 #   initial.kind = "thermal".  The 0-D expression of this case had no initial
@@ -92,7 +92,7 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #     explicitly. `build` subtracts f(0), so the start is not an ingredient of
 #     the prediction either way.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.D_0": 0.0,
     "T_bath": 0.1,
     "grid.min_factor": 1.0,
@@ -241,7 +241,7 @@ def _source_spectrum(
 def _refuse_unless_reduced(setup: Any) -> None:
     """Raise unless the run is the reduction this closed form describes.
 
-    Only the knobs that ``Spatial2DSetup`` adds over the 0-D setup this case
+    Only the knobs that ``KineticsSetup`` adds over the 0-D setup this case
     used to be written against are checked here, because those are the ones
     that can silently invalidate the closed form: a second source makes S_i no
     longer the whole f-independent right-hand side, and a gap that is not Δ₀
@@ -444,7 +444,7 @@ register(
             "δE = 4/2/1/0.5 μeV, mid-band at E = 600 μeV. The cell weights really "
             "are the BCS DOS and not a re-coding of engine internals.\n"
             "Mode migration (2026-08-14): this case previously ran as "
-            "``transient_0d``. Re-expressed as a 1×1 ``spatial_2d`` mask it scores "
+            "``transient_0d``. Re-expressed as a 1×1 ``kinetics`` mask it scores "
             "6.5276867346370295e-06 against the 0-D case's "
             "6.5276867346370295e-06 — the same float, not merely the same to the "
             "quoted digits — and x_qp(12 ns) agrees to 1 ulp "
@@ -460,7 +460,7 @@ register(
             "1.4432e-06. The scored maximum does not move at all, because it is "
             "the 12 ns series and the two cadences agree exactly there."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "It validates the K⁻ pair-GENERATION block at leading order, and only "

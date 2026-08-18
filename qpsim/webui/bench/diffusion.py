@@ -63,7 +63,7 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 
 # The case this benchmark is written for, as web-schema override paths.
 #
-# Every field is reachable through Spatial2DSetup today. Notes on the ones
+# Every field is reachable through KineticsSetup today. Notes on the ones
 # that are not free choices:
 #
 #   grid.min_factor = 1.0 puts the first cell edge exactly at E = Delta, so no
@@ -97,7 +97,7 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #     own first frame, so a mismatch between params and expression is caught
 #     rather than believed.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.name": "Al",
     "material.Delta_0": 180.0,
     "material.T_c": 1.18,
@@ -509,7 +509,7 @@ register(Benchmark(
         "in <N_1> or D_0 is caught from about 0.08% up; see the last caveat "
         "for why the SHAPE is pinned some 1800x tighter than that."
     ),
-    modes=("spatial_2d",),
+    modes=("kinetics",),
     build=_build,
     caveat=(
         "1. IT CANNOT TELL A1 FROM C. At a uniform gap both give "

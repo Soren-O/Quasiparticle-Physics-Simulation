@@ -66,7 +66,7 @@ from qpsim.webui.schemas import (
     MaterialParams,
     ProbeConfig,
     Spatial1DSetup,
-    Spatial2DSetup,
+    KineticsSetup,
     SpatialProfileSpec,
     SteadyState0DSetup,
     TimeProfileSpec,
@@ -124,7 +124,7 @@ def mb_probe_invalid_reason(
 
 
 def _grid_spacing(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
 ) -> float:
     span = (setup.grid.max_factor - setup.grid.min_factor) * setup.material.Delta_0
     return span / float(setup.grid.num_bins)
@@ -152,7 +152,7 @@ def _check_photon_commensurate(
 
 def _check_pb_runtime_contract(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
 ) -> None:
     """Run the production PB kernel's static grid-contract preflight.
 
@@ -190,7 +190,7 @@ def _check_pb_runtime_contract(
 
 def _validate_drives_and_probe(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
 ) -> None:
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
@@ -375,7 +375,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 f"total_time/dt ≈ {n_steps:.3g} substeps — this run will take a while."
             )
 
-    elif isinstance(setup, Spatial2DSetup):
+    elif isinstance(setup, KineticsSetup):
         _validate_drives_and_probe(report, setup)
         # Dynes broadening is reported by _validate_drives_and_probe above,
         # which covers every kinetic mode; do not repeat it here.
@@ -538,7 +538,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
 
 def build_spectral(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | Spatial2DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
 ) -> SpectralContext:
     """Spectral context on the setup's uniform energy grid."""
     E, _ = build_energy_grid(
@@ -590,7 +590,7 @@ def build_state_0d(
 
 
 def drive_dicts(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial2DSetup,
+    setup: SteadyState0DSetup | Transient0DSetup | KineticsSetup,
 ) -> tuple[dict[str, float] | None, dict[str, float] | None]:
     """(photon_params, pb_photon_params) in the backend's dict format."""
     photon_params = None
@@ -755,7 +755,7 @@ def build_m25_inputs(
     return params, drive
 
 
-def build_geometry_2d(setup: Spatial2DSetup) -> Geometry:
+def build_geometry_2d(setup: KineticsSetup) -> Geometry:
     """Geometry for the 2-D mode, from extent or from a layout file."""
     source = setup.geometry
     if source.kind == "rectangle":
@@ -776,7 +776,7 @@ def build_geometry_2d(setup: Spatial2DSetup) -> Geometry:
     )
 
 
-def build_state_2d(setup: Spatial2DSetup) -> T3SpatialState:
+def build_state_2d(setup: KineticsSetup) -> T3SpatialState:
     """Thermal-seed state on the setup's geometry."""
     geometry = build_geometry_2d(setup)
     spectral = build_spectral(setup)
@@ -832,7 +832,7 @@ def _edges_facing(geometry: Geometry, direction: str) -> list[str]:
 
 
 def build_boundary_conditions_2d(
-    setup: Spatial2DSetup, geometry: Geometry,
+    setup: KineticsSetup, geometry: Geometry,
 ) -> dict[str, BoundaryCondition]:
     """Per-edge conditions: the rim default, then any named overrides.
 
@@ -865,7 +865,7 @@ def build_boundary_conditions_2d(
     return conditions
 
 
-def build_gap_per_cell_2d(setup: Spatial2DSetup, geometry: Geometry) -> np.ndarray | None:
+def build_gap_per_cell_2d(setup: KineticsSetup, geometry: Geometry) -> np.ndarray | None:
     """Local gap for every solved cell, or ``None`` for a uniform gap."""
     regions = setup.gap_regions
     if regions.kind == "uniform":
@@ -902,7 +902,7 @@ def build_gap_per_cell_2d(setup: Spatial2DSetup, geometry: Geometry) -> np.ndarr
 
 
 def _validate_gap_map_against_grid(
-    report: ValidationReport, setup: Spatial2DSetup,
+    report: ValidationReport, setup: KineticsSetup,
 ) -> None:
     """The energy grid must reach below the SMALLEST local gap.
 
@@ -957,7 +957,7 @@ def _validate_gap_map_against_grid(
 
 
 def build_injection_2d(
-    setup: Spatial2DSetup, state: T3SpatialState,
+    setup: KineticsSetup, state: T3SpatialState,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Gaussian-in-energy source as ``(gain, loss_rate)`` over the cells."""
     injection = setup.injection
@@ -1084,7 +1084,7 @@ def _time_factor(
 
 
 def build_initial_state_2d(
-    setup: Spatial2DSetup, state: T3SpatialState,
+    setup: KineticsSetup, state: T3SpatialState,
 ) -> tuple[T3SpatialState, list[str]]:
     """Apply the setup's initial condition, returning the state and any notes.
 
@@ -1134,7 +1134,7 @@ def build_initial_state_2d(
 
 
 def build_drives_2d(
-    setup: Spatial2DSetup, state: T3SpatialState,
+    setup: KineticsSetup, state: T3SpatialState,
 ) -> ExternalDrive | None:
     """Every enabled drive on the setup, summed, or None if there are none."""
     parts: list[ExternalDrive] = []
@@ -1171,7 +1171,7 @@ def build_drives_2d(
 
 
 def build_phonon_seed_2d(
-    setup: Spatial2DSetup, geometry: Geometry,
+    setup: KineticsSetup, geometry: Geometry,
 ) -> np.ndarray | None:
     """The phonon population a run starts from, or ``None`` for the bath.
 

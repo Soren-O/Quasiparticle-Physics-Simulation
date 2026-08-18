@@ -23,7 +23,7 @@ relaxes toward ``thermal_phonon_occupation(omega_bins, T_bath)`` — the same ca
 with the same arguments — so with the sources off the run starts exactly at the
 term's own fixed point and nothing moves. Measured: that case gives
 max |n(t)/n(0) − 1| = 3.1888e-16 with escape ON and exactly 0 with escape OFF;
-the two trajectories are indistinguishable. ``Spatial2DSetup.initial`` prepares the
+the two trajectories are indistinguishable. ``KineticsSetup.initial`` prepares the
 QUASIPARTICLE occupation; there is no phonon initial condition on
 ``PhononSector``, so the departure the reduction needs is unreachable. This is
 the audit's blocker-class finding on the original derivation, and it is not
@@ -140,7 +140,7 @@ from qpsim.webui.builders import build_spectral
 #     detect that those kernels are the wrong ones. Both this form and the
 #     engine now take the F&C Eq. 12 phonon-side kernel.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.name": "Al",
     "material.Delta_0": 180.0,
     "material.T_c": 1.18,
@@ -557,14 +557,14 @@ register(
             "pinned to about 6e-13 in T — the amplification x ≈ 166 is what buys "
             "that."
         ),
-        modes=("spatial_2d",),
+        modes=("kinetics",),
         build=_build,
         caveat=(
             "IT IS NOT THE TERM'S OWN REDUCTION, AND THAT IS A SCHEMA GAP, NOT A "
             "CHOICE. The isolated case — both e-ph channels off, phonons started "
             "away from the bath — cannot be expressed: the engine seeds n_ph at "
             "the same Bose–Einstein bath the escape term relaxes toward, and "
-            "Spatial2DSetup.initial prepares the QUASIPARTICLE occupation only. "
+            "KineticsSetup.initial prepares the QUASIPARTICLE occupation only. "
             "PhononSector needs an initial-condition field (a thermal-plus-excess "
             "seed would do) before the T1 case exists. Until then the escape term "
             "can only be watched competing with pair breaking, which is why this "
@@ -602,7 +602,7 @@ register(
             "steady-state balance in qpsim/phonon_models/ph0_local.py are "
             "separate implementations of the same term and are untested here — "
             "and run_transient_0d publishes no phonon arrays at all, which is "
-            "why this benchmark lives in spatial_2d.\n"
+            "why this benchmark lives in kinetics.\n"
             "THE POPULATIONS ARE PHYSICALLY TINY. n_bath runs 1.9e-19 down to "
             "9.9e-73 over the scored bins, because pair-breaking phonons at "
             "100 mK are exponentially rare — which is exactly why f stays frozen "

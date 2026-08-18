@@ -89,7 +89,7 @@ _SEED_EXPRESSION = (
 )
 
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material": {
         # Delta_0 is a GRID ANCHOR and the outer loop's starting guess, not
         # physics: the closure fixes the pairing scale from T_c alone, and this
@@ -406,7 +406,7 @@ register(Benchmark(
         "bit-identical to the engine's scipy-quad value, which is the one "
         "number the two sides must share for the comparison to mean anything."
     ),
-    modes=("spatial_2d",),
+    modes=("kinetics",),
     build=_build,
     caveat=(
         "IT DOES NOT CONSTRAIN THE DEBYE CUTOFF. The original derivation "

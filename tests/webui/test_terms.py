@@ -36,7 +36,7 @@ import pytest
 pytest.importorskip("pydantic", reason="term tests need the qpsim[ui] extra")
 
 from qpsim.webui import execute
-from qpsim.webui.schemas import Spatial2DSetup
+from qpsim.webui.schemas import KineticsSetup
 from qpsim.webui.terms import ABSENT, OFF, ON, term_status
 
 # One grid on which every flip below is a LEGAL setup, so the test measures
@@ -55,13 +55,13 @@ _OMEGA_PB = 365.625         # 65 * dE, above 2*Delta
 _TOLERANCE = 1e-12
 
 
-def _base(rows: int = 2, cols: int = 3) -> Spatial2DSetup:
+def _base(rows: int = 2, cols: int = 3) -> KineticsSetup:
     """A setup where every term has something to act on.
 
     The excess and the gradient are the load-bearing part: without them the
     'on' assertions pass vacuously for terms that are genuinely inert.
     """
-    setup = Spatial2DSetup()
+    setup = KineticsSetup()
     setup.T_bath = 0.2
     setup.grid.num_bins = _BINS
     setup.grid.min_factor = _MIN_FACTOR
@@ -88,7 +88,7 @@ def _base(rows: int = 2, cols: int = 3) -> Spatial2DSetup:
     return setup
 
 
-def _with_live_phonons(setup: Spatial2DSetup) -> Spatial2DSetup:
+def _with_live_phonons(setup: KineticsSetup) -> KineticsSetup:
     setup.phonons.mode = "dynamic_escape"
     # Away from the bath, or escape starts at its own fixed point and the
     # whole phonon sector looks inert.
@@ -97,7 +97,7 @@ def _with_live_phonons(setup: Spatial2DSetup) -> Spatial2DSetup:
     return setup
 
 
-def _observable(setup: Spatial2DSetup) -> dict[str, np.ndarray]:
+def _observable(setup: KineticsSetup) -> dict[str, np.ndarray]:
     """Everything a term could move: the quasiparticles AND the phonons."""
     payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
     out = {"f": np.asarray(payload.arrays["f_final"], dtype=float)}
@@ -119,9 +119,9 @@ def _change(before: dict[str, np.ndarray], after: dict[str, np.ndarray]) -> floa
     return worst
 
 
-def _flip(setup: Spatial2DSetup, term: str) -> Spatial2DSetup:
+def _flip(setup: KineticsSetup, term: str) -> KineticsSetup:
     """Toggle one term the way the interface's own control does."""
-    clone = Spatial2DSetup.model_validate(setup.model_dump())
+    clone = KineticsSetup.model_validate(setup.model_dump())
     collisions, drives = clone.collisions, clone
     if term == "diff":
         clone.material.D_0 = 0.0 if clone.material.D_0 > 0 else 6.0

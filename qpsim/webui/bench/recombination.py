@@ -66,7 +66,7 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.webui.benchmarks import Benchmark, Curve, register
 
 # The case this benchmark is written for, as web-schema override paths. Every
-# field below is reachable through Spatial2DSetup today; the run in
+# field below is reachable through KineticsSetup today; the run in
 # ``convergence`` was produced by validating exactly this dict and handing it
 # to qpsim.webui.execute.execute_setup.
 #
@@ -108,12 +108,12 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #     an integration endpoint (measured: max |t/dt - round(t/dt)| = 0.0). No
 #     dense output is interpolated into the comparison.
 #   phonon_scattering_source / phonon_recombination_source are pinned at their
-#     defaults for completeness only: run_spatial_2d does not forward them to
+#     defaults for completeness only: run_kinetics does not forward them to
 #     the backend, and with phonons.mode = "thermal_bath" there is no phonon
 #     equation for them to remove a term from. They are inert here in two
 #     independent ways, and the case says so rather than leaving them unstated.
 CASE_OVERRIDES: dict[str, Any] = {
-    "mode": "spatial_2d",
+    "mode": "kinetics",
     "material.name": "Al",
     "material.Delta_0": 180.0,
     "material.T_c": 1.18,
@@ -539,7 +539,7 @@ register(Benchmark(
         "For scale, the gate rejects a rate error above about 0.005%: perturbing "
         "R_x by 0.01% moves the curve 9.8868e-05 = 2.0x the gate."
     ),
-    modes=("spatial_2d",),
+    modes=("kinetics",),
     build=_build,
     caveat=(
         "WHAT THIS DOES NOT PROVE.\n"

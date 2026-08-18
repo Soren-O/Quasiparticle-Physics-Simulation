@@ -25,7 +25,13 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from qpsim.materials import load_material
 from qpsim.materials.database import validate_rho_F_eV
@@ -664,17 +670,21 @@ class Injection2D(StrictModel):
     where: Literal["left_edge", "uniform", "centre_cell"] = "left_edge"
 
 
-class Spatial2DSetup(StrictModel):
-    """Kinetics on a 2-D geometry, driven to steady state.
+class KineticsSetup(StrictModel):
+    """Quasiparticle kinetics on a geometry, driven to steady state.
 
-    One backend serves every dimensionality, so this mode also covers the
-    1-D and 0-D reductions by choosing the mask's extent.
+    Deliberately NOT named for a dimensionality. The geometry is a mask, so a
+    single cell is 0-D, a one-cell-wide mask is a 1-D strip, and anything else
+    is 2-D — configurations of one model rather than separate ones. The former
+    name ``spatial_2d`` described the mask's maximum rank rather than the
+    physics, and stopped being true the moment the 0-D and 1-D modes reduced
+    onto this one.
 
     Spatial transport requires a pure-BCS spectral context; the builder
     rejects ``dynes_gamma > 0`` here, as the engine does.
     """
 
-    mode: Literal["spatial_2d"] = "spatial_2d"
+    mode: Literal["kinetics"] = "kinetics"
     material: MaterialParams = MaterialParams()
     T_bath: Annotated[float, Field(gt=0.0)] = 0.1
     grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=48)
@@ -713,7 +723,7 @@ class Spatial2DSetup(StrictModel):
     snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
 
     @model_validator(mode="after")
-    def snapshot_interval_not_pathological(self) -> Spatial2DSetup:
+    def snapshot_interval_not_pathological(self) -> KineticsSetup:
         _reject_dense_snapshots(self.snapshot_interval, self.max_time)
         return self
 
@@ -722,9 +732,30 @@ AnySetup = (
     SteadyState0DSetup
     | Transient0DSetup
     | Spatial1DSetup
-    | Spatial2DSetup
+    | KineticsSetup
     | M25JunctionSetup
 )
+
+
+# Retired mode names, and what each is now. A stored setup and a run manifest
+# both name their mode as a plain string, so every one already on disk still
+# says the old name -- without this map, renaming a mode does not date saved
+# work, it makes it UNLOADABLE. Entries are permanent: the cost of keeping one
+# is a dict line, and the cost of dropping one is somebody's saved device.
+LEGACY_MODE_ALIASES: dict[str, str] = {
+    "spatial_2d": "kinetics",
+}
+
+
+def canonical_mode(mode: str) -> str:
+    """The current name for a possibly-retired mode string.
+
+    Used everywhere a BARE mode string arrives rather than a whole setup --
+    ``/api/defaults/{mode}``, manifest listings — because those never pass
+    through :class:`SetupEnvelope` and would otherwise 404 on a name the
+    envelope accepts happily.
+    """
+    return LEGACY_MODE_ALIASES.get(mode, mode)
 
 
 class SetupEnvelope(StrictModel):
@@ -732,6 +763,24 @@ class SetupEnvelope(StrictModel):
 
     name: str = "Untitled setup"
     setup: AnySetup = Field(discriminator="mode")
+
+    @field_validator("setup", mode="before")
+    @classmethod
+    def _upgrade_retired_mode(cls, value: object) -> object:
+        """Rewrite a retired mode name before the discriminator sees it.
+
+        Has to be ``mode="before"``: the union is discriminated ON ``mode``, so
+        by the time a validator could run on the parsed model the parse has
+        already failed. Copies rather than mutating -- the caller's dict is
+        often the raw request body or a just-read JSON file, and rewriting it
+        in place would make the on-disk name depend on whether anything
+        happened to load it.
+        """
+        if isinstance(value, dict):
+            mode = value.get("mode")
+            if isinstance(mode, str) and mode in LEGACY_MODE_ALIASES:
+                return {**value, "mode": LEGACY_MODE_ALIASES[mode]}
+        return value
     # Name of an analytic benchmark to check this run against
     # (:mod:`qpsim.webui.benchmarks`). It lives on the envelope rather than
     # inside the setup because it is an assertion ABOUT the run, not part of
@@ -747,7 +796,7 @@ MODE_LABELS: dict[str, str] = {
     "steady_state_0d": "0-D steady state",
     "transient_0d": "0-D transient",
     "spatial_1d": "1D strip",
-    "spatial_2d": "2D geometry",
+    "kinetics": "Kinetics (any geometry)",
     "m25_junction": "M25 junction",
 }
 
@@ -757,13 +806,13 @@ MODE_CLASSES: dict[
         SteadyState0DSetup
         | Transient0DSetup
         | Spatial1DSetup
-        | Spatial2DSetup
+        | KineticsSetup
         | M25JunctionSetup
     ],
 ] = {
     "steady_state_0d": SteadyState0DSetup,
     "transient_0d": Transient0DSetup,
     "spatial_1d": Spatial1DSetup,
-    "spatial_2d": Spatial2DSetup,
+    "kinetics": KineticsSetup,
     "m25_junction": M25JunctionSetup,
 }

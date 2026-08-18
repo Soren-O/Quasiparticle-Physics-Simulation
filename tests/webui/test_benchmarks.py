@@ -175,8 +175,8 @@ def test_wrong_mode_notes_rather_than_scoring_nonsense() -> None:
                modes=("transient_0d",))
     )
     summary: dict[str, Any] = {}
-    notes = benchmarks.attach("b", _Setup("spatial_2d"), {}, summary)
-    assert notes and "not to 'spatial_2d'" in notes[0]
+    notes = benchmarks.attach("b", _Setup("kinetics"), {}, summary)
+    assert notes and "not to 'kinetics'" in notes[0]
     assert "benchmark" not in summary
 
 
@@ -277,8 +277,8 @@ class TestPrescribedFieldsReachTheRun:
 
     @staticmethod
     def _base():
-        from qpsim.webui.schemas import Spatial2DSetup
-        setup = Spatial2DSetup()
+        from qpsim.webui.schemas import KineticsSetup
+        setup = KineticsSetup()
         setup.T_bath = 0.2
         setup.grid.num_bins = 24
         setup.geometry.rows, setup.geometry.cols = 5, 5
