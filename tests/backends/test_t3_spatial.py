@@ -376,6 +376,112 @@ class TestPhononPopulationSurvivesAGapChange:
         assert not np.array_equal(rebuilt.n_ph, collisions.n_ph)
 
 
+class TestThePhononAdvanceIsSymmetric:
+    """The composed step must be second order WITH the phonon sector live.
+
+    The transport wrap was already symmetric -- T(dt/2), collisions, T(dt/2) --
+    but the phonon advance inside it ran once, after the collision sub-step, at
+    the new ``f``. That is a Lie composition, and a step is only as accurate as
+    its weakest factor, so the outer symmetry bought nothing the moment the
+    phonons were solved rather than held at the bath.
+
+    Both sub-flows are already exact for their own frozen-coefficient problems
+    (``advance_phonons`` integrates an affine ODE in closed form, ETD2 advances
+    ``f``), so the entire error lives in the ORDER they are composed in, and
+    the fix is a reordering rather than an added stage.
+    """
+
+    @staticmethod
+    def _backend_and_state(bins: int = 24):
+        from qpsim.webui.builders import build_state_2d
+        from qpsim.webui.schemas import Spatial2DSetup
+        setup = Spatial2DSetup()
+        setup.T_bath = 0.2
+        setup.grid.num_bins = bins
+        setup.geometry.rows, setup.geometry.cols = 2, 3
+        setup.phonons.mode = "dynamic_escape"
+        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        return backend, build_state_2d(setup)
+
+    def test_one_step_advances_the_phonons_in_two_halves(self):
+        """Pins the composition directly, so a regression names itself.
+
+        Structural rather than numerical: it fails on the reordering itself,
+        not on a tolerance, and it cannot be satisfied by an advance that runs
+        once for the whole step no matter how small the resulting error is.
+        """
+        from qpsim.collisions.spatial import SpatialCollisions
+        backend, state = self._backend_and_state()
+        assert backend._collisions_for(state).n_ph is not None, (
+            "phonons frozen -- the test is inert"
+        )
+
+        seen: list[float] = []
+        original = SpatialCollisions.advance_phonons
+
+        def spy(self, f, dt):
+            seen.append(float(dt))
+            return original(self, f, dt)
+
+        SpatialCollisions.advance_phonons = spy
+        try:
+            backend.step(state, 0.1)
+        finally:
+            SpatialCollisions.advance_phonons = original
+
+        assert seen == [0.05, 0.05], (
+            f"expected two half advances, got {seen} -- an unsymmetric phonon "
+            "composition drops the whole step to first order"
+        )
+
+    def test_halving_the_step_quarters_the_error(self):
+        """Second order, measured against the same integrator at dt/64.
+
+        The reference is this backend at a far smaller step, so what is
+        measured is the SPLITTING error alone -- not the accuracy of either
+        sub-flow, both of which are exact for their frozen sub-problem.
+        """
+        T = 0.2
+
+        def evolve(dt: float):
+            backend, state = self._backend_and_state()
+            collisions = backend._collisions_for(state)
+            # Seed away from the bath: at the phonon flow's own fixed point
+            # every composition of it agrees, and the test would pass on a
+            # sector that never moved.
+            collisions.n_ph = collisions.n_ph + 2.0e-3
+            seed = collisions.n_ph.copy()
+            n = int(round(T / dt))
+            s = state
+            for _ in range(n):
+                s = backend.step(s, dt)
+            final = backend._collisions_for(s).n_ph.copy()
+            assert np.max(np.abs(final - seed)) > 1e-9, (
+                "the phonon population never moved -- the measurement is inert"
+            )
+            return s.f.copy(), final
+
+        ref_f, ref_n = evolve(T / 64.0)
+        errors = []
+        for steps in (4, 8):
+            f, n_ph = evolve(T / steps)
+            errors.append((
+                float(np.max(np.abs(f - ref_f))),
+                float(np.max(np.abs(n_ph - ref_n))),
+            ))
+        (coarse_f, coarse_n), (fine_f, fine_n) = errors
+
+        # Second order gives 4; the Lie arrangement this replaced measures 2.1
+        # on the same problem, so the two are separated by a wide margin and
+        # the bound does not need to be tight.
+        assert coarse_f / fine_f > 3.4, (
+            f"f converged at ratio {coarse_f / fine_f:.2f}, not ~4"
+        )
+        assert coarse_n / fine_n > 3.4, (
+            f"n_ph converged at ratio {coarse_n / fine_n:.2f}, not ~4"
+        )
+
+
 class TestRecordedFrames:
     """A spatial run has to be observable on the way, not only at the end.
 

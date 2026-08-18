@@ -1794,14 +1794,18 @@ const PHYSICS_SOLVERS = [
   ["", "<b>Phonons — exponential Euler, and it is EXACT.</b> The phonon equation is "
      + "linear in n at frozen f, so a one-stage exponential step is the exact flow "
      + "of that sub-problem. A second stage could not improve on it."],
-  ["", "<b>Composition.</b> Transport half-step, collisions, transport half-step. "
-     + "Because both sub-flows are exact for their own frozen-coefficient problem, "
-     + "ALL remaining time-integration error lives in this composition rather than "
-     + "in either integrator."],
-  ["bad", "<b>Known, being corrected:</b> the 0-D transient advances the phonons "
-     + "symmetrically about the quasiparticle step, which is second order; the "
-     + "spatial engine advances them once afterwards, which is first order. The two "
-     + "are not equivalent, and the spatial docstring currently claims they are."],
+  ["", "<b>Composition.</b> Symmetric throughout, phonons included: "
+     + "<span class=\"eq\">T(½dt) · P(½dt) · C(dt) · P(½dt) · T(½dt)</span> — "
+     + "half a transport step, half a phonon advance, the quasiparticle step, "
+     + "then the mirror image. Because both sub-flows are exact for their own "
+     + "frozen-coefficient problem, ALL remaining time-integration error lives in "
+     + "this composition rather than in either integrator."],
+  ["derived", "That symmetry is the whole accuracy of the scheme, and it is fragile: "
+     + "a step is only as accurate as its weakest factor, so advancing the phonons "
+     + "ONCE per step rather than in two halves drops the entire scheme to first "
+     + "order no matter how exact the pieces are. The spatial engine did exactly "
+     + "that until it was corrected; measured on a driven 2×3 mesh, halving dt then "
+     + "cut the error by 2.1× where the symmetric composition cuts it by 4.0×."],
   ["", "<b>Steady state.</b> Three routes: Newton on f with the phonons pinned at the "
      + "bath; Picard over n with an inner Newton on f, optionally Anderson-accelerated; "
      + "or a coupled Newton on (f, n) together. They should agree, and where they do "

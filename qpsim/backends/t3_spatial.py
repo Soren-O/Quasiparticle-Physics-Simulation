@@ -10,6 +10,14 @@ matching the 1-D backend it generalises:
 
     transport(dt/2) -> collisions(dt) -> transport(dt/2)
 
+With a solved phonon sector the advance is symmetric there too, so the full
+composition is
+
+    T(dt/2) -> P(dt/2) -> C(dt) -> P(dt/2) -> T(dt/2)
+
+which is what makes the whole step second order rather than merely the
+transport wrap around a first-order interior. See :meth:`T3SpatialBackend.step`.
+
 ``qpsim/backends/t3_spatial_1d.py`` stays in the tree until this is
 benchmark-certified. A one-cell-wide geometry here must reproduce it; that is
 the acceptance gate, and it is sharper than any single analytic check because
@@ -418,17 +426,42 @@ class T3SpatialBackend:
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
     ) -> T3SpatialState:
-        """Symmetric split step: transport/2, collisions+source, transport/2.
+        """Symmetric split step, phonons included:
 
-        A live phonon population advances after the collision half, at the new
-        ``f`` -- the same Lie arrangement the 0-D transient uses, one level out.
+            T(dt/2) . [ P(dt/2) . C(dt) . P(dt/2) ] . T(dt/2)
+
+        The transport wrap was already symmetric; the phonon advance inside it
+        was not. It ran ONCE, after the collision sub-step, at the new ``f`` --
+        a Lie composition, first order, sitting inside an otherwise
+        second-order step. The order of the whole step is the order of its
+        weakest factor, so the outer symmetry bought nothing: halving dt halved
+        the error instead of quartering it, and the docstring claimed parity
+        with the 0-D transient that this backend is supposed to reduce to.
+
+        The 0-D transient (``t3_diffusion.py``) has always been symmetric here
+        -- half a phonon step at the incoming ``f``, the ``f`` sub-step against
+        those frozen matrices, half a phonon step at the outgoing ``f``. This
+        is that same arrangement, so the two backends now compose the same
+        operators in the same order and the 1x1 reduction is exact rather than
+        approximate.
+
+        It is a REORDERING, not an added stage: the same two flows are already
+        exact for their own frozen-coefficient sub-problems (``advance_phonons``
+        solves an affine ODE in closed form, ETD2 advances ``f``), and the cost
+        is unchanged -- two half phonon advances instead of one whole one.
         """
         s = self.apply_transport(state, 0.5 * dt)
+        # Cached on a signature that does not include f, so both halves address
+        # the SAME collision layer and advance the SAME n_ph array in place.
+        # The gap cannot move inside a step, so no rebuild can intervene.
+        phonons_live = self.phonon_escape_time is not None
+        if phonons_live:
+            self._collisions_for(s).advance_phonons(s.f, 0.5 * dt)
         s = self.apply_collisions(
             s, dt, external_gain=external_gain, external_loss=external_loss,
         )
-        if self.phonon_escape_time is not None:
-            self._collisions_for(s).advance_phonons(s.f, dt)
+        if phonons_live:
+            self._collisions_for(s).advance_phonons(s.f, 0.5 * dt)
         return self.apply_transport(s, 0.5 * dt)
 
     # -- residual and stepping loop ---------------------------------------

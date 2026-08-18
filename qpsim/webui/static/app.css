@@ -538,6 +538,10 @@ ul.cons .mk { flex: none; width: 15px; height: 2px; border-radius: 2px;
   background: var(--muted); position: relative; top: -.35em; }
 ul.cons li.bad { color: var(--critical); }
 ul.cons li.bad .mk { background: var(--critical); }
+/* Inline, unlike .ex-formula: an operator composition read mid-sentence, not a
+   display equation. Kept off .ex-formula deliberately -- that one is a block
+   and would break the bullet in half. */
+ul.cons .eq { font-family: var(--math); white-space: nowrap; }
 
 /* ---- analytic expectation verdict ---- */
 .expectation {
