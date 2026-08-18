@@ -805,6 +805,33 @@ def run_kinetics(
         "x_qp_max": float(np.max(profile)),
         "x_qp_min": float(np.min(profile)),
     })
+    # The probe is part of THIS mode's model, so it has to act here or say why
+    # not. Leaving it silently unread would be a switch the interface shows and
+    # the engine ignores, which is the defect this repo keeps finding -- and it
+    # would be a fresh instance, since `probe` only reached this mode when the
+    # 0-D setups merged into it.
+    if setup.probe.enabled:
+        if geometry.cell_count == 1:
+            _mb_observables(
+                payload.summary, payload.notes, final.f[:, 0],
+                fermi_dirac_distribution(final.spectral.E, setup.T_bath),
+                final.spectral, setup.probe,
+            )
+        else:
+            # NOT averaged silently. sigma(f) is nonlinear and the cells can
+            # carry different local gaps, so mean-of-sigma, sigma-of-mean-f and
+            # a per-cell field are three different physical claims about one
+            # device, and picking one here would publish a convention nobody
+            # chose. Kaplan/Mattis-Bardeen as used in this repo is a 0-D
+            # statement about a uniform film.
+            payload.notes.append(
+                f"Mattis-Bardeen probe skipped: this geometry has "
+                f"{geometry.cell_count} cells and sigma(f) is nonlinear, so "
+                "there is no single sigma for a device with a spatially "
+                "varying f -- mean-of-sigma, sigma-of-mean-f and a per-cell "
+                "field are different claims. Run the probe on a single-cell "
+                "mask, where the quantity is well defined."
+            )
     if not converged:
         payload.notes.append(
             f"Did not reach stop_tol={setup.stop_tol:g} within "

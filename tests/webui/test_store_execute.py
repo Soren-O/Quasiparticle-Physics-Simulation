@@ -346,6 +346,59 @@ class TestSteadyStateStrategyReducesToTheZeroDMode:
             KineticsSetup(solver=SolverOptions(self_consistent_gap=True))
 
 
+class TestTheProbeActsOrSaysWhyNot:
+    """`probe` reached this mode with the 0-D merge, so it must not sit inert.
+
+    A field the interface shows and the engine ignores is the defect this repo
+    keeps finding. It is live under strategy='steady_state' because that route
+    is the 0-D executor; this pins the time-march route as well.
+    """
+
+    @staticmethod
+    def _run(rows: int, cols: int):
+        setup = KineticsSetup()
+        setup.grid.num_bins = 24
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 5.0, 0.0
+        setup.geometry.rows, setup.geometry.cols = rows, cols
+        setup.probe.enabled = True
+        return execute_setup(setup, _noop_progress, _never)
+
+    def test_a_single_cell_gets_the_observables(self) -> None:
+        summary = self._run(1, 1).summary
+        assert "sigma1_over_sigmaN" in summary
+        assert "sigma2_over_sigmaN" in summary
+        assert summary["Q_i"] != 0.0
+
+    def test_a_multi_cell_device_is_told_why_it_cannot(self) -> None:
+        """Silence would be the defect; a wrong average would be worse.
+
+        sigma(f) is nonlinear and cells can carry different local gaps, so
+        mean-of-sigma, sigma-of-mean-f and a per-cell field are three different
+        physical claims. Picking one here would publish a convention nobody
+        chose.
+        """
+        payload = self._run(2, 3)
+        assert not [k for k in payload.summary if "sigma" in k or k.startswith("Q_")]
+        assert any("Mattis-Bardeen probe skipped" in n for n in payload.notes)
+
+    def test_the_probe_is_off_by_default_in_this_mode(self) -> None:
+        """A merge must not change the payload of setups that predate it.
+
+        The probe defaults ON in the 0-D modes, which are about the probe. It
+        arrived here with the merge, so defaulting it on would silently add
+        summary keys to every single-cell setup and a 'skipped' note to every
+        multi-cell one, neither of which asked for a probe.
+        """
+        setup = KineticsSetup()
+        assert setup.probe.enabled is False
+        setup.grid.num_bins = 24
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 5.0, 0.0
+        setup.geometry.rows = setup.geometry.cols = 1
+        payload = execute_setup(setup, _noop_progress, _never)
+        assert not [k for k in payload.summary if "sigma" in k]
+        assert not any("Mattis-Bardeen" in n for n in payload.notes)
+
+
 class TestTransient0DExecutor:
     def test_short_relaxation_run(self) -> None:
         setup = Transient0DSetup()

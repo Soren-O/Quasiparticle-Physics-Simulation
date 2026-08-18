@@ -734,7 +734,13 @@ class KineticsSetup(StrictModel):
     # to stop_tol, which is what "time_march" does.
     strategy: Literal["time_march", "steady_state"] = "time_march"
     solver: SolverOptions = SolverOptions()
-    probe: ProbeConfig = ProbeConfig()
+    # OFF by default here, unlike the 0-D modes where it defaults on. The probe
+    # arrived in this mode with the merge, and defaulting it on would change
+    # the payload of every setup that predates it -- new summary keys on a
+    # single cell, a "skipped" note on every multi-cell device that never asked
+    # for a probe. A merge should not move numbers for setups that did not opt
+    # into anything; the migrated 0-D cases turn it on explicitly.
+    probe: ProbeConfig = ProbeConfig(enabled=False)
 
     @model_validator(mode="after")
     def snapshot_interval_not_pathological(self) -> KineticsSetup:
