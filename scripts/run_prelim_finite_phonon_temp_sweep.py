@@ -15,7 +15,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.geometries import strip
+from qpsim.backends.t3_spatial import T3SpatialState
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
@@ -44,7 +45,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state_at_temperature(T_bath_K: float) -> T3Spatial1DState:
+def _build_state_at_temperature(T_bath_K: float) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -59,12 +60,14 @@ def _build_state_at_temperature(T_bath_K: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=CONFIG.D0_values[0],
     )
-    x, _dx_um = _cell_centered_strip_grid(CONFIG.NX)
+    x, dx_um = _cell_centered_strip_grid(CONFIG.NX)
     f0 = np.repeat(_fermi_dirac(E, T_bath_K)[:, None], CONFIG.NX, axis=1)
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            int(np.asarray(x).size),
+            mesh_size=float(dx_um),
+        ),
         spectral=spectral,
         material=material,
         T_bath=T_bath_K,

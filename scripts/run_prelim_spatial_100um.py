@@ -25,7 +25,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState, T3SpatialFlux1D
+from qpsim.geometries import strip
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
 from qpsim.constants import HBAR_UEV_NS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -33,7 +34,7 @@ from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
-from scripts.run_prelim_spatial_overnight import _cell_centered_strip_grid
+from scripts.run_prelim_spatial_overnight import _cell_centered_strip_grid, strip_coordinates
 
 
 OUT_DIR = ROOT / "outputs" / "prelim_spatial_100um"
@@ -66,7 +67,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state(D0: float) -> T3Spatial1DState:
+def _build_state(D0: float) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -81,19 +82,21 @@ def _build_state(D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x, _dx_um = _cell_centered_strip_grid(NX, length_um=LENGTH_UM)
+    x, dx_um = _cell_centered_strip_grid(NX, length_um=LENGTH_UM)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], NX, axis=1)
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            int(np.asarray(x).size),
+            mesh_size=float(dx_um),
+        ),
         spectral=spectral,
         material=material,
         T_bath=T_BATH_K,
     )
 
 
-def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
+def _source_flux(state: T3SpatialState) -> StripFlux:
     center = SOURCE_CENTER_FACTOR * state.gap
     sigma = SOURCE_SIGMA_FACTOR * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
@@ -107,7 +110,7 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
 
     gain = np.zeros_like(state.f)
     gain[:, 0] = gain_spectrum
-    return T3SpatialFlux1D(
+    return StripFlux(
         gain=gain,
         loss_rate=np.zeros_like(gain),
         diagnostics={
@@ -118,30 +121,30 @@ def _source_flux(state: T3Spatial1DState) -> T3SpatialFlux1D:
     )
 
 
-def _xqp_profile(state: T3Spatial1DState) -> np.ndarray:
+def _xqp_profile(state: T3SpatialState) -> np.ndarray:
     spectral_weights = bcs_dos_cell_weights(
         state.spectral.E, state.spectral.dE, state.gap,
     )
     return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
-def _mean_f(state: T3Spatial1DState) -> np.ndarray:
+def _mean_f(state: T3SpatialState) -> np.ndarray:
     return np.mean(state.f, axis=1)
 
 
 def _observables(f_ref: np.ndarray) -> dict[str, object]:
     probe_energy = HBAR_UEV_NS * 2.0 * np.pi * RESONATOR_FREQUENCY_GHZ
 
-    def xqp_mean(state: T3Spatial1DState) -> float:
+    def xqp_mean(state: T3SpatialState) -> float:
         return float(np.mean(_xqp_profile(state)))
 
-    def xqp_source(state: T3Spatial1DState) -> float:
+    def xqp_source(state: T3SpatialState) -> float:
         return float(_xqp_profile(state)[0])
 
-    def xqp_open_end(state: T3Spatial1DState) -> float:
+    def xqp_open_end(state: T3SpatialState) -> float:
         return float(_xqp_profile(state)[-1])
 
-    def qi_uniform_weight(state: T3Spatial1DState) -> float:
+    def qi_uniform_weight(state: T3SpatialState) -> float:
         return compute_quality_factor(
             _mean_f(state),
             state.spectral,
@@ -150,7 +153,7 @@ def _observables(f_ref: np.ndarray) -> dict[str, object]:
             n_subgap=200,
         )
 
-    def frac_freq_shift_uniform_weight(state: T3Spatial1DState) -> float:
+    def frac_freq_shift_uniform_weight(state: T3SpatialState) -> float:
         return compute_frequency_shift(
             _mean_f(state),
             f_ref,
@@ -191,12 +194,12 @@ def _write_trace(path: Path, snapshots: list[object]) -> None:
             writer.writerow(row)
 
 
-def _write_profile(path: Path, state: T3Spatial1DState) -> None:
+def _write_profile(path: Path, state: T3SpatialState) -> None:
     profile = _xqp_profile(state)
     with path.open("w", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=["x_um", "xqp"])
         writer.writeheader()
-        for x_um, xqp in zip(state.x, profile, strict=True):
+        for x_um, xqp in zip(strip_coordinates(state), profile, strict=True):
             writer.writerow({"x_um": float(x_um), "xqp": float(xqp)})
 
 
@@ -209,8 +212,8 @@ def main() -> None:
         state = _build_state(D0)
         f_ref = _mean_f(state)
         flux = _source_flux(state)
-        backend = T3Spatial1DBackend()
-        dx_um = state.dx
+        backend = T3SpatialBackend()
+        dx_um = state.geometry.mesh_size
         dt = min(DT_NS, CFL_TARGET * dx_um * dx_um / D0)
         print(f"  dt={dt:g} ns (diffusion number {D0 * dt / dx_um**2:.1f})", flush=True)
         result = backend.run_until_steady_state(

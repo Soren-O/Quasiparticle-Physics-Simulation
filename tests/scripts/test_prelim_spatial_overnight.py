@@ -7,6 +7,7 @@ import pytest
 import scripts.run_prelim_readout_heating_overnight as readout
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from scripts.run_prelim_spatial_overnight import (
+    strip_coordinates,
     AL_STRIP_THICKNESS_UM,
     AL_STRIP_WIDTH_UM,
     CALIBRATED_CONFIG,
@@ -85,12 +86,14 @@ def test_spatial_and_readout_campaigns_share_cell_center_grid() -> None:
         D0=readout_config.D0_values[0],
     )
 
-    np.testing.assert_array_equal(spatial_state.x, expected_x)
-    np.testing.assert_array_equal(readout_state.x, readout_x)
-    assert spatial_state.dx == pytest.approx(expected_dx)
-    assert readout_state.dx == pytest.approx(readout_dx)
-    assert spatial_state.cell_widths.sum() == pytest.approx(LENGTH_UM)
-    assert readout_state.cell_widths.sum() == pytest.approx(LENGTH_UM)
+    np.testing.assert_array_equal(strip_coordinates(spatial_state), expected_x)
+    np.testing.assert_array_equal(strip_coordinates(readout_state), readout_x)
+    assert spatial_state.geometry.mesh_size == pytest.approx(expected_dx)
+    assert readout_state.geometry.mesh_size == pytest.approx(readout_dx)
+    # One mesh size times the cell count IS the strip length; the retired
+    # state summed a per-cell width array for the same statement.
+    assert spatial_state.geometry.mesh_size * spatial_state.f.shape[1] == pytest.approx(LENGTH_UM)
+    assert readout_state.geometry.mesh_size * readout_state.f.shape[1] == pytest.approx(LENGTH_UM)
 
 
 class TestAggregateHeaderGuard:

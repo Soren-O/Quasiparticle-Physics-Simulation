@@ -30,7 +30,7 @@ import tempfile
 import time
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import pairwise, product
 from pathlib import Path
@@ -42,12 +42,12 @@ import scipy
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import (
+from qpsim.backends.t3_spatial import (
     SpatialSnapshot,
-    T3Spatial1DBackend,
-    T3Spatial1DState,
-    T3SpatialFlux1D,
+    T3SpatialBackend,
+    T3SpatialState,
 )
+from qpsim.geometries import strip
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import (
     AL_STRIP_LENGTH_UM,
@@ -297,6 +297,55 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
+@dataclass
+class StripFlux:
+    """External source/sink for ``f(E, cell)`` on a campaign strip.
+
+    Lives here rather than in the engine because the unified backend's API is
+    two plain arrays -- ``external_gain`` and ``external_loss`` -- and this is
+    a caller-side convenience that bundles them with the diagnostics these
+    campaigns report. Carried over from the retired backend's StripFlux,
+    validation included: extraction must be encoded as ``loss_rate * f`` rather
+    than negative gain, matching qpsim.devices.external_flux.ExternalFlux.
+    """
+
+    gain: np.ndarray
+    loss_rate: np.ndarray
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+    @classmethod
+    def zero(cls, n_energy: int, n_cells: int) -> "StripFlux":
+        """A source that does nothing, for the no-drive control run."""
+        shape = (int(n_energy), int(n_cells))
+        return cls(gain=np.zeros(shape), loss_rate=np.zeros(shape))
+
+    def __post_init__(self) -> None:
+        if np.iscomplexobj(self.gain) or np.iscomplexobj(self.loss_rate):
+            raise ValueError("gain and loss_rate must be real-valued.")
+        gain = np.asarray(self.gain, dtype=float)
+        loss = np.asarray(self.loss_rate, dtype=float)
+        if gain.ndim != 2 or loss.shape != gain.shape:
+            raise ValueError(
+                f"gain and loss_rate must both have shape (NE, Ncells); got "
+                f"{gain.shape} and {loss.shape}."
+            )
+        if np.any(gain < 0.0):
+            raise ValueError("gain must be non-negative; encode removal as loss_rate.")
+        self.gain, self.loss_rate = gain, loss
+
+
+def strip_coordinates(state: T3SpatialState) -> np.ndarray:
+    """Cell centres of a one-row mask, in um.
+
+    The retired 1-D state carried an explicit ``x`` array; the unified state
+    carries a mask and one mesh size, which is the SAME measure -- equal-volume
+    cells at (i + 1/2) h -- stated once instead of sampled. Derived here rather
+    than stored so it cannot drift from the geometry the solver actually used.
+    """
+    n = int(state.f.shape[1])
+    return (np.arange(n, dtype=float) + 0.5) * float(state.geometry.mesh_size)
+
+
 def _cell_centered_strip_grid(
     num_cells: int,
     *,
@@ -325,22 +374,26 @@ def _cell_centered_strip_grid(
     return centers, dx_um
 
 
-def _campaign_cell_widths(state: T3Spatial1DState) -> np.ndarray:
+def _campaign_cell_widths(state: T3SpatialState) -> np.ndarray:
     """Return the campaign cell measure, rejecting a geometry mismatch."""
-    expected_x, expected_dx = _cell_centered_strip_grid(state.x.size)
+    expected_x, expected_dx = _cell_centered_strip_grid(state.f.shape[1])
     position_tol = 64.0 * np.finfo(float).eps * max(1.0, LENGTH_UM)
-    if not np.allclose(state.x, expected_x, rtol=0.0, atol=position_tol):
+    if not np.allclose(strip_coordinates(state), expected_x, rtol=0.0, atol=position_tol):
         raise ValueError(
-            "Prelim campaign state.x must contain the configured strip's "
+            "Prelim campaign cell centres must match the configured strip's "
             "finite-volume cell centers."
         )
-    widths = np.asarray(state.cell_widths, dtype=float)
-    if not np.allclose(widths, expected_dx, rtol=0.0, atol=position_tol):
+    # The unified state carries ONE mesh size for a uniform mask instead of a
+    # per-cell width array. Rebuilding the array here keeps the campaign's
+    # trapezoidal observables reading a per-cell measure, and the check below
+    # is now on the single authoritative number rather than on N copies of it.
+    mesh = float(state.geometry.mesh_size)
+    if not np.isclose(mesh, expected_dx, rtol=0.0, atol=position_tol):
         raise ValueError("Prelim campaign state cell widths do not match LENGTH_UM/NX.")
-    return widths
+    return np.full(int(state.f.shape[1]), mesh, dtype=float)
 
 
-def _build_state(config: SweepConfig, D0: float) -> T3Spatial1DState:
+def _build_state(config: SweepConfig, D0: float) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -355,12 +408,11 @@ def _build_state(config: SweepConfig, D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x, _dx_um = _cell_centered_strip_grid(config.NX)
+    x, dx_um = _cell_centered_strip_grid(config.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], config.NX, axis=1)
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(int(x.size), mesh_size=float(dx_um)),
         spectral=spectral,
         material=material,
         T_bath=T_BATH_K,
@@ -368,12 +420,12 @@ def _build_state(config: SweepConfig, D0: float) -> T3Spatial1DState:
 
 
 def _source_flux(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     *,
     local_xqp_generation_rate_per_ns: float,
     center_delta: float,
     sigma_delta: float,
-) -> T3SpatialFlux1D:
+) -> StripFlux:
     center = center_delta * state.gap
     sigma = sigma_delta * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
@@ -387,7 +439,7 @@ def _source_flux(
 
     gain = np.zeros_like(state.f)
     gain[:, 0] = gain_spectrum
-    return T3SpatialFlux1D(
+    return StripFlux(
         gain=gain,
         loss_rate=np.zeros_like(gain),
         diagnostics={
@@ -426,29 +478,29 @@ def _source_calibration(
     }
 
 
-def _xqp_profile(state: T3Spatial1DState) -> np.ndarray:
+def _xqp_profile(state: T3SpatialState) -> np.ndarray:
     spectral_weights = bcs_dos_cell_weights(
         state.spectral.E, state.spectral.dE, state.gap,
     )
     return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
-def _mean_f(state: T3Spatial1DState) -> np.ndarray:
+def _mean_f(state: T3SpatialState) -> np.ndarray:
     return np.mean(state.f, axis=1)
 
 
-def _current_weights(state: T3Spatial1DState, resonator_length_um: float) -> np.ndarray:
+def _current_weights(state: T3SpatialState, resonator_length_um: float) -> np.ndarray:
     """Current-squared profile over the strip at the shorted end.
 
     Gao writes the modal weighting as ``sin^2(pi x / 2l)`` with ``x`` measured
     from the open end, so a strip coordinate ``s`` measured away from the short
     maps to ``cos^2(pi s / 2l)``.
     """
-    return current_squared_profile(state.x, resonator_length_um)
+    return current_squared_profile(strip_coordinates(state), resonator_length_um)
 
 
 def _current_weighted_f(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     resonator_length_um: float,
 ) -> tuple[np.ndarray, float]:
     weights = _current_weights(state, resonator_length_um)
@@ -467,7 +519,7 @@ def _current_weighted_f(
 
 
 def _current_weighted_xqp(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     resonator_length_um: float,
 ) -> float:
     weights = _current_weights(state, resonator_length_um)
@@ -477,14 +529,14 @@ def _current_weighted_xqp(
     return float(np.sum(profile * weights * cell_widths) / norm_um)
 
 
-def _trace_observables() -> dict[str, Callable[[T3Spatial1DState], float]]:
-    def xqp_mean(state: T3Spatial1DState) -> float:
+def _trace_observables() -> dict[str, Callable[[T3SpatialState], float]]:
+    def xqp_mean(state: T3SpatialState) -> float:
         return float(np.mean(_xqp_profile(state)))
 
-    def xqp_source(state: T3Spatial1DState) -> float:
+    def xqp_source(state: T3SpatialState) -> float:
         return float(_xqp_profile(state)[0])
 
-    def xqp_open_end(state: T3Spatial1DState) -> float:
+    def xqp_open_end(state: T3SpatialState) -> float:
         return float(_xqp_profile(state)[-1])
 
     return {
@@ -495,7 +547,7 @@ def _trace_observables() -> dict[str, Callable[[T3Spatial1DState], float]]:
 
 
 def _resonator_shifts(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     f_ref: np.ndarray,
 ) -> list[dict[str, float | str]]:
     f_uniform = _mean_f(state)
@@ -507,7 +559,7 @@ def _resonator_shifts(
         response = compute_current_weighted_ac_response(
             state.f,
             f_ref,
-            state.x,
+            strip_coordinates(state),
             state.spectral,
             omega_0=probe_energy,
             alpha=KINETIC_INDUCTANCE_FRACTION,
@@ -520,10 +572,9 @@ def _resonator_shifts(
 
         f_current_weighted, _ = _current_weighted_f(state, resonator_length_um=length_um)
         f_ref_current_weighted, _ = _current_weighted_f(
-            T3Spatial1DState(
-                f=np.repeat(f_ref[:, None], state.x.size, axis=1),
-                x=state.x,
-                gap=state.gap,
+            T3SpatialState(
+                f=np.repeat(f_ref[:, None], state.f.shape[1], axis=1),
+                geometry=state.geometry,
                 spectral=state.spectral,
                 material=state.material,
                 T_bath=state.T_bath,
@@ -932,7 +983,7 @@ def _write_trace(path: Path, snapshots: Sequence[SpatialSnapshot]) -> None:
     for snapshot_index, snap in enumerate(snapshots):
         t_ns = float(snap.t)
         max_rate = float(snap.max_rate)
-        # T3Spatial1DBackend uses +inf only for the unevaluated t=0 residual.
+        # T3SpatialBackend uses +inf only for the unevaluated t=0 residual.
         # Persist a finite sentinel so the artifact passes the same finite-data
         # checks used by resume.  No other non-finite value is legitimate.
         if t_ns == 0.0 and max_rate == math.inf:
@@ -994,11 +1045,11 @@ def _atomic_write_csv(
         raise
 
 
-def _write_profile(path: Path, state: T3Spatial1DState) -> None:
+def _write_profile(path: Path, state: T3SpatialState) -> None:
     profile = _xqp_profile(state)
     rows = [
         {"x_um": float(x_um), "xqp": float(xqp)}
-        for x_um, xqp in zip(state.x, profile, strict=True)
+        for x_um, xqp in zip(strip_coordinates(state), profile, strict=True)
     ]
     _atomic_write_csv(path, PROFILE_FIELDS, rows)
 
@@ -1878,7 +1929,7 @@ def _run_campaign(
                 center_delta=center_delta,
                 sigma_delta=sigma_delta,
             )
-            backend = T3Spatial1DBackend()
+            backend = T3SpatialBackend()
             result = backend.run_until_steady_state(
                 state,
                 dt=dt_run,

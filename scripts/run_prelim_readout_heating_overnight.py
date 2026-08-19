@@ -43,7 +43,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.geometries import strip
+from qpsim.backends.t3_spatial import T3SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -55,6 +56,7 @@ from scripts.run_prelim_spatial_finite_phonon_one import (
     snap_omega_to_grid,
 )
 from scripts.run_prelim_spatial_overnight import (
+    strip_coordinates,
     ENERGY_MAX_FACTOR,
     LENGTH_UM,
     PROFILE_FIELDS,
@@ -225,7 +227,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:
+def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -240,12 +242,14 @@ def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x, _dx_um = _cell_centered_strip_grid(config.NX)
+    x, dx_um = _cell_centered_strip_grid(config.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], config.NX, axis=1)
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            int(np.asarray(x).size),
+            mesh_size=float(dx_um),
+        ),
         spectral=spectral,
         material=material,
         T_bath=T_BATH_K,
@@ -404,7 +408,7 @@ def _completed_run_ids(
 
 
 def _trace_row(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     runner: FinitePhononSpatialRunner,
     *,
     t_ns: float,
@@ -424,11 +428,11 @@ def _trace_row(
     }
 
 
-def _write_profile(path: Path, state: T3Spatial1DState) -> None:
+def _write_profile(path: Path, state: T3SpatialState) -> None:
     xqp = _xqp_profile(state)
     rows = [
         {"x_um": float(x_um), "xqp": float(xqp_value)}
-        for x_um, xqp_value in zip(state.x, xqp, strict=True)
+        for x_um, xqp_value in zip(strip_coordinates(state), xqp, strict=True)
     ]
     _atomic_write_csv(path, PROFILE_FIELDS, rows)
 

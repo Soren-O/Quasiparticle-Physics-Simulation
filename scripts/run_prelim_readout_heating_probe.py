@@ -28,7 +28,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.geometries import strip
+from qpsim.backends.t3_spatial import T3SpatialState
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -39,6 +40,7 @@ from scripts.run_prelim_spatial_finite_phonon_one import (
     snap_omega_to_grid,
 )
 from scripts.run_prelim_spatial_overnight import (
+    strip_coordinates,
     ENERGY_MAX_FACTOR,
     SweepConfig,
     _cell_centered_strip_grid,
@@ -77,7 +79,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state(D0: float) -> T3Spatial1DState:
+def _build_state(D0: float) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -92,12 +94,14 @@ def _build_state(D0: float) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0,
     )
-    x, _dx_um = _cell_centered_strip_grid(CONFIG.NX)
+    x, dx_um = _cell_centered_strip_grid(CONFIG.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], CONFIG.NX, axis=1)
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            int(np.asarray(x).size),
+            mesh_size=float(dx_um),
+        ),
         spectral=spectral,
         material=material,
         T_bath=T_BATH_K,
@@ -168,7 +172,7 @@ def _run_case(n_bar: float) -> tuple[dict[str, float | bool | str], list[dict[st
     with profile_path.open("w", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=["x_um", "xqp"])
         writer.writeheader()
-        for x_um, xqp_value in zip(state.x, xqp, strict=True):
+        for x_um, xqp_value in zip(strip_coordinates(state), xqp, strict=True):
             writer.writerow({"x_um": float(x_um), "xqp": float(xqp_value)})
 
     row = {

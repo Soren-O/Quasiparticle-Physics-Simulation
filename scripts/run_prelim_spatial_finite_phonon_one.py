@@ -27,7 +27,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
@@ -46,6 +46,7 @@ from qpsim.experiments.prelim_resonators import (
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.solvers.etd import etd2_step
 from scripts.run_prelim_spatial_overnight import (
+    strip_coordinates,
     SweepConfig,
     _build_state,
     _resonator_shifts,
@@ -109,11 +110,11 @@ class ReadoutPhotonDrive:
             raise ValueError("spatial_profile must be non-negative.")
         object.__setattr__(self, "spatial_profile", profile.copy())
 
-    def validate_for_state(self, state: T3Spatial1DState) -> None:
-        if self.spatial_profile.shape != (state.x.size,):
+    def validate_for_state(self, state: T3SpatialState) -> None:
+        if self.spatial_profile.shape != (state.f.shape[1],):
             raise ValueError(
-                "readout spatial_profile length does not match state.x: "
-                f"{self.spatial_profile.shape} vs {(state.x.size,)}"
+                "readout spatial_profile length does not match strip_coordinates(state): "
+                f"{self.spatial_profile.shape} vs {(state.f.shape[1],)}"
             )
 
     def local_n_bar(self, ix: int) -> float:
@@ -160,7 +161,7 @@ def snap_omega_to_grid(omega_uev: float, dE_uev: float) -> tuple[float, int, flo
 
 
 def readout_drive_from_resonator(
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     resonator: PrelimResonator,
     *,
     n_bar: float,
@@ -172,7 +173,7 @@ def readout_drive_from_resonator(
     :func:`snap_omega_to_grid`); the nominal energy is preserved on
     ``omega_nominal_uev`` and a warning quantifies the shift.
     """
-    weights = current_squared_profile(state.x, resonator.total_length_um)
+    weights = current_squared_profile(strip_coordinates(state), resonator.total_length_um)
     peak = float(np.max(weights))
     if peak <= 0.0:
         raise RuntimeError("Current profile vanished on the simulated strip.")
@@ -214,16 +215,16 @@ class FinitePhononSnapshot:
 class FinitePhononSpatialRunner:
     """Operator-split finite-escape phonon dynamics for one spatial strip."""
 
-    def __init__(self, state: T3Spatial1DState, tau_l_ns: float) -> None:
+    def __init__(self, state: T3SpatialState, tau_l_ns: float) -> None:
         if tau_l_ns <= 0.0:
             raise ValueError("tau_l_ns must be positive.")
         self.tau_l_ns = float(tau_l_ns)
-        self.transport = T3Spatial1DBackend()
+        self.transport = T3SpatialBackend()
         self.omega, self.idx_diff, self.idx_sum, self.diff_sign = (
             build_phonon_frequency_map(state.spectral.E)
         )
         self.n_th = thermal_phonon_occupation(self.omega, state.T_bath)
-        self.n_ph = np.repeat(self.n_th[:, None], state.x.size, axis=1)
+        self.n_ph = np.repeat(self.n_th[:, None], state.f.shape[1], axis=1)
         # QP-side kernels (omega^2/(tau_0 T_c^3) prefactor) drive the QP
         # collision integral only.
         self.K_s0 = build_scattering_kernel_base(
@@ -258,13 +259,13 @@ class FinitePhononSpatialRunner:
 
     def step(
         self,
-        state: T3Spatial1DState,
+        state: T3SpatialState,
         dt_ns: float,
         source: object,
         *,
         readout_drive: ReadoutPhotonDrive | None = None,
     ) -> tuple[
-        T3Spatial1DState,
+        T3SpatialState,
         float,
         float,
     ]:
@@ -291,7 +292,7 @@ class FinitePhononSpatialRunner:
 
     def _qp_collision_step(
         self,
-        state: T3Spatial1DState,
+        state: T3SpatialState,
         dt_ns: float,
         source: object,
         *,
@@ -300,7 +301,7 @@ class FinitePhononSpatialRunner:
         if readout_drive is not None:
             readout_drive.validate_for_state(state)
         f_new = np.empty_like(state.f)
-        for ix in range(state.x.size):
+        for ix in range(state.f.shape[1]):
             N_p, N_emit, N_abs = phonon_occupation_matrices_from_state(
                 self.n_ph[:, ix],
                 self.idx_diff,
@@ -344,10 +345,10 @@ class FinitePhononSpatialRunner:
             f_new[:, ix] = etd2_step(state.f[:, ix], rhs, dt_ns)
         return f_new
 
-    def _phonon_escape_step(self, state: T3Spatial1DState, dt_ns: float) -> None:
+    def _phonon_escape_step(self, state: T3SpatialState, dt_ns: float) -> None:
         inv_tau = 1.0 / self.tau_l_ns
         next_n = np.empty_like(self.n_ph)
-        for ix in range(state.x.size):
+        for ix in range(state.f.shape[1]):
             a_ph, b_ph = compute_phonon_source_sink(
                 state.f[:, ix],
                 state.spectral,
@@ -377,7 +378,7 @@ class FinitePhononSpatialRunner:
 
 def _snapshot(
     t_ns: float,
-    state: T3Spatial1DState,
+    state: T3SpatialState,
     runner: FinitePhononSpatialRunner,
     max_dfdt: float,
     max_dnphdt: float,

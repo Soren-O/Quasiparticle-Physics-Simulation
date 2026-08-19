@@ -919,7 +919,7 @@ def test_readout_run_case_commits_true_final_trace_and_nx_profile(
     )
     state = SimpleNamespace(
         f=np.zeros((2, config.NX)),
-        x=np.arange(config.NX, dtype=float),
+        geometry=SimpleNamespace(mesh_size=1.0),
         spectral=SimpleNamespace(dE=np.array([1.0])),
     )
     expected_run_id = readout._run_id(
@@ -1067,7 +1067,7 @@ def test_readout_run_case_shortens_nondivisible_final_step_and_resumes(
     ) * spatial.LENGTH_UM / config.NX
     state = SimpleNamespace(
         f=np.zeros((2, config.NX)),
-        x=cell_centers,
+        geometry=SimpleNamespace(mesh_size=float(cell_centers[1] - cell_centers[0])),
         spectral=SimpleNamespace(dE=np.array([1.0])),
     )
     step_sizes: list[float] = []
@@ -1205,7 +1205,7 @@ def test_spatial_partial_attempt_retries_once_then_skips(
     monkeypatch.setattr(spatial, "_build_state", fake_build_state)
     monkeypatch.setattr(spatial, "_mean_f", lambda _state: object())
     monkeypatch.setattr(spatial, "_source_flux", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(spatial, "T3Spatial1DBackend", FakeBackend)
+    monkeypatch.setattr(spatial, "T3SpatialBackend", FakeBackend)
     monkeypatch.setattr(
         spatial,
         "_write_trace",

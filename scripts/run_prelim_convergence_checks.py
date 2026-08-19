@@ -16,7 +16,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.geometries import strip
+from qpsim.backends.t3_spatial import T3SpatialState
 from qpsim.experiments.prelim_resonators import (
     EXPERIMENT_BATH_TEMPERATURE_K,
 )
@@ -25,6 +26,7 @@ from qpsim.materials.database import load_material
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from scripts.run_prelim_spatial_finite_phonon_one import FinitePhononSpatialRunner
 from scripts.run_prelim_spatial_overnight import (
+    strip_coordinates,
     ENERGY_MAX_FACTOR,
     SweepConfig,
     _cell_centered_strip_grid,
@@ -110,7 +112,7 @@ def _source_rate_for_target_qps(case: ConvergenceCase) -> tuple[float, dict[str,
     return source_rate, _source_calibration(config, source_rate)
 
 
-def _build_state(case: ConvergenceCase) -> T3Spatial1DState:
+def _build_state(case: ConvergenceCase) -> T3SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -125,16 +127,18 @@ def _build_state(case: ConvergenceCase) -> T3Spatial1DState:
         gap=gap,
         diffusion_coefficient=D0_UM2_PER_NS,
     )
-    x, _dx_um = _cell_centered_strip_grid(case.NX)
+    x, dx_um = _cell_centered_strip_grid(case.NX)
     f0 = np.repeat(
         _fermi_dirac(E, EXPERIMENT_BATH_TEMPERATURE_K)[:, None],
         case.NX,
         axis=1,
     )
-    return T3Spatial1DState(
+    return T3SpatialState(
         f=f0,
-        x=x,
-        gap=gap,
+        geometry=strip(
+            int(np.asarray(x).size),
+            mesh_size=float(dx_um),
+        ),
         spectral=spectral,
         material=material,
         T_bath=EXPERIMENT_BATH_TEMPERATURE_K,
@@ -147,12 +151,12 @@ def _relative_delta(value: float, reference: float) -> float:
     return abs((value - reference) / reference)
 
 
-def _write_profile(path: Path, state: T3Spatial1DState) -> None:
+def _write_profile(path: Path, state: T3SpatialState) -> None:
     xqp = _xqp_profile(state)
     with path.open("w", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=["x_um", "xqp"])
         writer.writeheader()
-        for x_um, xqp_value in zip(state.x, xqp, strict=True):
+        for x_um, xqp_value in zip(strip_coordinates(state), xqp, strict=True):
             writer.writerow({"x_um": float(x_um), "xqp": float(xqp_value)})
 
 
@@ -202,7 +206,7 @@ def _run_case(
         "NX": case.NX,
         "NE": case.NE,
         "dt_ns": config.dt_ns,
-        "dx_um": state.dx,
+        "dx_um": state.geometry.mesh_size,
         "D0_um2_per_ns": D0_UM2_PER_NS,
         "tau_l_ns": TAU_L_NS,
         "T_bath_K": EXPERIMENT_BATH_TEMPERATURE_K,

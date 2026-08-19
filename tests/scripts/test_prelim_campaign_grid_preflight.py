@@ -6,7 +6,9 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.geometries import strip
+from scripts.run_prelim_spatial_overnight import strip_coordinates
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from scripts.run_prelim_spatial_overnight import (
     LENGTH_UM,
@@ -22,12 +24,12 @@ from scripts import run_prelim_readout_heating_probe as readout_probe
 from scripts import run_prelim_spatial_100um as spatial_100um
 
 
-def _assert_observable_ready(state: T3Spatial1DState) -> None:
+def _assert_observable_ready(state: T3SpatialState) -> None:
     """Exercise the late campaign observable before an expensive solve."""
-    expected_x, expected_dx = _cell_centered_strip_grid(state.x.size)
-    np.testing.assert_array_equal(state.x, expected_x)
-    assert state.dx == pytest.approx(expected_dx)
-    assert float(np.sum(state.cell_widths)) == pytest.approx(LENGTH_UM)
+    expected_x, expected_dx = _cell_centered_strip_grid(state.f.shape[1])
+    np.testing.assert_array_equal(strip_coordinates(state), expected_x)
+    assert state.geometry.mesh_size == pytest.approx(expected_dx)
+    assert float(np.sum(np.full(state.f.shape[1], state.geometry.mesh_size))) == pytest.approx(LENGTH_UM)
 
     f_ref = np.mean(state.f, axis=1)
     rows = _resonator_shifts(state, f_ref)
@@ -67,7 +69,7 @@ def _assert_observable_ready(state: T3Spatial1DState) -> None:
     ],
 )
 def test_campaign_builder_is_observable_ready(
-    builder: Callable[[], T3Spatial1DState],
+    builder: Callable[[], T3SpatialState],
 ) -> None:
     _assert_observable_ready(builder())
 
@@ -82,7 +84,7 @@ def test_low_d0_wrapper_inherits_observable_ready_base_grid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The low-D0 wrapper must exercise the corrected base builder."""
-    captured: list[T3Spatial1DState] = []
+    captured: list[T3SpatialState] = []
 
     # Register globals mutated by the wrapper for restoration at teardown.
     monkeypatch.setattr(sweep_7mk, "CONFIG", sweep_7mk.CONFIG)
