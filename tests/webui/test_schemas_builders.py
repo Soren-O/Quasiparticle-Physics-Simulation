@@ -7,10 +7,10 @@ import pytest
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.transport.diffusion.base import DiffusionModel
 from qpsim.webui.builders import (
-    build_injection_flux,
+    build_injection_2d,
+    build_state_2d,
     build_m25_inputs,
     build_state_0d,
-    build_state_1d,
     drive_dicts,
     steady_state_solver_kwargs,
     validate_setup,
@@ -21,10 +21,37 @@ from qpsim.webui.schemas import (
     M25JunctionSetup,
     SetupEnvelope,
     KineticsSetup,
-    Spatial1DSetup,
-    SteadyState0DSetup,
-    Transient0DSetup,
 )
+
+
+
+def _steady_state_0d() -> KineticsSetup:
+    """What the retired 0-D steady-state mode is now: a one-cell root find."""
+    setup = KineticsSetup(strategy="steady_state")
+    setup.geometry.rows = setup.geometry.cols = 1
+    setup.grid.max_factor, setup.grid.num_bins = 10.0, 405
+    setup.probe.enabled = True
+    return setup
+
+
+def _transient_0d() -> KineticsSetup:
+    """What the retired 0-D transient is now: a one-cell time march."""
+    setup = KineticsSetup(strategy="time_march")
+    setup.geometry.rows = setup.geometry.cols = 1
+    setup.grid.max_factor, setup.grid.num_bins = 10.0, 405
+    setup.dt, setup.stop_tol = 0.1, 0.0
+    setup.probe.enabled = True
+    return setup
+
+
+def _strip_1d(cells: int = 31, length_um: float = 100.0) -> KineticsSetup:
+    """What the retired 1-D strip is now: a one-row mask."""
+    setup = KineticsSetup(strategy="time_march")
+    setup.geometry.rows, setup.geometry.cols = 1, cells
+    setup.geometry.mesh_size_um = length_um / cells
+    setup.grid.num_bins = 66
+    setup.injection.enabled = True
+    return setup
 
 
 class _StopForCapture(Exception):
@@ -63,7 +90,7 @@ class TestSchemas:
         assert grid.min_factor == pytest.approx(0.8)
 
     def test_dynamic_phonons_default_to_phonon_side_kernel(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         assert setup.phonons.use_phonon_side_kernel is True
 
 
@@ -74,14 +101,14 @@ class TestValidateSetup:
             assert report.ok, report.errors
 
     def test_subgap_drive_above_2delta_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.subgap_drive.enabled = True
         setup.subgap_drive.omega_0 = 2.5 * setup.material.Delta_0
         report = validate_setup(setup)
         assert any("2Δ" in e for e in report.errors)
 
     def test_pb_drive_below_2delta_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.pb_drive.enabled = True
         setup.pb_drive.omega_PB = 1.5 * setup.material.Delta_0
         report = validate_setup(setup)
@@ -98,7 +125,7 @@ class TestValidateSetup:
         the misalignment it meant to build no longer existed. A test about
         alignment must not depend on a default it does not set.
         """
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.grid.num_bins = 400
         setup.pb_drive.enabled = True
         dE = (
@@ -113,7 +140,7 @@ class TestValidateSetup:
         assert any("reflection partners are not grid-aligned" in e for e in report.errors)
 
     def test_pb_aligned_frequency_and_origin_are_accepted(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.pb_drive.enabled = True
         setup.grid.num_bins = 405
         dE = (
@@ -128,7 +155,7 @@ class TestValidateSetup:
         assert not any("Pair-breaking drive" in error for error in report.errors)
 
     def test_incommensurate_photon_is_rejected_with_nearest_value(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.subgap_drive.enabled = True
         # dE = 9Δ/400 = 4.05 μeV; ω₀ = 6.0 μeV → frac err 0.48.
         setup.subgap_drive.omega_0 = 6.0
@@ -138,14 +165,14 @@ class TestValidateSetup:
         assert any("nearest commensurate" in error for error in report.errors)
 
     def test_probe_at_or_above_gap_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.probe.omega_0 = setup.material.Delta_0
         report = validate_setup(setup)
         assert any("Mattis" in e for e in report.errors)
 
-    @pytest.mark.parametrize("setup", [SteadyState0DSetup(), Transient0DSetup()])
+    @pytest.mark.parametrize("setup", [_steady_state_0d(), _transient_0d()])
     def test_dynes_collision_modes_are_rejected(
-        self, setup: SteadyState0DSetup | Transient0DSetup
+        self, setup: KineticsSetup
     ) -> None:
         setup.material.dynes_gamma = 1.0
         report = validate_setup(setup)
@@ -153,26 +180,26 @@ class TestValidateSetup:
         assert any("collision kernels" in error for error in report.errors)
 
     def test_t_bath_at_tc_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.T_bath = setup.material.T_c
         report = validate_setup(setup)
         assert any("T_c" in e for e in report.errors)
 
     def test_coupled_newton_with_thermal_bath_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.solver.method = "coupled_newton"
         report = validate_setup(setup)
         assert any("coupled-Newton" in e for e in report.errors)
 
     def test_coupled_newton_with_closed_phonons_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.solver.method = "coupled_newton"
         setup.phonons.mode = "dynamic_closed"
         report = validate_setup(setup)
         assert any("conserved-energy mode" in e for e in report.errors)
 
     def test_dynamic_default_requires_pair_breaking_time(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.phonons.mode = "dynamic_escape"
         setup.material.tau_0_pb_ns = None
 
@@ -181,7 +208,7 @@ class TestValidateSetup:
         assert any("tau_0_pb_ns" in error for error in report.errors)
 
     def test_thermal_bath_does_not_require_pair_breaking_time(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.phonons.mode = "thermal_bath"
         setup.phonons.use_phonon_side_kernel = True
         setup.material.tau_0_pb_ns = None
@@ -200,7 +227,7 @@ class TestValidateSetup:
     def test_pb_preflight_matches_runtime_grid_guards(
         self, omega_pb: float, message: str
     ) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.grid.num_bins = 90
         setup.pb_drive.enabled = True
         setup.pb_drive.omega_PB = omega_pb
@@ -212,7 +239,7 @@ class TestValidateSetup:
 
     @pytest.mark.parametrize("drive", ["subgap", "pair_breaking"])
     def test_zero_coupling_drive_skips_frequency_contract(self, drive: str) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         if drive == "subgap":
             setup.subgap_drive.enabled = True
             setup.subgap_drive.c_phot = 0.0
@@ -228,8 +255,8 @@ class TestValidateSetup:
         assert report.ok, report.errors
 
     def test_self_consistent_gap_warns_without_subgap_support(self) -> None:
-        setup = SteadyState0DSetup()
-        setup.solver.self_consistent_gap = True
+        setup = _steady_state_0d()
+        setup.self_consistent_gap = True
         report = validate_setup(setup)
         assert report.ok
         assert any("does not extend below" in warning for warning in report.warnings)
@@ -239,7 +266,7 @@ class TestValidateSetup:
         assert not any("does not extend below" in warning for warning in report.warnings)
 
     def test_pure_bcs_grid_starting_above_gap_is_rejected(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.grid.min_factor = 1.01
 
         report = validate_setup(setup)
@@ -247,30 +274,35 @@ class TestValidateSetup:
         assert any("grid.min_factor <= 1" in error for error in report.errors)
 
     def test_spatial_dynes_rejected(self) -> None:
-        setup = Spatial1DSetup()
+        setup = _strip_1d()
         setup.material.dynes_gamma = 0.5
         report = validate_setup(setup)
         assert any("pure-BCS" in e for e in report.errors)
 
     def test_spatial_injection_outside_grid_rejected(self) -> None:
-        setup = Spatial1DSetup()
+        setup = _strip_1d()
         setup.injection.center_over_delta = setup.grid.max_factor + 1.0
         report = validate_setup(setup)
         assert any("outside the energy grid" in e for e in report.errors)
 
     def test_spatial_gap_below_grid_rejected(self) -> None:
-        setup = Spatial1DSetup()
-        setup.gap_profile.kind = "step"
-        setup.gap_profile.gap_left = 0.9 * setup.material.Delta_0
+        setup = _strip_1d()
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_left = 0.9 * setup.material.Delta_0
         report = validate_setup(setup)
-        assert any("below the grid bottom" in error for error in report.errors)
+        # The merged mode words this as the gap map vs the grid floor; what
+        # matters is that the guard survived the retirement, not its phrasing.
+        assert any(
+            "smallest local gap" in error and "energy grid starts at" in error
+            for error in report.errors
+        )
 
     def test_spatial_interface_requires_distinct_step_gaps(self) -> None:
-        setup = Spatial1DSetup()
-        setup.gap_profile.kind = "step"
-        setup.gap_profile.gap_left = 180.0
-        setup.gap_profile.gap_right = 180.0
-        setup.gap_profile.interface_G_N = 1.0
+        setup = _strip_1d()
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_left = 180.0
+        setup.gap_regions.gap_right = 180.0
+        setup.gap_regions.interface_G_N = 1.0
 
         report = validate_setup(setup)
 
@@ -286,7 +318,7 @@ class TestValidateSetup:
 
 class TestBuilders:
     def test_state_0d_shapes_and_thermal_seed(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.grid.num_bins = 32
         state = build_state_0d(setup)
         assert state.f.shape == (32,)
@@ -294,7 +326,7 @@ class TestBuilders:
         assert state.phonon.n_ph.shape[1] == state.phonon.omega_bins.shape[1]
 
     def test_tau_l_selection_per_phonon_mode(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.grid.num_bins = 16
         setup.phonons.mode = "dynamic_escape"
         setup.phonons.tau_l_ns = 0.7
@@ -303,7 +335,7 @@ class TestBuilders:
         assert float(build_state_0d(setup).phonon.tau_l[0, 0]) == 0.0
 
     def test_solver_kwargs_thermal_vs_dynamic(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         kwargs = steady_state_solver_kwargs(setup)
         assert kwargs["use_thermal_phonons"] is True
         assert "method" not in kwargs
@@ -313,7 +345,7 @@ class TestBuilders:
         assert kwargs["anderson_depth"] == setup.solver.anderson_depth
 
     def test_solver_kwargs_map_controls_to_coupled_newton(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.phonons.mode = "dynamic_escape"
         setup.solver.method = "coupled_newton"
         setup.solver.newton_tol = 2.5e-7
@@ -351,7 +383,7 @@ class TestBuilders:
 
         monkeypatch.setattr(t3, "coupled_newton_solve", _capture)
 
-        setup = SteadyState0DSetup()
+        setup = _steady_state_0d()
         setup.phonons.mode = "dynamic_escape"
         setup.solver.method = "coupled_newton"
         for requested in (True, False):
@@ -367,7 +399,7 @@ class TestBuilders:
             )
 
     def test_drive_dicts_match_backend_keys(self) -> None:
-        setup = Transient0DSetup()
+        setup = _transient_0d()
         setup.subgap_drive.enabled = True
         setup.pb_drive.enabled = True
         photon, pb = drive_dicts(setup)
@@ -377,78 +409,84 @@ class TestBuilders:
         setup.pb_drive.enabled = False
         assert drive_dicts(setup) == (None, None)
 
-    def test_state_1d_gap_step_and_interface(self) -> None:
-        setup = Spatial1DSetup()
+    def test_strip_gap_step_and_interface(self) -> None:
+        """The 1-D strip's step is a one-row mask's column step."""
+        setup = _strip_1d(cells=10)
         setup.grid.num_bins = 12
-        setup.num_cells = 10
-        setup.gap_profile.kind = "step"
-        setup.gap_profile.gap_left = 170.0
-        setup.gap_profile.gap_right = 200.0
-        setup.gap_profile.interface_G_N = 2.0
-        state = build_state_1d(setup)
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_left = 170.0
+        setup.gap_regions.gap_right = 200.0
+        setup.gap_regions.interface_G_N = 2.0
+        state = build_state_2d(setup)
         assert state.f.shape == (12, 10)
         assert state.diffusion_model is DiffusionModel.A1
-        assert state.gap_profile is not None
-        assert float(state.gap_profile[0]) == 170.0
-        assert float(state.gap_profile[-1]) == 200.0
+        assert state.gap_per_cell is not None
+        assert float(state.gap_per_cell[0]) == 170.0
+        assert float(state.gap_per_cell[-1]) == 200.0
         assert state.interface_conductance == 2.0
 
-    @pytest.mark.parametrize("num_cells", [2, Spatial1DSetup().num_cells])
-    def test_state_1d_centers_span_exact_requested_length(
-        self, num_cells: int
+    @pytest.mark.parametrize("cells", [2, 31])
+    def test_strip_centres_span_exactly_the_requested_length(
+        self, cells: int
     ) -> None:
-        setup = Spatial1DSetup()
-        setup.num_cells = num_cells
-        state = build_state_1d(setup)
-        dx = setup.length_um / num_cells
+        """Centres at (i + 1/2)h, and h*cells is the length exactly.
 
-        assert state.dx == pytest.approx(dx)
-        assert state.x[0] == pytest.approx(0.5 * dx)
-        assert state.x[-1] == pytest.approx(setup.length_um - 0.5 * dx)
-        assert float(np.sum(state.cell_widths)) == pytest.approx(setup.length_um)
+        Kept from the retired 1-D mode because this convention is load-bearing
+        and easy to get wrong by half a cell: the reported x_um was i*h for a
+        while, which is invisible in a plot and wrong in a fit.
+        """
+        from qpsim.webui.execute import execute_setup
 
-    def test_spatial_xqp_profile_uses_each_local_gap_measure(self) -> None:
-        from qpsim.webui.execute import _xqp_profile
+        length_um = 100.0
+        setup = _strip_1d(cells=cells, length_um=length_um)
+        setup.grid.num_bins = 12
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 1.0, 0.0
+        h = length_um / cells
+        assert setup.geometry.mesh_size_um == pytest.approx(h)
 
-        setup = Spatial1DSetup()
+        payload = execute_setup(setup, lambda *a: None, lambda: False)
+        x = payload.arrays["x_um"]
+        assert x[0] == pytest.approx(0.5 * h)
+        assert x[-1] == pytest.approx(length_um - 0.5 * h)
+
+    def test_xqp_profile_uses_each_local_gap_measure(self) -> None:
+        from qpsim.webui.execute import _xqp_profile_2d
+
+        setup = _strip_1d(cells=4)
         setup.grid.min_factor = 0.8
         setup.grid.num_bins = 24
-        setup.num_cells = 4
-        setup.gap_profile.kind = "step"
-        setup.gap_profile.gap_left = 170.0
-        setup.gap_profile.gap_right = 200.0
-        state = build_state_1d(setup)
+        setup.gap_regions.kind = "column_step"
+        setup.gap_regions.gap_left = 170.0
+        setup.gap_regions.gap_right = 200.0
+        state = build_state_2d(setup)
         state.f[:] = 0.01
 
-        profile = _xqp_profile(state, setup.material.Delta_0)
+        profile = _xqp_profile_2d(state, setup.material.Delta_0)
 
-        assert state.gap_profile is not None
-        for column, local_gap in enumerate(state.gap_profile):
+        assert state.gap_per_cell is not None
+        for column, local_gap in enumerate(state.gap_per_cell):
             weights = bcs_dos_cell_weights(
-                state.spectral.E,
-                state.spectral.dE,
-                float(local_gap),
+                state.spectral.E, state.spectral.dE, float(local_gap),
             )
-            expected = float(np.sum(weights * state.f[:, column])) / setup.material.Delta_0
+            expected = float(
+                np.sum(weights * state.f[:, column])
+            ) / setup.material.Delta_0
             assert profile[column] == pytest.approx(expected, rel=1e-14)
         assert profile[0] != pytest.approx(profile[-1])
 
-    def test_injection_flux_placement(self) -> None:
-        setup = Spatial1DSetup()
+    def test_injection_placement(self) -> None:
+        setup = _strip_1d(cells=6)
         setup.grid.num_bins = 12
-        setup.num_cells = 6
-        state = build_state_1d(setup)
-        flux = build_injection_flux(setup, state)
-        assert flux is not None
-        assert flux.gain.shape == (12, 6)
+        state = build_state_2d(setup)
+        gain, _loss = build_injection_2d(setup, state)
+        assert gain.shape == (12, 6)
         # Gaussian line: positive at the source column, capped by the peak
         # rate (the exact max depends on where bins land on the line).
-        assert 0.0 < np.max(flux.gain[:, 0]) <= setup.injection.rate_per_ns
-        assert np.all(flux.gain[:, 1:] == 0.0)
+        assert 0.0 < np.max(gain[:, 0]) <= setup.injection.rate_per_ns
+        assert np.all(gain[:, 1:] == 0.0)
         setup.injection.where = "uniform"
-        flux = build_injection_flux(setup, state)
-        assert flux is not None
-        assert np.max(flux.gain[:, -1]) > 0.0
+        gain, _loss = build_injection_2d(setup, state)
+        assert np.max(gain[:, -1]) > 0.0
 
     def test_m25_inputs_unit_conversion(self) -> None:
         setup = M25JunctionSetup()

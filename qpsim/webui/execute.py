@@ -25,7 +25,6 @@ import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionBackend
 from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.constants import H_OVER_KB_K_PER_HZ
 from qpsim.fields.drive import StaticDrive, SumDrive
 from qpsim.grid.spatial_grid import reconstruct_field
@@ -56,11 +55,9 @@ from qpsim.webui.builders import (
     build_geometry_2d,
     build_initial_state_2d,
     build_injection_2d,
-    build_injection_flux,
     build_m25_inputs,
     build_phonon_seed_2d,
     build_state_0d,
-    build_state_1d,
     build_state_2d,
     drive_dicts,
     mb_probe_invalid_reason,
@@ -68,12 +65,9 @@ from qpsim.webui.builders import (
 )
 from qpsim.webui.schemas import (
     AnySetup,
+    KineticsSetup,
     M25JunctionSetup,
     ProbeConfig,
-    Spatial1DSetup,
-    KineticsSetup,
-    SteadyState0DSetup,
-    Transient0DSetup,
 )
 
 ProgressFn = Callable[[float, str], None]
@@ -160,17 +154,16 @@ def _mb_observables(
 
 
 def run_steady_state_0d(
-    setup: SteadyState0DSetup | KineticsSetup,
+    setup: KineticsSetup,
     progress: ProgressFn,
     is_cancelled: CancelledFn,
 ) -> RunPayload:
-    """The 0-D steady-state route, for either mode that selects it.
+    """The steady-state strategy: a root find on a single cell.
 
-    Shared rather than mirrored ON PURPOSE. ``KineticsSetup`` with
-    ``strategy="steady_state"`` on a one-cell mask must reproduce the 0-D mode
-    bit for bit, and the only way to be sure of that is for both to run this
-    function -- a parallel implementation could agree today and drift on the
-    next edit, which is how this repo's recurring defect starts.
+    Still named for the 0-D mode it came from, because that is what it solves
+    -- ``T3DiffusionBackend.steady_state`` carries f:(NE,) and a scalar gap.
+    It is reached only through :func:`run_kinetics` now, which is why a
+    one-cell mask is a precondition rather than a coincidence.
     """
     payload = RunPayload()
     _check_cancel(is_cancelled)
@@ -263,240 +256,9 @@ def run_steady_state_0d(
         payload.notes.extend(str(w.message) for w in fit_warnings)
 
     # Honor a cancel requested during the (uninterruptible) blocking solve,
-    # matching run_transient_0d / run_spatial_1d — otherwise the run is
+    # matching the time-march route — otherwise the run is
     # persisted as "done" despite the user having cancelled it.
     _check_cancel(is_cancelled)
-    progress(1.0, "done")
-    return payload
-
-
-def _transient_observables(
-    setup: Transient0DSetup,
-) -> tuple[dict[str, Callable[[Any], float]], list[str]]:
-    gap = setup.material.Delta_0
-    obs: dict[str, Callable[[Any], float]] = {
-        "x_qp": lambda s: qp_fraction(s.f, s.spectral, delta_0=gap),
-        "x_qp_paper": lambda s: qp_fraction_paper(
-            s.f, s.spectral, delta_0=gap
-        ),
-    }
-    notes: list[str] = []
-    if setup.probe.enabled:
-        reason = mb_probe_invalid_reason(setup.probe, setup.material.dynes_gamma, gap)
-        if reason is not None:
-            notes.append(f"Q_i(t) time series skipped: {reason}")
-        else:
-            omega, alpha = setup.probe.omega_0, setup.probe.alpha
-            obs["Q_i"] = lambda s: compute_quality_factor(s.f, s.spectral, omega, alpha)
-    return obs, notes
-
-
-def run_transient_0d(
-    setup: Transient0DSetup, progress: ProgressFn, is_cancelled: CancelledFn
-) -> RunPayload:
-    payload = RunPayload()
-    _check_cancel(is_cancelled)
-    progress(0.02, "building state")
-
-    state = build_state_0d(setup)
-    photon_params, pb_params = drive_dicts(setup)
-    obs, notes = _transient_observables(setup)
-    payload.notes.extend(notes)
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("once")
-        result = run_time_dependent(
-            state,
-            dt=setup.dt,
-            total_time=setup.total_time,
-            photon_params=photon_params,
-            pb_photon_params=pb_params,
-            snapshot_interval=setup.snapshot_interval,
-            observables=obs,
-            stop_tol=setup.stop_tol,
-            enable_scattering=setup.collisions.scattering,
-            enable_recombination=setup.collisions.recombination,
-            enable_phonon_scattering_source=(
-                setup.collisions.phonon_scattering_source
-            ),
-            enable_phonon_recombination_source=(
-                setup.collisions.phonon_recombination_source
-            ),
-            # None keeps the phonon field frozen. The dynamic modes hand the
-            # driver an escape time; 0.0 is the no-substrate sentinel, so it
-            # must be passed through as a real value, not treated as "off".
-            phonon_escape_time=(
-                None
-                if setup.phonons.mode == "thermal_bath"
-                else (
-                    setup.phonons.tau_l_ns
-                    if setup.phonons.mode == "dynamic_escape"
-                    else 0.0
-                )
-            ),
-            progress_hook=_time_progress_hook(progress, is_cancelled),
-        )
-    payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
-    if is_cancelled():
-        raise RunCancelledError
-
-    payload.arrays["E_bins"] = state.spectral.E
-    payload.arrays["t_ns"] = np.array([s.t for s in result.snapshots])
-    payload.arrays["f_snapshots"] = np.stack([s.f for s in result.snapshots])
-    payload.arrays["f_thermal"] = fermi_dirac_distribution(state.spectral.E, setup.T_bath)
-    for name in obs:
-        payload.arrays[f"obs_{name}"] = np.array(
-            [s.observables[name] for s in result.snapshots]
-        )
-
-    payload.summary["n_steps"] = result.n_steps
-    payload.summary["n_etd_substeps"] = result.n_etd_substeps
-    payload.summary["total_time_ns"] = result.total_time
-    payload.summary["converged"] = result.converged
-    payload.summary["x_qp_final"] = float(payload.arrays["obs_x_qp"][-1])
-    payload.summary["x_qp_paper_final"] = float(
-        payload.arrays["obs_x_qp_paper"][-1]
-    )
-    payload.summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
-    payload.summary["gap_ueV"] = setup.material.Delta_0
-    # The thermal reference the run started from. Several reductions assert
-    # that they HOLD thermal, and without this the assertion has nothing to
-    # be checked against except a number somebody typed into a description.
-    payload.summary["x_qp_thermal"] = float(
-        qp_fraction(
-            payload.arrays["f_thermal"], state.spectral,
-            delta_0=setup.material.Delta_0,
-        )
-    )
-    payload.summary["x_qp_initial"] = float(payload.arrays["obs_x_qp"][0])
-    progress(1.0, "done")
-    return payload
-
-
-def _xqp_profile(state: T3Spatial1DState, delta_0: float) -> np.ndarray:
-    """Per-cell ``x_qp`` using each cell's local BCS spectral measure.
-
-    The numerator uses the local gap from ``gap_profile`` because transport
-    does too. The denominator intentionally remains the material reference
-    ``delta_0`` so values on different sides of a gap step share one
-    dimensionless normalization and can be compared directly.
-    """
-    if not np.isfinite(delta_0) or delta_0 <= 0.0:
-        raise ValueError("delta_0 must be finite and positive.")
-    local_gaps = (
-        np.full(state.f.shape[1], state.spectral.gap, dtype=float)
-        if state.gap_profile is None
-        else np.asarray(state.gap_profile, dtype=float)
-    )
-    if local_gaps.shape != (state.f.shape[1],):
-        raise ValueError(
-            f"gap_profile must have shape ({state.f.shape[1]},); "
-            f"got {local_gaps.shape}."
-        )
-
-    weights_by_gap: dict[float, np.ndarray] = {}
-    profile = np.empty(state.f.shape[1], dtype=float)
-    for column, local_gap in enumerate(local_gaps):
-        gap_key = float(local_gap)
-        weights = weights_by_gap.get(gap_key)
-        if weights is None:
-            weights = bcs_dos_cell_weights(
-                state.spectral.E,
-                state.spectral.dE,
-                gap_key,
-            )
-            weights_by_gap[gap_key] = weights
-        profile[column] = float(np.sum(weights * state.f[:, column])) / delta_0
-    return profile
-
-
-def _profile_observables(
-    delta_0: float,
-) -> dict[str, Callable[[T3Spatial1DState], float]]:
-    """Mean/max strip observables sharing one profile pass per state.
-
-    Both reductions are evaluated back-to-back on the same state at
-    each snapshot; caching on the state's ``f`` identity halves the
-    O(NE·NX) profile cost without assuming anything about call order.
-    """
-    cached_f: np.ndarray | None = None
-    cached_profile: np.ndarray | None = None
-
-    def profile(s: T3Spatial1DState) -> np.ndarray:
-        nonlocal cached_f, cached_profile
-        if cached_profile is None or cached_f is not s.f:
-            cached_f = s.f
-            cached_profile = _xqp_profile(s, delta_0)
-        return cached_profile
-
-    return {
-        "x_qp_mean": lambda s: float(np.mean(profile(s))),
-        "x_qp_max": lambda s: float(np.max(profile(s))),
-    }
-
-
-def run_spatial_1d(
-    setup: Spatial1DSetup, progress: ProgressFn, is_cancelled: CancelledFn
-) -> RunPayload:
-    payload = RunPayload()
-    _check_cancel(is_cancelled)
-    progress(0.02, "building strip state")
-
-    state = build_state_1d(setup)
-    flux = build_injection_flux(setup, state)
-    gap = setup.material.Delta_0
-    obs = _profile_observables(gap)
-
-    backend = T3Spatial1DBackend(
-        enable_scattering=setup.collisions.scattering,
-        enable_recombination=setup.collisions.recombination,
-    )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("once")
-        result = backend.run_until_steady_state(
-            state,
-            dt=setup.dt,
-            max_time=setup.max_time,
-            external_flux=flux,
-            stop_tol=setup.stop_tol,
-            snapshot_interval=setup.snapshot_interval,
-            observables=obs,
-            progress_hook=_time_progress_hook(progress, is_cancelled),
-        )
-    payload.notes.extend(dict.fromkeys(str(w.message) for w in caught))
-    if is_cancelled():
-        raise RunCancelledError
-
-    final = result.state
-    payload.arrays["E_bins"] = final.spectral.E
-    payload.arrays["x_um"] = final.x
-    payload.arrays["f_final"] = final.f
-    payload.arrays["f_thermal"] = fermi_dirac_distribution(final.spectral.E, setup.T_bath)
-    payload.arrays["xqp_profile"] = _xqp_profile(final, gap)
-    payload.arrays["xqp_profile_paper"] = 2.0 * payload.arrays["xqp_profile"]
-    if final.gap_profile is not None:
-        payload.arrays["gap_profile"] = np.asarray(final.gap_profile)
-    payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])
-    payload.arrays["snap_max_rate"] = np.array([s.max_rate for s in result.snapshots])
-    for name in obs:
-        payload.arrays[f"obs_{name}"] = np.array(
-            [s.observables.get(name, np.nan) for s in result.snapshots]
-        )
-
-    payload.summary["converged"] = result.converged
-    payload.summary["n_steps"] = result.n_steps
-    payload.summary["total_time_ns"] = result.total_time
-    payload.summary["x_qp_mean"] = float(np.mean(payload.arrays["xqp_profile"]))
-    payload.summary["x_qp_max"] = float(np.max(payload.arrays["xqp_profile"]))
-    payload.summary["x_qp_mean_paper"] = 2.0 * payload.summary["x_qp_mean"]
-    payload.summary["x_qp_max_paper"] = 2.0 * payload.summary["x_qp_max"]
-    payload.summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
-    payload.summary["gap_ueV"] = gap
-    if not result.converged:
-        payload.notes.append(
-            f"Strip did not reach stop_tol = {setup.stop_tol:g} within "
-            f"{setup.max_time:g} ns (max|df/dt| is in the convergence plot)."
-        )
     progress(1.0, "done")
     return payload
 
@@ -615,12 +377,6 @@ def execute_setup(
     setup: AnySetup, progress: ProgressFn, is_cancelled: CancelledFn
 ) -> RunPayload:
     """Dispatch a validated setup to its mode executor."""
-    if isinstance(setup, SteadyState0DSetup):
-        return run_steady_state_0d(setup, progress, is_cancelled)
-    if isinstance(setup, Transient0DSetup):
-        return run_transient_0d(setup, progress, is_cancelled)
-    if isinstance(setup, Spatial1DSetup):
-        return run_spatial_1d(setup, progress, is_cancelled)
     if isinstance(setup, KineticsSetup):
         return run_kinetics(setup, progress, is_cancelled)
     return run_m25_junction(setup, progress, is_cancelled)
@@ -781,7 +537,7 @@ def run_kinetics(
         # mask plus mesh_size encodes the same information, but making every
         # consumer reconstruct it is how the 1-D mode's plots would quietly
         # stop working when that mode goes.
-        # CELL CENTRES, (i + 1/2) h -- the same convention build_state_1d uses.
+        # CELL CENTRES, (i + 1/2) h -- the convention the retired 1-D mode used.
         # Emitting i*h instead offsets every profile by half a cell, which is
         # invisible in a plot and wrong in a fit.
         payload.arrays["x_um"] = (

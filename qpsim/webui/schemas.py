@@ -403,51 +403,8 @@ class DriveSpec(StrictModel):
         return self
 
 
-class SteadyState0DSetup(StrictModel):
-    """0-D T3 kinetic steady state."""
-
-    mode: Literal["steady_state_0d"] = "steady_state_0d"
-    material: MaterialParams = MaterialParams()
-    T_bath: Annotated[float, Field(gt=0.0)] = 0.1  # bath temperature (K)
-    grid: EnergyGrid = EnergyGrid()
-    phonons: PhononSector = PhononSector()
-    collisions: CollisionTerms = CollisionTerms()
-    subgap_drive: SubGapDrive = SubGapDrive()
-    pb_drive: PairBreakingDrive = PairBreakingDrive()
-    solver: SolverOptions = SolverOptions()
-    probe: ProbeConfig = ProbeConfig()
 
 
-class Transient0DSetup(StrictModel):
-    """0-D ETD2 collisional transient at frozen Δ.
-
-    ``phonons.mode`` decides whether the phonon population is frozen or
-    solved in time. ``thermal_bath`` pins n_ph at the Bose-Einstein seed,
-    which is the historical behaviour. The dynamic modes co-evolve it with
-    ``f`` by operator splitting: ``f`` advances at frozen n_ph, then n_ph
-    advances at the new ``f`` under the exact solution of its affine ODE.
-
-    Drives are constant across the transient. Δ is held fixed in every mode.
-    """
-
-    mode: Literal["transient_0d"] = "transient_0d"
-    material: MaterialParams = MaterialParams()
-    T_bath: Annotated[float, Field(gt=0.0)] = 0.1
-    grid: EnergyGrid = EnergyGrid()
-    phonons: PhononSector = PhononSector()
-    collisions: CollisionTerms = CollisionTerms()
-    subgap_drive: SubGapDrive = SubGapDrive()
-    pb_drive: PairBreakingDrive = PairBreakingDrive()
-    dt: Annotated[float, Field(gt=0.0)] = 0.1  # ETD2 substep (ns)
-    total_time: Annotated[float, Field(gt=0.0)] = 120.0  # (ns)
-    snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None  # default total/50
-    stop_tol: Annotated[float, Field(ge=0.0)] | None = None  # early stop on max|df|/dt
-    probe: ProbeConfig = ProbeConfig()
-
-    @model_validator(mode="after")
-    def snapshot_interval_not_pathological(self) -> Transient0DSetup:
-        _reject_dense_snapshots(self.snapshot_interval, self.total_time)
-        return self
 
 
 class GapStepProfile(StrictModel):
@@ -476,45 +433,6 @@ class InjectionConfig(StrictModel):
     where: Literal["left_end", "uniform"] = "left_end"
 
 
-class Spatial1DSetup(StrictModel):
-    """1D strip driven to steady state (T3 spatial backend).
-
-    Spatial transport requires a pure-BCS spectral context — the
-    builder rejects ``dynes_gamma > 0`` here (the engine does too).
-    """
-
-    mode: Literal["spatial_1d"] = "spatial_1d"
-    material: MaterialParams = MaterialParams()
-    T_bath: Annotated[float, Field(gt=0.0)] = 0.1
-    # Gap-edge x_qp and Mattis-Bardeen observables require the first physical
-    # cell edge at Delta; a grid starting above Delta silently drops the BCS
-    # singular spectral weight.
-    # 66 rather than 64: on [Delta, 4*Delta] the two phonon lattices share
-    # bins only for a multiple of 3, and 64 gives 42.667. (The 2-D preset's 48
-    # is already valid -- 32 exactly.) See EnergyGrid.num_bins.
-    grid: EnergyGrid = EnergyGrid(min_factor=1.0, max_factor=4.0, num_bins=66)
-    length_um: Annotated[float, Field(gt=0.0)] = 100.0
-    num_cells: Annotated[int, Field(ge=2, le=2000)] = 31
-    diffusion_model: Literal["A1", "A1P", "A2", "C", "B"] = "A1"
-    # D_0 = 0 is the transport off-switch: the flux coefficient is D_0*N_1**q,
-    # so zero gives an identically zero operator for every member. There is no
-    # OFF member in diffusion_model because the enum value IS the (p, q) pair.
-    collisions: CollisionTerms = CollisionTerms()
-    gap_profile: GapStepProfile = GapStepProfile()
-    injection: InjectionConfig = InjectionConfig()
-    dt: Annotated[float, Field(gt=0.0)] = 1.0  # split step (ns); D0*dt/dx^2~5 at defaults
-    max_time: Annotated[float, Field(gt=0.0)] = 20000.0  # (ns)
-    stop_tol: Annotated[float, Field(ge=0.0)] = 2e-10
-    snapshot_interval: Annotated[float, Field(gt=0.0)] | None = None
-
-    @model_validator(mode="after")
-    def snapshot_interval_not_pathological(self) -> Spatial1DSetup:
-        _reject_dense_snapshots(self.snapshot_interval, self.max_time)
-        return self
-    # No probe here: strip-resonator response needs a current-weighted
-    # treatment (observables.spatial_ac_response) this mode doesn't
-    # drive yet — carrying a probe config would validate and render a
-    # field with no effect.
 
 
 class M25DriveConfig(StrictModel):

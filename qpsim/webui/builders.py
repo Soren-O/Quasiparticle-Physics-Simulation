@@ -22,7 +22,6 @@ import numpy as np
 
 from qpsim.backends.t3_diffusion import T3DiffusionState
 from qpsim.backends.t3_spatial import T3SpatialState
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState, T3SpatialFlux1D
 from qpsim.collisions.pair_breaking_photon import (
     validate_pair_breaking_photon_grid,
 )
@@ -65,12 +64,9 @@ from qpsim.webui.schemas import (
     M25JunctionSetup,
     MaterialParams,
     ProbeConfig,
-    Spatial1DSetup,
     KineticsSetup,
     SpatialProfileSpec,
-    SteadyState0DSetup,
     TimeProfileSpec,
-    Transient0DSetup,
 )
 
 
@@ -124,7 +120,7 @@ def mb_probe_invalid_reason(
 
 
 def _grid_spacing(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> float:
     span = (setup.grid.max_factor - setup.grid.min_factor) * setup.material.Delta_0
     return span / float(setup.grid.num_bins)
@@ -152,7 +148,7 @@ def _check_photon_commensurate(
 
 def _check_pb_runtime_contract(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> None:
     """Run the production PB kernel's static grid-contract preflight.
 
@@ -190,7 +186,7 @@ def _check_pb_runtime_contract(
 
 def _validate_drives_and_probe(
     report: ValidationReport,
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> None:
     gap = setup.material.Delta_0
     dE = _grid_spacing(setup)
@@ -287,96 +283,98 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
     report = ValidationReport()
     _validate_phonon_lattice(report, setup)
 
-    if isinstance(setup, SteadyState0DSetup):
+    if isinstance(setup, KineticsSetup):
         _validate_drives_and_probe(report, setup)
-
-        c = setup.collisions
-        if setup.phonons.mode == "thermal_bath":
-            # No phonon equation exists in this sector: n is pinned at the bath.
-            # The phonon-source flags have no term to act on, so they are inert
-            # rather than wrong, and a channel switched off on the quasiparticle
-            # side alone is not a split.
-            if not (c.phonon_scattering_source and c.phonon_recombination_source):
+        # Strategy-specific guards, carried over from the modes this one
+        # replaced. They were never about those modes -- they are about the
+        # SOLVER each strategy selects, and deleting them with the modes
+        # would have dropped six real checks on the route that still runs
+        # them (the equal-gap interface guard below was found exactly that
+        # way, by a test that posted a retired mode name and got a 200).
+        if setup.strategy == "steady_state":
+            c = setup.collisions
+            if setup.phonons.mode == "thermal_bath":
+                # No phonon equation exists in this sector: n is pinned at the bath.
+                # The phonon-source flags have no term to act on, so they are inert
+                # rather than wrong, and a channel switched off on the quasiparticle
+                # side alone is not a split.
+                if not (c.phonon_scattering_source and c.phonon_recombination_source):
+                    report.warnings.append(
+                        "Collision terms: the phonon source switches have no effect with a "
+                        "thermal-bath phonon sector, because n_ph is pinned and there is no "
+                        "phonon equation to remove a term from."
+                    )
+            else:
+                sc_split = c.scattering != c.phonon_scattering_source
+                rc_split = c.recombination != c.phonon_recombination_source
+                if sc_split or rc_split:
+                    channels = " and ".join(
+                        name for name, split in
+                        (("scattering", sc_split), ("recombination", rc_split)) if split
+                    )
+                    if not setup.phonons.use_phonon_side_kernel:
+                        report.errors.append(
+                            f"Collision terms: the {channels} channel cannot be split while "
+                            "use_phonon_side_kernel is off, because the phonon equation then "
+                            "reuses the quasiparticle-side kernel and the two sides are the "
+                            "same matrix. Enable the phonon-side kernel, or set both sides "
+                            "of the channel the same."
+                        )
+                    elif setup.solver.method == "coupled_newton":
+                        report.errors.append(
+                            f"Collision terms: the {channels} channel cannot be split on the "
+                            "coupled-Newton route, which assembles the phonon source and its "
+                            "Jacobian through a path that does not carry these flags. Use the "
+                            "Picard solver, or set both sides of the channel the same."
+                        )
+                    else:
+                        report.warnings.append(
+                            f"Energy conservation is not being tracked: the {channels} "
+                            "channel is switched on for one population and off for the "
+                            "other, so one trades energy with the other without it being "
+                            "recorded. Detailed balance no longer holds and there is no "
+                            "thermal fixed point. Proceed at your own risk."
+                        )
+            if setup.self_consistent_gap and setup.grid.min_factor >= 1.0:
                 report.warnings.append(
-                    "Collision terms: the phonon source switches have no effect with a "
-                    "thermal-bath phonon sector, because n_ph is pinned and there is no "
-                    "phonon equation to remove a term from."
+                    "Self-consistent gap: the energy grid does not extend below "
+                    "Delta_0, so any suppressed-gap solution lacks occupation "
+                    "samples near its new edge. Set grid.min_factor below the "
+                    "smallest expected Delta/Delta_0 for quantitative results."
+                )
+            if setup.solver.method == "coupled_newton" and setup.phonons.mode == "thermal_bath":
+                report.errors.append(
+                    "Solver: coupled-Newton solves (f, n_ph) jointly and cannot be combined "
+                    "with the pinned thermal bath — pick a dynamic phonon sector or the "
+                    "auto/picard route."
+                )
+            if setup.solver.method == "coupled_newton" and setup.phonons.mode == "dynamic_closed":
+                report.errors.append(
+                    "Solver: coupled-Newton requires finite phonon escape; the dynamic_closed "
+                    "sector has an unconstrained conserved-energy mode. Use Picard/auto or "
+                    "select dynamic_escape."
+                )
+            if (
+                setup.phonons.mode != "thermal_bath"
+                and setup.phonons.use_phonon_side_kernel
+                and setup.material.tau_0_pb_ns is None
+            ):
+                report.errors.append(
+                    "Phonons: the phonon-side kernel needs the material's τ₀^PB (tau_0_pb_ns)."
                 )
         else:
-            sc_split = c.scattering != c.phonon_scattering_source
-            rc_split = c.recombination != c.phonon_recombination_source
-            if sc_split or rc_split:
-                channels = " and ".join(
-                    name for name, split in
-                    (("scattering", sc_split), ("recombination", rc_split)) if split
+            if setup.dt > setup.material.tau_0 / 10.0:
+                report.warnings.append(
+                    f"dt = {setup.dt:g} ns exceeds τ₀/10 = "
+                    f"{setup.material.tau_0 / 10:g} ns — ETD2 stability "
+                    f"limits may distort the transient."
                 )
-                if not setup.phonons.use_phonon_side_kernel:
-                    report.errors.append(
-                        f"Collision terms: the {channels} channel cannot be split while "
-                        "use_phonon_side_kernel is off, because the phonon equation then "
-                        "reuses the quasiparticle-side kernel and the two sides are the "
-                        "same matrix. Enable the phonon-side kernel, or set both sides "
-                        "of the channel the same."
-                    )
-                elif setup.solver.method == "coupled_newton":
-                    report.errors.append(
-                        f"Collision terms: the {channels} channel cannot be split on the "
-                        "coupled-Newton route, which assembles the phonon source and its "
-                        "Jacobian through a path that does not carry these flags. Use the "
-                        "Picard solver, or set both sides of the channel the same."
-                    )
-                else:
-                    report.warnings.append(
-                        f"Energy conservation is not being tracked: the {channels} "
-                        "channel is switched on for one population and off for the "
-                        "other, so one trades energy with the other without it being "
-                        "recorded. Detailed balance no longer holds and there is no "
-                        "thermal fixed point. Proceed at your own risk."
-                    )
-
-        if setup.solver.self_consistent_gap and setup.grid.min_factor >= 1.0:
-            report.warnings.append(
-                "Self-consistent gap: the energy grid does not extend below "
-                "Delta_0, so any suppressed-gap solution lacks occupation "
-                "samples near its new edge. Set grid.min_factor below the "
-                "smallest expected Delta/Delta_0 for quantitative results."
-            )
-        if setup.solver.method == "coupled_newton" and setup.phonons.mode == "thermal_bath":
-            report.errors.append(
-                "Solver: coupled-Newton solves (f, n_ph) jointly and cannot be combined "
-                "with the pinned thermal bath — pick a dynamic phonon sector or the "
-                "auto/picard route."
-            )
-        if setup.solver.method == "coupled_newton" and setup.phonons.mode == "dynamic_closed":
-            report.errors.append(
-                "Solver: coupled-Newton requires finite phonon escape; the dynamic_closed "
-                "sector has an unconstrained conserved-energy mode. Use Picard/auto or "
-                "select dynamic_escape."
-            )
-        if (
-            setup.phonons.mode != "thermal_bath"
-            and setup.phonons.use_phonon_side_kernel
-            and setup.material.tau_0_pb_ns is None
-        ):
-            report.errors.append(
-                "Phonons: the phonon-side kernel needs the material's τ₀^PB (tau_0_pb_ns)."
-            )
-
-    elif isinstance(setup, Transient0DSetup):
-        _validate_drives_and_probe(report, setup)
-        if setup.dt > setup.material.tau_0 / 10.0:
-            report.warnings.append(
-                f"dt = {setup.dt:g} ns exceeds τ₀/10 = {setup.material.tau_0 / 10:g} ns — "
-                f"ETD2 stability limits may distort the transient."
-            )
-        n_steps = setup.total_time / setup.dt
-        if n_steps > 2e5:
-            report.warnings.append(
-                f"total_time/dt ≈ {n_steps:.3g} substeps — this run will take a while."
-            )
-
-    elif isinstance(setup, KineticsSetup):
-        _validate_drives_and_probe(report, setup)
+            n_steps = setup.max_time / setup.dt
+            if n_steps > 2e5:
+                report.warnings.append(
+                    f"max_time/dt ≈ {n_steps:.3g} substeps — this run will "
+                    f"take a while."
+                )
         # Dynes broadening is reported by _validate_drives_and_probe above,
         # which covers every kinetic mode; do not repeat it here.
         if setup.material.D_0 < 0.0:
@@ -464,68 +462,6 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 )
         _validate_gap_map_against_grid(report, setup)
 
-    elif isinstance(setup, Spatial1DSetup):
-        _validate_drives_and_probe(report, setup)
-        if setup.material.D_0 < 0.0:
-            report.errors.append("1D strip: D₀ (μm²/ns) cannot be negative.")
-        elif setup.material.D_0 == 0.0:
-            # Not an error: the flux coefficient is D_0*N_1**q, so zero gives an
-            # exactly zero transport operator and the strip becomes a set of
-            # independent 0-D cells. That is the way to isolate the other terms.
-            report.warnings.append(
-                "1D strip: D₀ = 0 switches spatial transport off entirely; each "
-                "cell evolves independently."
-            )
-        # A large diffusion number is safe because the backend subcycles CN
-        # below its non-negative-amplification stiffness bound, but it can make
-        # one visible driver step substantially more expensive. Warn about the
-        # hidden work rather than claiming the old full-step ringing/clip
-        # failure.
-        if setup.material.D_0 > 0.0 and setup.num_cells > 1:
-            dx_um = setup.length_um / setup.num_cells
-            diffusion_number = setup.material.D_0 * setup.dt / (dx_um * dx_um)
-            if diffusion_number > 8.0:
-                report.warnings.append(
-                    f"1D strip: diffusion number D₀·dt/dx² ≈ {diffusion_number:.1f} "
-                    f"(dt = {setup.dt:g} ns, dx = {dx_um:.2g} µm). The "
-                    "Crank–Nicolson transport step will be internally subcycled "
-                    "to prevent stiff ringing; reduce dt or increase dx if the "
-                    "run is too slow."
-                )
-        if setup.injection.enabled:
-            e_center = setup.injection.center_over_delta
-            if not (setup.grid.min_factor < e_center < setup.grid.max_factor):
-                report.errors.append(
-                    f"Injection: line center {e_center:g}×Δ lies outside the energy grid "
-                    f"[{setup.grid.min_factor:g}, {setup.grid.max_factor:g}]×Δ."
-                )
-        if setup.gap_profile.kind == "step":
-            e_max = setup.grid.max_factor * setup.material.Delta_0
-            e_min = setup.grid.min_factor * setup.material.Delta_0
-            if (
-                setup.gap_profile.interface_G_N is not None
-                and setup.gap_profile.gap_left == setup.gap_profile.gap_right
-            ):
-                report.errors.append(
-                    "Gap profile: interface_G_N requires distinct gap_left and "
-                    "gap_right values; equal gaps do not define a step face."
-                )
-            for side, val in (
-                ("gap_left", setup.gap_profile.gap_left),
-                ("gap_right", setup.gap_profile.gap_right),
-            ):
-                if val < e_min:
-                    report.errors.append(
-                        f"Gap profile: {side} = {val:g} micro-eV lies below the "
-                        f"grid bottom {e_min:g} micro-eV. Lower grid.min_factor "
-                        "so the local BCS edge is represented."
-                    )
-                if val >= e_max:
-                    report.errors.append(
-                        f"Gap profile: {side} = {val:g} μeV is at or above the grid top "
-                        f"{e_max:g} μeV — no quasiparticle states would exist there."
-                    )
-
     elif isinstance(setup, M25JunctionSetup):
         if setup.E_J_over_h_GHz <= setup.E_C_over_h_GHz:
             report.errors.append("M25: requires E_J > E_C (transmon regime).")
@@ -562,7 +498,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
 
 def build_spectral(
-    setup: SteadyState0DSetup | Transient0DSetup | Spatial1DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> SpectralContext:
     """Spectral context on the setup's uniform energy grid."""
     E, _ = build_energy_grid(
@@ -581,7 +517,7 @@ def build_spectral(
 
 
 def build_state_0d(
-    setup: SteadyState0DSetup | Transient0DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> T3DiffusionState:
     """Thermal-seed 0-D T3 state on the physics ω-grid.
 
@@ -595,7 +531,7 @@ def build_state_0d(
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
 
     has_sector = isinstance(
-        setup, (SteadyState0DSetup, Transient0DSetup, KineticsSetup),
+        setup, KineticsSetup,
     )
     if has_sector and setup.phonons.mode == "dynamic_escape":
         tau_l_value = setup.phonons.tau_l_ns
@@ -623,7 +559,7 @@ def build_state_0d(
 
 
 def drive_dicts(
-    setup: SteadyState0DSetup | Transient0DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> tuple[dict[str, float] | None, dict[str, float] | None]:
     """(photon_params, pb_photon_params) in the backend's dict format."""
     photon_params = None
@@ -644,7 +580,7 @@ def drive_dicts(
 
 
 def steady_state_solver_kwargs(
-    setup: SteadyState0DSetup | KineticsSetup,
+    setup: KineticsSetup,
 ) -> dict[str, object]:
     """Backend ``steady_state`` kwargs for the chosen phonon sector + method."""
     s = setup.solver
@@ -703,64 +639,8 @@ def steady_state_solver_kwargs(
     return kwargs
 
 
-def build_state_1d(setup: Spatial1DSetup) -> T3Spatial1DState:
-    """Thermal-seed 1D strip state with optional two-gap step profile."""
-    spectral = build_spectral(setup)
-    # Equal finite-volume cell centers on [0, length_um]. Reflective
-    # boundaries sit half a cell outside the first/last centers, so
-    # ``state.cell_widths.sum()`` is exactly the requested physical length.
-    dx_um = setup.length_um / setup.num_cells
-    x = (np.arange(setup.num_cells, dtype=float) + 0.5) * dx_um
-    f_col = fermi_dirac_distribution(spectral.E, setup.T_bath)
-    f = np.tile(f_col[:, None], (1, setup.num_cells))
-
-    gap_profile: np.ndarray | None = None
-    interface_conductance: float | None = None
-    if setup.gap_profile.kind == "step":
-        split = setup.gap_profile.step_position_fraction * setup.length_um
-        gap_profile = np.where(x < split, setup.gap_profile.gap_left, setup.gap_profile.gap_right)
-        interface_conductance = setup.gap_profile.interface_G_N
-
-    return T3Spatial1DState(
-        f=f,
-        x=x,
-        gap=setup.material.Delta_0,
-        spectral=spectral,
-        material=material_from_params(setup.material),
-        T_bath=setup.T_bath,
-        diffusion_model=diffusion_model_from_name(setup.diffusion_model),
-        gap_profile=gap_profile,
-        interface_conductance=interface_conductance,
-    )
 
 
-def build_injection_flux(
-    setup: Spatial1DSetup, state: T3Spatial1DState
-) -> T3SpatialFlux1D | None:
-    """Gaussian-in-energy continuous QP source for the strip."""
-    if not setup.injection.enabled:
-        return None
-    E = state.spectral.E
-    gap = setup.material.Delta_0
-    center = setup.injection.center_over_delta * gap
-    sigma = setup.injection.sigma_over_delta * gap
-    line = np.exp(-0.5 * ((E - center) / sigma) ** 2)
-
-    NE, NX = state.f.shape
-    gain = np.zeros((NE, NX))
-    if setup.injection.where == "left_end":
-        gain[:, 0] = setup.injection.rate_per_ns * line
-    else:
-        gain[:, :] = setup.injection.rate_per_ns * line[:, None]
-    return T3SpatialFlux1D(
-        gain=gain,
-        loss_rate=np.zeros((NE, NX)),
-        diagnostics={
-            "source": "webui_gaussian_injection",
-            "center_uev": center,
-            "sigma_uev": sigma,
-        },
-    )
 
 
 def build_m25_inputs(
@@ -967,7 +847,7 @@ def _validate_gap_map_against_grid(
             geometry = build_geometry_2d(setup)
             gaps = build_gap_per_cell_2d(setup, geometry)
         except Exception as exc:
-            report.errors.append(f"2D gap map: {exc}")
+            report.errors.append(f"Gap map: {exc}")
             return
         if gaps is None:
             return
@@ -981,7 +861,7 @@ def _validate_gap_map_against_grid(
     if largest is not None and largest >= ceiling:
         needed = largest / delta_0
         report.errors.append(
-            f"2D gap map: a local gap of {largest:.4g} micro-eV is at or above "
+            f"Gap map: a local gap of {largest:.4g} micro-eV is at or above "
             f"the grid top {ceiling:.4g} "
             f"(max_factor={setup.grid.max_factor:g} x Delta_0={delta_0:g}), so "
             "no quasiparticle states would exist there. Set grid.max_factor > "
@@ -991,7 +871,7 @@ def _validate_gap_map_against_grid(
     if smallest < floor:
         needed = smallest / delta_0
         report.errors.append(
-            f"2D gap map: the smallest local gap is {smallest:.4g} micro-eV "
+            f"Gap map: the smallest local gap is {smallest:.4g} micro-eV "
             f"but the energy grid starts at {floor:.4g} "
             f"(min_factor={setup.grid.min_factor:g} x Delta_0={delta_0:g}). "
             f"Set grid.min_factor <= {needed:.4g} so the grid covers the "

@@ -16,9 +16,6 @@ from qpsim.webui.schemas import (
     M25JunctionSetup,
     SetupEnvelope,
     SolverOptions,
-    Spatial1DSetup,
-    SteadyState0DSetup,
-    Transient0DSetup,
 )
 from qpsim.webui.store import Workspace
 
@@ -92,7 +89,7 @@ class TestWorkspace:
         ws = Workspace(tmp_path)
         setup_dir = tmp_path / "setups"
         setup_dir.mkdir(parents=True)
-        legacy = SteadyState0DSetup().model_dump()
+        legacy = KineticsSetup().model_dump()
         legacy["material"]["rho_F"] = 1.74e22  # v1: µeV^-1 m^-3
         (setup_dir / "legacy.json").write_text(
             json.dumps({"name": "legacy", "setup": legacy}),
@@ -110,7 +107,7 @@ class TestWorkspace:
         ws = Workspace(tmp_path)
         setup_dir = tmp_path / "setups"
         setup_dir.mkdir(parents=True)
-        shipped = SteadyState0DSetup().model_dump()
+        shipped = KineticsSetup().model_dump()
         shipped["material"]["rho_F"] = 1.74e28
         (setup_dir / "shipped.json").write_text(
             json.dumps({"name": "shipped", "setup": shipped}),
@@ -140,7 +137,7 @@ class TestWorkspace:
                 {
                     "name": "bad",
                     "schema_version": bad_version,
-                    "setup": SteadyState0DSetup().model_dump(),
+                    "setup": KineticsSetup().model_dump(),
                 }
             ),
             encoding="utf-8",
@@ -172,9 +169,36 @@ class TestWorkspace:
         assert ws.list_runs() == []
 
 
-def _tiny_steady_state() -> SteadyState0DSetup:
-    setup = SteadyState0DSetup()
-    setup.grid.num_bins = 48
+def _tiny_steady_state() -> KineticsSetup:
+    """The retired 0-D steady-state mode, as it is reached now."""
+    setup = KineticsSetup(strategy="steady_state")
+    setup.geometry.rows = setup.geometry.cols = 1
+    setup.grid.max_factor, setup.grid.num_bins = 10.0, 48
+    setup.probe.enabled = True
+    return setup
+
+
+def _tiny_transient() -> KineticsSetup:
+    """The retired 0-D transient, as it is reached now."""
+    setup = KineticsSetup(strategy="time_march")
+    setup.geometry.rows = setup.geometry.cols = 1
+    setup.grid.max_factor, setup.grid.num_bins = 10.0, 24
+    setup.stop_tol = 0.0
+    return setup
+
+
+def _tiny_strip(cells: int = 8) -> KineticsSetup:
+    """The retired 1-D strip, as it is reached now."""
+    setup = KineticsSetup(strategy="time_march")
+    setup.geometry.rows, setup.geometry.cols = 1, cells
+    setup.geometry.mesh_size_um = 100.0 / cells
+    setup.grid.num_bins = 24
+    setup.stop_tol = 0.0
+    # The retired 1-D mode defaulted injection ON and the merged mode defaults
+    # it OFF, so a helper that stays silent here reproduces a DIFFERENT run --
+    # the profile comes out flat and "the source end carries more" asserts
+    # equality against equality. Same class of trap as grid.max_factor.
+    setup.injection.enabled = True
     return setup
 
 
@@ -240,110 +264,6 @@ class TestSteadyState0DExecutor:
             execute_setup(_tiny_steady_state(), _noop_progress, lambda: True)
 
 
-class TestSteadyStateStrategyReducesToTheZeroDMode:
-    """A 1x1 mask asking for a steady state must BE the 0-D mode.
-
-    This is the gate the whole mode collapse rests on. It is bit-identity
-    rather than agreement to a tolerance, and it holds structurally because
-    both routes call the same ``run_steady_state_0d`` on a state built by the
-    same ``build_state_0d`` -- a parallel implementation could agree today and
-    drift on the next edit, which is exactly how this repo's recurring defect
-    starts.
-    """
-
-    @staticmethod
-    def _pair(**on_old):
-        old = SteadyState0DSetup()
-        old.grid.num_bins = 24
-        old.phonons.mode = "dynamic_escape"
-        for path, value in on_old.items():
-            target, _, attr = path.rpartition(".")
-            obj = old
-            for part in target.split(".") if target else []:
-                obj = getattr(obj, part)
-            setattr(obj, attr, value)
-        new = KineticsSetup(strategy="steady_state")
-        for field in (
-            "material", "T_bath", "grid", "phonons", "collisions",
-            "subgap_drive", "pb_drive", "probe",
-        ):
-            setattr(new, field, getattr(old, field))
-        # The gap switch has ONE authority on the merged mode, and it is the
-        # top-level field -- solver.self_consistent_gap is refused there.
-        new.self_consistent_gap = old.solver.self_consistent_gap
-        new.solver = old.solver.model_copy(update={"self_consistent_gap": False})
-        new.geometry.rows = new.geometry.cols = 1
-        return old, new
-
-    def _assert_identical(self, old, new) -> None:
-        a = execute_setup(old, _noop_progress, _never)
-        b = execute_setup(new, _noop_progress, _never)
-        assert sorted(a.arrays) == sorted(b.arrays)
-        for name in a.arrays:
-            assert np.array_equal(a.arrays[name], b.arrays[name]), name
-        assert a.summary == b.summary
-        # Guard against a vacuous pass: an empty payload compares equal to an
-        # empty payload.
-        assert a.summary["x_qp"] > 0.0
-
-    def test_thermal_bath(self) -> None:
-        self._assert_identical(*self._pair(**{"phonons.mode": "thermal_bath"}))
-
-    def test_dynamic_escape(self) -> None:
-        self._assert_identical(*self._pair())
-
-    def test_self_consistent_gap_reads_the_top_level_field(self) -> None:
-        # min_factor < 1 because a self-consistent gap needs sub-gap cells.
-        self._assert_identical(*self._pair(**{
-            "solver.self_consistent_gap": True, "grid.min_factor": 0.9,
-        }))
-
-    def test_both_drives(self) -> None:
-        """Both photon drives on, at frequencies the grid actually admits.
-
-        The pair-breaking drive has to satisfy TWO conditions at once --
-        omega_PB on the dE lattice, and (omega_PB - 2*E[0])/dE integral so
-        every generation/recombination partner lands on a represented energy.
-        Since 2*E[0] = 2*Delta + dE, the two are simultaneously satisfiable
-        only when 2*Delta/dE is itself an integer, which is the same
-        commensurability condition the phonon lattices obey. 24 bins does not
-        satisfy it and 27 does, so the bin count is pinned here and asserted
-        rather than inherited.
-        """
-        from qpsim.webui.builders import build_spectral
-
-        old, new = self._pair(**{
-            "subgap_drive.enabled": True, "pb_drive.enabled": True,
-            "grid.num_bins": 27,
-        })
-        new.grid = old.grid
-        E = build_spectral(old).E
-        dE = float(E[1] - E[0])
-        ratio = 2.0 * old.material.Delta_0 / dE
-        assert abs(ratio - round(ratio)) < 1e-9, (
-            f"2*Delta/dE = {ratio} is not integral, so no omega_PB satisfies "
-            "both grid conditions and this test cannot run"
-        )
-        for s in (old, new):
-            s.subgap_drive.omega_0 = dE                     # < Delta, on-lattice
-            s.pb_drive.omega_PB = round(540.0 / dE) * dE    # > 2*Delta
-        self._assert_identical(old, new)
-
-    def test_a_multi_cell_mask_is_refused_by_name(self) -> None:
-        """And the message must blame the solver, not the device."""
-        _old, new = self._pair()
-        new.geometry.rows, new.geometry.cols = 2, 3
-
-        with pytest.raises(ValueError, match=r"steady-state solver") as excinfo:
-            execute_setup(new, _noop_progress, _never)
-
-        message = str(excinfo.value)
-        assert "6 cells" in message
-        assert "time_march" in message, "the message must offer the way forward"
-
-    def test_the_duplicate_gap_switch_is_refused(self) -> None:
-        with pytest.raises(ValidationError, match="top level"):
-            KineticsSetup(solver=SolverOptions(self_consistent_gap=True))
 
 
 class TestSetupsSavedUnderARetiredModeStillLoad:
@@ -571,30 +491,29 @@ class TestTheProbeActsOrSaysWhyNot:
 
 class TestTransient0DExecutor:
     def test_short_relaxation_run(self) -> None:
-        setup = Transient0DSetup()
-        setup.grid.num_bins = 24
+        setup = _tiny_transient()
         setup.dt = 1.0
-        setup.total_time = 5.0
+        setup.max_time = 5.0
         setup.snapshot_interval = 1.0
         setup.probe.enabled = False
         fractions: list[float] = []
         payload = execute_setup(
             setup, lambda fr, _m: fractions.append(fr), _never
         )
-        assert payload.arrays["f_snapshots"].shape[0] == payload.arrays["t_ns"].size
+        assert payload.arrays["snap_f"].shape[0] == payload.arrays["snap_t_ns"].size
         np.testing.assert_allclose(
-            payload.arrays["obs_x_qp_paper"],
-            2.0 * payload.arrays["obs_x_qp"],
+            payload.arrays["obs_x_qp_mean_paper"],
+            2.0 * payload.arrays["obs_x_qp_mean"],
         )
         assert payload.summary["n_steps"] == 5
-        assert payload.summary["n_etd_substeps"] >= payload.summary["n_steps"]
+        # n_etd_substeps has no equivalent: it counted adaptive substeps inside
+        # the retired 0-D ETD2 driver and the spatial stepper exposes none.
         assert fractions and fractions[-1] == 1.0
 
     def test_cancel_mid_run(self) -> None:
-        setup = Transient0DSetup()
-        setup.grid.num_bins = 24
+        setup = _tiny_transient()
         setup.dt = 1.0
-        setup.total_time = 50.0
+        setup.max_time = 50.0
         setup.probe.enabled = False
         count = [0]
 
@@ -608,9 +527,8 @@ class TestTransient0DExecutor:
 
 class TestSpatial1DExecutor:
     def test_short_injection_run(self) -> None:
-        setup = Spatial1DSetup()
+        setup = _tiny_strip(cells=7)
         setup.grid.num_bins = 12
-        setup.num_cells = 7
         setup.dt = 1.0
         setup.max_time = 5.0
         setup.stop_tol = 0.0
@@ -625,33 +543,6 @@ class TestSpatial1DExecutor:
         profile = payload.arrays["xqp_profile"]
         assert profile[0] > profile[-1]
         assert payload.summary["n_steps"] == 5
-
-    def test_backend_warnings_are_exposed_in_run_notes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend
-
-        original = T3Spatial1DBackend.run_until_steady_state
-
-        def warning_wrapper(self: T3Spatial1DBackend, *args: object, **kwargs: object):
-            warnings.warn(
-                "spatial conservation diagnostic", RuntimeWarning, stacklevel=2
-            )
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(
-            T3Spatial1DBackend, "run_until_steady_state", warning_wrapper
-        )
-        setup = Spatial1DSetup()
-        setup.grid.num_bins = 12
-        setup.num_cells = 7
-        setup.dt = 1.0
-        setup.max_time = 1.0
-        setup.stop_tol = 0.0
-
-        payload = execute_setup(setup, _noop_progress, _never)
-
-        assert "spatial conservation diagnostic" in payload.notes
 
 
 class TestM25Executor:
