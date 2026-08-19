@@ -37,7 +37,7 @@ class TestGapCutLongitudinalFaceWeight:
 
     Every benchmark in ``validation/diffusion_operators`` builds its grid above
     the local gap, so ``support_fraction`` is identically one and the repaired
-    branch in ``T3Spatial1DBackend._build_transport_operators`` is
+    branch in the backend's ``_build_transport_operators`` is
     indistinguishable from the unrepaired ``flux_weight(D0, N1, 0)``. Lowering
     the packet benchmark's grid floor below Δ separates them by ``1 /
     support_fraction``.

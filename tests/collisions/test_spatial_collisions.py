@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.collisions.spatial import (
     _GAP_COUNT_WARN,
     _MAX_CACHED_OPERATORS,
@@ -56,37 +55,6 @@ def _collisions(spectral, material, gap_per_cell, **kwargs):
     )
 
 
-class TestReproducesTheOneDimensionalBackend:
-    @pytest.mark.parametrize(
-        ("label", "ncells", "gaps"),
-        [
-            ("uniform", 9, None),
-            ("two-gap step, batched", 8, [0, 0, 0, 0, 1, 1, 1, 1]),
-            ("four gaps, streamed", 8, [0, 0, 1, 1, 2, 2, 3, 3]),
-        ],
-    )
-    def test_a_collision_step_matches_bit_for_bit(self, label, ncells, gaps):
-        material, spectral = _context()
-        values = [material.Delta_0, 200.0, 220.0, 240.0]
-        gap_profile = (
-            None if gaps is None
-            else np.array([values[g] for g in gaps], dtype=float)
-        )
-        f0 = _occupations(spectral, material, ncells)
-
-        state = T3Spatial1DState(
-            f=f0.copy(), x=np.linspace(0.0, 60.0, ncells),
-            gap=material.Delta_0, spectral=spectral, material=material,
-            T_bath=T_BATH, gap_profile=gap_profile,
-        )
-        expected = T3Spatial1DBackend().apply_collisions(state, DT)
-
-        per_cell = (
-            np.full(ncells, material.Delta_0) if gap_profile is None
-            else gap_profile
-        )
-        got = _collisions(spectral, material, per_cell).apply(f0.copy(), DT)
-        assert np.array_equal(got, expected.f)
 
 
 class TestDimensionAgnostic:

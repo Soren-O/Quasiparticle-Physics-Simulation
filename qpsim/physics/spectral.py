@@ -451,7 +451,7 @@ class SpectralContext:
             # in floating point over gap/2 <= E <= 2*gap by Sterbenz's lemma --
             # precisely the gap-edge region where this cell measure matters.
             # The same operation sequence is mirrored in
-            # backends/t3_spatial_1d.py and in the C3 author-score script;
+            # the C3 author-score script;
             # sequence identity there is load-bearing, because the C3 mirror is
             # compared bit-exact and the 1-D backend is the bit reference for
             # the unified 2-D core.

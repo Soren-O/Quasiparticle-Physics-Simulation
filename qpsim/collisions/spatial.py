@@ -527,7 +527,7 @@ class SpatialCollisions:
         # Refuse an external source aimed at states that do not exist here,
         # rather than deleting it below. Injection into an unrepresented bin is
         # undefined, and BOTH backends this one replaces raise on it
-        # (t3_spatial_1d._validate_group_gain_support, and t3_diffusion via
+        # (the retired 1-D backend, and t3_diffusion via
         # external_flux._validate_gain_support). Silently zeroing it is how a
         # gap-step device could be asked for the same injection on both sides
         # and get it on only one, with nothing in the output saying so.

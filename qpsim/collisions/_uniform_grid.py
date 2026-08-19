@@ -9,7 +9,7 @@ import numpy as np
 # evaluations) re-validate them thousands of times per solve; remembering
 # recent successes replaces the diff/allclose scan with a hash lookup.
 # Identity (``id``) is not safe as a key — the same discipline as
-# T3Spatial1DBackend._spectral_cache_key: SpectralContext.E/.dE mint a fresh
+# The retired 1-D backend hit this too: SpectralContext.E/.dE mint a fresh
 # read-only view per access, so those ids are freed and recycled, and neither
 # an id nor the endpoints constrain the interior spacings this guard checks.
 # Keying on content makes a stale hit impossible: a changed interior, a

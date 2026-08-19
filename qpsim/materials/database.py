@@ -83,7 +83,7 @@ class Material:
     tau_0: float                # characteristic e-ph time
     # Accepted but currently IGNORED: every backend hands ``tau_0`` to
     # both build_scattering_kernel_base and build_recombination_kernel_base
-    # (t3_diffusion.py, t3_spatial_1d.py, devices/device.py), so a YAML
+    # (t3_diffusion.py, t3_spatial.py, devices/device.py), so a YAML
     # that sets these changes no solve. They are not independent material
     # inputs either — Kaplan 1976 normalizes both channels by the one
     # ``tau_0``, and the phonon-side pair-breaking kernel (``tau_0_pb_ns``)

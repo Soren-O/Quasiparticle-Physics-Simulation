@@ -18,11 +18,12 @@ composition is
 which is what makes the whole step second order rather than merely the
 transport wrap around a first-order interior. See :meth:`T3SpatialBackend.step`.
 
-``qpsim/backends/t3_spatial_1d.py`` stays in the tree until this is
-benchmark-certified. A one-cell-wide geometry here must reproduce it; that is
-the acceptance gate, and it is sharper than any single analytic check because
-that backend already carries validated face weights, subcycling and interface
-handling.
+The 1-D backend this replaced is gone. Its acceptance gate -- a one-cell-wide
+geometry reproducing it bit for bit -- was met and is in the history; what
+carries the physics forward is ``tests/backends/strip/``, which asserts the
+same properties on this backend directly rather than by comparison. That
+migration also surfaced ten behaviours the retired backend guarded and this one
+did not; nine are now here, and the tenth is a marked open regression.
 """
 
 from __future__ import annotations

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.geometries import rectangle, strip
 from qpsim.grid.energy_grid import (
     build_energy_grid,
@@ -131,59 +130,3 @@ class TestConservation:
         assert apply_face_conductances(laplacian, {}) is laplacian
 
 
-class TestReproducesTheOneDimensionalBackend:
-    def test_a_gap_step_interface_matches_bit_for_bit(self):
-        material = load_material("Al")
-        ne, nx, g_n = 24, 8, 0.7
-        gap_left, gap_right = material.Delta_0, 240.0
-        energies, _ = build_energy_grid(
-            gap=gap_left, energy_min_factor=1.0, energy_max_factor=5.0,
-            num_energy_bins=ne,
-        )
-        widths = integration_widths_from_centers(energies)
-        spectral = SpectralContext(
-            E_bins=energies, dE_bins=widths, gap=gap_left,
-            diffusion_coefficient=D0,
-        )
-        x = np.linspace(0.0, 70.0, nx)
-        dx = float(x[1] - x[0])
-        gap_profile = np.where(
-            np.arange(nx) < nx // 2, gap_left, gap_right,
-        ).astype(float)
-        f0 = np.repeat(
-            (0.1 * np.exp(-((energies - 2 * gap_left) / 40.0) ** 2))[:, None],
-            nx, axis=1,
-        )
-        state = T3Spatial1DState(
-            f=f0, x=x, gap=gap_left, spectral=spectral, material=material,
-            T_bath=0.1, gap_profile=gap_profile, interface_conductance=g_n,
-        )
-        backend = T3Spatial1DBackend()
-        expected_ops = backend._build_transport_operators(state, DT)
-        n1 = backend._n1_per_cell(state)
-        support = backend._support_fraction_per_cell(state)
-
-        geom = strip(nx, mesh_size=dx)
-        faces = face_condition_lookup(geom.edges, geom.conditions())
-        gap_grid = gap_profile.reshape(1, nx)
-
-        compared = 0
-        for i, op in enumerate(expected_ops):
-            if op is None:
-                continue
-            b_expected, _lu, idx, _rho, n_substeps = op
-            submask = np.zeros((1, nx), dtype=bool)
-            submask[0, idx] = True
-            overrides = interface_face_conductances(
-                submask, gap_grid, energies, widths, g_n, dx, i,
-            )
-            operator, _source = spatial_diffusion_operator(
-                submask, faces, dx,
-                D0 * support[i, idx],          # A1: q == 0
-                density_weight(n1[i, idx], 1),
-                overrides,
-            )
-            b_got, _lu2 = build_cn_operators(operator, DT / n_substeps, 1.0)
-            assert np.array_equal(b_got.toarray(), b_expected.toarray())
-            compared += 1
-        assert compared > 0, "no energy bin carried an operator"

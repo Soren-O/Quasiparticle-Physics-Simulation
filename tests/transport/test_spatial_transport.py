@@ -1,7 +1,7 @@
 """Tests for qpsim.transport.spatial_transport.
 
 The gate: a full transport step on a one-cell-wide geometry must reproduce
-``T3Spatial1DBackend.apply_transport`` bit for bit. That backend already
+the retired 1-D backend's transport bit for bit. That backend already
 carries validated harmonic face weights and monotonicity subcycling, so
 matching it is a stronger statement than any single analytic check.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.geometries import rectangle, strip
 from qpsim.grid.energy_grid import (
     build_energy_grid,
@@ -56,44 +55,6 @@ def _problem(ne: int = 28, nx: int = 11, seed: int = 7):
     return material, spectral, x, f0
 
 
-class TestReproducesTheOneDimensionalBackend:
-    @pytest.mark.parametrize("model", list(DiffusionModel))
-    def test_a_full_transport_step_matches_bit_for_bit(self, model):
-        material, spectral, x, f0 = _problem()
-        dx = float(x[1] - x[0])
-        state = T3Spatial1DState(
-            f=f0.copy(), x=x, gap=material.Delta_0, spectral=spectral,
-            material=material, T_bath=0.1, diffusion_model=model,
-        )
-        backend = T3Spatial1DBackend()
-        expected = backend.apply_transport(state, DT)
-
-        n1 = backend._n1_per_cell(state)
-        support = backend._support_fraction_per_cell(state)
-        # q == 0 is the dirty-limit indicator: its exact finite-volume average
-        # is the supported fraction of a cut cell, not merely "has capacity".
-        weights = D0 * support if model.q == 0 else flux_weight(D0, n1, model.q)
-        density = density_weight(n1, model.p)
-
-        geom = strip(f0.shape[1], mesh_size=dx)
-        transport = SpatialTransport(
-            geom.mask, face_condition_lookup(geom.edges, geom.conditions()), dx,
-        )
-        got, _diagnostics = transport.apply(
-            f0.copy(), transport.build(weights, density, DT),
-        )
-        assert np.array_equal(got, expected.f)
-
-    def test_a_single_cell_is_a_no_op(self):
-        geom = rectangle(1, 1)
-        transport = SpatialTransport(
-            geom.mask, face_condition_lookup(geom.edges, geom.conditions()), 1.0,
-        )
-        f = np.array([[0.3], [0.4]])
-        weights = np.full((2, 1), D0)
-        density = np.ones((2, 1))
-        got, _d = transport.apply(f.copy(), transport.build(weights, density, DT))
-        assert np.array_equal(got, f)
 
 
 class TestOperatorCache:

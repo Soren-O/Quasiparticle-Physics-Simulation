@@ -1,8 +1,8 @@
 """Tests for qpsim.backends.t3_spatial, the dimension-agnostic backend.
 
-The gate: on a one-cell-wide geometry every composed step must reproduce
-``T3Spatial1DBackend`` bit for bit, including under a gap step with a
-Kupriyanov-Lukichev interface and over many accumulated steps.
+The 1-D backend this was gated against is retired, so the bit-parity class
+is gone with it -- a comparison has no content once there is nothing to compare
+to. The 1-D reduction is now asserted directly in ``tests/backends/strip/``.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
-from qpsim.backends.t3_spatial_1d import T3Spatial1DBackend, T3Spatial1DState
 from qpsim.geometries import rectangle, strip
 from qpsim.grid.energy_grid import (
     build_energy_grid,
@@ -53,49 +52,8 @@ def _occupations(spectral, material, ncells, seed=5):
     )
 
 
-def _run_both(ncells, gap_profile, conductance, model, steps):
-    material, spectral = _setup()
-    x = np.linspace(0.0, 60.0, ncells)
-    dx = float(x[1] - x[0])
-    f0 = _occupations(spectral, material, ncells)
-
-    legacy = T3Spatial1DState(
-        f=f0.copy(), x=x, gap=material.Delta_0, spectral=spectral,
-        material=material, T_bath=T_BATH, gap_profile=gap_profile,
-        interface_conductance=conductance, diffusion_model=model,
-    )
-    unified = T3SpatialState(
-        f=f0.copy(), geometry=strip(ncells, mesh_size=dx), spectral=spectral,
-        material=material, T_bath=T_BATH, gap_per_cell=gap_profile,
-        interface_conductance=conductance, diffusion_model=model,
-    )
-    legacy_backend, unified_backend = T3Spatial1DBackend(), T3SpatialBackend()
-    for _ in range(steps):
-        legacy = legacy_backend.step(legacy, DT)
-        unified = unified_backend.step(unified, DT)
-    return legacy.f, unified.f
 
 
-class TestReproducesTheOneDimensionalBackend:
-    @pytest.mark.parametrize("model", list(DiffusionModel))
-    def test_a_composed_step_matches_bit_for_bit(self, model):
-        expected, got = _run_both(9, None, None, model, steps=1)
-        assert np.array_equal(got, expected)
-
-    def test_a_gap_step_with_an_interface_matches(self):
-        material, _spectral = _setup()
-        gap_profile = np.where(
-            np.arange(8) < 4, material.Delta_0, 235.0,
-        ).astype(float)
-        expected, got = _run_both(
-            8, gap_profile, 0.7, DiffusionModel.A1, steps=1,
-        )
-        assert np.array_equal(got, expected)
-
-    def test_many_steps_do_not_drift(self):
-        """Accumulated error would show here even if one step matched."""
-        expected, got = _run_both(9, None, None, DiffusionModel.A1, steps=10)
-        assert np.array_equal(got, expected)
 
 
 class TestDimensionality:

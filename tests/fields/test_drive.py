@@ -140,7 +140,7 @@ class TestSpatialAndSpectralShape:
         that was applied and did nothing, and on a gap-step device the same
         code discarded a source the user had asked for on BOTH sides of the
         step while delivering it on one. Both backends this one replaced
-        raise here (t3_spatial_1d._validate_group_gain_support,
+        raise here (the collision layer's gain-support guard,
         t3_diffusion via external_flux._validate_gain_support).
         """
         state = _state(min_factor=0.8)

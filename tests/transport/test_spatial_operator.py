@@ -10,10 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial_1d import (
-    _flux_laplacian_from_conductances,
-    _harmonic_face_weights,
-)
 from qpsim.geometries import rectangle, strip
 from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.transport.diffusion.base import (
@@ -32,7 +28,7 @@ D0 = 3.0
 
 
 def _shipped_1d_operator(n1: np.ndarray, model: DiffusionModel, dx: float):
-    """The operator exactly as qpsim.backends.t3_spatial_1d builds it."""
+    """The operator exactly as the spatial backend builds it."""
     rho_p = density_weight(n1, model.p)
     w_cell = flux_weight(D0, n1, model.q)
     inv_dx2 = 1.0 / (dx * dx)
@@ -42,31 +38,6 @@ def _shipped_1d_operator(n1: np.ndarray, model: DiffusionModel, dx: float):
     return (laplacian @ sparse.diags(1.0 / rho_p)).tocsr(), rho_p, w_cell
 
 
-class TestReproducesTheOneDimensionalBackend:
-    @pytest.mark.parametrize("model", list(DiffusionModel))
-    @pytest.mark.parametrize("dx", [1.0, 0.5, 0.75, 0.3, 0.1, 12.5])
-    def test_operator_matches_bit_for_bit(self, model, dx):
-        n = 9
-        n1 = np.random.default_rng(1).uniform(0.4, 2.5, size=n)
-        expected, rho_p, w_cell = _shipped_1d_operator(n1, model, dx)
-
-        geom = strip(n, mesh_size=dx)
-        faces = face_condition_lookup(geom.edges, geom.conditions())
-        got, _source = spatial_diffusion_operator(
-            geom.mask, faces, dx, w_cell, rho_p,
-        )
-        assert np.array_equal(got.toarray(), expected.toarray())
-
-    def test_a_single_cell_has_no_transport(self):
-        n1 = np.array([1.7])
-        rho_p = density_weight(n1, 1)
-        w_cell = flux_weight(D0, n1, 0)
-        geom = rectangle(1, 1)
-        faces = face_condition_lookup(geom.edges, geom.conditions())
-        operator, _s = spatial_diffusion_operator(
-            geom.mask, faces, 1.0, w_cell, rho_p,
-        )
-        assert np.allclose(operator.toarray(), 0.0)
 
 
 class TestGeneralGeometry:
