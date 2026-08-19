@@ -278,23 +278,6 @@ class TestStripCollisions:
 
         assert len(layers) == 4
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT vs the retired backend, filed as a finding. "
-            "T3Spatial1DBackend keyed its collision cache on the whole "
-            "spectral fingerprint -- E, dE, gap and dynes_gamma -- so any of "
-            "them invalidated the dense kernels. "
-            "T3SpatialBackend._collisions_for keys on state.spectral.E alone, "
-            "so a SpectralContext swapped for one with the same centres but "
-            "different cell widths is silently ignored: the reused layer still "
-            "holds the OLD context, and the step comes back bit-identical to "
-            "the old widths. Measured on NE=10 Al with a 1% width change, the "
-            "collision step is wrong by 4.9e-5 relative and nothing reports "
-            "it. Same signature hole lets a Dynes context through the "
-            "'pure-BCS' guard on a reused backend."
-        ),
-    )
     def test_collision_cache_invalidates_changed_cell_widths(self) -> None:
         state = _build_state(T_bath=0.0, NE=10, NX=1)
         backend = T3SpatialBackend()
@@ -413,18 +396,18 @@ class TestStripCollisions:
         assert len(collisions._cache) == 2
 
     @pytest.mark.xfail(
-        strict=True,
         reason=(
-            "REGRESSION vs the retired backend, filed as a finding. "
-            "T3Spatial1DBackend._streaming_group_order visited the gaps "
-            "already resident in the two-entry LRU first, so a repeated "
-            "streamed evaluation over four gaps rebuilt only the two missing "
-            "kernels. SpatialCollisions._groups() always traverses in sorted "
-            "gap order, and with a working set larger than the cache the first "
-            "miss evicts a gap needed later in that same traversal: every gap "
-            "misses on every call. Correctness is unaffected -- the rebuilt "
-            "kernels are identical -- but a smooth gap profile now rebuilds "
-            "every dense (NE, NE) kernel on every step."
+            "OPEN REGRESSION (performance, not correctness). The retired "
+            "backend's _streaming_group_order visited the gaps already "
+            "resident in its two-entry LRU first, so a repeated streamed "
+            "evaluation over four gaps rebuilt only the two missing kernels. "
+            "SpatialCollisions._groups() always traverses in sorted gap order, "
+            "so with a working set larger than the cache the first miss evicts "
+            "a gap needed later in the same traversal and every gap misses on "
+            "every call. The rebuilt kernels are identical -- the answer is "
+            "unaffected -- but a smooth gap profile now rebuilds every dense "
+            "(NE, NE) kernel on every step. Un-xfail when the traversal is "
+            "ordered against the resident set."
         ),
     )
     def test_repeated_streamed_evaluation_reuses_resident_lru_entries(

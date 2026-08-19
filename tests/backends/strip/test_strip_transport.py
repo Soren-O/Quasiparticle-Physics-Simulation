@@ -203,17 +203,6 @@ class TestStripTransport:
         np.testing.assert_array_equal(f_new[0], np.array([1.0, 0.5]))
         np.testing.assert_array_equal(f_new[1], np.array([0.0, 0.5]))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "T3SpatialBackend.apply_transport discards the diagnostics dict "
-            "returned by SpatialTransport.apply (t3_spatial.py:377, "
-            "`f_new, _diagnostics = ...`), so the retired backend's clip "
-            "warning has no counterpart. The clip IS measured -- "
-            "clip_absolute_fraction = 1e-6 here, past the retired 1e-9 warn "
-            "threshold -- and then thrown away."
-        ),
-    )
     def test_clip_warning_uses_absolute_mass_not_cancelable_signed_net(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -239,16 +228,6 @@ class TestStripTransport:
         np.testing.assert_array_equal(out.f[0], np.array([1.0, 0.5]))
         np.testing.assert_array_equal(out.f[1], np.array([0.0, 0.5]))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Same discarded diagnostics: an O(1) clipped step returns "
-            "corrupted physics instead of failing. Measured here, "
-            "clip_absolute_fraction = 0.100 -- a hundred times the retired "
-            "backend's 1e-3 fail threshold -- and apply_transport returns "
-            "normally."
-        ),
-    )
     def test_large_clip_corruption_fails_instead_of_converging(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -319,18 +298,6 @@ class TestStripTransport:
         with pytest.raises(ValueError, match="pure-BCS"):
             T3SpatialBackend().apply_collisions(self._dynes_state(), dt=1.0)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "The unified transport dressings read only (E, dE, gap) -- "
-            "represented_bcs_weights / bcs_support_fraction via "
-            "T3SpatialBackend._per_cell -- so dynes_gamma is not rejected and "
-            "not used either: apply_transport at dynes_gamma=0.05 is "
-            "bit-for-bit identical to gamma=0 (max |diff| = 0.0). The "
-            "declared broadening is silently inert on the transport half, "
-            "where the retired backend refused it."
-        ),
-    )
     def test_dynes_context_rejected_by_transport(self) -> None:
         # The transport dressings are clean-BCS traces (D_L indicator, KL
         # weight from real N_1/N_2, identity N_1^2 - N_2^2 = 1); a

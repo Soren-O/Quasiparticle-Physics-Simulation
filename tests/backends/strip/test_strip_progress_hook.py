@@ -167,36 +167,8 @@ class TestStripRunProgressHook:
         ("field", "kwargs"),
         [
             ("dt", {"dt": float("nan")}),
-            pytest.param(
-                "max_time", {"max_time": float("inf")},
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason=(
-                        "FINDING: T3SpatialBackend.run validates only dt and "
-                        "snapshot_interval. A non-finite max_time reaches "
-                        "int(np.ceil(max_time / dt)) and raises OverflowError "
-                        "instead of ValueError('max_time must be positive.'). "
-                        "The retired driver rejected it up front; the webui "
-                        "schema's Field(gt=0.0) does not catch +inf either. "
-                        "Un-xfail when the guard is restored."
-                    ),
-                ),
-            ),
-            pytest.param(
-                "stop_tol", {"stop_tol": float("nan")},
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason=(
-                        "FINDING: T3SpatialBackend.run accepts a NaN stop_tol "
-                        "silently. `last_rate < nan` is False forever, so the "
-                        "run can never converge and burns the whole max_time "
-                        "while reporting converged=False -- a wrong answer that "
-                        "looks like a slow one. The retired driver raised "
-                        "ValueError('stop_tol must be non-negative.'). "
-                        "Un-xfail when the guard is restored."
-                    ),
-                ),
-            ),
+            ("max_time", {"max_time": float("inf")}),
+            ("stop_tol", {"stop_tol": float("nan")}),
             ("snapshot_interval", {"snapshot_interval": float("inf")}),
         ],
     )

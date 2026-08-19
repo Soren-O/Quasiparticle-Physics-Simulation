@@ -27,6 +27,7 @@ handling.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
@@ -98,6 +99,46 @@ class T3SpatialState:
             else self.conditions
         )
 
+    def validate(self) -> None:
+        """Refuse states the solver cannot mean, rather than solving them.
+
+        Called at the POINT OF USE, not only from ``__post_init__``. This is a
+        mutable dataclass and callers do mutate it -- ``state.T_bath = nan``
+        after construction is exactly how these defects were demonstrated -- so
+        a construction-time check alone guards the one path nobody takes.
+
+        Every check here was carried by the 1-D backend this one replaced and
+        by nothing else, so each was a live way to get a confident wrong
+        answer. They are cheap; they run once per step.
+        """
+        if not np.isfinite(self.T_bath) or self.T_bath < 0.0:
+            # phonon.py branches on `T_bath > 0`, which is FALSE for NaN, so a
+            # NaN bath silently selects the T = 0 branch and the run reports a
+            # zero-temperature answer for a temperature nobody asked for.
+            raise ValueError(
+                f"T_bath must be finite and non-negative; got {self.T_bath!r}."
+            )
+        if self.interface_conductance is not None:
+            conductance = float(self.interface_conductance)
+            if not np.isfinite(conductance) or conductance < 0.0:
+                # A negative face conductance runs transport UPHILL: measured
+                # on a gap-step strip, one step raised the total occupation
+                # where the barrier-free step lowered it. Transport must not
+                # be able to manufacture quasiparticles.
+                raise ValueError(
+                    "interface_conductance must be finite and non-negative; "
+                    f"got {conductance!r}. A negative face conductance drives "
+                    "flux up the gradient."
+                )
+            if self.gap_per_cell is None:
+                # Without a gap profile there is no step face for a barrier to
+                # sit on, so the setting was read, stored, and dropped -- the
+                # step came back bit-for-bit identical to passing None.
+                raise ValueError(
+                    "interface_conductance requires a gap_per_cell profile: "
+                    "without it the conductance would be silently unused."
+                )
+
 
 @dataclass(frozen=True)
 class SpatialSnapshot:
@@ -131,6 +172,55 @@ class SpatialRunResult:
 # map, so an accidentally fine cadence exhausts memory rather than merely
 # running slowly; fail loud instead.
 _SNAPSHOT_HARD_CAP = 4_000
+
+# The [0, 1] occupation clip is normally a round-off no-op: the subcycling
+# stiffness bound keeps Crank-Nicolson inside the representable box. A material
+# clip therefore means the step was not conservative, and the thresholds below
+# are the retired 1-D backend's, unchanged -- warn once it is measurable, fail
+# once the step stops being a defensible approximation.
+_CLIP_WARN_FRACTION = 1e-9
+_CLIP_FAIL_FRACTION = 1e-3
+
+
+def _reject_complex(name: str, array: np.ndarray | None) -> None:
+    """Refuse a complex source instead of casting its real part.
+
+    The retired backend's flux container rejected these at construction; the
+    unified API takes plain arrays, so the check moved to the point of use.
+    Without it numpy discards the imaginary part with a ComplexWarning -- which
+    this repo does not escalate -- and an imaginary NaN vanishes into a
+    perfectly plausible finite answer.
+    """
+    if array is not None and np.iscomplexobj(array):
+        raise ValueError(
+            f"{name} must be real-valued; a complex array would be cast to its "
+            "real part, silently discarding the imaginary component."
+        )
+
+
+def _check_clip(diagnostics: dict[str, float]) -> None:
+    """Act on the transport clip diagnostics instead of discarding them.
+
+    ``SpatialTransport.apply`` has always measured how much conserved density
+    the clip moved; this backend threw the dict away, so an O(1) clipped step
+    returned corrupted physics and no complaint, and could then be reported as
+    converged by the outer driver. Measured at 0.100 -- a hundred times the
+    fail threshold -- while returning normally.
+    """
+    absolute = float(diagnostics.get("clip_absolute_fraction", 0.0))
+    if absolute <= _CLIP_WARN_FRACTION:
+        return
+    signed = float(diagnostics.get("clip_signed_fraction", 0.0))
+    message = (
+        "apply_transport: the [0, 1] occupation clip changed an absolute "
+        f"conserved density sum N_1^p f of {absolute:.2%} this step (signed "
+        f"net {signed:+.2%}). This indicates a Crank-Nicolson over/undershoot "
+        "despite monotonicity subcycling. Inspect the transport coefficients, "
+        "reduce dt, or resolve the front to keep the step conservative."
+    )
+    if absolute > _CLIP_FAIL_FRACTION:
+        raise RuntimeError(message)
+    warnings.warn(message, stacklevel=3)
 
 
 class T3SpatialBackend:
@@ -242,6 +332,15 @@ class T3SpatialBackend:
         signature = (
             gaps.tobytes(), float(state.T_bath), float(state.material.tau_0),
             float(state.material.T_c), state.spectral.E.tobytes(),
+            # E ALONE is not the spectral context. A context with the same bin
+            # CENTRES but different cell widths built identical-looking
+            # kernels, so the layer was reused and the collision step came back
+            # bit-identical to the old widths -- wrong by 4.9e-5 on a 1% width
+            # change, with nothing to report it. The same hole let a Dynes
+            # context past the pure-BCS guard on a reused backend.
+            state.spectral.dE.tobytes(),
+            float(state.spectral.gap),
+            float(state.spectral.dynes_gamma),
             repr(self.photon_params), repr(self.pb_photon_params),
             repr(self.phonon_escape_time),
             # In the signature so switching a phonon source rebuilds the
@@ -369,12 +468,26 @@ class T3SpatialBackend:
         absorbing rim inert on a 1x1 mask, which is the 0-D reduction the whole
         mode rests on.
         """
+        state.validate()
+        # The transport dressings read only (E, dE, gap) through _per_cell, so
+        # a declared Dynes broadening is neither used nor refused here: gamma =
+        # 0.05 was bit-for-bit identical to gamma = 0. An inert declared
+        # parameter is worse than an unsupported one, because the run reports
+        # having modelled something it did not.
+        if float(state.spectral.dynes_gamma) > 0.0:
+            raise ValueError(
+                "Spatial transport requires a pure-BCS spectral context: the "
+                "finite-volume dressings do not implement Dynes broadening, so "
+                f"dynes_gamma = {state.spectral.dynes_gamma!r} would be "
+                "silently ignored."
+            )
         if state.f.shape[1] == 1 and not self._transport_for(
             state
         ).has_acting_device_faces():
             return state
         transport, ops = self._transport_ops(state, dt)
-        f_new, _diagnostics = transport.apply(state.f, ops)
+        f_new, diagnostics = transport.apply(state.f, ops)
+        _check_clip(diagnostics)
         return replace(state, f=f_new)
 
     def _interface_overrides(
@@ -409,6 +522,9 @@ class T3SpatialBackend:
         external_loss: np.ndarray | None = None,
     ) -> T3SpatialState:
         """One local ETD2 collision/source step at every cell."""
+        state.validate()
+        _reject_complex("external_gain", external_gain)
+        _reject_complex("external_loss", external_loss)
         collisions = self._collisions_for(state)
         f_new = collisions.apply(
             state.f, dt,
@@ -548,6 +664,16 @@ class T3SpatialBackend:
         """
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive.")
+        # dt and snapshot_interval were the only two checked. A non-finite
+        # max_time reached int(np.ceil(max_time / dt)) and came back as an
+        # OverflowError naming nothing; a NaN stop_tol was worse than that,
+        # because `last_rate < nan` is False forever -- the run could never
+        # converge, burned the whole max_time, and reported converged=False.
+        # A wrong answer wearing the costume of a slow one.
+        if not np.isfinite(max_time) or max_time <= 0.0:
+            raise ValueError("max_time must be positive.")
+        if not np.isfinite(stop_tol) or stop_tol < 0.0:
+            raise ValueError("stop_tol must be finite and non-negative.")
         if snapshot_interval is not None and (
             not np.isfinite(snapshot_interval) or snapshot_interval <= 0.0
         ):

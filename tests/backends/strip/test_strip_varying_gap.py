@@ -145,22 +145,7 @@ class TestStripVaryingGap:
     @pytest.mark.parametrize(
         "bad",
         [
-            pytest.param(
-                float("nan"),
-                marks=pytest.mark.xfail(
-                    reason=(
-                        "FINDING: a NaN bath temperature is NOT rejected by the "
-                        "unified collision path.  qpsim/collisions/phonon.py:208 "
-                        "and :235 branch on `if T_bath > 0`, which is False for "
-                        "NaN, so the T = 0 branch runs and the run silently "
-                        "reports a zero-temperature answer (measured 2.3e-07 "
-                        "from the T = 0.1 K result on this setup, i.e. the 0 K "
-                        "answer to within the 0.1 K correction).  The retired "
-                        "backend rejected it with 'state.T_bath must be finite "
-                        "and non-negative.'"
-                    ),
-                ),
-            ),
+            float("nan"),
             float("inf"),
         ],
     )
@@ -175,23 +160,7 @@ class TestStripVaryingGap:
     @pytest.mark.parametrize(
         "bad",
         [
-            pytest.param(
-                -1.0,
-                marks=pytest.mark.xfail(
-                    reason=(
-                        "FINDING: a finite NEGATIVE interface conductance is "
-                        "accepted.  The unified backend has no "
-                        "interface_conductance validation at all "
-                        "(t3_spatial.py:338-345 only asks whether it is None), "
-                        "so g_N = -1 builds a negative face conductance and the "
-                        "step runs uphill: on the retired class's own step-gap "
-                        "fixture one dt=0.5 transport step takes the N1-weighted "
-                        "density from 77.0783 to 77.8124 (+0.95%) and lifts the "
-                        "source cell from f=0.4 to f=0.4406.  Transport is "
-                        "manufacturing quasiparticles."
-                    ),
-                ),
-            ),
+            -1.0,
             -np.inf,
             np.inf,
             np.nan,
@@ -215,17 +184,6 @@ class TestStripVaryingGap:
         with pytest.raises((ValueError, RuntimeError)):
             T3SpatialBackend().apply_transport(state, 0.5)
 
-    @pytest.mark.xfail(
-        reason=(
-            "FINDING: interface_conductance without a gap profile is SILENTLY "
-            "IGNORED.  t3_spatial.py:343 reads `if conductance is not None and "
-            "state.gap_per_cell is not None`, so with gap_per_cell=None the "
-            "barrier is dropped and the step is bit-for-bit identical to "
-            "interface_conductance=None (verified with np.array_equal).  This "
-            "is the exact failure the retired backend's own error text names: "
-            "'without it the conductance would be silently unused.'"
-        ),
-    )
     def test_interface_conductance_without_profile_is_rejected(self) -> None:
         state = _uniform_state()
         state.interface_conductance = 2.0
