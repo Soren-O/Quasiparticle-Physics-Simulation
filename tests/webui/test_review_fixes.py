@@ -22,8 +22,7 @@ from qpsim.webui.execute import execute_setup
 from qpsim.webui.schemas import (
     EnergyGrid,
     SetupEnvelope,
-    Spatial1DSetup,
-    SteadyState0DSetup,
+    KineticsSetup,
 )
 from qpsim.webui.store import Workspace, json_sanitize
 
@@ -95,7 +94,7 @@ class TestSchemaNumerics:
     @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
     def test_all_setup_floats_reject_non_finite_values(self, value: float) -> None:
         with pytest.raises(ValueError, match="finite number"):
-            SteadyState0DSetup.model_validate({"T_bath": value})
+            KineticsSetup.model_validate({"T_bath": value})
 
     @pytest.mark.parametrize(
         ("minimum", "maximum"), [(2.0, 2.0), (3.0, 2.0)]
@@ -111,15 +110,18 @@ class TestSchemaNumerics:
         assert grid.min_factor == 0.5
 
     def test_zero_interface_conductance_is_valid(self) -> None:
-        setup = Spatial1DSetup.model_validate(
+        setup = KineticsSetup.model_validate(
             {
-                "gap_profile": {
-                    "kind": "step",
+                "gap_regions": {
+                    "kind": "column_step",
                     "interface_G_N": 0.0,
                 }
             }
         )
-        assert setup.gap_profile.interface_G_N == 0.0
+        # 0.0 is a BARRIER that blocks completely; None is "no interface at
+        # all". Collapsing them would silently turn a perfect barrier into an
+        # open face.
+        assert setup.gap_regions.interface_G_N == 0.0
 
 
 class TestStoreRobustness:
@@ -147,8 +149,8 @@ class TestStoreRobustness:
         self, tmp_path: Path,
     ) -> None:
         ws = Workspace(tmp_path)
-        first = SetupEnvelope(name="A+B", setup=SteadyState0DSetup())
-        second = SetupEnvelope(name="A B", setup=SteadyState0DSetup())
+        first = SetupEnvelope(name="A+B", setup=KineticsSetup())
+        second = SetupEnvelope(name="A B", setup=KineticsSetup())
         slug_first = ws.save_setup(first)
         slug_second = ws.save_setup(second)
 
@@ -189,8 +191,8 @@ class TestStoreRobustness:
             store_module, "_collision_safe_slug", synchronize_old_race
         )
         envelopes = (
-            SetupEnvelope(name="A+B", setup=SteadyState0DSetup()),
-            SetupEnvelope(name="A B", setup=SteadyState0DSetup()),
+            SetupEnvelope(name="A+B", setup=KineticsSetup()),
+            SetupEnvelope(name="A B", setup=KineticsSetup()),
         )
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(ws.save_setup, envelope) for envelope in envelopes]
@@ -204,7 +206,7 @@ class TestStoreRobustness:
         ws = Workspace(tmp_path)
         name = "x" * 300
         slug = ws.save_setup(
-            SetupEnvelope(name=name, setup=SteadyState0DSetup())
+            SetupEnvelope(name=name, setup=KineticsSetup())
         )
         assert len(slug) <= 120
         assert ws.load_setup(slug).name == name
@@ -318,7 +320,7 @@ class TestRunnerRecovery:
         run_id = ws.new_run_id()
         job = JobState(run_id=run_id)
         runner._jobs[run_id] = job
-        envelope = SetupEnvelope(name="persistence-failure", setup=SteadyState0DSetup())
+        envelope = SetupEnvelope(name="persistence-failure", setup=KineticsSetup())
         manifest = _manifest(run_id, status="queued")
 
         monkeypatch.setattr(
@@ -387,7 +389,7 @@ class TestRunnerRecovery:
             return RunPayload(arrays={"f": np.ones(2)})
 
         monkeypatch.setattr(runner_module, "execute_setup", controlled_execute)
-        envelope = SetupEnvelope(name="queued", setup=SteadyState0DSetup())
+        envelope = SetupEnvelope(name="queued", setup=KineticsSetup())
         first_id = runner.submit(envelope)
         assert first_started.wait(5.0)
         first_job = runner.live_state(first_id)
@@ -423,7 +425,7 @@ class TestRunnerRecovery:
             return RunPayload(arrays={"f": np.ones(2)})
 
         monkeypatch.setattr(runner_module, "execute_setup", controlled_execute)
-        envelope = SetupEnvelope(name="shutdown", setup=SteadyState0DSetup())
+        envelope = SetupEnvelope(name="shutdown", setup=KineticsSetup())
         first_id = runner.submit(envelope)
         assert first_started.wait(5.0)
         first_job = runner.live_state(first_id)
@@ -465,7 +467,7 @@ class TestRunnerRecovery:
 
         monkeypatch.setattr(ws, "write_arrays", blocking_write)
         run_id = runner.submit(
-            SetupEnvelope(name="cancel-persistence", setup=SteadyState0DSetup())
+            SetupEnvelope(name="cancel-persistence", setup=KineticsSetup())
         )
         assert write_started.wait(5.0)
         job = runner.live_state(run_id)
@@ -487,7 +489,9 @@ class TestDiagnosticsNeverSinkARun:
             raise ValueError("synthetic diagnostic failure")
 
         monkeypatch.setattr(execute_mod, "compute_gap_suppression", boom)
-        setup = SteadyState0DSetup()
+        setup = KineticsSetup()
+        setup.strategy = "steady_state"
+        setup.geometry.rows = setup.geometry.cols = 1
         setup.grid.num_bins = 48
         payload = execute_setup(setup, _noop_progress, _never)
         # The solve itself survived: arrays and primary observables present.
@@ -525,7 +529,9 @@ class TestDiagnosticsNeverSinkARun:
         monkeypatch.setattr(
             execute_mod, "effective_phonon_temperature", clamped_fit
         )
-        setup = SteadyState0DSetup()
+        setup = KineticsSetup()
+        setup.strategy = "steady_state"
+        setup.geometry.rows = setup.geometry.cols = 1
         setup.grid.num_bins = 48
         setup.phonons.mode = "dynamic_escape"
 
@@ -535,18 +541,36 @@ class TestDiagnosticsNeverSinkARun:
         assert any("clamp, not a fit" in note for note in payload.notes)
 
 
-class TestSpatialProbeRemoved:
-    def test_spatial_setup_has_no_probe(self) -> None:
-        assert "probe" not in Spatial1DSetup.model_fields
+class TestSpatialProbeIsRefusedRatherThanAbsent:
+    """The guarantee MOVED; it did not disappear.
 
-    def test_old_setup_with_probe_is_rejected_loudly(self) -> None:
-        with pytest.raises(ValueError, match="probe"):
-            SetupEnvelope.model_validate(
-                {
-                    "name": "t",
-                    "setup": {"mode": "spatial_1d", "probe": {"enabled": True}},
-                }
-            )
+    The retired 1-D mode had no `probe` field at all, and a setup carrying one
+    was rejected at parse time. The merged mode does have the field, because a
+    one-cell mask is 0-D and its probe is perfectly well defined -- the old
+    schema made that impossible to express.
+
+    What must survive is the reason the field was withheld: sigma(f) is
+    nonlinear and cells can carry different local gaps, so there is no single
+    sigma for a spatially varying f. That is now enforced at the point of use
+    instead of by absence, which is strictly stronger -- it says WHY.
+    """
+
+    def test_a_spatial_device_gets_no_conductivity_from_the_probe(self) -> None:
+        from qpsim.webui.execute import execute_setup
+
+        setup = KineticsSetup()
+        setup.grid.num_bins = 24
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 5.0, 0.0
+        setup.geometry.rows, setup.geometry.cols = 2, 3
+        setup.probe.enabled = True
+
+        payload = execute_setup(setup, _noop_progress, _never)
+
+        assert not [k for k in payload.summary if "sigma" in k or k.startswith("Q_")]
+        assert any("Mattis-Bardeen probe skipped" in n for n in payload.notes), (
+            "silently dropping the probe is the defect the old schema avoided "
+            "by not having the field at all"
+        )
 
 
 class TestMaterialDefaultsFromDatabase:
@@ -582,7 +606,9 @@ class TestMaterialDefaultsFromDatabase:
             MaterialParams.model_validate({"rho_F": rho_F})
 
     def test_default_steady_state_reports_density(self) -> None:
-        setup = SteadyState0DSetup()
+        setup = KineticsSetup()
+        setup.strategy = "steady_state"
+        setup.geometry.rows = setup.geometry.cols = 1
         setup.grid.num_bins = 48
         payload = execute_setup(setup, _noop_progress, _never)
         assert payload.summary["n_qp_per_m3"] > 0.0
@@ -616,11 +642,11 @@ class TestPhononSourceSwitchesActOnEveryPath:
     @staticmethod
     def _driven(mode: str, flag: str, value: bool) -> float:
         import qpsim.webui.execute as execute
-        from qpsim.webui.schemas import SteadyState0DSetup, Transient0DSetup
+        from qpsim.webui.schemas import KineticsSetup
 
-        setup = (
-            Transient0DSetup() if mode == "transient_0d" else SteadyState0DSetup()
-        )
+        setup = KineticsSetup()
+        setup.strategy = "time_march" if mode == "transient_0d" else "steady_state"
+        setup.geometry.rows = setup.geometry.cols = 1
         setup.T_bath = 0.2
         setup.grid.num_bins = 405
         setup.phonons.mode = "dynamic_escape"
@@ -629,11 +655,11 @@ class TestPhononSourceSwitchesActOnEveryPath:
         setup.pb_drive.n_bar_PB = 1000.0
         setup.pb_drive.c_phot_PB = 1e-9
         if mode == "transient_0d":
-            setup.total_time = 4.0
+            setup.max_time, setup.dt, setup.stop_tol = 4.0, 0.1, 0.0
         setattr(setup.collisions, flag, value)
         payload = execute.execute_setup(setup, lambda *a, **k: None, lambda: False)
         return float(
-            payload.summary["x_qp_final" if mode == "transient_0d" else "x_qp"]
+            payload.summary["x_qp_mean" if mode == "transient_0d" else "x_qp"]
         )
 
     @pytest.mark.parametrize(

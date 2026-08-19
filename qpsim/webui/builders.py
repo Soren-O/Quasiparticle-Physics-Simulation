@@ -412,6 +412,21 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             # it is HOW you ask for 0-D. The warning would now fire on the
             # ordinary path, and a warning that fires when nothing is wrong
             # teaches people to ignore warnings.
+            regions = setup.gap_regions
+            if (
+                regions.kind == "column_step"
+                and regions.interface_G_N is not None
+                and regions.gap_left == regions.gap_right
+            ):
+                # Ported from the retired 1-D mode, which was the only place
+                # this was checked. A conductance describes how hard it is to
+                # cross a step FACE, and equal gaps do not define one -- the
+                # setting would be read, stored, and mean nothing. Retiring a
+                # mode must not quietly drop the guards it carried.
+                report.errors.append(
+                    "Gap regions: interface_G_N requires distinct gap_left and "
+                    "gap_right values; equal gaps do not define a step face."
+                )
             if setup.strategy == "steady_state" and cells != 1:
                 # Caught here as well as at execution so the UI can say it
                 # before a run starts. Blames the solver, not the device: a

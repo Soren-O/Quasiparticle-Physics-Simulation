@@ -627,6 +627,19 @@ class _PlotSpec:
     params: dict[str, tuple[str, int]] = field(default_factory=dict)
 
 
+def _plot_occupation_either_shape(arrays, summary):
+    """`occupation` for either strategy of the merged mode.
+
+    steady_state carries f:(NE,) from the 0-D solver; time_march carries
+    f_final:(NE, Ncells). Dispatch on the array present rather than on the
+    strategy string: the payload is what the renderer can actually verify, and
+    a strategy recorded in the summary could disagree with what was stored.
+    """
+    if "f_final" in arrays:
+        return _plot_occupation_spectrum_2d(arrays, _gap(summary))
+    return _plot_occupation(arrays, _gap(summary))
+
+
 # Single source of truth per mode: the listing endpoint and the render
 # dispatch both read this table, so a figure can't be listed without
 # being renderable (or vice versa).
@@ -667,8 +680,17 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             )
         ),
     },
+    # ONE mode, TWO payload shapes. `strategy="steady_state"` runs the 0-D
+    # solver and carries f:(NE,) with n_ph; `strategy="time_march"` carries
+    # f_final:(NE, Ncells) on a mask. Every entry therefore declares the array
+    # it needs, or it gets offered for a run that cannot render it -- which is
+    # exactly what happened when the 0-D catalogue cases moved onto this mode:
+    # four figures listed, four KeyErrors, and the catalogue gate could not see
+    # it because it records arrays and never renders one.
     "kinetics": {
-        "xqp_field": _PlotSpec(lambda a, s: _plot_xqp_field(a, s)),
+        "xqp_field": _PlotSpec(
+            lambda a, s: _plot_xqp_field(a, s), requires="xqp_field",
+        ),
         # Figure families: one image per recorded frame, so the interface can
         # scrub through a run instead of showing only where it ended.
         "field_over_time": _PlotSpec(
@@ -683,10 +705,21 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             _plot_phonon_frame, requires="snap_n_ph",
             params={"frame": ("snap_n_ph", 0), "omega": ("snap_n_ph", 1)},
         ),
-        "geometry": _PlotSpec(lambda a, s: _plot_geometry_mask(a, s)),
-        "xqp_profile": _PlotSpec(lambda a, s: _plot_xqp_profile_2d(a)),
-        "occupation": _PlotSpec(
-            lambda a, s: _plot_occupation_spectrum_2d(a, _gap(s))
+        "geometry": _PlotSpec(
+            lambda a, s: _plot_geometry_mask(a, s), requires="mask",
+        ),
+        "xqp_profile": _PlotSpec(
+            lambda a, s: _plot_xqp_profile_2d(a), requires="xqp_profile",
+        ),
+        # One name for the question a reader is actually asking -- "show me the
+        # occupation" -- dispatching on which field the strategy produced.
+        # Splitting it into two names would make the figure a run offers depend
+        # on a solver choice rather than on what is being looked at.
+        "occupation": _PlotSpec(_plot_occupation_either_shape),
+        # 0-D only: the spatial route has a phonon map per cell, which is a
+        # different figure (phonon_field_over_time above).
+        "phonons": _PlotSpec(
+            lambda a, s: _plot_phonons(a, _gap(s)), requires="n_ph",
         ),
     },
     "m25_junction": {
@@ -890,6 +923,13 @@ def _csv_kinetics_occupation(arrays: dict[str, np.ndarray]) -> str:
     )
 
 
+def _csv_kinetics_occupation_either_shape(arrays: dict[str, np.ndarray]) -> str:
+    """`occupation.csv` for either strategy -- see the plot of the same name."""
+    if "f_final" in arrays:
+        return _csv_kinetics_occupation(arrays)
+    return _csv_ss_occupation(arrays)
+
+
 def _csv_kinetics_time_series(arrays: dict[str, np.ndarray]) -> str:
     """Recorded frames reduced to per-time observables."""
     return _csv_from_columns(
@@ -926,7 +966,8 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
     "m25_junction": {"sweep": _csv_m25_sweep},
     "kinetics": {
         "profile": _csv_kinetics_profile,
-        "occupation": _csv_kinetics_occupation,
+        "occupation": _csv_kinetics_occupation_either_shape,
+        "phonons": _csv_ss_phonons,
         "time_series": _csv_kinetics_time_series,
     },
 }
@@ -938,6 +979,10 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
 # and a single global entry would hide a table that is always there.
 _CSV_REQUIRES: dict[tuple[str, str], str] = {
     ("kinetics", "time_series"): "snap_t_ns",
+    # Same two-payload-shapes problem as the figures: a table offered for a
+    # run that cannot build it 404s after the user has already clicked it.
+    ("kinetics", "profile"): "xqp_profile",
+    ("kinetics", "phonons"): "n_ph",
 }
 
 for _mode, _mode_csvs in _CSVS.items():

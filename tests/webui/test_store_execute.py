@@ -34,7 +34,7 @@ def _never() -> bool:
 class TestWorkspace:
     def test_setup_save_load_list_delete(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
-        envelope = SetupEnvelope(name="My probe sweep", setup=SteadyState0DSetup())
+        envelope = SetupEnvelope(name="My probe sweep", setup=KineticsSetup())
         slug = ws.save_setup(envelope)
         assert slug == "my-probe-sweep"
         assert [s["slug"] for s in ws.list_setups()] == [slug]
@@ -124,7 +124,7 @@ class TestWorkspace:
     def test_saved_setup_stamps_current_schema_version(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
         slug = ws.save_setup(
-            SetupEnvelope(name="versioned", setup=SteadyState0DSetup())
+            SetupEnvelope(name="versioned", setup=KineticsSetup())
         )
         stored = json.loads((ws.setups_dir / f"{slug}.json").read_text("utf-8"))
         assert stored["schema_version"] == 2
@@ -344,6 +344,98 @@ class TestSteadyStateStrategyReducesToTheZeroDMode:
     def test_the_duplicate_gap_switch_is_refused(self) -> None:
         with pytest.raises(ValidationError, match="top level"):
             KineticsSetup(solver=SolverOptions(self_consistent_gap=True))
+
+
+class TestSetupsSavedUnderARetiredModeStillLoad:
+    """Retiring three modes must not orphan the work saved under them.
+
+    The legacy payloads are LITERALS, not `RetiredSetup().model_dump()`: the
+    classes are gone, and a test that needed them could only have run while the
+    thing it protects against had not happened yet. What is frozen here is the
+    on-disk FORMAT, which is what a user's file actually contains.
+
+    A rename could be a string swap. These are merges: they carry fields the
+    merged model does not have (`total_time`, `num_cells`, `gap_profile`) and
+    lack ones it requires (`geometry`, `strategy`).
+    """
+
+    @staticmethod
+    def _load(setup: dict):
+        return SetupEnvelope.model_validate({"name": "legacy", "setup": setup}).setup
+
+    def test_steady_state_0d_becomes_a_one_cell_steady_state_solve(self) -> None:
+        up = self._load({
+            "mode": "steady_state_0d",
+            "solver": {"method": "picard", "self_consistent_gap": True},
+        })
+        assert up.mode == "kinetics"
+        assert up.strategy == "steady_state"
+        assert (up.geometry.rows, up.geometry.cols) == (1, 1)
+        # The gap switch moves to the single authority, and must NOT be left
+        # on solver as well -- KineticsSetup refuses that duplicate outright.
+        assert up.self_consistent_gap is True
+        assert up.solver.self_consistent_gap is False
+        assert up.solver.method == "picard", "unrelated solver settings survive"
+
+    def test_transient_0d_becomes_a_one_cell_time_march(self) -> None:
+        up = self._load({"mode": "transient_0d", "total_time": 250.0, "dt": 0.2})
+        assert up.strategy == "time_march"
+        assert (up.geometry.rows, up.geometry.cols) == (1, 1)
+        assert up.max_time == 250.0
+        assert up.dt == 0.2
+        # None meant "never stop early" on the retired model, which typed it
+        # optional; the merged model types it float and 0.0 says the same.
+        assert up.stop_tol == 0.0
+        # The retired backends recorded at max_time/50 when the interval was
+        # None and the spatial one records nothing, so silence would drop the
+        # entire time series rather than preserve a default.
+        assert up.snapshot_interval == 5.0
+
+    def test_spatial_1d_becomes_a_one_row_mask(self) -> None:
+        up = self._load({
+            "mode": "spatial_1d", "num_cells": 8, "length_um": 100.0,
+            "injection": {"enabled": True, "where": "left_end"},
+        })
+        assert (up.geometry.rows, up.geometry.cols) == (1, 8)
+        assert up.geometry.mesh_size_um == 12.5      # length / cells, exactly
+        assert up.injection.where == "left_edge"     # renamed, same meaning
+
+    def test_the_gap_step_lands_on_the_same_cells(self) -> None:
+        """The two conventions place the interface differently.
+
+        The strip compares a CENTRE, x_i = (i+1/2)h, against fraction*length,
+        i.e. i < f*n - 1/2. The mask compares a column index, i < f*ncols. At
+        f = 0.5 on 31 cells that is 15 cells against 16, so the fraction has to
+        be restated as the exact cell count or the interface moves one cell and
+        nothing says so.
+        """
+        up = self._load({
+            "mode": "spatial_1d", "num_cells": 31, "length_um": 100.0,
+            "gap_profile": {"kind": "step", "gap_left": 180.0,
+                            "gap_right": 200.0, "step_position_fraction": 0.5},
+        })
+        assert up.gap_regions.kind == "column_step"
+        assert up.gap_regions.step_fraction == 15 / 31
+        # gap_right defaulted to 200.0 on the strip and 180.0 on the mask, so a
+        # silent carry would turn a step into no step at all.
+        assert up.gap_regions.gap_right == 200.0
+
+        from qpsim.webui.builders import build_gap_per_cell_2d, build_geometry_2d
+        gaps = build_gap_per_cell_2d(up, build_geometry_2d(up))
+        assert int(np.count_nonzero(gaps == 180.0)) == 15
+        assert int(np.count_nonzero(gaps == 200.0)) == 16
+
+    def test_a_retired_setup_still_runs(self) -> None:
+        up = self._load({
+            "mode": "transient_0d", "total_time": 20.0, "dt": 1.0,
+            "grid": {"min_factor": 1.0, "max_factor": 10.0, "num_bins": 24},
+        })
+        payload = execute_setup(up, _noop_progress, _never)
+        assert payload.summary["x_qp_mean"] > 0.0
+
+    def test_an_unknown_mode_is_still_refused(self) -> None:
+        with pytest.raises(ValidationError):
+            self._load({"mode": "spatial_3d"})
 
 
 class TestTheMergedModeDoesNotNarrowTheAnswerSheet:

@@ -23,6 +23,8 @@ Kelvin at the builder boundary.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Callable
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -769,13 +771,101 @@ class KineticsSetup(StrictModel):
         return self
 
 
-AnySetup = (
-    SteadyState0DSetup
-    | Transient0DSetup
-    | Spatial1DSetup
-    | KineticsSetup
-    | M25JunctionSetup
-)
+AnySetup = KineticsSetup | M25JunctionSetup
+
+
+def _one_cell() -> dict[str, object]:
+    return {**GeometrySource().model_dump(), "rows": 1, "cols": 1}
+
+
+def _upgrade_steady_state_0d(data: dict[str, object]) -> dict[str, object]:
+    """0-D steady state is a one-cell mask asking for the steady-state solver."""
+    out = dict(data)
+    solver = dict(out.get("solver") or {})
+    # The top level is the single authority on the merged mode; carrying both
+    # would trip KineticsSetup's own duplicate check.
+    out["self_consistent_gap"] = bool(solver.pop("self_consistent_gap", False))
+    out["solver"] = solver
+    out["strategy"] = "steady_state"
+    out["geometry"] = _one_cell()
+    return out
+
+
+def _upgrade_transient_0d(data: dict[str, object]) -> dict[str, object]:
+    """0-D transient is a one-cell mask time-marched for a fixed duration."""
+    out = dict(data)
+    total = float(out.pop("total_time", 120.0))
+    out["max_time"] = total
+    # The retired model typed stop_tol as optional, where None meant "never
+    # stop early". The merged one types it as a float, and 0.0 says that.
+    if out.get("stop_tol") is None:
+        out["stop_tol"] = 0.0
+    # Both retired backends recorded at max_time/50 when the interval was
+    # None; the spatial one records nothing, so silence here would drop the
+    # whole time series rather than preserve a default.
+    if out.get("snapshot_interval") is None:
+        out["snapshot_interval"] = total / 50.0
+    out["strategy"] = "time_march"
+    out["geometry"] = _one_cell()
+    return out
+
+
+def _upgrade_spatial_1d(data: dict[str, object]) -> dict[str, object]:
+    """A 1-D strip is a one-row mask; its length becomes a mesh size."""
+    out = dict(data)
+    cells = int(out.pop("num_cells", 31))
+    length = float(out.pop("length_um", 100.0))
+    geometry = GeometrySource().model_dump()
+    geometry.update(rows=1, cols=cells, mesh_size_um=length / cells)
+    out["geometry"] = geometry
+
+    profile = dict(out.pop("gap_profile", None) or {})
+    kind = profile.get("kind", "uniform")
+    regions = GapRegions().model_dump()
+    if kind == "uniform":
+        regions["kind"] = "uniform"
+    else:
+        # The two conventions place the interface differently: the strip
+        # compares a CENTRE, x_i = (i+1/2)h, against fraction*length, i.e.
+        # i < f*n - 1/2; the mask compares a column index, i < f*ncols. Restate
+        # the fraction as the exact cell count the strip produced, or the
+        # interface silently moves one cell.
+        fraction = float(profile.get("step_position_fraction", 0.5))
+        left = max(0, min(cells, math.ceil(fraction * cells - 0.5)))
+        regions.update(
+            kind="column_step",
+            gap_left=profile.get("gap_left", 180.0),
+            gap_right=profile.get("gap_right", 200.0),
+            step_fraction=left / cells,
+            interface_G_N=profile.get("interface_G_N"),
+        )
+    out["gap_regions"] = regions
+
+    injection = dict(out.get("injection") or {})
+    if injection.get("where") == "left_end":      # renamed, same meaning
+        injection["where"] = "left_edge"
+    if injection:
+        out["injection"] = injection
+    out["strategy"] = "time_march"
+    if out.get("snapshot_interval") is None:
+        out["snapshot_interval"] = float(out.get("max_time", 20000.0)) / 50.0
+    return out
+
+
+# Retired MODES, and the function that rewrites a setup saved under each one.
+# A rename could be a string swap; a merge cannot -- these carry fields the
+# merged model does not have (total_time, num_cells, gap_profile) and lack
+# fields it requires. Refusing instead would be honest but would still make
+# saved work unloadable, and the translation is known exactly: it is the same
+# one the catalogue cases were migrated by, and those were verified against
+# their recorded fingerprints.
+RETIRED_MODE_UPGRADES: dict[
+    str, Callable[[dict[str, object]], dict[str, object]]
+] = {
+    "steady_state_0d": _upgrade_steady_state_0d,
+    "transient_0d": _upgrade_transient_0d,
+    "spatial_1d": _upgrade_spatial_1d,
+}
 
 
 # Retired mode names, and what each is now. A stored setup and a run manifest
@@ -785,6 +875,11 @@ AnySetup = (
 # is a dict line, and the cost of dropping one is somebody's saved device.
 LEGACY_MODE_ALIASES: dict[str, str] = {
     "spatial_2d": "kinetics",
+    # The three retired modes all resolve to the same one; what distinguishes
+    # them is geometry and strategy, which RETIRED_MODE_UPGRADES supplies.
+    "steady_state_0d": "kinetics",
+    "transient_0d": "kinetics",
+    "spatial_1d": "kinetics",
 }
 
 
@@ -820,7 +915,12 @@ class SetupEnvelope(StrictModel):
         if isinstance(value, dict):
             mode = value.get("mode")
             if isinstance(mode, str) and mode in LEGACY_MODE_ALIASES:
-                return {**value, "mode": LEGACY_MODE_ALIASES[mode]}
+                upgrade = RETIRED_MODE_UPGRADES.get(mode)
+                # A rename is a string swap; a MERGE has to translate fields
+                # the merged model does not have and supply ones it requires.
+                value = upgrade(value) if upgrade else dict(value)
+                value["mode"] = LEGACY_MODE_ALIASES[mode]
+                return value
         return value
     # Name of an analytic benchmark to check this run against
     # (:mod:`qpsim.webui.benchmarks`). It lives on the envelope rather than
@@ -834,26 +934,11 @@ class SetupEnvelope(StrictModel):
 
 
 MODE_LABELS: dict[str, str] = {
-    "steady_state_0d": "0-D steady state",
-    "transient_0d": "0-D transient",
-    "spatial_1d": "1D strip",
     "kinetics": "Kinetics (any geometry)",
     "m25_junction": "M25 junction",
 }
 
-MODE_CLASSES: dict[
-    str,
-    type[
-        SteadyState0DSetup
-        | Transient0DSetup
-        | Spatial1DSetup
-        | KineticsSetup
-        | M25JunctionSetup
-    ],
-] = {
-    "steady_state_0d": SteadyState0DSetup,
-    "transient_0d": Transient0DSetup,
-    "spatial_1d": Spatial1DSetup,
+MODE_CLASSES: dict[str, type[KineticsSetup | M25JunctionSetup]] = {
     "kinetics": KineticsSetup,
     "m25_junction": M25JunctionSetup,
 }

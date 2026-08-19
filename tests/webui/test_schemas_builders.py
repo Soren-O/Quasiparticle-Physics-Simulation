@@ -20,6 +20,7 @@ from qpsim.webui.schemas import (
     EnergyGrid,
     M25JunctionSetup,
     SetupEnvelope,
+    KineticsSetup,
     Spatial1DSetup,
     SteadyState0DSetup,
     Transient0DSetup,
@@ -44,7 +45,10 @@ class TestSchemas:
         envelope = SetupEnvelope.model_validate(
             {"name": "t", "setup": {"mode": "steady_state_0d", "grid": {"num_bins": 48}}}
         )
-        assert isinstance(envelope.setup, SteadyState0DSetup)
+        # A retired mode name upgrades to the mode that replaced it; the
+        # partial dict still fills its defaults on the way through.
+        assert isinstance(envelope.setup, KineticsSetup)
+        assert envelope.setup.strategy == "steady_state"
         assert envelope.setup.grid.num_bins == 48
         assert envelope.setup.material.name == "Al"
 

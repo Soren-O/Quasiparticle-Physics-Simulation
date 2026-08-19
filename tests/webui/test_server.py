@@ -15,7 +15,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 from qpsim.webui.server import create_app  # noqa: E402
 
 TINY_SETUP: dict[str, Any] = {
-    "mode": "steady_state_0d",
+    "mode": "kinetics",
+    "strategy": "steady_state",
+    "geometry": {"rows": 1, "cols": 1},
     "grid": {"num_bins": 48},
 }
 
@@ -51,10 +53,9 @@ class TestMetaAndMaterials:
 
     def test_meta_lists_modes(self, client: TestClient) -> None:
         body = client.get("/api/meta").json()
-        assert set(body["modes"]) == {
-            "steady_state_0d", "transient_0d", "spatial_1d", "kinetics",
-            "m25_junction",
-        }
+        # Two modes, not five: the 0-D and 1-D ones were geometries of this
+        # one all along, and now say so.
+        assert set(body["modes"]) == {"kinetics", "m25_junction"}
 
     def test_materials_carry_autofill_params(self, client: TestClient) -> None:
         mats = client.get("/api/materials").json()
@@ -64,9 +65,20 @@ class TestMetaAndMaterials:
         assert al["params"]["Delta_0"] == al["Delta_0"]
 
     def test_defaults_endpoint(self, client: TestClient) -> None:
-        body = client.get("/api/defaults/spatial_1d").json()
-        assert body["mode"] == "spatial_1d"
+        body = client.get("/api/defaults/kinetics").json()
+        assert body["mode"] == "kinetics"
         assert client.get("/api/defaults/nope").status_code == 404
+
+    def test_defaults_endpoint_answers_a_retired_mode_name(
+        self, client: TestClient,
+    ) -> None:
+        """A bookmarked URL or an older client can still name one.
+
+        404ing here while /api/validate accepts the same name inside a setup
+        would be an inconsistency the caller cannot act on.
+        """
+        body = client.get("/api/defaults/spatial_1d").json()
+        assert body["mode"] == "kinetics"
 
     def test_index_serves_html(self, client: TestClient) -> None:
         resp = client.get("/")
@@ -142,6 +154,8 @@ class TestRunLifecycle:
         assert client.get("/api/runs").json() == []
 
     def test_equal_gap_interface_is_rejected_before_run(self, client: TestClient) -> None:
+        # Posted under the RETIRED name on purpose: the guard has to survive
+        # the upgrade, not just exist on the mode that replaced it.
         setup = {
             "mode": "spatial_1d",
             "gap_profile": {
