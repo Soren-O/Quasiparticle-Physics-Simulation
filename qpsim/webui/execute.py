@@ -781,9 +781,12 @@ def run_kinetics(
         # mask plus mesh_size encodes the same information, but making every
         # consumer reconstruct it is how the 1-D mode's plots would quietly
         # stop working when that mode goes.
+        # CELL CENTRES, (i + 1/2) h -- the same convention build_state_1d uses.
+        # Emitting i*h instead offsets every profile by half a cell, which is
+        # invisible in a plot and wrong in a fit.
         payload.arrays["x_um"] = (
-            np.arange(geometry.cell_count, dtype=float) * geometry.mesh_size
-        )
+            np.arange(geometry.cell_count, dtype=float) + 0.5
+        ) * geometry.mesh_size
 
     if result.snapshots:
         payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])

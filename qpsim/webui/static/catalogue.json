@@ -75,34 +75,42 @@
             {
               "id": "diff-only",
               "title": "Diffusion alone",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "Injection at the left end with both collision channels off. Transport is the only term that shapes the profile, and it nearly flattens it: left/right = 1.04.",
               "overrides": {
                 "T_bath": 0.2,
-                "num_cells": 24,
                 "grid.num_bins": 96,
                 "max_time": 2000.0,
                 "diffusion_model": "A1",
-                "gap_profile.kind": "uniform",
                 "collisions.scattering": false,
                 "collisions.recombination": false,
-                "injection.enabled": true
+                "injection.enabled": true,
+                "geometry.rows": 1,
+                "geometry.cols": 24,
+                "geometry.mesh_size_um": 4.166666666666667,
+                "injection.where": "left_edge",
+                "snapshot_interval": 40.0,
+                "gap_regions.kind": "uniform"
               }
             },
             {
               "id": "diff-off",
               "title": "The same strip with transport off",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "D_0 = 0 makes the flux coefficient identically zero, so the cells stop talking to each other and the injected quasiparticles pile up: left/right = 544 instead of 1.06. Run it against the case above.",
               "overrides": {
                 "T_bath": 0.2,
-                "num_cells": 24,
                 "grid.num_bins": 96,
                 "max_time": 2000.0,
                 "diffusion_model": "A1",
-                "gap_profile.kind": "uniform",
                 "material.D_0": 0.0,
-                "injection.enabled": true
+                "injection.enabled": true,
+                "geometry.rows": 1,
+                "geometry.cols": 24,
+                "geometry.mesh_size_um": 4.166666666666667,
+                "injection.where": "left_edge",
+                "snapshot_interval": 40.0,
+                "gap_regions.kind": "uniform"
               }
             }
           ]
@@ -160,20 +168,27 @@
             {
               "id": "scat-only",
               "title": "Scattering alone",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "Start thermal with recombination and both drives off. Scattering has thermal as its own fixed point, so nothing moves: x_qp holds at 2.2243e-10.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
-                "collisions.recombination": false
+                "collisions.recombination": false,
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               },
               "expect": {
                 "formula_latex": "f(E,t) = f_{\\mathrm{FD}}(E,T_b)\\ \\ \\forall t",
                 "reason": "Scattering satisfies detailed balance against a thermal phonon bath, so the Fermi-Dirac distribution is its fixed point and nothing evolves.",
-                "observable": "x_qp_final",
+                "observable": "x_qp_mean",
                 "reference": "x_qp_thermal",
                 "rel_tol": 1e-09
               }
@@ -234,20 +249,27 @@
             {
               "id": "recomb-only",
               "title": "Recombination alone",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "The same start with scattering off instead. The pair channel also holds thermal, to the last few digits of the scattering-only answer.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
-                "collisions.scattering": false
+                "collisions.scattering": false,
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               },
               "expect": {
                 "formula_latex": "f(E,t) = f_{\\mathrm{FD}}(E,T_b)\\ \\ \\forall t",
                 "reason": "The pair channel also balances at thermal: emission into the bath and reabsorption from it cancel bin by bin.",
-                "observable": "x_qp_final",
+                "observable": "x_qp_mean",
                 "reference": "x_qp_thermal",
                 "rel_tol": 1e-09
               }
@@ -304,24 +326,31 @@
             {
               "id": "photsg-only",
               "title": "Sub-gap drive alone",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "Both collision channels off, so the drive is the only term. It redistributes f in energy while the number stays put.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "subgap_drive.enabled": true,
                 "subgap_drive.omega_0": 52.0,
                 "subgap_drive.n_bar": 10000000.0,
                 "subgap_drive.c_phot": 1e-09,
                 "pb_drive.enabled": false,
                 "collisions.scattering": false,
-                "collisions.recombination": false
+                "collisions.recombination": false,
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               },
               "expect": {
                 "formula_latex": "\\sum_i \\rho_i\\, f_i(t) = \\mathrm{const}",
                 "reason": "The sub-gap channel moves quasiparticles in energy without creating or destroying any, so the number is conserved exactly while the distribution reshapes.",
-                "observable": "x_qp_final",
+                "observable": "x_qp_mean",
                 "reference": "x_qp_initial",
                 "rel_tol": 0.0001
               }
@@ -374,24 +403,31 @@
             {
               "id": "photpb-only",
               "title": "Pair-breaking drive alone",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "Creation with no sink of any kind: x_qp climbs from 2.2e-10 to 1.36e-05 and would keep going. There is no steady state to find.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "pb_drive.enabled": true,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
                 "collisions.scattering": false,
-                "collisions.recombination": false
+                "collisions.recombination": false,
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               },
               "expect": {
                 "formula_latex": "\\frac{d}{dt}\\sum_i \\rho_i f_i > 0",
                 "reason": "Photons above 2Δ create quasiparticles and nothing removes them, so the number can only grow. There is no steady state.",
-                "observable": "x_qp_final",
+                "observable": "x_qp_mean",
                 "reference": "x_qp_thermal",
                 "comparison": "greater",
                 "factor": 10.0
@@ -442,19 +478,23 @@
             {
               "id": "src-only",
               "title": "Injection alone",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "Transport off and both collision channels off, so nothing spreads or removes what is injected. It accumulates at the left end: left/right = 1031.",
               "overrides": {
                 "T_bath": 0.2,
-                "num_cells": 24,
                 "grid.num_bins": 96,
                 "max_time": 2000.0,
                 "diffusion_model": "A1",
-                "gap_profile.kind": "uniform",
                 "collisions.scattering": false,
                 "collisions.recombination": false,
                 "material.D_0": 0.0,
-                "injection.enabled": true
+                "injection.enabled": true,
+                "geometry.rows": 1,
+                "geometry.cols": 24,
+                "geometry.mesh_size_um": 4.166666666666667,
+                "injection.where": "left_edge",
+                "snapshot_interval": 40.0,
+                "gap_regions.kind": "uniform"
               }
             }
           ]
@@ -674,36 +714,50 @@
             {
               "id": "pesc-closed",
               "title": "Closed sector: nothing leaves",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "The phonon population solved in time with no substrate to escape to. Every frequency bin drifts away from the bath value and keeps going, because energy arrives and nothing removes it.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "pb_drive.enabled": true,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
-                "phonons.mode": "dynamic_closed"
+                "phonons.mode": "dynamic_closed",
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             },
             {
               "id": "pesc-open",
               "title": "The same run with escape switched on",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "Finite tau_esc pulls the phonons back toward the bath, so they settle instead of drifting. Run it against the case above: the difference is the coupling.",
               "overrides": {
                 "T_bath": 0.1,
                 "grid.num_bins": 405,
-                "total_time": 40.0,
                 "pb_drive.enabled": true,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
                 "phonons.mode": "dynamic_escape",
-                "phonons.tau_l_ns": 0.17
+                "phonons.tau_l_ns": 0.17,
+                "max_time": 40.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.8,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -1045,7 +1099,7 @@
             {
               "id": "photon-kick",
               "title": "Photon kick",
-              "mode": "transient_0d",
+              "mode": "kinetics",
               "summary": "Start thermal, switch a real pair-breaking drive on at t = 0, and watch f climb.",
               "overrides": {
                 "T_bath": 0.1,
@@ -1054,7 +1108,15 @@
                 "grid.num_bins": 405,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
-                "pb_drive.c_phot_PB": 1e-09
+                "pb_drive.c_phot_PB": 1e-09,
+                "max_time": 120.0,
+                "grid.max_factor": 10.0,
+                "dt": 0.1,
+                "probe.enabled": true,
+                "stop_tol": 0.0,
+                "snapshot_interval": 2.4,
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -1069,34 +1131,62 @@
             {
               "id": "uniform-strip",
               "title": "Uniform strip, A1",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "A uniform gap, so every energy diffuses independently at D_0/N_1(E).",
               "overrides": {
                 "T_bath": 0.2,
                 "diffusion_model": "A1",
-                "gap_profile.kind": "uniform"
+                "grid.num_bins": 66,
+                "injection.enabled": true,
+                "max_time": 20000.0,
+                "geometry.rows": 1,
+                "geometry.cols": 31,
+                "geometry.mesh_size_um": 3.225806451612903,
+                "injection.where": "left_edge",
+                "snapshot_interval": 400.0,
+                "gap_regions.kind": "uniform"
               }
             },
             {
               "id": "operator-contrast",
               "title": "Same strip, legacy operator C",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "At a uniform gap C shares A1's rate and differs only in conserved density. The two separate once the gap varies.",
               "overrides": {
                 "T_bath": 0.2,
                 "diffusion_model": "C",
-                "gap_profile.kind": "uniform"
+                "grid.num_bins": 66,
+                "injection.enabled": true,
+                "max_time": 20000.0,
+                "geometry.rows": 1,
+                "geometry.cols": 31,
+                "geometry.mesh_size_um": 3.225806451612903,
+                "injection.where": "left_edge",
+                "snapshot_interval": 400.0,
+                "gap_regions.kind": "uniform"
               }
             },
             {
               "id": "step-interface",
               "title": "Step gap interface",
-              "mode": "spatial_1d",
+              "mode": "kinetics",
               "summary": "Two regions of unequal gap joined at one face. Quasiparticles collect on the low-gap side.",
               "overrides": {
                 "T_bath": 0.2,
                 "diffusion_model": "A1",
-                "gap_profile.kind": "step"
+                "grid.num_bins": 66,
+                "injection.enabled": true,
+                "max_time": 20000.0,
+                "geometry.rows": 1,
+                "geometry.cols": 31,
+                "geometry.mesh_size_um": 3.225806451612903,
+                "injection.where": "left_edge",
+                "snapshot_interval": 400.0,
+                "gap_regions.kind": "column_step",
+                "gap_regions.gap_left": 180.0,
+                "gap_regions.gap_right": 200.0,
+                "gap_regions.step_fraction": 0.4838709677419355,
+                "gap_regions.interface_G_N": null
               }
             }
           ]
