@@ -508,7 +508,7 @@
             {
               "id": "psc-split",
               "title": "Quasiparticles scatter, phonons do not record it",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The scattering channel on for the quasiparticles and off for the phonons. Energy leaves one population without arriving in the other, so the ledger does not balance: x_qp = 2.257e-03 against 2.261e-03 symmetric. The interface warns; there is no thermal fixed point here.",
               "overrides": {
                 "T_bath": 0.2,
@@ -519,13 +519,18 @@
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
-                "collisions.phonon_scattering_source": false
+                "collisions.phonon_scattering_source": false,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             },
             {
               "id": "psc-split-rev",
               "title": "Phonons record what quasiparticles no longer do",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The same split the other way round: the phonon source is driven by an f that scattering no longer moves. x_qp = 2.851e-03.",
               "overrides": {
                 "T_bath": 0.2,
@@ -536,7 +541,12 @@
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
-                "collisions.scattering": false
+                "collisions.scattering": false,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -593,7 +603,7 @@
             {
               "id": "prc-split",
               "title": "Recombination on the quasiparticle side only",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "Pairs recombine but the 2Δ phonons are never booked, so nothing can break them again and trapping disappears: x_qp = 1.733e-03 against 2.261e-03 with the loop closed.",
               "overrides": {
                 "T_bath": 0.2,
@@ -604,7 +614,12 @@
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
-                "collisions.phonon_recombination_source": false
+                "collisions.phonon_recombination_source": false,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -735,7 +750,7 @@
             {
               "id": "gapeq-only",
               "title": "Gap closure alone",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "Every collision term off, so f stays thermal and only the BCS closure acts. It returns Δ = 179.342 μeV at 0.2 K, down from the 180 μeV input.",
               "overrides": {
                 "T_bath": 0.2,
@@ -746,7 +761,12 @@
                 "pb_drive.enabled": false,
                 "collisions.scattering": false,
                 "collisions.recombination": false,
-                "solver.self_consistent_gap": true
+                "self_consistent_gap": true,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               },
               "expect": {
                 "formula_latex": "\\frac{1}{N_0V}=\\int_\\Delta^{\\hbar\\omega_D}\\frac{1-2f(E)}{\\sqrt{E^2-\\Delta^2}}\\,dE",
@@ -775,25 +795,37 @@
             {
               "id": "thermal-equilibrium",
               "title": "Thermal equilibrium",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The collision integral vanishes at the Fermi-Dirac distribution, so the solve should return it.",
               "overrides": {
                 "T_bath": 0.2,
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
-                "phonons.mode": "thermal_bath"
+                "phonons.mode": "thermal_bath",
+                "grid.max_factor": 10.0,
+                "grid.num_bins": 405,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             },
             {
               "id": "thermal-equilibrium-cold",
               "title": "Thermal equilibrium, cold",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The same fixed point at 0.1 K, where the pair channel is suppressed by e^(-2Δ/kT) and the number mode gets hard to resolve.",
               "overrides": {
                 "T_bath": 0.1,
                 "subgap_drive.enabled": false,
                 "pb_drive.enabled": false,
-                "phonons.mode": "thermal_bath"
+                "phonons.mode": "thermal_bath",
+                "grid.max_factor": 10.0,
+                "grid.num_bins": 405,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -817,7 +849,7 @@
             {
               "id": "recomb-pb",
               "title": "Recombination against a pair-breaking drive",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "Scattering off, so the pair channel alone has to absorb the drive. It reaches a steady state at x_qp = 1.716e-03.",
               "overrides": {
                 "T_bath": 0.2,
@@ -828,7 +860,12 @@
                 "pb_drive.n_bar_PB": 1000.0,
                 "pb_drive.c_phot_PB": 1e-09,
                 "subgap_drive.enabled": false,
-                "collisions.scattering": false
+                "collisions.scattering": false,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -877,7 +914,7 @@
             {
               "id": "fischer-2023-fig6-point",
               "title": "Fig. 6, one operating point",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The single point the 66-point Fig. 6 sweep is built from.",
               "overrides": {
                 "T_bath": 0.2,
@@ -894,7 +931,11 @@
                 "phonons.mode": "dynamic_escape",
                 "phonons.tau_l_ns": 0.255,
                 "subgap_drive.n_bar": 10000000.0,
-                "subgap_drive.c_phot": 1e-09
+                "subgap_drive.c_phot": 1e-09,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
@@ -932,7 +973,7 @@
             {
               "id": "subgap-driven",
               "title": "Sub-gap photon drive",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "A real sub-gap drive at the published Fischer photon number. It reshapes f near the gap edge; x_qp settles at 1.007e-05.",
               "overrides": {
                 "T_bath": 0.2,
@@ -942,13 +983,18 @@
                 "grid.num_bins": 405,
                 "subgap_drive.omega_0": 52.0,
                 "subgap_drive.n_bar": 10000000.0,
-                "subgap_drive.c_phot": 1e-09
+                "subgap_drive.c_phot": 1e-09,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             },
             {
               "id": "pair-breaking-driven",
               "title": "Pair-breaking photon drive",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "An above-gap drive creating quasiparticles, with recombination the only sink. x_qp = 1.729e-03.",
               "overrides": {
                 "T_bath": 0.2,
@@ -958,13 +1004,18 @@
                 "grid.num_bins": 405,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
-                "pb_drive.c_phot_PB": 1e-09
+                "pb_drive.c_phot_PB": 1e-09,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             },
             {
               "id": "phonon-trapping",
               "title": "Phonon trapping",
-              "mode": "steady_state_0d",
+              "mode": "kinetics",
               "summary": "The same drive with the phonons solved at finite escape time: x_qp = 2.261e-03 against 1.729e-03 pinned. That 31% is the trapping.",
               "overrides": {
                 "T_bath": 0.2,
@@ -974,7 +1025,12 @@
                 "grid.num_bins": 405,
                 "pb_drive.omega_PB": 400.0,
                 "pb_drive.n_bar_PB": 1000.0,
-                "pb_drive.c_phot_PB": 1e-09
+                "pb_drive.c_phot_PB": 1e-09,
+                "grid.max_factor": 10.0,
+                "probe.enabled": true,
+                "strategy": "steady_state",
+                "geometry.rows": 1,
+                "geometry.cols": 1
               }
             }
           ]
