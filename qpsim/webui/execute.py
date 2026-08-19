@@ -678,6 +678,11 @@ def run_kinetics(
     state = build_state_2d(setup)
     state, seed_notes = build_initial_state_2d(setup, state)
     payload.notes.extend(seed_notes)
+    # Captured BEFORE the run, because `initial` can seed a non-thermal state
+    # and then x_qp_initial and x_qp_thermal are different numbers. Reporting
+    # only the thermal one would silently answer a question about the seed with
+    # a fact about the bath.
+    seeded_f = state.f.copy()
     geometry = state.geometry
     injection = build_injection_2d(setup, state)
     external_gain, external_loss = (None, None) if injection is None else injection
@@ -757,6 +762,28 @@ def run_kinetics(
     payload.arrays["xqp_field"] = field
     payload.arrays["xqp_profile"] = profile
     payload.arrays["gap_per_cell"] = final.gaps()
+    # Observable parity with the 0-D and 1-D modes this one replaces. Without
+    # these, retiring those modes would silently drop what a reader gets: the
+    # reference state everything is measured against, the CONVENTION x_qp is
+    # quoted in, and the paper-convention variants the published Fischer
+    # comparisons are expressed in. Collapsing modes must not narrow the
+    # answer sheet.
+    payload.arrays["f_thermal"] = fermi_dirac_distribution(
+        final.spectral.E, setup.T_bath,
+    )
+    # Factor 2 exactly, and the same factor the 1-D mode applies: the two
+    # conventions differ only in whether the denominator counts both spin
+    # species. Derived from the profile rather than recomputed, so the two can
+    # never disagree.
+    payload.arrays["xqp_profile_paper"] = 2.0 * profile
+    if 1 in geometry.shape:
+        # A strip has a distance coordinate and a reader plots against it. The
+        # mask plus mesh_size encodes the same information, but making every
+        # consumer reconstruct it is how the 1-D mode's plots would quietly
+        # stop working when that mode goes.
+        payload.arrays["x_um"] = (
+            np.arange(geometry.cell_count, dtype=float) * geometry.mesh_size
+        )
 
     if result.snapshots:
         payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])
@@ -786,6 +813,29 @@ def run_kinetics(
         payload.arrays["obs_x_qp_max"] = np.array([
             float(np.max(p)) for p in payload.arrays["snap_xqp_profile"]
         ])
+        payload.arrays["obs_x_qp_mean_paper"] = (
+            2.0 * payload.arrays["obs_x_qp_mean"]
+        )
+        payload.arrays["obs_x_qp_max_paper"] = (
+            2.0 * payload.arrays["obs_x_qp_max"]
+        )
+        # The probe AS A TIME SERIES, which is what makes a readout transient
+        # legible -- the 0-D transient reports it and the endpoint value alone
+        # cannot answer "when does Q_i recover". Single cell only, for the same
+        # reason the endpoint probe is: sigma(f) is nonlinear, so there is no
+        # single sigma for a spatially varying f.
+        if setup.probe.enabled and geometry.cell_count == 1:
+            reason = mb_probe_invalid_reason(
+                setup.probe, final.spectral.dynes_gamma, final.spectral.gap,
+            )
+            if reason is None:
+                payload.arrays["obs_Q_i"] = np.array([
+                    compute_quality_factor(
+                        s.f[:, 0], final.spectral,
+                        setup.probe.omega_0, setup.probe.alpha,
+                    )
+                    for s in result.snapshots
+                ])
 
     payload.summary.update({
         # The reference gap the figures normalise energy by. Without it
@@ -798,13 +848,46 @@ def run_kinetics(
         "rows": int(geometry.shape[0]),
         "cols": int(geometry.shape[1]),
         "mesh_size_um": float(geometry.mesh_size),
-        "steps": int(n_steps),
+        # `n_steps`, not `steps`: both retired modes call it that, so keeping
+        # their name means a reader's existing scripts and plots keep working
+        # across the merge. One vocabulary, and it is theirs rather than a
+        # third one.
+        "n_steps": int(n_steps),
         "converged": bool(converged),
         "final_max_rate": float(last_rate),
         "x_qp_mean": float(np.mean(profile)),
         "x_qp_max": float(np.max(profile)),
         "x_qp_min": float(np.min(profile)),
+        # Parity with the modes this one replaces (see the array block above).
+        # x_qp is a RATIO whose value depends on a convention, so quoting it
+        # without naming the convention is quoting a number without its units.
+        "x_qp_mean_paper": 2.0 * float(np.mean(profile)),
+        "x_qp_max_paper": 2.0 * float(np.max(profile)),
+        "x_qp_min_paper": 2.0 * float(np.min(profile)),
+        "x_qp_convention": "qpsim: n_qp/(4 rho_F Delta_0)",
+        "total_time_ns": float(result.elapsed),
+        # The reference the run is measured AGAINST, which this mode never
+        # reported and both retired modes did. Without it "x_qp = 1.1e-5" is
+        # unreadable: the question is always how far above thermal it sits.
+        "x_qp_thermal": float(
+            qp_fraction(payload.arrays["f_thermal"], final.spectral,
+                        delta_0=delta_0)
+        ),
+        "x_qp_initial": float(np.mean(
+            _xqp_profile_2d(replace(final, f=seeded_f), delta_0)
+        )),
     })
+    # Deliberately NOT added: `x_qp_final` and `x_qp_paper_final`, which the
+    # 0-D transient reports. On a single cell they are exactly `x_qp_mean` and
+    # `x_qp_mean_paper`, already above -- a second name for a number that is
+    # already there is the duplication this merge exists to remove. The mapping
+    # is recorded here instead:
+    #     transient x_qp_final       -> x_qp_mean        (identical, 1 cell)
+    #     transient x_qp_paper_final -> x_qp_mean_paper
+    #     transient obs_x_qp         -> obs_x_qp_mean
+    #     transient f_snapshots/t_ns -> snap_f / snap_t_ns
+    # `n_etd_substeps` has no equivalent: it counts adaptive substeps inside
+    # the 0-D ETD2 driver, and the spatial stepper does not expose one.
     # The probe is part of THIS mode's model, so it has to act here or say why
     # not. Leaving it silently unread would be a switch the interface shows and
     # the engine ignores, which is the defect this repo keeps finding -- and it

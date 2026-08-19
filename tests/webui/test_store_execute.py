@@ -346,6 +346,84 @@ class TestSteadyStateStrategyReducesToTheZeroDMode:
             KineticsSetup(solver=SolverOptions(self_consistent_gap=True))
 
 
+class TestTheMergedModeDoesNotNarrowTheAnswerSheet:
+    """Collapsing three modes into one must not lose what a reader gets.
+
+    The expected keys are a FROZEN LITERAL, derived from what
+    ``transient_0d`` and ``spatial_1d`` emitted at the commit before they were
+    retired, and deliberately not computed by running those modes: the point of
+    this test is to keep outliving them. Once they are deleted there is nothing
+    left to compare against, and a parity test that can only run while the old
+    code exists protects exactly the window in which nothing can go wrong.
+
+    Four keys are renames rather than losses, recorded at the emit site:
+        f_snapshots -> snap_f            t_ns             -> snap_t_ns
+        obs_x_qp    -> obs_x_qp_mean     obs_x_qp_paper   -> obs_x_qp_mean_paper
+        x_qp_final  -> x_qp_mean         x_qp_paper_final -> x_qp_mean_paper
+    One is a genuine drop with no equivalent: ``n_etd_substeps`` counts
+    adaptive substeps inside the 0-D ETD2 driver and the spatial stepper does
+    not expose one.
+    """
+
+    REQUIRED_ARRAYS = frozenset({
+        "E_bins", "f_final", "f_thermal",
+        "xqp_profile", "xqp_profile_paper", "x_um",
+        "snap_f", "snap_t_ns", "snap_max_rate",
+        "obs_x_qp_mean", "obs_x_qp_max",
+        "obs_x_qp_mean_paper", "obs_x_qp_max_paper",
+        "obs_Q_i",
+    })
+    REQUIRED_SUMMARY = frozenset({
+        "converged", "gap_ueV", "n_steps", "total_time_ns",
+        "x_qp_convention", "x_qp_initial", "x_qp_thermal",
+        "x_qp_mean", "x_qp_max", "x_qp_mean_paper", "x_qp_max_paper",
+    })
+
+    @staticmethod
+    def _payload():
+        setup = KineticsSetup()
+        setup.grid.num_bins = 24
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 20.0, 0.0
+        setup.geometry.rows = setup.geometry.cols = 1
+        setup.snapshot_interval = 5.0
+        setup.probe.enabled = True
+        return execute_setup(setup, _noop_progress, _never)
+
+    def test_every_retired_observable_is_still_available(self) -> None:
+        payload = self._payload()
+        assert not (self.REQUIRED_ARRAYS - set(payload.arrays))
+        assert not (self.REQUIRED_SUMMARY - set(payload.summary))
+
+    def test_the_paper_convention_is_exactly_twice_the_qpsim_one(self) -> None:
+        """The two conventions differ only in the denominator's spin counting.
+
+        Pinned because it is the relation the published Fischer comparisons
+        depend on, and because a 'paper' array computed by a second route
+        could drift from the one it is supposed to be twice.
+        """
+        payload = self._payload()
+        np.testing.assert_array_equal(
+            payload.arrays["xqp_profile_paper"],
+            2.0 * payload.arrays["xqp_profile"],
+        )
+        assert payload.summary["x_qp_mean_paper"] == 2.0 * payload.summary["x_qp_mean"]
+        assert payload.summary["x_qp_convention"] == "qpsim: n_qp/(4 rho_F Delta_0)"
+
+    def test_x_qp_initial_tracks_the_seed_not_the_bath(self) -> None:
+        """Otherwise it silently answers a question about the seed with a
+        fact about the bath, and the two coincide only for an unseeded run."""
+        setup = KineticsSetup()
+        setup.grid.num_bins = 24
+        setup.dt, setup.max_time, setup.stop_tol = 1.0, 5.0, 0.0
+        setup.geometry.rows = setup.geometry.cols = 1
+        setup.initial.kind = "excess"
+        setup.initial.amplitude = 1e-3
+        payload = execute_setup(setup, _noop_progress, _never)
+        assert payload.summary["x_qp_initial"] > payload.summary["x_qp_thermal"], (
+            "a seeded run must not report the bath's x_qp as its initial one"
+        )
+
+
 class TestTheProbeActsOrSaysWhyNot:
     """`probe` reached this mode with the 0-D merge, so it must not sit inert.
 
