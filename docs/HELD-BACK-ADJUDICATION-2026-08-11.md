@@ -363,10 +363,48 @@ the recertification cost once per commit, so they are one changeset.
 
 ### P01 Kaplan S_+ correction two-sided (phonon.py:449)
 
-- **Verdict:** APPLY (high confidence)
+- **Verdict:** ~~APPLY (high confidence)~~ → **REJECT (2026-08-19)**
 - **Held-back doc line:** 101
 - **Touches `qpsim/`:** yes — recert: yes
-- **Prepared patch correct as written:** partial
+- **Prepared patch correct as written:** no — the number is right, the
+  operation is wrong
+
+> **OVERTURNED 2026-08-19. Do not apply this item.** The verdict below answered
+> the bookkeeping symptom correctly and prescribed an operation that is
+> mathematically wrong. `corr(w)`'s threshold value **π/4 IS the gap-corner
+> cell's exact two-bin overlap fraction** — the right number applied as a
+> **RESCALE** where it should be a **SPLIT**.
+>
+> Established by four disjoint routes: the corner cell's exact overlap; the
+> shipped production path itself (`_pair_breaking_quadrature_correction`
+> returns `corr[bin0] = 0.7857613 = 1/1.27264` at NE=1620); a Dirichlet
+> integral, `∫_{s+t<1} (st)^{-1/2} = Γ(½)²/Γ(2) = π` (numerically
+> 3.141592653662, so `S₀₀ → π/4`); and an analytic decomposition of 4/π into
+> separately convergent limits — numerator `(W₀²+N₀²)/(Δh) → 4`, denominator
+> `I₀(2Δ+h)/Δ → π`.
+>
+> Applying the factor to BOTH equations restores agreement between two
+> identically altered ledgers, **corrupts the already-converging quasiparticle
+> marginal, and drops it from order 1.48 to 1.00**. Fixed points survive only
+> because gain and loss receive the same erroneous factor. That is weaker than
+> either compatibility or correctness, so this option has no defensible use.
+>
+> **Postponement is not the disposition — rejection is.** The correct target is
+> the exact two-bin cut-cell split with a mesh face at ω = 2Δ; see the
+> `qpsim-pair-marginal-threshold` note for the derivation, the entry criteria,
+> and the collocation question (whether stored `f_i` is a ρ-weighted cell
+> average or a midpoint sample) that must be settled with it — that ambiguity
+> alone moves the threshold-bin pair source by −9.18% at T = 0.02Δ, the same
+> size as everything the fix repairs.
+>
+> **Do not quote "27%" as the size of the physics error.** It is a per-bin
+> kernel error in a purely local boundary layer; its mass-weighted share of the
+> ω-integrated pair source is 0.009% (flat f) / 1.32% (thermal) / 9.47%
+> (steep). The transfer to observables is state-dependent over three orders of
+> magnitude.
+>
+> The original reasoning is kept below unedited, because it is a correct
+> account of the symptom and of why the one-sided form is also wrong.
 
 **Rationale.** The decisive structural facts are measured: the cross-equation pair ledger is EXACT (3.2e-14) without the correction and broken per-bin by (1-corr) with it one-sided; two-sided application closes the ledger identically, preserves elementwise detailed balance (thermal gain/loss shift by identical -3.337%, fixed points unchanged), keeps the tau_PB(2Delta)=tau_0^PB pin, and improves the QP threshold channels (currently 4/pi-1=27% high). Gating the correction OFF is correctly rejected (regresses the phonon quadrature O(1) and moves 929 C6 bins up to 21%). This is the only deliberate physics change in the qpsim bundle and, with item 588, is what the recert is FOR. Consistent with the ledger's C6 'recorded, not gated' entry and the settled omega-labeling adjudication (corr=1 below threshold untouched).
 
