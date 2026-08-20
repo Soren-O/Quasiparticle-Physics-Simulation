@@ -95,101 +95,6 @@ const PROBE_FIELDS = {
 };
 
 const FORMS = {
-  steady_state_0d: [
-    MATERIAL_FIELDS(false),
-    { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: GRID_FIELDS.hint },
-    {
-      title: "Phonon sector",
-      hint: "thermal_bath: n_ph pinned at the bath (Newton). dynamic_escape: n_ph solved with finite escape τ_l. dynamic_closed: no substrate escape (τ_l → ∞).",
-      fields: [
-        F("phonons.mode", "Mode", "select", { options: ["thermal_bath", "dynamic_escape", "dynamic_closed"] }),
-        F("phonons.tau_l_ns", "Escape τ_l (ns)"),
-        F("phonons.use_phonon_side_kernel", "Phonon-side kernel (F&C Eq. 12)", "check"),
-      ],
-    },
-    SUBGAP_FIELDS, PB_FIELDS,
-    {
-      title: "Phonon sector",
-      hint: "thermal_bath pins n_ph at the bath. The dynamic modes solve the phonon population in every cell, which is far more expensive: the occupation matrices stop being shared, so each cell builds its own.",
-      fields: [
-        F("phonons.mode", "Mode", "select", { options: ["thermal_bath", "dynamic_escape", "dynamic_closed"] }),
-        F("phonons.tau_l_ns", "Escape τ_l (ns)"),
-      ],
-    },
-    {
-      title: "Solver",
-      fields: [
-        F("solver.method", "Method", "select", { options: ["auto", "picard", "coupled_newton"] }),
-        F("solver.self_consistent_gap", "Self-consistent gap", "check"),
-        F("solver.picard_tol", "Picard tol"),
-        F("solver.picard_max_iter", "Picard max iter", "int"),
-        F("solver.picard_mixing", "Picard mixing"),
-        F("solver.anderson_depth", "Anderson depth", "int"),
-        F("solver.newton_tol", "Newton tol"),
-        F("solver.newton_max_iter", "Newton max iter", "int"),
-      ],
-    },
-    PROBE_FIELDS,
-  ],
-  transient_0d: [
-    MATERIAL_FIELDS(false),
-    { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: GRID_FIELDS.hint },
-    SUBGAP_FIELDS, PB_FIELDS,
-    {
-      title: "Time stepping (ETD2, frozen n_ph and Δ)",
-      hint: "dt ≲ τ₀/10 keeps ETD2 well-behaved. Snapshots default to total/50.",
-      fields: [
-        F("dt", "dt (ns)"),
-        F("total_time", "Total time (ns)"),
-        F("snapshot_interval", "Snapshot interval (ns)", "number", { nullable: true }),
-        F("stop_tol", "Early-stop tol (1/ns)", "number", { nullable: true }),
-      ],
-    },
-    PROBE_FIELDS,
-  ],
-  spatial_1d: [
-    MATERIAL_FIELDS(true),
-    { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: "Spatial transport needs Dynes Γ = 0." },
-    {
-      title: "Strip",
-      fields: [
-        F("length_um", "Length (μm)"),
-        F("num_cells", "Spatial cells", "int"),
-        F("diffusion_model", "Diffusion operator", "select", { options: ["A1", "A1P", "A2", "C", "B"] }),
-      ],
-    },
-    {
-      title: "Gap profile",
-      hint: "step: left fraction at gap_left, rest at gap_right; a finite G_N makes the step a Kupriyanov–Lukichev interface.",
-      fields: [
-        F("gap_profile.kind", "Kind", "select", { options: ["uniform", "step"] }),
-        F("gap_profile.gap_left", "Gap left (μeV)"),
-        F("gap_profile.gap_right", "Gap right (μeV)"),
-        F("gap_profile.step_position_fraction", "Step position (0–1)"),
-        F("gap_profile.interface_G_N", "Interface G_N", "number", { nullable: true }),
-      ],
-    },
-    {
-      title: "Injection",
-      hint: "Continuous Gaussian-in-energy QP source.",
-      fields: [
-        F("injection.enabled", "Enabled", "check"),
-        F("injection.center_over_delta", "Line center (×Δ)"),
-        F("injection.sigma_over_delta", "Line width σ (×Δ)"),
-        F("injection.rate_per_ns", "Peak rate (1/ns)"),
-        F("injection.where", "Where", "select", { options: ["left_end", "uniform"] }),
-      ],
-    },
-    {
-      title: "Time stepping",
-      fields: [
-        F("dt", "dt (ns)"),
-        F("max_time", "Max time (ns)"),
-        F("stop_tol", "Stop tol max|df/dt| (1/ns)"),
-        F("snapshot_interval", "Snapshot interval (ns)", "number", { nullable: true }),
-      ],
-    },
-  ],
   kinetics: [
     MATERIAL_FIELDS(true),
     { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: "Spatial transport needs Dynes Γ = 0." },
@@ -252,13 +157,30 @@ const FORMS = {
       ],
     },
     {
+      title: "Solve strategy",
+      hint: "time_march advances the kinetic equation to stop_tol and works on any geometry. steady_state hands the problem to the 0-D root find instead, which is far faster but has no cell axis — its state is f(E) with a single gap — so it needs a 1×1 mask. A multi-cell device reaches its steady state by time-marching; that is not a lesser answer, it is the same fixed point found by a different route.",
+      fields: [
+        F("strategy", "Strategy", "select", { options: ["time_march", "steady_state"] }),
+        F("solver.method", "Root find (steady_state only)", "select", { options: ["auto", "picard", "coupled_newton"] }),
+        F("solver.picard_tol", "Picard tol"),
+        F("solver.picard_max_iter", "Picard max iter", "int"),
+        F("solver.picard_mixing", "Picard mixing"),
+        F("solver.anderson_depth", "Anderson depth", "int"),
+        F("solver.newton_tol", "Newton tol"),
+        F("solver.newton_max_iter", "Newton max iter", "int"),
+      ],
+    },
+    {
       title: "Time stepping",
+      hint: "Read under strategy = time_march. snapshot_interval records the field on the way; leave it empty to keep only the endpoint.",
       fields: [
         F("dt", "dt (ns)"),
         F("max_time", "Max time (ns)"),
         F("stop_tol", "Stop tol max|df/dt| (1/ns)"),
+        F("snapshot_interval", "Snapshot interval (ns)", "number", { nullable: true }),
       ],
     },
+    PROBE_FIELDS,
   ],
   m25_junction: [
     {
@@ -300,7 +222,7 @@ const FORMS = {
 /* ---------- state ---------- */
 
 const state = {
-  mode: "steady_state_0d",
+  mode: "kinetics",
   setup: null,          // current setup object (matches pydantic model)
   materials: [],
   modeLabels: {},

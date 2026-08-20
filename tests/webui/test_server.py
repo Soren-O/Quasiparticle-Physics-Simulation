@@ -38,6 +38,83 @@ def _wait_done(client: TestClient, run_id: str, timeout_s: float = 60.0) -> dict
     pytest.fail(f"run {run_id} did not finish within {timeout_s}s")
 
 
+class TestEveryFormControlBindsToAField:
+    """A control the editor shows must set something the engine reads.
+
+    The wizard's field paths are written by hand in `app.js` and resolved
+    against the setup dict at run time, so a typo or a renamed field does not
+    fail — the control renders, the user sets it, and the value lands nowhere.
+    That is the defect this repo keeps finding, in the one place no Python test
+    was looking.
+
+    It also catches the reverse of the mode collapse: `strategy`, `solver.*`,
+    `probe.*` and `snapshot_interval` all existed on the merged model for a
+    while with no way to reach them from the browser.
+    """
+
+    @staticmethod
+    def _form_paths(mode: str) -> set[str]:
+        import re
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "qpsim" / "webui" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        forms = source[source.index("const FORMS = {"):]
+        start = forms.index(f"  {mode}: [")
+        later = [
+            forms.index(marker)
+            for marker in (f"  {m}: [" for m in ("kinetics", "m25_junction", "materials"))
+            if marker in forms and forms.index(marker) > start
+        ]
+        block = forms[start: min(later) if later else len(forms)]
+        paths = set(re.findall(r'F\("([a-zA-Z0-9_.]+)"', block))
+        # Shared groups are referenced by name (PROBE_FIELDS, GRID_FIELDS, ...),
+        # so a parser that only reads inline F() calls would silently skip
+        # whole sections and report a form as fully bound while never having
+        # looked at half of it.
+        for name in set(re.findall(r"\b([A-Z][A-Z_]*_FIELDS)\b", block)):
+            definition = source[source.index(f"const {name}"):]
+            definition = definition[: definition.index("\n};") + 3] if "\n};" in definition[:4000] else definition[:4000]
+            paths |= set(re.findall(r'F\("([a-zA-Z0-9_.]+)"', definition))
+        return paths
+
+    @pytest.mark.parametrize("mode", ["kinetics", "m25_junction"])
+    def test_every_control_resolves_in_the_setup_model(self, mode: str) -> None:
+        from qpsim.webui.schemas import MODE_CLASSES
+
+        defaults = MODE_CLASSES[mode]().model_dump()
+        paths = self._form_paths(mode)
+        assert paths, f"no controls found for {mode} — the parser missed the block"
+
+        unmapped = []
+        for path in sorted(paths):
+            node = defaults
+            for part in path.split("."):
+                if isinstance(node, dict) and part in node:
+                    node = node[part]
+                else:
+                    unmapped.append(path)
+                    break
+        assert not unmapped, (
+            f"{mode}: these controls set nothing the engine reads: {unmapped}"
+        )
+
+    def test_the_merged_mode_exposes_its_strategy(self) -> None:
+        """Reachability, not just binding.
+
+        `strategy` decides which solver runs, so a model that has it and a form
+        that does not means half the mode is unreachable from the browser --
+        which was true for several commits.
+        """
+        paths = self._form_paths("kinetics")
+        assert "strategy" in paths
+        assert "snapshot_interval" in paths
+        assert any(p.startswith("solver.") for p in paths)
+        assert any(p.startswith("probe.") for p in paths)
+
+
 class TestMetaAndMaterials:
     def test_foreign_host_is_rejected(self, client: TestClient) -> None:
         resp = client.get("/api/meta", headers={"host": "attacker.example"})
