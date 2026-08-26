@@ -472,6 +472,24 @@ class SpectralContext:
             K_minus = np.maximum(1.0 - product, 0.0)
 
         if self._D0 > 0 and gap > 0:
+            # Left as 1 - (Δ/E)² DELIBERATELY, unlike the factored radicand
+            # above and the one in observables/ac_conductivity.py. The
+            # cancellation is real but this expression is evaluated on the
+            # ENERGY GRID, whose first node sits half a bin above Δ, and there
+            # it never bites. Measured against 60-digit arithmetic at the
+            # closest node of three shipped grids:
+            #
+            #   405 bins  [Δ,10Δ]   2 µeV above Δ    1.1e-15 → 1.6e-16
+            #   1620 bins [Δ,10Δ]   0.5 µeV          8.2e-15 → 1.9e-16
+            #   66 bins   [Δ,4Δ]    4.1 µeV          4.7e-16 → 1.5e-16
+            #
+            # Every one is already at the noise floor and orders below the
+            # discretisation error of anything that consumes D(E), so
+            # rewriting it would move stored numbers for no reachable gain.
+            # The distinguishing question at each of these three sites is
+            # whether the nodes actually approach the gap edge: the σ₂
+            # substitution puts them there on purpose and reaches 5e-05 µeV,
+            # which is why that one was reformulated and this one was not.
             d_ratio = np.minimum(gap / E, 1.0)
             D_E = self._D0 * np.sqrt(np.maximum(0.0, 1.0 - d_ratio ** 2))
         elif self._D0 > 0:
