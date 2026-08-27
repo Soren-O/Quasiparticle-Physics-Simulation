@@ -72,10 +72,13 @@ def _cell_count(setup: Any) -> int | None:
     """
     geometry = getattr(setup, "geometry", None)
     if geometry is None:
-        # A mode with no `geometry` may still carry its extent under another
-        # name. spatial_1d keeps it in `num_cells`, and reading only
-        # `geometry` reported a 31-cell strip -- a mode whose whole purpose is
-        # diffusion -- as a single cell with no transport at all.
+        # Kept after the mode collapse, though every surviving mode now has a
+        # `geometry`. The retired 1-D strip carried its extent in `num_cells`,
+        # and reading only `geometry` reported a 31-cell strip -- a mode whose
+        # whole purpose was diffusion -- as a single cell with no transport at
+        # all. `RETIRED_MODE_UPGRADES` translates that field on load, so this
+        # branch is now a backstop for an object that reached here without
+        # going through the envelope, not a live path.
         cells = getattr(setup, "num_cells", None)
         if cells is not None:
             return int(cells)

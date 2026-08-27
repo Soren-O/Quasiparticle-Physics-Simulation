@@ -181,6 +181,63 @@ and is derived in `Phonon_Escape_Time.md`.
 
 ---
 
+### The phonon spectrum is Debye, and that is why the kernels look like this
+
+**Recorded 2026-08-26.** This assumption was load-bearing, implicit and
+undocumented, and its absence caused a real misreading: the phonon side
+appears to have *no* density of states, which invites "fixing" by adding one.
+Doing so would double-count.
+
+The collision integrals assume a **Debye phonon spectrum**,
+$$
+\alpha^2 F(\omega) = b\,\omega^2 ,
+$$
+and $\tau_0$ is *defined* by Kaplan (1976) under exactly that assumption — it
+absorbs $b$ together with the $(k_B T_c)^3$ scale. The $\omega^2$ in the
+quasiparticle kernel
+
+$$
+K_0^s(E_i,E_j) = \frac{1}{\tau_0}\,\frac{(E_i-E_j)^2}{(k_B T_c)^3}\,K^-
+$$
+
+is therefore **not kinematic**. It is $\alpha^2 F(\omega)/b$. Assume a
+different phonon spectrum and both this frequency dependence and the meaning
+of $\tau_0$ change together; neither may be varied alone.
+
+**Where the density of states lives, and where it must not.** The two kernels
+are deliberately asymmetric:
+
+| | frequency dependence | why |
+|---|---|---|
+| quasiparticle side, `build_scattering_kernel_base` | $\propto\omega^2$ | the QP equation **integrates over phonon modes**, so it carries $D(\omega)\propto\omega^2$ |
+| phonon side, `build_scattering_kernel_phonon_side` | none — $2K^-/(\pi\Delta\tau_0^{PB})$ | the phonon equation is written **per mode**, and a single mode has no density of states |
+
+Their ratio is exactly $\omega^2$ times a constant (verified numerically to
+$7\times10^{-16}$), which is the signature of this structure and a cheap check
+that it has not been disturbed.
+
+Consequences worth stating, because each has been misread at least once:
+
+- `n_ph` is an **occupation** (Bose), the direct analogue of the
+  quasiparticle $f$ — intensive, dimensionless, unbounded above. It is *not*
+  a density.
+- There is deliberately **no per-bin phonon density-of-states array**, and
+  none should be added. The absence mirrors `SpectralContext.cell_density` on
+  the quasiparticle side only in appearance; the two sides are asymmetric on
+  purpose because the mode integral happens on one of them.
+- `compute_phonon_source_sink` sums $dE\times(\dots)$ along an anti-diagonal.
+  That is discretising $\int dE$ **at fixed $\omega$** — a per-mode source —
+  not a sum over modes. It therefore needs no $1/D(\omega)$ normalisation.
+- Counting total excitations *does* need the measure: the conserved
+  combination weights $n_{ph}$ by $\propto\omega^2$. Conservation checks must
+  use it; the kinetic equations must not.
+- A frequency-dependent $\alpha^2F$ (a real measured spectrum, an Einstein
+  mode, a soft-mode material) is **not** expressible by editing $\tau_0$. It
+  requires replacing the $\omega^2$ in the QP kernel and re-deriving the
+  normalisation, and would break the ratio check above.
+
+---
+
 ## Glossary: three distinct timescales
 
 | Symbol | Name | Physics | Where it enters |

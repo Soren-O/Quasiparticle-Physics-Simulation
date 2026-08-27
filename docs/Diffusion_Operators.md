@@ -1,8 +1,10 @@
 # Spatial diffusion operators (A1 / A1P / A2 / B / C)
 
-The 1D spatial T3 backend (`qpsim.backends.t3_spatial_1d`) diffuses the
-quasiparticle occupation `f(E, x)` under a selectable energy-dependent
-operator. The operators are one family in the dressing exponents
+The spatial T3 backend (`qpsim.backends.t3_spatial`) diffuses the
+quasiparticle occupation `f(E, cell)` under a selectable energy-dependent
+operator. The geometry is a mask, so a one-row mask is the 1-D strip this
+document was originally written against and everything below still reads that
+way; a general mask is the same operator on more neighbours. The operators are one family in the dressing exponents
 `(p, q)`, defined in `qpsim.transport.diffusion.base`:
 
 ```
@@ -82,10 +84,15 @@ onto the family as:
 ## Using the operators
 
 ```python
-from qpsim.backends.t3_spatial_1d import T3Spatial1DState
+from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.geometries import strip
 from qpsim.transport.diffusion import DiffusionModel
 
-state = T3Spatial1DState(..., diffusion_model=DiffusionModel.A1)   # default
+state = T3SpatialState(
+    ...,
+    geometry=strip(num_cells, mesh_size=dx_um),
+    diffusion_model=DiffusionModel.A1,   # default
+)
 ```
 
 The scheme is an exactly-conservative finite-volume Crank–Nicolson step on
@@ -178,7 +185,9 @@ not establish agreement with a paper or experiment.
 
 ## Scope
 
-This targets the working `t3_spatial_1d` backend. Prelim experiment scripts
+This targets the `t3_spatial` backend, which is now the only one. (It was
+written for `t3_spatial_1d`, retired 2026-08-19; the operator family and the
+face weighting carried over unchanged.) Prelim experiment scripts
 were written before the family existed; their committed outputs are historical
 `C`-closure runs. The default is now `A1`, so re-running them uses `A1` unless
 they are pinned to `C` explicitly — at a uniform gap the two coincide. The

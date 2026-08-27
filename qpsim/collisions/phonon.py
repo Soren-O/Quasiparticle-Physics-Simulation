@@ -95,6 +95,14 @@ def build_scattering_kernel_phonon_side(
     equation** qp-conserving term (F&C 2023 Eq. 12, first integral).
     This is distinct from :func:`build_scattering_kernel_base`, whose
     ``ω²/(τ₀ T_c³)`` prefactor belongs to the QP equation.
+
+    THE ABSENCE OF ω² HERE IS THE POINT, not an omission. The phonon equation
+    is written PER MODE, and a single mode has no density of states; the ω² in
+    the QP kernel is the Debye α²F(ω), carried there because that equation
+    integrates OVER modes. So ``n_ph`` is an occupation like ``f``, there is
+    deliberately no per-bin phonon density-of-states array, and adding one
+    would double-count. See ``docs/Phonon_Model_Decisions.md``, "The phonon
+    spectrum is Debye".
     """
     _require_ideal_bcs_context(ctx, "Phonon-side scattering")
     coh = ctx.K_minus if coherence is CoherenceAssignment.PHONON else ctx.K_plus
@@ -283,6 +291,19 @@ def build_phonon_frequency_map(
     of pair events onto one common ω lattice — reopens the union-grid decision
     D3 in ``docs/Phonon_Model_Decisions.md`` and is a physics change, not a
     patch.
+
+    THAT FIX NOW EXISTS, unwired: see :mod:`qpsim.collisions.omega_lattice`.
+    D3 resolves without a new restriction — read as finite volumes, the pair
+    channel wants bin faces at ``2Δ + m·h`` and the scattering channel at
+    ``k·h``, and those coincide exactly when ``2Δ/h`` is an integer, which is
+    the commensurability this docstring already demands. One uniform lattice of
+    spacing ``h`` therefore serves both, and each channel's cell straddles two
+    of its bins. Deposit and read there are exact adjoints, which is what lets
+    detailed balance survive the change.
+
+    This function still builds the OLD union lattice, and the deposit still
+    reads it. Switching over is a physics change in the sense that it moves
+    numbers, not in the sense that it is unresolved.
     """
     E = np.asarray(E_bins, dtype=float)
     if E.ndim != 1:

@@ -218,6 +218,22 @@ def scattering_kernel_base(
 
     K₀ˢ = (1/τ₀) · (E_i − E_j)² · K⁻ / (kB T_c)³
 
+    THE (E_i − E_j)² IS NOT KINEMATIC. It is the Debye phonon spectral
+    function α²F(ω) = b·ω², and τ₀ is *defined* by Kaplan (1976) under that
+    assumption — it absorbs b together with the (kB T_c)³ scale. The two
+    cannot be varied independently: a different phonon spectrum changes this
+    frequency dependence AND the meaning of τ₀.
+
+    This is also why the phonon-side kernel carries no ω² at all. The QP
+    equation integrates OVER phonon modes and so carries D(ω) ∝ ω²; the phonon
+    equation is written PER MODE and a single mode has no density of states.
+    Their ratio is exactly ω² times a constant, which is a cheap check that the
+    structure is intact.
+
+    See ``docs/Phonon_Model_Decisions.md``, "The phonon spectrum is Debye" —
+    the assumption went undocumented long enough to invite adding a per-bin
+    phonon density of states, which would have double-counted it.
+
     The diagonal is zeroed (no transfer ⇒ no scattering). Pass
     ``coherence_factor`` to reuse a precomputed K matrix — e.g.
     ``ctx.K_minus`` for phonon convention, ``ctx.K_plus`` for photon.

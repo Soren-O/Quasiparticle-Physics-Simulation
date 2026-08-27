@@ -251,3 +251,82 @@ class TestKernelsWithPhonon:
                 T_c=1.2,
                 bath_temperature=-0.1,
             )
+
+class TestTheDebyeAssumptionIsIntact:
+    """The phonon spectrum is Debye, and the kernels encode it asymmetrically.
+
+    alpha^2 F(omega) = b * omega^2, with tau_0 defined by Kaplan (1976) under
+    that assumption. The quasiparticle equation integrates OVER phonon modes
+    and so carries D(omega) ~ omega^2; the phonon equation is written PER MODE
+    and carries none. Their ratio is therefore exactly omega^2 times a
+    constant.
+
+    That ratio is the cheap check that the structure is intact, and it is
+    tested rather than only documented because the assumption was implicit for
+    long enough to invite adding a per-bin phonon density of states -- which
+    would have double-counted it. A change to either kernel's frequency
+    dependence alone breaks this.
+
+    See docs/Phonon_Model_Decisions.md, "The phonon spectrum is Debye".
+    """
+
+    @staticmethod
+    def _context(num_bins: int = 60, gap: float = 180.0):
+        from qpsim.grid.energy_grid import (
+            build_energy_grid,
+            integration_widths_from_centers,
+        )
+        from qpsim.physics.spectral import SpectralContext
+
+        E, _ = build_energy_grid(
+            gap=gap, energy_min_factor=1.0, energy_max_factor=10.0,
+            num_energy_bins=num_bins,
+        )
+        return SpectralContext(
+            E_bins=E, dE_bins=integration_widths_from_centers(E), gap=gap,
+        )
+
+    def test_the_kernel_ratio_is_exactly_omega_squared(self) -> None:
+        from qpsim.collisions.phonon import (
+            build_scattering_kernel_base,
+            build_scattering_kernel_phonon_side,
+        )
+
+        ctx = self._context()
+        qp_side = build_scattering_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        phonon_side = build_scattering_kernel_phonon_side(ctx, 0.255)
+
+        omega = np.abs(np.subtract.outer(ctx.E, ctx.E))
+        live = (phonon_side != 0.0) & (omega > 0.0)
+        ratio = qp_side[live] / phonon_side[live]
+        scaled = ratio / omega[live] ** 2
+
+        # Constant to machine precision: that IS the Debye structure.
+        assert np.ptp(scaled) / np.mean(scaled) < 1e-13
+
+    def test_the_phonon_side_carries_no_frequency_dependence(self) -> None:
+        """Per mode, so no density of states -- the asymmetry is deliberate.
+
+        Checked against the coherence factor rather than against a constant:
+        the kernel is 2*K_minus/(pi*Delta*tau_0_pb), so dividing it out must
+        leave a pure number with no omega in it.
+        """
+        from qpsim.collisions.phonon import build_scattering_kernel_phonon_side
+
+        ctx = self._context()
+        phonon_side = build_scattering_kernel_phonon_side(ctx, 0.255)
+        live = ctx.K_minus != 0.0
+        prefactor = phonon_side[live] / ctx.K_minus[live]
+
+        assert np.ptp(prefactor) / np.mean(prefactor) < 1e-13
+
+    def test_the_quasiparticle_side_does_carry_it(self) -> None:
+        """Non-vacuity: the test above would pass if BOTH sides were flat."""
+        from qpsim.collisions.phonon import build_scattering_kernel_base
+
+        ctx = self._context()
+        qp_side = build_scattering_kernel_base(ctx, tau_0=438.0, T_c=1.2)
+        live = ctx.K_minus != 0.0
+        prefactor = qp_side[live] / ctx.K_minus[live]
+
+        assert np.ptp(prefactor) / np.mean(prefactor) > 1.0

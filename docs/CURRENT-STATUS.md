@@ -802,7 +802,7 @@ Known documentation debt:
    - `qpsim/solvers/coupled_newton.py`
    - `qpsim/solvers/etd.py`
    - `qpsim/backends/t3_diffusion.py`
-   - `qpsim/backends/t3_spatial_1d.py`
+   - `qpsim/backends/t3_spatial.py`
    - `validation/fischer_2023/`
    - `validation/fischer_2024/`
 

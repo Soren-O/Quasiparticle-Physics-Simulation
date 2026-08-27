@@ -75,7 +75,6 @@ def _positive(y: np.ndarray) -> np.ndarray:
     return np.where(y > 0.0, y, np.nan)
 
 
-# -- steady_state_0d --------------------------------------------------
 
 
 def _plot_occupation(arrays: dict[str, np.ndarray], gap: float) -> bytes:
@@ -115,97 +114,16 @@ def _plot_phonons(arrays: dict[str, np.ndarray], gap: float) -> bytes:
     return _finish(fig)
 
 
-# -- transient_0d -----------------------------------------------------
 
 
-def _plot_occupation_evolution(arrays: dict[str, np.ndarray], gap: float) -> bytes:
-    fig, ax = _new_axes("E / Δ", "f(E, t)", "Occupation evolution")
-    E_over_gap = arrays["E_bins"] / gap
-    t = arrays["t_ns"]
-    f_snap = arrays["f_snapshots"]
-    t_max = float(t[-1]) if float(t[-1]) > 0 else 1.0
-    for i in range(f_snap.shape[0]):
-        ax.semilogy(
-            E_over_gap, _positive(f_snap[i]),
-            color=SEQ_BLUE(0.15 + 0.85 * float(t[i]) / t_max), linewidth=1.4,
-        )
-    ax.semilogy(
-        E_over_gap, _positive(arrays["f_thermal"]),
-        linestyle="--", color=MUTED, linewidth=2, label="thermal",
-    )
-    mappable = plt.cm.ScalarMappable(
-        cmap=SEQ_BLUE, norm=Normalize(vmin=0.0, vmax=t_max)
-    )
-    fig.colorbar(mappable, ax=ax, label="t (ns)")
-    _clamp_log_floor(ax, f_snap[-1], decades_below=3.0)
-    ax.legend()
-    return _finish(fig)
 
 
-def _plot_time_series(
-    arrays: dict[str, np.ndarray],
-    names: list[tuple[str, str]],
-    ylabel: str,
-    title: str,
-    *,
-    logy: bool = False,
-) -> bytes:
-    fig, ax = _new_axes("t (ns)", ylabel, title)
-    t_key = "t_ns" if "t_ns" in arrays else "snap_t_ns"
-    t = arrays[t_key]
-    plot = ax.semilogy if logy else ax.plot
-    for i, (key, label) in enumerate(names):
-        y = arrays[key]
-        plot(
-            t, _positive(y) if logy else y,
-            color=SERIES[i % len(SERIES)], linewidth=2,
-            marker=MARKERS[i % len(MARKERS)], markersize=4, label=label,
-        )
-    if len(names) > 1:
-        ax.legend()
-    return _finish(fig)
 
 
-# -- spatial_1d -------------------------------------------------------
 
 
-def _plot_xqp_profile(arrays: dict[str, np.ndarray]) -> bytes:
-    fig, ax = _new_axes(
-        "x (μm)",
-        "x_qp [n_qp/(4 rho_F Delta_0)]",
-        "Quasiparticle fraction along the strip",
-    )
-    ax.plot(arrays["x_um"], arrays["xqp_profile"], color=SERIES[0], linewidth=2)
-    return _finish(fig)
 
 
-def _plot_occupation_heatmap(arrays: dict[str, np.ndarray], gap: float) -> bytes:
-    fig, ax = _new_axes("x (μm)", "E / Δ", "Occupation f(E, x)")
-    floor = 1e-300
-    f = np.maximum(arrays["f_final"], floor)
-    vmax = float(np.max(f))
-    if vmax <= floor:
-        # A schema-valid ultracold equilibrium can underflow every displayed
-        # occupation to the plotting floor. LogNorm requires vmin < vmax;
-        # give the constant field one harmless display decade instead of
-        # constructing the former inverted (1e-12, 1e-300) range.
-        norm = Normalize(vmin=0.0, vmax=floor)
-        colorbar_label = "f (linear; values at plotting floor)"
-    else:
-        positive = f[f > floor]
-        vmin = max(float(np.min(positive)), vmax * 1e-12, floor)
-        if vmin >= vmax:
-            # Constant non-floor fields need a finite colour interval too.
-            vmin = max(vmax * 0.1, floor)
-        norm = LogNorm(vmin=vmin, vmax=vmax)
-        colorbar_label = "f (log scale)"
-    mesh = ax.pcolormesh(
-        arrays["x_um"], arrays["E_bins"] / gap, f,
-        cmap=SEQ_BLUE, norm=norm, shading="nearest",
-    )
-    fig.colorbar(mesh, ax=ax, label=colorbar_label)
-    ax.grid(False)
-    return _finish(fig)
 
 
 # -- kinetics -------------------------------------------------------
@@ -304,15 +222,6 @@ def _plot_xqp_profile_2d(arrays: dict[str, np.ndarray]) -> bytes:
     return _finish(fig)
 
 
-def _plot_convergence(arrays: dict[str, np.ndarray]) -> bytes:
-    fig, ax = _new_axes("t (ns)", "max |df/dt| (1/ns)", "Convergence")
-    rate = arrays["snap_max_rate"]
-    finite = np.isfinite(rate)
-    ax.semilogy(
-        arrays["snap_t_ns"][finite], _positive(rate[finite]),
-        color=SERIES[0], linewidth=2,
-    )
-    return _finish(fig)
 
 
 # -- m25_junction -----------------------------------------------------
@@ -644,42 +553,6 @@ def _plot_occupation_either_shape(arrays, summary):
 # dispatch both read this table, so a figure can't be listed without
 # being renderable (or vice versa).
 _PLOTS: dict[str, dict[str, _PlotSpec]] = {
-    "steady_state_0d": {
-        "occupation": _PlotSpec(lambda a, s: _plot_occupation(a, _gap(s))),
-        "phonons": _PlotSpec(lambda a, s: _plot_phonons(a, _gap(s))),
-    },
-    "transient_0d": {
-        "occupation_evolution": _PlotSpec(lambda a, s: _plot_occupation_evolution(a, _gap(s))),
-        "x_qp_vs_t": _PlotSpec(
-            lambda a, s: _plot_time_series(
-                a,
-                [("obs_x_qp", "x_qp (qpsim)")],
-                "x_qp [n_qp/(4 rho_F Delta_0)]",
-                "Quasiparticle fraction",
-                logy=True,
-            )
-        ),
-        "Q_i_vs_t": _PlotSpec(
-            lambda a, s: _plot_time_series(
-                a, [("obs_Q_i", "Q_i")], "Q_i", "Internal quality factor", logy=True
-            ),
-            requires="obs_Q_i",
-        ),
-    },
-    "spatial_1d": {
-        "xqp_profile": _PlotSpec(lambda a, s: _plot_xqp_profile(a)),
-        "occupation_heatmap": _PlotSpec(lambda a, s: _plot_occupation_heatmap(a, _gap(s))),
-        "convergence": _PlotSpec(lambda a, s: _plot_convergence(a)),
-        "observables_vs_t": _PlotSpec(
-            lambda a, s: _plot_time_series(
-                a,
-                [("obs_x_qp_mean", "x_qp mean"), ("obs_x_qp_max", "x_qp max")],
-                "x_qp [n_qp/(4 rho_F Delta_0)]",
-                "Strip observables",
-                logy=True,
-            )
-        ),
-    },
     # ONE mode, TWO payload shapes. `strategy="steady_state"` runs the 0-D
     # solver and carries f:(NE,) with n_ph; `strategy="time_march"` carries
     # f_final:(NE, Ncells) on a mask. Every entry therefore declares the array
@@ -827,54 +700,14 @@ def _csv_ss_phonons(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(["omega_ueV", "n_ph"], [arrays["omega_bins"], arrays["n_ph"]])
 
 
-def _csv_transient_time_series(arrays: dict[str, np.ndarray]) -> str:
-    keys = [k for k in arrays if k.startswith("obs_")]
-    return _csv_from_columns(
-        ["t_ns", *[k.removeprefix("obs_") for k in keys]],
-        [arrays["t_ns"], *[arrays[k] for k in keys]],
-    )
 
 
-def _csv_transient_snapshots(arrays: dict[str, np.ndarray]) -> str:
-    t = arrays["t_ns"]
-    f_snap = arrays["f_snapshots"]
-    return _csv_from_columns(
-        ["E_ueV", *[f"f_t={ti:.6g}ns" for ti in t]],
-        [arrays["E_bins"], *[f_snap[i] for i in range(f_snap.shape[0])]],
-    )
 
 
-def _csv_spatial_profile(arrays: dict[str, np.ndarray]) -> str:
-    # Keep the historical ``x_qp`` column for saved-workflow compatibility;
-    # its qpsim normalization is now paired with an explicit paper column.
-    header = ["x_um", "x_qp", "x_qp_paper"]
-    paper_profile = arrays.get("xqp_profile_paper", 2.0 * arrays["xqp_profile"])
-    cols = [
-        arrays["x_um"],
-        arrays["xqp_profile"],
-        paper_profile,
-    ]
-    if "gap_profile" in arrays:
-        header.append("gap_ueV")
-        cols.append(arrays["gap_profile"])
-    return _csv_from_columns(header, cols)
 
 
-def _csv_spatial_time_series(arrays: dict[str, np.ndarray]) -> str:
-    keys = [k for k in arrays if k.startswith("obs_")]
-    return _csv_from_columns(
-        ["t_ns", "max_rate_per_ns", *[k.removeprefix("obs_") for k in keys]],
-        [arrays["snap_t_ns"], arrays["snap_max_rate"], *[arrays[k] for k in keys]],
-    )
 
 
-def _csv_spatial_occupation(arrays: dict[str, np.ndarray]) -> str:
-    x = arrays["x_um"]
-    f = arrays["f_final"]
-    return _csv_from_columns(
-        ["E_ueV", *[f"f_x={xi:.6g}um" for xi in x]],
-        [arrays["E_bins"], *[f[:, j] for j in range(f.shape[1])]],
-    )
 
 
 def _csv_m25_sweep(arrays: dict[str, np.ndarray]) -> str:
@@ -953,16 +786,6 @@ def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
 
 
 _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
-    "steady_state_0d": {"occupation": _csv_ss_occupation, "phonons": _csv_ss_phonons},
-    "transient_0d": {
-        "time_series": _csv_transient_time_series,
-        "snapshots": _csv_transient_snapshots,
-    },
-    "spatial_1d": {
-        "profile": _csv_spatial_profile,
-        "time_series": _csv_spatial_time_series,
-        "occupation": _csv_spatial_occupation,
-    },
     "m25_junction": {"sweep": _csv_m25_sweep},
     "kinetics": {
         "profile": _csv_kinetics_profile,
@@ -975,7 +798,7 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
 # A table that needs an array the run did not produce must not be offered, or
 # the download 404s after the user has already clicked it. Keyed by (mode,
 # name), not by name alone: "time_series" means a different array in each mode
-# -- transient_0d always has one, kinetics only when frames were requested --
+# -- kinetics only has one when frames were requested --
 # and a single global entry would hide a table that is always there.
 _CSV_REQUIRES: dict[tuple[str, str], str] = {
     ("kinetics", "time_series"): "snap_t_ns",

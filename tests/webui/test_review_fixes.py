@@ -35,17 +35,31 @@ def _never() -> bool:
     return False
 
 
-def test_ultracold_occupation_heatmap_has_valid_log_limits() -> None:
-    """An all-underflow thermal field must render instead of returning 500."""
-    from qpsim.webui.plots import _plot_occupation_heatmap
+def test_ultracold_field_frames_still_render() -> None:
+    """An all-underflow thermal field must render instead of returning 500.
 
+    Written against the retired 1-D mode's occupation heatmap, whose log
+    colour scale had no valid limits when every value underflowed. That
+    figure went with its mode; the surviving frame figures normalise
+    LINEARLY and guard the degenerate range explicitly, so the hazard is
+    structurally absent rather than merely untriggered -- but the scenario
+    is worth keeping on the path that still exists.
+    """
+    from qpsim.webui import plots
+
+    tiny = 9.8596765e-305
     arrays = {
-        "x_um": np.array([0.0, 1.0, 2.0]),
+        "snap_f": np.full((2, 2, 3), tiny),
+        "snap_t_ns": np.array([0.0, 1.0]),
         "E_bins": np.array([180.0, 200.0]),
-        "f_final": np.full((2, 3), 9.8596765e-305),
+        "mask": np.ones((1, 3), dtype=np.int8),
+        "snap_xqp_profile": np.full((2, 3), tiny),
     }
-    png = _plot_occupation_heatmap(arrays, gap=180.0)
-    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    summary = {"gap_ueV": 180.0, "rows": 1, "cols": 3, "mesh_size_um": 4.0}
+
+    for name in ("energy_resolved_map", "field_over_time"):
+        png = plots.render_plot("kinetics", name, arrays, summary)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n"), name
 
 
 def _manifest(run_id: str, *, status: str = "done") -> dict[str, object]:

@@ -1,14 +1,20 @@
 """Pydantic setup models — the frontend's serializable simulation configs.
 
-One model per run mode, discriminated on ``mode``:
+One model per run mode, discriminated on ``mode``. There are two:
 
-* ``steady_state_0d`` — 0-D T3 kinetic steady state (Newton / Picard /
-  coupled-Newton) with optional photon drives.
-* ``transient_0d`` — ETD2 collisional transient ``f(E, t)``.
-* ``spatial_1d`` — 1D strip driven to steady state (diffusion-operator
-  family, optional two-gap step + Kupriyanov–Lukichev interface).
+* ``kinetics`` — quasiparticle kinetics on a geometry. The mask sets the
+  dimensionality, so a 1×1 mask is 0-D and a one-row mask is a 1-D strip;
+  ``strategy`` chooses between time-marching and the 0-D steady-state root
+  find. Deliberately not named for a dimensionality.
 * ``m25_junction`` — M25 gap-asymmetric junction moment layer over a
   temperature sweep.
+
+Three earlier modes — ``steady_state_0d``, ``transient_0d`` and
+``spatial_1d`` — were geometries of the first one all along and were retired
+into it. Setups saved under those names still load: see
+``RETIRED_MODE_UPGRADES`` below, which translates each rather than merely
+renaming it, because a merge has to supply fields the survivor requires and
+drop ones it does not have.
 
 These models validate *shape and static bounds* only. Cross-field
 physics checks (drive frequencies vs 2Δ, Dynes × spatial transport,
