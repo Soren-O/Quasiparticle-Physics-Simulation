@@ -400,6 +400,22 @@ class T3SpatialBackend:
             self._collision_signature = signature
         return self._collisions
 
+    def phonon_frequency_axis(self, state: T3SpatialState) -> np.ndarray:
+        """The frequencies a recorded ``n_ph`` for this state lives on.
+
+        Public because a phonon population is meaningless without the axis it
+        was recorded against, and nothing was recording it. Readers therefore
+        REBUILT the lattice from the setup and bound their copy to the run's by
+        comparing LENGTHS -- which is not a binding at all. The unified lattice
+        is offset from today's by exactly half a bin (cell centres against
+        nodes) and carries the SAME bin count on every commensurate grid, so on
+        the shipped 180-cell default both are 450 bins, the length check passes,
+        and all 450 frequencies differ. A validator that agrees for the wrong
+        reason is worse than no validator, so emit the real axis and let readers
+        compare values.
+        """
+        return np.array(self._collisions_for(state).omega_bins, dtype=float)
+
     def _n1_per_cell(self, state: T3SpatialState) -> np.ndarray:
         """Finite-volume BCS density per energy and cell, ``(NE, Ncells)``.
 

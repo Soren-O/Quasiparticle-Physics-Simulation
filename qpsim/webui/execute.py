@@ -561,6 +561,13 @@ def run_kinetics(
             payload.arrays["snap_n_ph"] = np.stack(
                 [s.n_ph for s in result.snapshots]
             )
+            # The axis those populations live on, recorded WITH them. Without
+            # it a reader can only re-derive the lattice and check its length,
+            # which passes even when every frequency in it is wrong -- see
+            # T3SpatialBackend.phonon_frequency_axis.
+            payload.arrays["snap_omega_bins"] = backend.phonon_frequency_axis(
+                final
+            )
         payload.arrays["snap_xqp_profile"] = np.stack([
             _xqp_profile_2d(replace(final, f=s.f, gap_per_cell=s.gap_per_cell),
                             delta_0)

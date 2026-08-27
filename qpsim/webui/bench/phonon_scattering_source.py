@@ -384,7 +384,44 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
     rho, r = _cell_measure(gap, edges, dE)
     f0 = _seed_occupation(setup, E, rho)
     omega = _omega_lattice(E, dE)
-    if omega.size != n_ph.shape[1]:
+    recorded = arrays.get("snap_omega_bins")
+    if recorded is not None:
+        # Bind the rebuilt lattice to the run's by VALUE. Counting bins is not
+        # a binding: the unified lattice sits half a bin off this one (cell
+        # centres against nodes) yet carries the same count on every
+        # commensurate grid, so on the 180-cell default both are 450 bins and
+        # all 450 frequencies differ. That check would pass while every
+        # comparison below comes from the wrong frequency.
+        recorded = np.asarray(recorded, dtype=float)
+        if recorded.shape != omega.shape:
+            raise ValueError(
+                f"rebuilt an ω lattice of {omega.size} bins; the run recorded "
+                f"{recorded.size}. The two constructions disagree, so nothing "
+                "downstream can be compared bin by bin."
+            )
+        # Tolerance in units of the BIN SPACING, not machine epsilon. The two
+        # constructions merge their nodes in different orders and disagree by
+        # ~1e-12 µeV, while the failure this exists to catch is half a bin --
+        # 2 µeV on the default grid. A millionth of a bin sits six orders of
+        # magnitude clear of the noise and five clear of the fault, so it is
+        # not a threshold anything is likely to creep across.
+        tol = 1e-6 * float(dE)
+        worst = int(np.argmax(np.abs(recorded - omega)))
+        gap_ueV = float(abs(recorded[worst] - omega[worst]))
+        if gap_ueV > tol:
+            raise ValueError(
+                f"the rebuilt ω lattice has the same {omega.size} bins as the "
+                "run but different frequencies: worst disagreement at bin "
+                f"{worst}, {omega[worst]:.6g} rebuilt against "
+                f"{recorded[worst]:.6g} recorded ({gap_ueV:.3g} µeV apart, "
+                f"tolerance {tol:.3g}). Comparing bin by bin would compare "
+                "different frequencies. If the engine's lattice changed, this "
+                "rebuild has to change with it."
+            )
+    elif omega.size != n_ph.shape[1]:
+        # Fallback for payloads recorded before the axis was emitted. It only
+        # catches a bin-COUNT change, so it cannot see a lattice that moved
+        # without resizing; re-run the case to get the value check.
         raise ValueError(
             f"rebuilt an ω lattice of {omega.size} bins; the run recorded "
             f"{n_ph.shape[1]}. The two constructions disagree, so nothing "
