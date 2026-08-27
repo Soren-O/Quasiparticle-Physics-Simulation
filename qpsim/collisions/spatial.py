@@ -43,6 +43,7 @@ from qpsim.collisions.phonon import (
     compute_phonon_source_sink,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
+    validate_phonon_lattice_coupling,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.physics.kernels import thermal_phonon_occupation
@@ -167,6 +168,28 @@ class SpatialCollisions:
         self.omega_bins, self._idx_diff, self._idx_sum, self._diff_sign = (
             build_phonon_frequency_map(spectral.E)
         )
+        if phonon_escape_time is not None:
+            # Enforced HERE, not only in the web-UI validator, because the
+            # validator guards one entry point and this guards the model. A
+            # script, a validation campaign or a notebook builds this layer
+            # directly, and on a decoupled grid it would run to completion:
+            # scattering phonons above the pair threshold with no recombination
+            # partner never break a pair, recombination phonons are never
+            # reabsorbed, and the two halves of Eq. 12 converge to DIFFERENT
+            # limits under refinement. That is an inconsistent discretisation
+            # returning a confident number, not a coarse one.
+            #
+            # Gated on a live phonon sector for the same reason the validator
+            # is: a thermal bath never couples the channels through n_ph, so
+            # the constraint does not apply and enforcing it there would reject
+            # grids that are perfectly sound for the run being asked for.
+            validate_phonon_lattice_coupling(
+                self.omega_bins,
+                self._idx_diff,
+                self._idx_sum,
+                self._diff_sign,
+                E_bins=spectral.E,
+            )
         self.n_ph: np.ndarray | None = None
         if phonon_escape_time is not None:
             # The bath value is both the default seed AND the target the
