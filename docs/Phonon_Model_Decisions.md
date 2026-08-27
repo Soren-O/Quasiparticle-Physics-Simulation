@@ -326,6 +326,51 @@ constant, the phonon bins being exact event frequencies, and the guard.
 
 ---
 
+### What the area split will move, measured before wiring it
+
+`scripts/measure_phonon_split_delta.py` builds the phonon source both ways on
+the same state — today's whole-cell deposit onto the union lattice, and the
+two-bin area deposit onto the unified lattice — and reports physical
+quantities rather than bins, since the two lattices are half a bin apart and a
+bin-by-bin diff would be meaningless.
+
+**Conserved quantities are untouched.** The total event rate agrees to
+0.000% on flat and thermal occupations at every resolution: both deposits are
+partitions of unity, so the count is preserved by construction whatever the
+quadrature error inside the split.
+
+**Integrated moments differ, and converge.** The first frequency moment (the
+energy the phonons carry) moves by 12.3% → 8.2% → 4.9% → 2.8% on a steep
+occupation as the grid refines 45 → 90 → 180 → 360, i.e. first order in the
+spacing. At production resolution it is a **~5% change on a steep profile**,
+and under 0.3% on a thermal one.
+
+**The threshold does not converge, which is the point.** Comparing the pair
+source inside a window of exactly `m·h` above 2Δ — an exact multiple of the
+shared spacing, so each lattice contributes the same number of cells and the
+ratio measures physics rather than bin edges:
+
+| window | NE=45 | 90 | 180 | 360 | 720 |
+|---|---|---|---|---|---|
+| 2h, thermal | 1.136 | 1.150 | 1.157 | 1.161 | 1.162 |
+| 2h, steep | 1.062 | 1.104 | 1.132 | 1.148 | 1.156 |
+
+Today's scheme deposits **~16% more** pair source into the threshold window,
+the increments halve at each refinement (0.0138, 0.0070, 0.0035, 0.0018), and
+the ratio converges to **≈1.164 rather than to 1**. Two occupation profiles
+that differ by orders of magnitude in shape converge to the *same* limit,
+which is what identifies it as geometric — a property of how cells are
+assigned to frequencies, not of the physics being assigned. Widening the
+window dilutes it (≈1.09 at 4h, ≈1.05 at 8h), confirming it is concentrated at
+threshold.
+
+So the change to expect when the split is wired: counts unchanged, thermal
+results within a few tenths of a percent, and the near-threshold pair source
+down by roughly a sixth — with the correction *not* vanishing under refinement,
+which is precisely why it cannot be left to a finer grid.
+
+---
+
 ## Glossary: three distinct timescales
 
 | Symbol | Name | Physics | Where it enters |
