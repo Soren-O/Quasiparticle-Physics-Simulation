@@ -238,6 +238,94 @@ Consequences worth stating, because each has been misread at least once:
 
 ---
 
+### Quasiparticles are stored as cell averages, phonons as point samples
+
+The two populations are discretised with **different and deliberately
+different** conventions. Neither is wrong; writing code that forgets which one
+it is holding is what goes wrong.
+
+**Quasiparticles: a cell average.** The energy axis is a finite-volume mesh.
+What is stored for cell $i$ is not "the occupation at $E_i$" but the
+occupation averaged over the whole cell, and the number of quasiparticles in
+that cell is
+$$ n_i \;=\; \rho_i\,f_i, \qquad \rho_i \;=\; \int_{E_i^-}^{E_i^+}\! N(E)\,dE $$
+with $\rho_i$ the **integral** of the BCS density of states across the cell,
+not $N(E_i)$ times a width. This matters entirely because $N(E)$ diverges at
+the gap edge: the first cell has finite weight $\sqrt{E^+{}^2-\Delta^2}$ while
+$N(E_i)\,\Delta E$ is unbounded as the mesh refines. `SpectralContext.
+cell_density` is that integral, and it is what the collision integrals use in
+all fifteen places they need a quasiparticle count.
+
+**Phonons: a point sample.** The phonon equation is solved **per mode**. Every
+frequency bin is an exact event frequency — a value $|E_i-E_j|$ or $E_i+E_j$
+that some quasiparticle pair actually emits (verified: all 900 bins of the
+shipped grid, no exceptions). $n_{ph}$ at that bin is the occupation number of
+that one mode, a dimensionless number, and it carries no measure — for the
+same reason given in the Debye section above: the per-mode equation
+discretises $\int dE$ at fixed $\omega$, so a density of states would
+double-count.
+
+**So the convention is mixed, and that is correct** — the quasiparticle
+equation integrates *over* states and needs the measure, the phonon equation
+is stated *per* state and must not have it.
+
+**The interface between them is where this can go wrong, and did.** A
+quasiparticle pair is a two-dimensional *cell* in $(E,E')$; the phonon it emits
+is a *point* in $\omega$. Converting one to the other is a real operation, and
+depositing the whole cell into the single bin nearest its centre is not that
+operation — it silently reinterprets a cell average as a point sample. That is
+the origin of the pair-marginal defect recorded in
+`docs/HELD-BACK-ADJUDICATION-2026-08-11.md` (item 101): whole-cell deposit
+along the anti-diagonal gives a threshold of $4\Delta$ where Kaplan gives
+$\pi\Delta$, and refining the mesh does not remove it, because the error is in
+the *representation*, not the resolution. The correct conversion splits each
+cell by the area it actually shares with each frequency strip
+(`qpsim/collisions/pair_split.py`), and the read-back must be its transpose or
+detailed balance breaks. **Rule: whenever a quantity crosses between the two
+populations, say in the code which representation it is in and convert
+explicitly.**
+
+**How wrong is it to confuse them? Exactly $1/\sqrt{2}$.** Worth having the
+constant rather than a warning. On a grid whose lowest face sits on the gap,
+the first cell is $[\Delta,\Delta+h]$, and
+$$ \underbrace{\sqrt{(\Delta+h)^2-\Delta^2}}_{\text{cell integral}} \to \sqrt{2\Delta h},
+\qquad
+\underbrace{N(\Delta+h/2)\,h}_{\text{point sample}} \to \sqrt{\Delta h}. $$
+Both vanish like $\sqrt{h}$, so nothing looks unstable — but their ratio tends
+to $1/\sqrt2$ and *stays* there. A point sample undercounts the gap-edge cell
+by **29.3% at every resolution**. That is the signature to recognise: an error
+that survives refinement is in the representation, not the mesh, which is
+exactly why no convergence study catches it and why $4\Delta$ vs $\pi\Delta$
+went unnoticed for so long.
+
+**One known exception, currently unreachable — and it is a *different* fault.**
+The junction band weights use the exact cell integral for a pure BCS spectrum,
+but fall back to centre-value × overlap when Dynes broadening is switched on.
+The two failures look alike and are not, and the distinction is the useful
+part: broadening replaces the singularity with a Lorentzian of finite width
+$\Gamma$, and a point sample of a *smooth* function is merely under-resolved.
+It converges normally once the cells are narrower than the peak. Measured
+gap-edge error against the exact cell integral, versus $\Gamma/\Delta E$:
+
+| $\Gamma/\Delta E$ | 0.05 | 0.27 | 1.09 | 5.4 | 21.7 |
+|---|---|---|---|---|---|
+| gap-edge cell error | 82% | 14% | 2.9% | 0.10% | 0.01% |
+
+So this one is a **resolution condition** — cells no wider than the broadening
+— and refining the mesh at fixed $\Gamma$ moves *right* along that table and
+repairs it, unlike the pure-BCS case above, which refinement cannot repair at
+all. The hazard was only that nothing stated the condition, and a physically
+small $\Gamma$ sits at the left end on a default grid. It is not currently a
+live defect: the engine refuses to run with Dynes broadening ("spatial
+transport requires a pure-BCS spectral context"), so only the pure-BCS branch
+ships. The guard exists so that implementing broadened kernels has to confront
+the condition rather than inherit it silently.
+
+`tests/physics/test_collocation_convention.py` pins all of it: the $1/\sqrt2$
+constant, the phonon bins being exact event frequencies, and the guard.
+
+---
+
 ## Glossary: three distinct timescales
 
 | Symbol | Name | Physics | Where it enters |

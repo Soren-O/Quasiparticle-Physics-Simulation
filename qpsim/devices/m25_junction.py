@@ -60,6 +60,7 @@ Caveats:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
@@ -117,10 +118,40 @@ def _spectral_band_weights(
 ) -> np.ndarray:
     """Return per-cell spectral measure for one physical energy band.
 
-    Pure BCS cells use the analytic DOS primitive. Dynes cells use the
-    cell-centered DOS times the exact geometric overlap with the band. Both
-    paths require the grid to cover the requested lower boundary rather than
-    silently dropping support.
+    Pure BCS cells use the analytic DOS primitive -- the DOS INTEGRATED across
+    the cell, which stays finite at the gap edge where the DOS itself does not.
+    Both paths require the grid to cover the requested lower boundary rather
+    than silently dropping support.
+
+    The Dynes path is the other convention: the DOS at the cell CENTRE times
+    the geometric overlap, which is a point sample standing in for a cell
+    average (see "Quasiparticles are stored as cell averages, phonons as point
+    samples" in ``docs/Phonon_Model_Decisions.md``).
+
+    Why that is tolerable HERE and not in the pure-BCS branch is worth being
+    precise about, because the two failures look alike and are not. Without
+    broadening the DOS is singular at the gap, and a point sample undercounts
+    the gap-edge cell by exactly 1/sqrt(2) -- 29.3% -- at EVERY resolution;
+    no mesh resolves a singularity, so that error never goes away, which is
+    why this branch uses the exact integral instead. Broadening replaces the
+    singularity with a Lorentzian of finite width Gamma, and a point sample of
+    a smooth function is merely under-resolved: it converges normally, once
+    the cells are small enough to see the peak. Measured gap-edge error
+    against the exact cell integral, versus Gamma / dE:
+
+        0.05 -> 82%    0.27 -> 14%    1.09 -> 2.9%    5.4 -> 0.10%
+
+    So the requirement is a resolution condition -- cells no wider than the
+    broadening -- and refining the grid at fixed Gamma moves RIGHT along that
+    table and fixes it. The hazard is only that nothing stated the condition,
+    and at the default resolution a physically small Gamma sits at the left
+    end. Nothing downstream can detect it: the weights stay positive and sum
+    to something plausible, and only the gap-edge cell is wrong.
+
+    This is presently unreachable -- the transport layer rejects a Dynes
+    context outright, so only the pure-BCS branch ships -- and the guard below
+    is here so that implementing broadened kernels has to confront the
+    resolution condition rather than inherit it silently.
     """
     if not np.isfinite(lower_bound):
         raise ValueError("lower_bound must be finite.")
@@ -139,6 +170,28 @@ def _spectral_band_weights(
         )
 
     edges = cell_edges_from_widths(spectral.E, spectral.dE)
+    # The point-sample path is only accurate while the broadening is at least
+    # as wide as the cells it is being sampled on. Measure that against the
+    # cells NEAR THE GAP, where the DOS structure actually is -- an average
+    # over the whole grid is dominated by the wide high-energy cells and would
+    # report the ratio as comfortable exactly when it is not.
+    near_gap = np.abs(spectral.E - spectral.gap) <= 2.0 * spectral.dE
+    widest = float(np.max(spectral.dE[near_gap])) if near_gap.any() else float(
+        np.min(spectral.dE)
+    )
+    if spectral.dynes_gamma < widest:
+        warnings.warn(
+            "Dynes band weights are sampled at cell centres, which resolves "
+            f"the gap edge only when the broadening (Gamma = "
+            f"{spectral.dynes_gamma:g}) is at least the local cell width "
+            f"({widest:g}). At this ratio ({spectral.dynes_gamma / widest:.3g}) "
+            "the gap-edge weight is materially wrong; use finer energy bins "
+            "near the gap. See 'Quasiparticles are stored as cell averages, "
+            "phonons as point samples' in docs/Phonon_Model_Decisions.md.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     coverage_tol = 128.0 * np.finfo(float).eps * max(
         1.0, abs(float(edges[0])), abs(lower_bound),
     )
