@@ -489,20 +489,51 @@ def validate_phonon_lattice_coupling(
     )
 
 
+def _read_two_bin(
+    n_ph: np.ndarray, lower: np.ndarray, split: np.ndarray | None,
+) -> np.ndarray:
+    """Read a phonon occupation for each event, with the DEPOSIT's weights.
+
+    ``split is None`` is the legacy single-bin read and is bit-identical to
+    indexing, so the two schemes share this one path rather than existing as
+    two implementations of the same question.
+
+    When a split IS given this is the adjoint of the two-bin deposit, and
+    using it is not optional: if the deposit spreads an event over two bins
+    while the read takes one, the two discrete operators stop being transposes
+    and detailed balance breaks at the 1e-2 level -- far above any tolerance
+    the equilibrium gates use.
+    """
+    if split is None:
+        return n_ph[lower]
+    return split * n_ph[lower] + (1.0 - split) * n_ph[lower + 1]
+
+
 def phonon_occupation_matrices_from_state(
     n_ph: np.ndarray,
     omega_idx_diff: np.ndarray,
     omega_idx_sum: np.ndarray,
     diff_sign: np.ndarray,
+    *,
+    split_diff: np.ndarray | None = None,
+    split_sum: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Project a non-equilibrium ``n_ph(ω)`` onto the three (NE, NE) matrices.
 
     * ``N_p``: scattering occupation (emission/absorption by sign of i − j).
     * ``N_emit``: recombination emission, ``1 + n_ph(E_i + E_j)``.
     * ``N_abs``: pair-breaking absorption, ``n_ph(E_i + E_j)``.
+
+    With ``split_diff`` / ``split_sum`` supplied, the index arrays name the
+    LOWER of the two bins each event straddles and the splits give the
+    fraction belonging to it; the read is then the adjoint of the two-bin
+    deposit in :func:`compute_phonon_source_sink`. Both must come from the
+    same lattice, and both must be supplied to the deposit as well -- a read
+    and a deposit on different conventions is the failure this pairing exists
+    to prevent.
     """
-    n_diff = n_ph[omega_idx_diff]
-    n_sum = n_ph[omega_idx_sum]
+    n_diff = _read_two_bin(n_ph, omega_idx_diff, split_diff)
+    n_sum = _read_two_bin(n_ph, omega_idx_sum, split_sum)
 
     N_p = np.where(diff_sign > 0, 1.0 + n_diff, n_diff)
     np.fill_diagonal(N_p, 0.0)
@@ -527,6 +558,8 @@ def compute_phonon_source_sink(
     enable_recombination: bool = True,
     K_s0_phonon_side: np.ndarray | None = None,
     K_r0_phonon_side: np.ndarray | None = None,
+    split_diff: np.ndarray | None = None,
+    split_sum: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Affine-ODE coefficients ``(a_ph, b_ph)`` for the phonon distribution.
 
@@ -580,36 +613,37 @@ def compute_phonon_source_sink(
         emit_mask = diff_sign > 0
         abs_mask = diff_sign < 0
         if np.any(emit_mask):
-            emit = np.bincount(
-                omega_idx_diff[emit_mask].ravel(),
-                weights=base_sc[emit_mask].ravel(),
-                minlength=n_omega,
+            emit = _deposit_two_bin(
+                omega_idx_diff[emit_mask],
+                base_sc[emit_mask],
+                None if split_diff is None else split_diff[emit_mask],
+                n_omega,
             )
             a_ph += emit
             b_ph += emit
         if np.any(abs_mask):
-            absor = np.bincount(
-                omega_idx_diff[abs_mask].ravel(),
-                weights=base_sc[abs_mask].ravel(),
-                minlength=n_omega,
+            absor = _deposit_two_bin(
+                omega_idx_diff[abs_mask],
+                base_sc[abs_mask],
+                None if split_diff is None else split_diff[abs_mask],
+                n_omega,
             )
             b_ph -= absor
 
     K_rec = K_r0_phonon_side if K_r0_phonon_side is not None else K_r0
     if enable_recombination and K_rec is not None:
         base_rec = dE * (n_qp[:, None] * K_rec * n_qp[None, :])
-        rec = np.bincount(
-            omega_idx_sum.ravel(),
-            weights=base_rec.ravel(),
-            minlength=n_omega,
-        )
+        rec = _deposit_two_bin(omega_idx_sum, base_rec, split_sum, n_omega)
         base_pb = dE * (partner[:, None] * K_rec * partner[None, :])
-        pb = np.bincount(
-            omega_idx_sum.ravel(),
-            weights=base_pb.ravel(),
-            minlength=n_omega,
-        )
-        if K_r0_phonon_side is not None:
+        pb = _deposit_two_bin(omega_idx_sum, base_pb, split_sum, n_omega)
+        if K_r0_phonon_side is not None and split_sum is None:
+            # DELIBERATELY skipped when a split is in use. This rescale exists
+            # to patch the whole-cell deposit's threshold error, and its value
+            # there is pi/4 -- which is precisely the gap-corner cell's exact
+            # two-bin overlap fraction. It was always the right number applied
+            # as a RESCALE where the geometry asks for a SPLIT. Once the split
+            # performs that division properly, multiplying by it as well would
+            # apply the same correction twice.
             correction = _pair_breaking_quadrature_correction(
                 ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
             )
@@ -620,6 +654,83 @@ def compute_phonon_source_sink(
         b_ph -= pb
 
     return a_ph, b_ph
+
+
+def _sel(split: np.ndarray | None, mask: np.ndarray) -> np.ndarray | None:
+    """Apply an event mask to a split array, passing None straight through."""
+    return None if split is None else split[mask]
+
+
+def _row_add(
+    target: np.ndarray,
+    rows: np.ndarray,
+    cols: np.ndarray,
+    values: np.ndarray,
+    split: np.ndarray | None,
+) -> None:
+    """Scatter-add into a (frequency, column) matrix, split across two rows.
+
+    The Jacobians must differentiate EXACTLY what the residual assembles, so
+    they route their deposits through the same two-bin rule rather than
+    restating it -- a Jacobian on one convention and a residual on the other
+    is a Newton solve chasing a function it is not differentiating, which
+    shows up as degraded convergence rather than as a wrong number, and is
+    correspondingly hard to attribute.
+    """
+    if split is None:
+        np.add.at(target, (rows, cols), values)
+        return
+    np.add.at(target, (rows, cols), values * split)
+    np.add.at(target, (rows + 1, cols), values * (1.0 - split))
+
+
+def _col_add(
+    target: np.ndarray,
+    rows: np.ndarray,
+    cols: np.ndarray,
+    values: np.ndarray,
+    split: np.ndarray | None,
+) -> None:
+    """Scatter-add where the FREQUENCY is the column, split across two of them.
+
+    The mirror of :func:`_row_add`. ``J_fn`` is ``(NE, n_omega)``, so its
+    frequency axis is the second one; keeping the two helpers separate rather
+    than transposing at the call site is what stops the split being applied to
+    the energy axis by accident.
+    """
+    if split is None:
+        np.add.at(target, (rows, cols), values)
+        return
+    np.add.at(target, (rows, cols), values * split)
+    np.add.at(target, (rows, cols + 1), values * (1.0 - split))
+
+
+def _deposit_two_bin(
+    lower: np.ndarray,
+    weights: np.ndarray,
+    split: np.ndarray | None,
+    n_omega: int,
+) -> np.ndarray:
+    """Spread per-event weights onto the frequency lattice.
+
+    ``split is None`` reproduces the legacy whole-cell bincount exactly. With
+    a split, the event is divided between the two bins its support actually
+    covers. The deposited TOTAL is identical either way -- the two fractions
+    are a partition of unity -- so the event count is conserved whatever the
+    quadrature error inside the split itself; what changes is where near the
+    threshold the mass lands.
+    """
+    if split is None:
+        return np.bincount(lower.ravel(), weights=weights.ravel(), minlength=n_omega)
+    out = np.bincount(
+        lower.ravel(), weights=(weights * split).ravel(), minlength=n_omega,
+    )
+    out += np.bincount(
+        (lower + 1).ravel(),
+        weights=(weights * (1.0 - split)).ravel(),
+        minlength=n_omega,
+    )
+    return out[:n_omega]
 
 
 _PB_QUAD_CORR_CACHE: dict[tuple, tuple] = {}
@@ -855,6 +966,8 @@ def phonon_source_sink_jacobian_f(
     enable_recombination: bool = True,
     K_s0_phonon_side: np.ndarray | None = None,
     K_r0_phonon_side: np.ndarray | None = None,
+    split_diff: np.ndarray | None = None,
+    split_sum: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""Analytical ``(∂a_ph/∂f, ∂b_ph/∂f)`` for :func:`compute_phonon_source_sink`.
 
@@ -901,28 +1014,34 @@ def phonon_source_sink_jacobian_f(
         emit = diff_sign > 0   # i > j: +base_sc into a_ph and b_ph
         absb = diff_sign < 0   # i < j: −base_sc into b_ph only
         rows = omega_idx_diff
-        np.add.at(da_df, (rows[emit], col_i[emit]), d_i[emit])
-        np.add.at(da_df, (rows[emit], col_j[emit]), d_j[emit])
-        np.add.at(db_df, (rows[emit], col_i[emit]), d_i[emit])
-        np.add.at(db_df, (rows[emit], col_j[emit]), d_j[emit])
-        np.add.at(db_df, (rows[absb], col_i[absb]), -d_i[absb])
-        np.add.at(db_df, (rows[absb], col_j[absb]), -d_j[absb])
+        sd = split_diff
+        _row_add(da_df, rows[emit], col_i[emit], d_i[emit], _sel(sd, emit))
+        _row_add(da_df, rows[emit], col_j[emit], d_j[emit], _sel(sd, emit))
+        _row_add(db_df, rows[emit], col_i[emit], d_i[emit], _sel(sd, emit))
+        _row_add(db_df, rows[emit], col_j[emit], d_j[emit], _sel(sd, emit))
+        _row_add(db_df, rows[absb], col_i[absb], -d_i[absb], _sel(sd, absb))
+        _row_add(db_df, rows[absb], col_j[absb], -d_j[absb], _sel(sd, absb))
 
     K_rec = K_r0_phonon_side if K_r0_phonon_side is not None else K_r0
     if enable_recombination and K_rec is not None:
         rows = omega_idx_sum
         base = pref * K_rec  # dE ρ_i ρ_j K_rec[i,j]
-        if K_r0_phonon_side is not None:
+        if K_r0_phonon_side is not None and split_sum is None:
+            # Skipped under a split for the reason given in
+            # compute_phonon_source_sink: the rescale and the split are the
+            # same correction, and this Jacobian must differentiate exactly
+            # what that function computes or Newton chases a different
+            # residual than the one it is solving.
             corr = _pair_breaking_quadrature_correction(
                 ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
             )
             base = base * corr[rows]   # per-ω, f-independent scaling
         # a_ph^rec[w] = Σ base f_i f_j  →  ∂/∂f_i = base f_j, ∂/∂f_j = base f_i.
-        np.add.at(da_df, (rows, col_i), base * f[None, :])
-        np.add.at(da_df, (rows, col_j), base * f[:, None])
+        _row_add(da_df, rows, col_i, base * f[None, :], split_sum)
+        _row_add(da_df, rows, col_j, base * f[:, None], split_sum)
         # b_ph^rec[w] = Σ base (f_i + f_j − 1)  →  ∂/∂f_i = ∂/∂f_j = base.
-        np.add.at(db_df, (rows, col_i), base)
-        np.add.at(db_df, (rows, col_j), base)
+        _row_add(db_df, rows, col_i, base, split_sum)
+        _row_add(db_df, rows, col_j, base, split_sum)
 
     return da_df, db_df
 
@@ -1097,6 +1216,8 @@ def phonon_collision_jacobian_nph(
     *,
     enable_scattering: bool = True,
     enable_recombination: bool = True,
+    split_diff: np.ndarray | None = None,
+    split_sum: np.ndarray | None = None,
 ) -> np.ndarray:
     r"""Analytical ``∂(gain − loss·f)/∂n_ph`` for :func:`phonon_collision_rates`.
 
@@ -1135,14 +1256,17 @@ def phonon_collision_jacobian_nph(
         gain_w = one_minus_f[:, None] * K_s0.T * (w_j * f)[None, :]
         loss_w = f[:, None] * K_s0 * (w_j * one_minus_f)[None, :]
         off = ~np.eye(NE, dtype=bool)   # N_p diagonal is zero ⇒ no self term
-        np.add.at(J_fn, (row_i[off], omega_idx_diff[off]), (gain_w - loss_w)[off])
+        _col_add(
+            J_fn, row_i[off], omega_idx_diff[off], (gain_w - loss_w)[off],
+            _sel(split_diff, off),
+        )
 
     if enable_recombination and K_r0 is not None:
         rec_w = (
             K_r0 * w_j[None, :]
             * (one_minus_f[:, None] * one_minus_f[None, :] - f[:, None] * f[None, :])
         )
-        np.add.at(J_fn, (row_i, omega_idx_sum), rec_w)
+        _col_add(J_fn, row_i, omega_idx_sum, rec_w, split_sum)
 
     J_fn[~ctx.active_mask, :] = 0.0
     return J_fn
