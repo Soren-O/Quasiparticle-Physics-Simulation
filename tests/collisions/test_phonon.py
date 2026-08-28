@@ -14,6 +14,7 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_base,
     build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
+    phonon_collision_jacobian_nph,
     phonon_collision_rates,
     phonon_occupation_matrices_from_state,
     phonon_source_sink_jacobian_f,
@@ -51,6 +52,7 @@ class TestDetailedBalance:
         residual = gain - loss_rate * f
         scale = gain + loss_rate * f + 1e-30
         np.testing.assert_allclose(residual / scale, 0.0, atol=1e-10)
+
 
     def test_recombination_only(self) -> None:
         ctx, f, _, K_r0, T_bath = _thermal_setup()
@@ -112,6 +114,36 @@ class TestDetailedBalance:
 
         assert turnover > 0.0
         assert backward_error < 1e-12
+
+
+class TestFiniteVolumeSplitIsNotAKineticClosure:
+    def test_all_four_kinetic_sites_reject_it(self) -> None:
+        ctx, f, K_s0, K_r0, _ = _thermal_setup()
+        omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(ctx.E)
+        split = np.full(idx_diff.shape, 0.5)
+        n_ph = np.zeros(omega.size)
+        message = "not positivity preserving"
+
+        with pytest.raises(ValueError, match=message):
+            phonon_occupation_matrices_from_state(
+                n_ph, idx_diff, idx_sum, sign,
+                split_diff=split, split_sum=split,
+            )
+        with pytest.raises(ValueError, match=message):
+            compute_phonon_source_sink(
+                f, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+                split_diff=split, split_sum=split,
+            )
+        with pytest.raises(ValueError, match=message):
+            phonon_source_sink_jacobian_f(
+                f, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+                split_diff=split, split_sum=split,
+            )
+        with pytest.raises(ValueError, match=message):
+            phonon_collision_jacobian_nph(
+                f, ctx, K_s0, K_r0, idx_diff, idx_sum, sign, omega.size,
+                split_diff=split, split_sum=split,
+            )
 
 
 class TestKernelBuilders:

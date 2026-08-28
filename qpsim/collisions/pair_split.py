@@ -1,26 +1,24 @@
 """Exact two-bin cut-cell split for the phonon pair channel.
 
-THE PROBLEM. At phonon frequency ω the pair source is a line integral along
+THE GEOMETRY. At phonon frequency ω the pair source is a line integral along
 ``E + E' = ω`` with two endpoint singularities of the BCS density of states
 that COALESCE as ω → 2Δ. The exact threshold value is Kaplan's ``Δ·S₊ = πΔ``.
-The engine stores one event-weight matrix over ``(E, E')`` cells and reads the
-phonon equation off its ANTI-DIAGONAL sum, which deposits each whole cell at a
-single ω label and gives ``4Δ``. The ratio ``4/π = 1.273`` does NOT converge:
-refining the grid only makes a smaller cell still deposited at a point.
+The raw anti-diagonal midpoint rule gives ``4Δ`` there. The shipped point-
+collocation path corrects that line value with Kaplan's integral; this module
+instead constructs a finite-volume average over frequency strips.
 
-THE RESOLUTION. In the state-counting coordinate ``ξ = √(E² − Δ²)`` the BCS
+In the state-counting coordinate ``ξ = √(E² − Δ²)`` the BCS
 measure is flat — ``ρ(E) dE = dξ`` exactly — so a product cell is a RECTANGLE
 of uniform measure, and the deposit is a pure area question. Near threshold
 ``ω ≈ 2Δ + (ξ² + ξ'²)/2Δ``, so the first frequency strip is a QUARTER DISK
 inscribed in the corner cell's square: area ratio ``π/4``.
 
-That is the whole story. ``π/4`` is not a correction factor, it is the corner
-cell's exact two-bin overlap fraction — and the shipped code computes precisely
-that number and then applies it as a RESCALE of the assembled bin instead of as
-a SPLIT of the cell. Rescaling moves the bin's value toward the truth while
-destroying pair events, which is why the two marginals of one event matrix stop
-describing the same events (measured: −21.4% per ω bin, converging to
-``−(1 − π/4)``, and NOT shrinking under refinement for a gap-concentrated f).
+The same ``π/4`` therefore appears in two valid discretizations: as this overlap
+fraction for a finite volume, and as the threshold correction from the raw
+midpoint value to the exact collocated line integral. Equality of the numbers
+does not make the operations interchangeable. On a fixed 24 μeV window the
+shipped corrected point rule divided by this split is 0.9667, 0.9771, 0.9862,
+0.9922 as the 90/180/360/720-bin grid refines: they converge to one.
 
 THE GEOMETRY IS UNUSUALLY CLEAN, and worth stating because it makes the
 quadrature easy. On a uniform E grid of spacing ``h`` whose lowest face sits at
@@ -38,11 +36,13 @@ i.e. the curve enters and leaves through OPPOSITE CORNERS of the rectangle.
 So no clamping is ever active in the interior, the integrand is smooth and
 monotone, and the split fraction is a plain area under a curve.
 
-WHAT THIS MODULE IS AND IS NOT. It computes the fractions. It does not yet
-rewire the deposit, because that needs the ω lattice to carry a face at exactly
-2Δ, and the shipped lattice's pair nodes sit at ``2Δ + (m+1)h`` — half a bin
-off — on a lattice SHARED with the scattering channel. Moving it is the union
-grid question (decision D3), a physics change in its own right.
+WHAT THIS MODULE IS AND IS NOT. It computes finite-volume fractions. It does
+not authorize changing the shipped point-sample phonon representation. In
+particular, composing its deposit with the adjoint read produces a tridiagonal
+absorption loss whose off-diagonal terms drive an empty bin negative when its
+neighbour is occupied. Exact transpose bookkeeping is therefore not a valid
+kinetic closure. Wiring this module requires a new, positivity-preserving
+phonon representation, not merely replacing the frequency map.
 """
 
 from __future__ import annotations
@@ -55,8 +55,8 @@ __all__ = ["pair_split_fractions", "PairSplitUnavailable"]
 # substitution below, every cell's integrand is smooth, so this is spectral
 # and 64 nodes is generous: measured against adaptive quadrature the worst cell
 # on the 180/405/1620-bin shipped grids sits at 5.6e-16 / 6.7e-16 / 2.9e-15,
-# i.e. machine precision, against the O(h) mesh error of 4.8e-03 / 2.2e-03 /
-# 5.4e-04 that the split exists to remove. Twelve orders of headroom.
+# i.e. machine precision, against the O(h) finite-volume mesh error of
+# 4.8e-03 / 2.2e-03 / 5.4e-04. Twelve orders of headroom.
 _GL_NODES = 64
 
 # A cell's support spans exactly two ω bins only when the lowest energy face
@@ -181,8 +181,8 @@ def pair_split_fractions(
     # THE CORNER CELL IS THE ONE THE ORIENTATION TRICK CANNOT SAVE, because
     # there BOTH cells reach the gap and the square-root endpoint is present
     # whichever way round it is integrated. It is also the cell that matters
-    # most -- it carries the whole 4/π defect -- so it gets its own rule rather
-    # than a tolerance.
+    # most -- it carries the raw midpoint-to-volume 4/π mismatch -- so it gets
+    # its own rule rather than a tolerance.
     #
     # Substituting ξ = ξ₁(1 − u²) maps the endpoint onto u = 0 and cancels it:
     # ξ'_max ~ C·√(ξ₁ − ξ) = C·√ξ₁·u there, while dξ = −2ξ₁u du, so the

@@ -292,18 +292,14 @@ def build_phonon_frequency_map(
     D3 in ``docs/Phonon_Model_Decisions.md`` and is a physics change, not a
     patch.
 
-    THAT FIX NOW EXISTS, unwired: see :mod:`qpsim.collisions.omega_lattice`.
-    D3 resolves without a new restriction — read as finite volumes, the pair
-    channel wants bin faces at ``2Δ + m·h`` and the scattering channel at
-    ``k·h``, and those coincide exactly when ``2Δ/h`` is an integer, which is
-    the commensurability this docstring already demands. One uniform lattice of
-    spacing ``h`` therefore serves both, and each channel's cell straddles two
-    of its bins. Deposit and read there are exact adjoints, which is what lets
-    detailed balance survive the change.
-
-    This function still builds the OLD union lattice, and the deposit still
-    reads it. Switching over is a physics change in the sense that it moves
-    numbers, not in the sense that it is unresolved.
+    A finite-volume geometry now exists in
+    :mod:`qpsim.collisions.omega_lattice`, but it is deliberately not wired
+    here. Its two-bin deposit and transpose read are exact adjoints, yet their
+    absorption composition has a negative off-diagonal: occupation in one bin
+    can drive an adjacent empty bin negative. That construction is therefore a
+    useful quadrature comparison, not a valid replacement for this point-mode
+    kinetic state. A future finite-volume representation must establish
+    positivity as well as conservation and detailed balance.
     """
     E = np.asarray(E_bins, dtype=float)
     if E.ndim != 1:
@@ -489,6 +485,22 @@ def validate_phonon_lattice_coupling(
     )
 
 
+def _reject_split_kinetic_operator(
+    split_diff: np.ndarray | None,
+    split_sum: np.ndarray | None,
+    operation: str,
+) -> None:
+    """Keep finite-volume geometry out of the point-sample kinetic equation."""
+    if split_diff is not None or split_sum is not None:
+        raise ValueError(
+            f"{operation} cannot use the experimental two-bin split with the "
+            "point-sample phonon state. An adjoint split loss is tridiagonal "
+            "but not positivity preserving: an occupied bin drives an adjacent "
+            "empty bin negative. Use the split only for finite-volume geometry "
+            "measurements until a positive kinetic representation is designed."
+        )
+
+
 def _read_two_bin(
     n_ph: np.ndarray, lower: np.ndarray, split: np.ndarray | None,
 ) -> np.ndarray:
@@ -498,11 +510,10 @@ def _read_two_bin(
     indexing, so the two schemes share this one path rather than existing as
     two implementations of the same question.
 
-    When a split IS given this is the adjoint of the two-bin deposit, and
-    using it is not optional: if the deposit spreads an event over two bins
-    while the read takes one, the two discrete operators stop being transposes
-    and detailed balance breaks at the 1e-2 level -- far above any tolerance
-    the equilibrium gates use.
+    When a split is given this is the exact adjoint of the two-bin deposit.
+    That identity is geometric only: composing it with an absorption deposit
+    is not positivity preserving, so production kinetic entry points reject
+    splits before reaching this helper.
     """
     if split is None:
         return n_ph[lower]
@@ -524,14 +535,14 @@ def phonon_occupation_matrices_from_state(
     * ``N_emit``: recombination emission, ``1 + n_ph(E_i + E_j)``.
     * ``N_abs``: pair-breaking absorption, ``n_ph(E_i + E_j)``.
 
-    With ``split_diff`` / ``split_sum`` supplied, the index arrays name the
-    LOWER of the two bins each event straddles and the splits give the
-    fraction belonging to it; the read is then the adjoint of the two-bin
-    deposit in :func:`compute_phonon_source_sink`. Both must come from the
-    same lattice, and both must be supplied to the deposit as well -- a read
-    and a deposit on different conventions is the failure this pairing exists
-    to prevent.
+    ``split_diff`` and ``split_sum`` are reserved finite-volume geometry
+    hooks. Any non-``None`` value currently raises ``ValueError``: composing a
+    two-bin deposit with its adjoint read does not preserve non-negative Bose
+    occupations and is not a valid kinetic closure for this point-mode state.
     """
+    _reject_split_kinetic_operator(
+        split_diff, split_sum, "phonon_occupation_matrices_from_state",
+    )
     n_diff = _read_two_bin(n_ph, omega_idx_diff, split_diff)
     n_sum = _read_two_bin(n_ph, omega_idx_sum, split_sum)
 
@@ -587,6 +598,9 @@ def compute_phonon_source_sink(
         :func:`phonon_collision_rates`. Backend callers opt into this
         path with ``use_phonon_side_kernel=True``.
     """
+    _reject_split_kinetic_operator(
+        split_diff, split_sum, "compute_phonon_source_sink",
+    )
     _require_ideal_bcs_context(ctx, "Dynamic-phonon source/sink assembly")
     # The phonon equation is a line integral over QP pairs.  On its required
     # uniform lattice, dE*rho_bar_i*rho_bar_j = w_i*w_j/dE.  This is the same
@@ -637,13 +651,11 @@ def compute_phonon_source_sink(
         base_pb = dE * (partner[:, None] * K_rec * partner[None, :])
         pb = _deposit_two_bin(omega_idx_sum, base_pb, split_sum, n_omega)
         if K_r0_phonon_side is not None and split_sum is None:
-            # DELIBERATELY skipped when a split is in use. This rescale exists
-            # to patch the whole-cell deposit's threshold error, and its value
-            # there is pi/4 -- which is precisely the gap-corner cell's exact
-            # two-bin overlap fraction. It was always the right number applied
-            # as a RESCALE where the geometry asks for a SPLIT. Once the split
-            # performs that division properly, multiplying by it as well would
-            # apply the same correction twice.
+            # This is the point-collocation line-quadrature correction. Its
+            # threshold value pi/4 also occurs as the gap-corner overlap in a
+            # finite-volume construction, but the two operations belong to
+            # different representations and are not interchangeable. Split
+            # kinetic arguments are rejected before reaching this branch.
             correction = _pair_breaking_quadrature_correction(
                 ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
             )
@@ -991,6 +1003,9 @@ def phonon_source_sink_jacobian_f(
     f-independent (``= dE ρ_i ρ_j K_rec`` in both columns i and j), while
     ``∂a_ph^rec/∂f_i = dE ρ_i ρ_j f_j K_rec`` and ``…/∂f_j = … f_i K_rec``.
     """
+    _reject_split_kinetic_operator(
+        split_diff, split_sum, "phonon_source_sink_jacobian_f",
+    )
     _require_ideal_bcs_context(ctx, "Dynamic-phonon source/sink Jacobian")
     NE = int(f.size)
     rho = ctx.cell_density
@@ -1027,11 +1042,9 @@ def phonon_source_sink_jacobian_f(
         rows = omega_idx_sum
         base = pref * K_rec  # dE ρ_i ρ_j K_rec[i,j]
         if K_r0_phonon_side is not None and split_sum is None:
-            # Skipped under a split for the reason given in
-            # compute_phonon_source_sink: the rescale and the split are the
-            # same correction, and this Jacobian must differentiate exactly
-            # what that function computes or Newton chases a different
-            # residual than the one it is solving.
+            # Match compute_phonon_source_sink's point-collocation correction
+            # exactly or Newton differentiates a different residual. Split
+            # kinetic arguments are rejected before reaching this branch.
             corr = _pair_breaking_quadrature_correction(
                 ctx, K_r0_phonon_side, omega_idx_sum, n_omega,
             )
@@ -1242,6 +1255,9 @@ def phonon_collision_jacobian_nph(
     * recombination: ``∂R_i/∂n_ph,m = Σ_{j: idx_sum=m} K_r0[i,j] ρ_j dE
       [(1−f_i)(1−f_j) − f_i f_j]``.
     """
+    _reject_split_kinetic_operator(
+        split_diff, split_sum, "phonon_collision_jacobian_nph",
+    )
     _require_ideal_bcs_context(ctx, "Electron-phonon collision Jacobian")
     NE = int(f.size)
     w_j = ctx.cell_weights

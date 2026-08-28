@@ -1,17 +1,26 @@
 """The exact two-bin cut-cell split for the phonon pair channel.
 
-What these pin is that the split gets BOTH things right that the two shipped
-options each get half of: the threshold rate AND the event books. The rescale
-in `phonon.py` moves the threshold bin toward the truth while destroying pair
-events; dropping it keeps the books and leaves the rate 27% high.
+These tests pin the finite-volume geometry itself. The shipped phonon equation
+is point-collocated instead: its per-frequency Kaplan correction and this area
+split are two different, convergent discretizations of the same continuum
+source, not two halves of one discrete operation.
 """
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
+from qpsim.collisions.omega_lattice import build_unified_omega_lattice
 from qpsim.collisions.pair_split import PairSplitUnavailable, pair_split_fractions
-from qpsim.grid.energy_grid import build_energy_grid
+from qpsim.collisions.phonon import (
+    build_phonon_frequency_map,
+    build_recombination_kernel_phonon_side,
+    compute_phonon_source_sink,
+)
+from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
+from qpsim.physics.spectral import SpectralContext
 from scipy.integrate import quad
 
 GAP = 180.0
@@ -65,7 +74,7 @@ class TestTheGeometryItClaims:
         # First order in h: each refinement should shrink the gap roughly in
         # proportion. Loose bound -- the point is that it CONVERGES, where the
         # defect it replaces does not.
-        for coarse, fine in zip(errors[:-1], errors[1:], strict=True):
+        for coarse, fine in pairwise(errors):
             assert fine < coarse
 
     def test_cells_far_from_the_gap_split_evenly(self) -> None:
@@ -125,7 +134,7 @@ class TestItIsAccurate:
         assert corner == pytest.approx(_reference(0, 0, h), abs=1e-13)
 
 
-class TestWhatTheSplitBuysOverTheShippedRescale:
+class TestRawWholeCellDeposit:
     @staticmethod
     def _deposit(num_bins: int):
         """Pair weight deposited on a lattice with FACES at 2Δ + m·h."""
@@ -144,31 +153,84 @@ class TestWhatTheSplitBuysOverTheShippedRescale:
 
     @pytest.mark.parametrize("num_bins", [180, 405, 1620])
     def test_the_books_close_exactly(self, num_bins: int) -> None:
-        """The property the shipped rescale destroys.
+        """The property a finite-volume split has by construction.
 
         The split is a partition of unity per cell, so the deposited total is
         the matrix total to the last bit -- no event is created or lost, on any
-        grid, for any occupation. The rescale multiplies assembled bins and
-        therefore cannot have this property: measured elsewhere it breaks the
-        two marginals apart by 21.4% per bin, converging to −(1 − π/4) rather
-        than to zero.
+        grid, for any occupation. This is not a comparison with the shipped
+        point-collocation rule, whose source is a line value rather than a
+        finite-volume total.
         """
         deposited, _whole, total = self._deposit(num_bins)
         assert deposited.sum() == pytest.approx(total, rel=0.0, abs=1e-9 * total)
 
     @pytest.mark.parametrize("num_bins", [180, 405, 1620])
-    def test_it_removes_the_four_over_pi_threshold_defect(self, num_bins: int) -> None:
-        """Depositing whole cells at one label is 27% high and stays there.
+    def test_raw_midpoint_has_four_over_pi_threshold_error(self, num_bins: int) -> None:
+        """The raw whole-cell deposit overcounts the first finite-volume bin.
 
-        This is the defect: the ratio of the whole-cell deposit to the split
-        deposit in the threshold bin tends to 4/π = 1.2732 and does NOT shrink
-        under refinement, because refining only makes a smaller cell still
-        deposited at a point.
+        The ratio of the uncorrected midpoint deposit to the split deposit in
+        the threshold bin tends to 4/π = 1.2732 and does not shrink under
+        refinement. The shipped point-collocation scheme is not this raw rule:
+        it applies the Kaplan line-quadrature correction tested below.
         """
         deposited, whole, _total = self._deposit(num_bins)
         ratio = whole[0] / deposited[0]
         assert ratio > 1.27, f"expected the 4/π defect, got {ratio:.4f}"
         assert ratio == pytest.approx(4.0 / np.pi, abs=0.01)
+
+
+class TestShippedPointCollocationConvergesWithTheSplit:
+    def test_fixed_physical_window_converges(self) -> None:
+        """The two representations approach the same continuum source.
+
+        This uses the shipped corrected point-collocation path and a genuinely
+        fixed physical window. Omitting the correction and holding a fixed
+        number of cells produces the spurious 1.164 limit that originally
+        motivated wiring the split.
+        """
+        errors = []
+        window_uev = 24.0
+        for num_bins in (45, 90, 180, 360):
+            E, h = _grid(num_bins, max_factor=4.0)
+            ctx = SpectralContext(
+                E_bins=E,
+                dE_bins=integration_widths_from_centers(E),
+                gap=GAP,
+            )
+            f = 1e-3 * np.exp(-E / (0.2 * GAP))
+            K_r = build_recombination_kernel_phonon_side(ctx, tau_0_pb_ns=0.28)
+
+            omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(E)
+            point_source, _ = compute_phonon_source_sink(
+                f,
+                ctx,
+                None,
+                None,
+                idx_diff,
+                idx_sum,
+                sign,
+                omega.size,
+                enable_scattering=False,
+                K_r0_phonon_side=K_r,
+            )
+
+            lattice = build_unified_omega_lattice(E, GAP)
+            n_qp = ctx.cell_density * f
+            base = ctx.dE * (n_qp[:, None] * K_r * n_qp[None, :])
+            volume_source = lattice.deposit(base, channel="pair")
+
+            cut = 2.0 * GAP + window_uev + 1e-9 * h
+            point_total = float(point_source[omega <= cut].sum())
+            volume_total = float(
+                volume_source[lattice.omega_bins <= cut].sum()
+            )
+            errors.append(abs(point_total / volume_total - 1.0))
+
+        assert errors[-1] < 0.015
+        assert all(
+            fine < coarse
+            for coarse, fine in pairwise(errors)
+        )
 
 
 class TestItRefusesGridsItCannotSplit:

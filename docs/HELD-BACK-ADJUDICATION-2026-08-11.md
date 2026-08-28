@@ -403,8 +403,42 @@ the recertification cost once per commit, so they are one changeset.
 > (steep). The transfer to observables is state-dependent over three orders of
 > magnitude.
 >
-> The original reasoning is kept below unedited, because it is a correct
-> account of the symptom and of why the one-sided form is also wrong.
+> The original reasoning is kept below unedited as a historical record. Its
+> conclusion about the shipped one-sided point-collocation correction is
+> superseded by the second correction immediately below.
+
+> **SECOND CORRECTION 2026-08-27.** The 2026-08-19 rejection of the prepared
+> *two-sided* rescale stands, but its prescription to replace the shipped
+> point collocation with the area split is also rejected. The phonon state is a
+> point sample and its source is a line integral at fixed $\omega$; the QP
+> state is a cell average. Their discrete marginals are not required to be the
+> same raw cell sum.
+>
+> Two executable checks decide this. First, the threshold diagnostic that
+> reported a 1.164 non-convergent limit bypassed the shipped Kaplan correction
+> in `pair_only(split=False)` and held `m·h` fixed, so its "physical" window
+> shrank under refinement. With the shipped correction, point/split on that
+> window is 0.9664, 0.9829, 0.9914, 0.9957, 0.9978; on a genuinely fixed
+> 24 μeV window it is 0.9667, 0.9771, 0.9862, 0.9922 from NE=90 onward. Both
+> converge to one at first order.
+>
+> Second, the proposed tridiagonal closure is not positivity preserving. For
+> pure pair breaking at $f=0$, deposit/read composition gives
+> $-P\,\mathrm{diag}(r)\,P^T$. If the upper bin is occupied and the adjacent
+> lower bin is empty, the lower derivative is
+> $-r\,S(1-S)n_{\mathrm{upper}}<0$. The candidate therefore drives a Bose
+> occupation out of the positive cone; the exact adjoint identity does not
+> make it a physical kinetic operator.
+>
+> **Disposition:** keep the shipped one-sided phonon collocation correction;
+> keep `pair_split.py` as finite-volume geometry only; reject split arguments
+> at all four kinetic entry points until a positivity-preserving phonon
+> representation is designed. The raw $4/\pi$ midpoint defect remains a valid
+> derivation of the correction, not evidence that the corrected engine is
+> non-convergent.
+
+> The original **Rationale / Measured / Risk / Note** paragraphs below are
+> superseded historical text; they are not active implementation guidance.
 
 **Rationale.** The decisive structural facts are measured: the cross-equation pair ledger is EXACT (3.2e-14) without the correction and broken per-bin by (1-corr) with it one-sided; two-sided application closes the ledger identically, preserves elementwise detailed balance (thermal gain/loss shift by identical -3.337%, fixed points unchanged), keeps the tau_PB(2Delta)=tau_0^PB pin, and improves the QP threshold channels (currently 4/pi-1=27% high). Gating the correction OFF is correctly rejected (regresses the phonon quadrature O(1) and moves 929 C6 bins up to 21%). This is the only deliberate physics change in the qpsim bundle and, with item 588, is what the recert is FOR. Consistent with the ledger's C6 'recorded, not gated' entry and the settled omega-labeling adjudication (corr=1 below threshold untouched).
 

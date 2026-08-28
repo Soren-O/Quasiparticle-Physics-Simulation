@@ -269,21 +269,23 @@ double-count.
 equation integrates *over* states and needs the measure, the phonon equation
 is stated *per* state and must not have it.
 
-**The interface between them is where this can go wrong, and did.** A
-quasiparticle pair is a two-dimensional *cell* in $(E,E')$; the phonon it emits
-is a *point* in $\omega$. Converting one to the other is a real operation, and
-depositing the whole cell into the single bin nearest its centre is not that
-operation — it silently reinterprets a cell average as a point sample. That is
-the origin of the pair-marginal defect recorded in
-`docs/HELD-BACK-ADJUDICATION-2026-08-11.md` (item 101): whole-cell deposit
-along the anti-diagonal gives a threshold of $4\Delta$ where Kaplan gives
-$\pi\Delta$, and refining the mesh does not remove it, because the error is in
-the *representation*, not the resolution. The correct conversion splits each
-cell by the area it actually shares with each frequency strip
-(`qpsim/collisions/pair_split.py`), and the read-back must be its transpose or
-detailed balance breaks. **Rule: whenever a quantity crosses between the two
-populations, say in the code which representation it is in and convert
-explicitly.**
+**The interface is a line quadrature, not an event deposit.** A quasiparticle
+pair is represented by a two-dimensional cell in $(E,E')$, while the phonon
+equation asks for a line integral at one exact $\omega$. The raw anti-diagonal
+midpoint value is $4\Delta$ at threshold; the shipped phonon-side Kaplan
+correction converts it to the exact $\pi\Delta$ collocation value. Applying
+that correction to the QP equation as well is still rejected: the QP equation
+integrates over cells and already has its own correct marginal.
+
+`qpsim/collisions/pair_split.py` computes a valid *finite-volume alternative*
+by dividing each pair cell between frequency strips. It is not the conversion
+used by the point-sample state. Composing its deposit with the transpose read
+would give a tridiagonal absorption loss, but that operator is not positivity
+preserving: occupation in one bin drives an adjacent empty bin negative. Exact
+adjoint bookkeeping is therefore insufficient for a kinetic equation.
+**Rule: first state whether the phonon unknown is a point value or a finite
+volume; never mix the two merely because their threshold coefficient is the
+same $\pi/4$.**
 
 **How wrong is it to confuse them? Exactly $1/\sqrt{2}$.** Worth having the
 constant rather than a warning. On a grid whose lowest face sits on the gap,
@@ -294,9 +296,8 @@ $$ \underbrace{\sqrt{(\Delta+h)^2-\Delta^2}}_{\text{cell integral}} \to \sqrt{2\
 Both vanish like $\sqrt{h}$, so nothing looks unstable — but their ratio tends
 to $1/\sqrt2$ and *stays* there. A point sample undercounts the gap-edge cell
 by **29.3% at every resolution**. That is the signature to recognise: an error
-that survives refinement is in the representation, not the mesh, which is
-exactly why no convergence study catches it and why $4\Delta$ vs $\pi\Delta$
-went unnoticed for so long.
+that survives refinement is in the representation, not the mesh. It is why a
+quasiparticle cell average must never be replaced by its centre sample.
 
 **One known exception, currently unreachable — and it is a *different* fault.**
 The junction band weights use the exact cell integral for a pure BCS spectrum,
@@ -326,48 +327,38 @@ constant, the phonon bins being exact event frequencies, and the guard.
 
 ---
 
-### What the area split will move, measured before wiring it
+### Point collocation versus the area split
 
 `scripts/measure_phonon_split_delta.py` builds the phonon source both ways on
-the same state — today's whole-cell deposit onto the union lattice, and the
-two-bin area deposit onto the unified lattice — and reports physical
-quantities rather than bins, since the two lattices are half a bin apart and a
-bin-by-bin diff would be meaningless.
+the same state — the shipped, Kaplan-corrected point collocation and the
+two-bin finite-volume area split — and reports physical quantities rather than
+binwise differences because the two lattices are half a bin apart.
 
-**Conserved quantities are untouched.** The total event rate agrees to
-0.000% on flat and thermal occupations at every resolution: both deposits are
-partitions of unity, so the count is preserved by construction whatever the
-quadrature error inside the split.
+**The earlier non-convergence claim was a diagnostic defect.** The old
+`pair_only(split=False)` path bypassed
+`_pair_breaking_quadrature_correction` even though the script header said it
+measured the shipped corrected scheme. It also called a window of fixed `m·h`
+"fixed physical" while that window shrank every time $h$ was refined. Those two
+choices produce the reported 1.164 limit for the *raw* midpoint rule in a
+vanishing boundary layer; they do not measure the engine.
 
-**Integrated moments differ, and converge.** The first frequency moment (the
-energy the phonons carry) moves by 12.3% → 8.2% → 4.9% → 2.8% on a steep
-occupation as the grid refines 45 → 90 → 180 → 360, i.e. first order in the
-spacing. At production resolution it is a **~5% change on a steep profile**,
-and under 0.3% on a thermal one.
+**The corrected measurement converges.** On the old shrinking `2h` window,
+shipped/split is 0.9664, 0.9829, 0.9914, 0.9957, 0.9978 for
+NE=45, 90, 180, 360, 720. The error halves. On a genuinely fixed 24 μeV
+window, aligned to both lattices at every refinement, the sequence from NE=90
+is 0.9667, 0.9771, 0.9862, 0.9922. Both approach one at first order.
 
-**The threshold does not converge, which is the point.** Comparing the pair
-source inside a window of exactly `m·h` above 2Δ — an exact multiple of the
-shared spacing, so each lattice contributes the same number of cells and the
-ratio measures physics rather than bin edges:
+The raw uncorrected whole-cell rule still shows the familiar geometry:
 
-| window | NE=45 | 90 | 180 | 360 | 720 |
+| scheme/window | NE=45 | 90 | 180 | 360 | 720 |
 |---|---|---|---|---|---|
-| 2h, thermal | 1.136 | 1.150 | 1.157 | 1.161 | 1.162 |
-| 2h, steep | 1.062 | 1.104 | 1.132 | 1.148 | 1.156 |
+| raw midpoint / split, shrinking 2h | 1.136 | 1.150 | 1.157 | 1.160 | 1.162 |
+| shipped corrected / split, shrinking 2h | 0.966 | 0.983 | 0.991 | 0.996 | 0.998 |
 
-Today's scheme deposits **~16% more** pair source into the threshold window,
-the increments halve at each refinement (0.0138, 0.0070, 0.0035, 0.0018), and
-the ratio converges to **≈1.164 rather than to 1**. Two occupation profiles
-that differ by orders of magnitude in shape converge to the *same* limit,
-which is what identifies it as geometric — a property of how cells are
-assigned to frequencies, not of the physics being assigned. Widening the
-window dilutes it (≈1.09 at 4h, ≈1.05 at 8h), confirming it is concentrated at
-threshold.
-
-So the change to expect when the split is wired: counts unchanged, thermal
-results within a few tenths of a percent, and the near-threshold pair source
-down by roughly a sixth — with the correction *not* vanishing under refinement,
-which is precisely why it cannot be left to a finer grid.
+Thus the raw $4/\pi$ discrepancy is real and the shipped Kaplan correction is
+what removes it for the point-collocated phonon equation. The area split is a
+different convergent representation, not a pending engine fix. It must not be
+wired without redesigning the phonon unknown and proving positivity.
 
 ---
 

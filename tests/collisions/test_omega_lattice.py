@@ -1,9 +1,9 @@
 """One finite-volume frequency lattice for both phonon channels.
 
-These pin the three structural properties the deposit rewiring depends on:
-the lattice exists at all (the union-grid question), the deposit conserves
-events, and deposit and read are exact adjoints -- the last being the one that
-decides whether detailed balance can survive the change.
+These pin the useful geometric properties of the candidate: the lattice
+exists at all, the deposit conserves events, and deposit and read are exact
+adjoints. They also pin the decisive counterexample: those properties do not
+make the resulting absorption operator positivity preserving.
 """
 
 from __future__ import annotations
@@ -90,13 +90,14 @@ class TestTheDepositConservesEvents:
 
 
 class TestDepositAndReadAreAdjoint:
-    """The property the whole rewiring rests on.
+    """An exact geometric identity, but not a sufficient kinetic condition.
 
     The phonon equation deposits an event across two bins; the quasiparticle
     equation reads a phonon occupation back for the same event. If the read
-    takes one bin while the deposit spreads over two, the two discrete
-    operators are not transposes and detailed balance breaks at the 1e-2 level.
-    Reading with the deposit's own weights makes them exact transposes.
+    takes one bin while the deposit spreads over two, the two operators are not
+    transposes. Reading with the deposit's own weights makes them exact
+    transposes; the final test shows why that alone still cannot justify the
+    kinetic rewiring.
     """
 
     @pytest.mark.parametrize("channel", ["pair", "scatter"])
@@ -137,3 +138,27 @@ class TestDepositAndReadAreAdjoint:
         assert naive == pytest.approx(1.0)
         assert deposited == pytest.approx(lattice.pair_split[0, 0], rel=1e-12)
         assert abs(deposited - naive) > 0.2 * abs(naive)
+
+    def test_adjoint_loss_is_not_a_physical_kinetic_operator(self) -> None:
+        """Exact transpose bookkeeping does not preserve non-negativity.
+
+        For pure pair breaking, composing a two-bin deposit P with its adjoint
+        read gives the loss matrix `-P diag(rate) P.T`. Its off-diagonal entry
+        makes occupation in one bin drive an adjacent EMPTY bin negative. A
+        Bose occupation cannot leave the positive orthant this way, so the
+        tempting tridiagonal closure is rejected even though the inner-product
+        identity above is exact.
+        """
+        lattice = build_unified_omega_lattice(_grid(180), GAP)
+        split = float(lattice.pair_split[0, 0])
+        loss_off_diagonal = split * (1.0 - split)
+
+        occupation_lower = 0.0
+        occupation_upper = 1.0
+        derivative_lower = -(
+            split * split * occupation_lower
+            + loss_off_diagonal * occupation_upper
+        )
+
+        assert loss_off_diagonal > 0.0
+        assert derivative_lower < 0.0

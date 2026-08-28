@@ -1,14 +1,14 @@
 """One finite-volume frequency lattice for both phonon channels.
 
-THE UNION-GRID QUESTION, RESOLVED. ``phonon.py``'s frequency map is the union
+THE FINITE-VOLUME CANDIDATE. ``phonon.py``'s frequency map is the union
 of a difference lattice ``k·h`` (scattering) and a sum lattice
 ``2Δ + (m+1)·h`` (pair), and its own docstring flags the two as living on
 disjoint, dynamically decoupled sublattices whenever ``2Δ/h`` is not an
 integer — a scattering-emitted phonon above 2Δ then cannot break a pair. It
-calls the proper fix a physics change (decision D3) rather than a patch.
+records that coupling failure as a guarded limitation.
 
-The fix is smaller than that framing suggests, because both channels want the
-SAME thing once each is read as a finite volume rather than a point:
+A shared finite-volume alternative can be constructed because both channels
+have the same geometry once read as volumes rather than points:
 
     a cell (i, j) does not have A frequency, it has a RANGE of one, width 2h
 
@@ -19,13 +19,14 @@ The pair support needs bin faces at ``2Δ + m·h``; the scattering support needs
 them at ``k·h``. **They coincide exactly when 2Δ/h is an integer** — which is
 the commensurability condition the grid validator already enforces and every
 shipped default already satisfies (405 bins over [Δ,10Δ] gives 90; 1620 gives
-360; 66 over [Δ,4Δ] gives 44). So D3 resolves to:
+360; 66 over [Δ,4Δ] gives 44). Thus the candidate is:
 
     ONE uniform lattice of spacing h with faces at multiples of h,
     available precisely on the grids the engine already requires.
 
-No new restriction, and the condition that was imposed to make the two channels
-SHARE bins turns out to be the same one that lets them be integrated properly.
+No new restriction is needed to construct this geometry. That does not make it
+the point-sample kinetic representation the engine stores; the positivity
+counterexample below is why the distinction matters.
 
 THE STRUCTURE IS THE SAME IN BOTH CHANNELS. In the state-counting coordinate
 ``ξ = √(E² − Δ²)`` the BCS measure is flat, so a cell is a rectangle of uniform
@@ -35,17 +36,17 @@ the interior bin face passes through OPPOSITE CORNERS of that rectangle — at
 the mirror of that (scattering) — so no clamping is ever active, the integrand
 is smooth and monotone, and the split is well conditioned.
 
-ADJOINTNESS IS THE WHOLE RISK, and it is why the split weights are returned
-rather than applied. The phonon equation DEPOSITS event (i, j) across bins
-(m, m+1) with weights (S, 1−S). The quasiparticle equation READS a phonon
-occupation for the same event. If the read takes a single bin while the deposit
-spreads over two, the two discrete operators stop being adjoint and detailed
-balance breaks — not subtly, at the 1e-2 level. Reading with the SAME weights,
+THE ADJOINT READ IS A GEOMETRIC IDENTITY, NOT A KINETIC CLOSURE. The phonon
+equation can deposit event (i, j) across bins (m, m+1) with weights (S, 1−S),
+and the transpose reads
 
     N_eff(i, j) = S·n[m] + (1 − S)·n[m+1]
 
-restores it exactly, because deposit and read are then transposes of one
-matrix. `effective_occupation` below is that read, and it is not optional.
+so the two inner products agree exactly. But using that read in an absorption
+loss gives ``-P diag(rate) P.T``: occupation in one bin then drives an adjacent
+empty bin negative through the off-diagonal term. The transpose identity is
+useful geometry, but it does not preserve the positive cone and must not be
+wired as the phonon kinetic operator.
 """
 
 from __future__ import annotations
@@ -115,12 +116,12 @@ class UnifiedOmegaLattice:
 def effective_occupation(
     lattice: UnifiedOmegaLattice, n_omega: np.ndarray, *, channel: str,
 ) -> np.ndarray:
-    """The phonon occupation an event sees, read with the DEPOSIT's weights.
+    """Adjoint read of the finite-volume deposit.
 
-    The adjoint of :meth:`UnifiedOmegaLattice.deposit`. Using it is what keeps
-    detailed balance exact: deposit and read are then the two directions of one
-    matrix, so an equilibrium that is a fixed point of the continuum problem
-    stays a fixed point of the discrete one.
+    This is the exact transpose of :meth:`UnifiedOmegaLattice.deposit` and is
+    useful for geometric identities. It is not by itself a valid absorption
+    closure: composing deposit and read makes an off-diagonal loss that is not
+    positivity preserving.
     """
     lower, split = lattice._channel(channel)
     n = np.asarray(n_omega, dtype=float)

@@ -63,7 +63,7 @@ def today(ctx: SpectralContext, f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(ctx.E)
     K_s = build_scattering_kernel_phonon_side(ctx, TAU0_PB)
     K_r = build_recombination_kernel_phonon_side(ctx, TAU0_PB)
-    a, b = compute_phonon_source_sink(
+    a, _b = compute_phonon_source_sink(
         f, ctx, None, None, idx_diff, idx_sum, sign, omega.size,
         K_s0_phonon_side=K_s, K_r0_phonon_side=K_r,
     )
@@ -98,51 +98,57 @@ def moments(omega: np.ndarray, a: np.ndarray) -> tuple[float, float, float]:
 
 
 def pair_only(ctx: SpectralContext, f: np.ndarray, *, split: bool):
-    """The PAIR channel alone -- where 4*Delta vs pi*Delta lives."""
+    """The shipped corrected pair channel or the finite-volume split."""
     K_r = build_recombination_kernel_phonon_side(ctx, TAU0_PB)
-    rho, dE = ctx.cell_density, ctx.dE
-    n_qp = rho * f
-    base = dE * (n_qp[:, None] * K_r * n_qp[None, :])
     if split:
+        rho, dE = ctx.cell_density, ctx.dE
+        n_qp = rho * f
+        base = dE * (n_qp[:, None] * K_r * n_qp[None, :])
         lat = build_unified_omega_lattice(E_bins=ctx.E, gap=ctx.gap)
         return lat.omega_bins, lat.deposit(base, channel="pair")
-    omega, _, idx_sum, _ = build_phonon_frequency_map(ctx.E)
-    return omega, np.bincount(idx_sum.ravel(), weights=base.ravel(),
-                              minlength=omega.size)
+    omega, idx_diff, idx_sum, sign = build_phonon_frequency_map(ctx.E)
+    source, _ = compute_phonon_source_sink(
+        f,
+        ctx,
+        None,
+        None,
+        idx_diff,
+        idx_sum,
+        sign,
+        omega.size,
+        enable_scattering=False,
+        K_r0_phonon_side=K_r,
+    )
+    return omega, source
 
 
 def threshold_table() -> None:
-    """Cumulative pair source below a FIXED physical cutoff above 2*Delta.
+    """Cumulative pair source in genuinely fixed windows above 2*Delta.
 
-    Lattice-independent by construction, so the two schemes are comparable
-    even though their bins differ. The window is held fixed in physical units
-    while the mesh refines -- that is what separates a representation error
-    (ratio stays put) from a resolution error (ratio goes to 1).
+    The windows are fixed in microelectronvolts, not in a fixed number of
+    cells.  They are multiples of the coarsest spacing so both half-shifted
+    lattices contribute the same number of samples at every refinement.
     """
     print()
     print("PAIR SOURCE within a fixed window above threshold")
-    print(f"{'profile':>8} {'window':>10} {'NE':>6} "
+    print(f"{'profile':>8} {'window/uV':>10} {'NE':>6} "
           f"{'today':>13} {'split':>13} {'today/split':>12}")
     print("-" * 68)
-    # The window is m*h, an exact multiple of the SHARED spacing. Both
-    # lattices are aligned to that grid (today's pair nodes at 2D + m*h, the
-    # unified faces at multiples of h), so a window of m*h admits exactly m
-    # nodes from one and m cells from the other. A window fixed in absolute
-    # units instead admits a different count from each, and the ratio then
-    # measures the bin edges rather than the physics.
+    # h=12 uV on the coarsest grid and halves on every refinement, so each
+    # window below is an integer multiple of h throughout the ladder.
     for kind in ("thermal", "steep"):
-        for m in (2, 4, 8):
+        for window_uev in (24.0, 48.0, 96.0):
             for nb in (45, 90, 180, 360, 720):
                 ctx = context(nb)
                 h = float(ctx.E[1] - ctx.E[0])
                 f = occupation(ctx, kind)
                 w_o, a_o = pair_only(ctx, f, split=False)
                 w_n, a_n = pair_only(ctx, f, split=True)
-                cut = 2.0 * GAP + m * h + 1e-9 * h
+                cut = 2.0 * GAP + window_uev + 1e-9 * h
                 o = float(a_o[w_o <= cut].sum())
                 n = float(a_n[w_n <= cut].sum())
                 ratio = o / n if n else float("nan")
-                print(f"{kind:>8} {f'{m}h':>9} {nb:>6} "
+                print(f"{kind:>8} {window_uev:>10.1f} {nb:>6} "
                       f"{o:>13.5e} {n:>13.5e} {ratio:>12.4f}")
             print()
 
@@ -160,7 +166,9 @@ def main() -> None:
             w_old, a_old = today(ctx, f)
             w_new, a_new = with_split(ctx, f)
             mo, mn = moments(w_old, a_old), moments(w_new, a_new)
-            for label, o, n in zip(("total", "1st moment", "2nd moment"), mo, mn):
+            for label, o, n in zip(
+                ("total", "1st moment", "2nd moment"), mo, mn, strict=True,
+            ):
                 rel = (n - o) / o if o != 0.0 else float("nan")
                 print(f"{kind:>8} {nb:>6} {label:>10} "
                       f"{o:>14.6e} {n:>14.6e} {rel:>+11.3%}")
