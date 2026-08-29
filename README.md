@@ -9,18 +9,19 @@ escape), Ph1 (ballistic), Ph2 (diffusive substrate).
 
 ## Status
 
-T3 + Ph0 backend, the M25 (Marchegiani–Catelani 2025) rate-equation
-service, and the Region/Junction/Device/Qubit composition layer are
-shipped and numerically tested. Fischer 2023/2024 and
-Marchegiani–Catelani 2025 paper-topology runs pin against
-qpsim-generated CSV/PDF baselines under `validation/`. Those pins test
+T3 + Ph0 backend, the M25 rate-equation service, and the
+Region/Junction/Device/Qubit composition layer are shipped and numerically
+tested. Fischer 2023/2024 paper-topology runs pin against qpsim-generated
+CSV/PDF baselines under `validation/`. Those pins test
 solver certificates, artifact provenance/currentness, formula helpers,
 and qpsim-to-qpsim regression. A separate independent paper-data oracle
 now checks Fischer-2023 Fig. 6: the digitized dashed analytic controls
 agree, while all three solid numerical traces show a diagnostic 33–39%
 maximum relative mismatch over seven points on the visible rising branch
 (`T*/Delta ≈ 0.250–0.410`). That result is not yet a release gate
-because parameter and discretization uncertainty remain unbounded.
+because parameter and discretization uncertainty remain unbounded. The
+Marchegiani 2025 paper reproduction and its canonical bundles are retired for
+now; the generic M25 engine and UI remain available and covered by unit tests.
 T2/T1 backends and Ph1/Ph2 phonon transport are not implemented. See
 `docs/STATUS.md` for the running gate tracker and test count.
 
@@ -37,7 +38,7 @@ T2/T1 backends and Ph1/Ph2 phonon transport are not implemented. See
 | 5    | Ph1 phonon spatial transport                  | ❌ not started |
 | 6    | T2 kinetic scalar backend                     | ❌ not started |
 | 7    | T1 two-component backend                      | ❌ not started |
-| 8    | Marchegiani junction (rate eq + PDE)          | ✅ via Device Architecture composition layer |
+| 8    | M25 junction engine (rate eq + PDE)            | ✅ engine retained; paper reproduction retired |
 
 ## Install
 
@@ -67,8 +68,8 @@ See `docs/Frontend.md` for the design and API.
   devices, observables, materials, grids, backends, phonon models;
   `qpsim/webui/` is the optional web frontend)
 - `docs/` — physics and numerics references; phonon-sector decisions
-- `validation/` — analytic checks, tier reductions, paper-topology
-  numerical/artifact audits (Fischer 2023/2024, Marchegiani 2025),
+- `validation/` — analytic checks, tier reductions, Fischer 2023/2024
+  paper-topology numerical/artifact audits,
   qpsim-generated pinned CSV/PDF baselines, and independent paper-data
   oracles under `validation/paper_data/`
 - `tests/` — pytest suite mirroring the library layout

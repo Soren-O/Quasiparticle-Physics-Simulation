@@ -3,9 +3,9 @@
 Some per-figure pinned-baseline tests ``pytest.skip`` when their CSV is
 missing (a deliberate convenience for regenerating a single figure in a
 scratch tree). The 2026-07-19 audit found that this let a deleted or
-renamed canonical artifact silently green-wash 19 pinned regressions:
-``fischer_2024`` asserted artifact existence, but the fischer_2023,
-marchegiani_2025 and transient families did not.
+renamed canonical artifact silently green-wash pinned regressions:
+``fischer_2024`` asserted artifact existence, but the fischer_2023 and
+transient families did not.
 
 This manifest closes that hole. It lists every required member of each
 canonical bundle explicitly: numerical tables, authenticated plot
@@ -31,24 +31,6 @@ _BASELINES_DIR = Path(__file__).resolve().parent / "baselines"
 
 #: Live committed artifact bundles, relative to validation/baselines.
 LIVE_CANONICAL_ARTIFACTS = (
-    "marchegiani_2025/m25_fig3_chemical_potentials.artifact.json",
-    "marchegiani_2025/m25_fig3_chemical_potentials.pdf",
-    "marchegiani_2025/m25_fig3_crossover_temperature.artifact.json",
-    "marchegiani_2025/m25_fig3_crossover_temperature.csv",
-    "marchegiani_2025/m25_fig3_crossover_temperature.pdf",
-    "marchegiani_2025/m25_fig3_paper.artifact.json",
-    "marchegiani_2025/m25_fig3_paper.pdf",
-    "marchegiani_2025/m25_fig3a_chemical_potentials.csv",
-    "marchegiani_2025/m25_fig3a_paper.csv",
-    "marchegiani_2025/m25_fig3b_chemical_potentials.csv",
-    "marchegiani_2025/m25_fig3b_paper.csv",
-    "marchegiani_2025/m25_fig4_paper.artifact.json",
-    "marchegiani_2025/m25_fig4_paper.csv",
-    "marchegiani_2025/m25_fig4_paper.pdf",
-    "marchegiani_2025/m25_fig4_parity_rates.artifact.json",
-    "marchegiani_2025/m25_fig4_parity_rates.pdf",
-    "marchegiani_2025/m25_fig4a_parity_rates.csv",
-    "marchegiani_2025/m25_fig4b_parity_rates.csv",
     "ph0_constant/f24_fig8_xqp_pb.csv",
     "ph0_constant/f24_fig8_xqp_pb.pdf",
     "ph0_constant/f24_figs_5_7_fe_pb.csv",

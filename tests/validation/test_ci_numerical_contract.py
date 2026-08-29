@@ -29,10 +29,12 @@ def test_ci_pins_certified_blas_thread_contract() -> None:
 
 
 def test_ci_runs_the_slow_numerical_regression_gate() -> None:
-    """The slow step is the ONLY place selected Fischer/Marchegiani pins
-    executes (default addopts deselect ``slow``). If it disappears from
-    ci.yml, every slow numerical regression silently stops running while CI stays
-    green — this guard makes that removal loud (2026-07-19 audit)."""
+    """The slow step is the only hosted lane for selected Fischer pins.
+
+    Default addopts deselect both ``slow`` and ``paper_validation``; the CI
+    marker expression explicitly selects the bounded slow set. If it disappears,
+    every slow numerical regression silently stops while CI stays green.
+    """
     steps = _ci_document()["jobs"]["test"]["steps"]
     slow_runs = [
         step.get("run", "")

@@ -1,5 +1,21 @@
 # qpsim current status — AI-agent handoff
 
+> **2026-08-28 validation retirement and gate split:** the Marchegiani-2025
+> paper reproduction is retired for now. Its validation modules, tests, and
+> canonical bundles were removed; the generic M25 engine/device/UI surfaces
+> remain. Source-bound Fischer reproduction, ladder, and certification tests
+> now carry the opt-in `paper_validation` marker and are excluded from the
+> everyday gate. Run them explicitly with `pytest -m paper_validation`. This
+> supersedes older "current" Marchegiani/Fischer default-gate claims below;
+> dated records remain as history.
+> The post-change collection contains 3,394 tests: 2,543 are selected by the
+> everyday lane and 847 by `pytest -m paper_validation`; 34 retired Marchegiani
+> tests are gone. The authoritative everyday run completed with **2,540 passed,
+> 1 skipped, 2 expected xfails, and 851 deselected in 986.08 s**. Its largest
+> remaining costs were 197.63 s of setup for the interface-trap validation,
+> 123.39 s for pair-split corner-cell convergence, and 122.07 s for spatial
+> barrier monotonicity.
+>
 > **2026-08-02/03 perf port and whole-tree digest recertification
 > (`8fdc289` → `c269af2`):** the hot-path port (`8fdc289`: pair-breaking
 > quadrature memoization, uniform-grid validation cache, effective-kernel

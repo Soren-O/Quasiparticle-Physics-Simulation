@@ -235,7 +235,10 @@ class TestPhononInitialCondition:
         from qpsim.webui.schemas import KineticsSetup
         setup = KineticsSetup()
         setup.T_bath = 0.4
-        setup.grid.num_bins = 32
+        # Dynamic phonons require a commensurate QP/phonon lattice.  Thirty-two
+        # bins leaves above-threshold scattering rows without recombination
+        # partners; 33 is the nearest supported grid for this setup.
+        setup.grid.num_bins = 33
         setup.geometry.rows, setup.geometry.cols = 1, 3
         setup.material.D_0 = 0.0
         setup.collisions.scattering = False

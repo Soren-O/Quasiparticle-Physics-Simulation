@@ -59,7 +59,7 @@ packages = ["qpsim"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "validation"]
 python_files = ["test_*.py", "*_test.py"]
-addopts = ["-ra", "--strict-markers", "-m", "not slow"]
+addopts = ["-ra", "--strict-markers", "-m", "not slow and not paper_validation"]
 pythonpath = ["."]
 # A declarative xfail marks a defect we are holding, so an unexpected pass is
 # news: it means the defect is fixed and the marker is now lying. Default to
@@ -70,6 +70,7 @@ xfail_strict = true
 markers = [
     "slow: long-running validation tests (opt in with `pytest -m slow`)",
     "manual_slow: full-paper sweeps kept runnable but excluded from pull-request CI",
+    "paper_validation: source-bound paper reproduction and certification tests (opt in with `pytest -m paper_validation`)",
 ]
 
 [tool.ruff]

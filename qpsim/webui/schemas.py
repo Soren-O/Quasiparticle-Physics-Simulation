@@ -455,8 +455,8 @@ class M25JunctionSetup(StrictModel):
 
     Inputs in the paper's natural units (GHz ÷ h for energies, Hz for
     rates); the builder converts to the Kelvin/Hz convention of
-    :mod:`qpsim.services.rate_equation_coefficients`. Defaults follow
-    the Fig. 3 reproduction in ``validation/marchegiani_2025``.
+    :mod:`qpsim.services.rate_equation_coefficients`. Defaults retain the
+    parameter set historically used for the Fig. 3 validation.
     """
 
     mode: Literal["m25_junction"] = "m25_junction"

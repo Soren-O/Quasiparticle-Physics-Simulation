@@ -8,28 +8,33 @@ independently rather than assuming the areas they touched are now flawless. This
 brief exists so a fresh pass need not re-derive settled false alarms — not to
 tell you what is or isn't a bug.
 
-## Current state (2026-07-18)
+## Current state (2026-08-29)
 
-- Active audit branch `codex/qpsim-deep-audit-fixes` (draft PR #5); **not merged
-  to main**.
-- The last recorded exact pre-follow-up tree passed **1513 tests / 17 slow or
-  manual deselected / 4 warnings**. Treat that as historical evidence for that
-  tree, not as a test result for later Fig. 5/6 edits; use the current numerical
-  audit for the integrated validation handoff.
-- The integrated follow-up tree passes **1549 tests / 17 slow or manual
-  deselected / 4 warnings in 525.03 s**. Collection contains 1566 nodes: 16
-  non-manual `slow` tests and one `manual_slow` test.
-- Highest-churn areas (where a new regression would most likely hide — scrutinize):
-  the M25 rate-equation acceptance layer (`services/rate_equation.py`), the
-  moving-gap remap (`backends/t3_diffusion.py`), the BCS gap-edge quadrature
-  (`physics/bcs_quadrature.py` + `observables/`), and spatial/webui robustness.
+- Active branch `fix/review-2026-08-03`; **not merged to main**. The current
+  closeout retires the Marchegiani-2025 reproduction modules, tests, and
+  canonical bundles while retaining the generic M25 engine/device/UI surface.
+- Fischer reproduction, ladder, and certification coverage is now explicitly
+  marked `paper_validation`. Collection contains 3,394 tests: the everyday
+  lane selects 2,543 and `pytest -m paper_validation` selects 847.
+- The authoritative everyday gate passed **2,540 tests, 1 skipped, 2 expected
+  xfails, and 851 deselected in 986.08 s**. A focused retained-capability gate
+  covering phonon setup, canonical manifests, M25 services/device behavior,
+  transient artifact I/O, and web UI passed **526 tests with 1 skip**.
+- The three largest everyday costs consume 443.09 s (44.9% of the full gate):
+  interface-trap setup (197.63 s), pair-split corner-cell convergence
+  (123.39 s), and spatial closing-barrier monotonicity (122.07 s). Audit their
+  unique coverage before deciding whether to optimize or move them to `slow`.
+- Highest-churn areas remain the phonon lattice/collision contracts, moving-gap
+  and spatial backends, the M25 rate-equation acceptance layer, BCS gap-edge
+  quadrature/observables, and source-bound artifact provenance.
 
 ## Gate gotchas (a green run can still be hiding a break)
 
-- The default `pytest` **deselects `slow`**. A numerical change can leave the
-  fast gate green while breaking a self-pinned *slow* baseline. CI runs
-  `pytest -m "slow and not manual_slow"` as a separate step — run that (or read
-  CI) before trusting green.
+- The default `pytest` **deselects `slow` and `paper_validation`**. A numerical
+  change can leave the everyday gate green while breaking a source-bound paper
+  workflow. CI runs `pytest -m "slow and not manual_slow"` as a separate step;
+  source-bound non-slow workflows require an explicit `pytest -m
+  paper_validation` run during planned recertification.
 - Fischer **Fig. 6** is `manual_slow` and excluded from CI. Measured production
   rows total `6.04 h` serial (`2.11 h` concurrent), not the stale 14-hour
   estimate. Running the old wrapper does not close the newly diagnosed default-
@@ -37,7 +42,7 @@ tell you what is or isn't a bug.
   refinement of its corrected negative low-drive point, is the useful expensive run.
   Direct-mode generation must keep using the explicit `_direct` path contract;
   never route a parameterized direct result through the canonical default pin.
-- Fischer/Marchegiani figure CSVs are **self-pinned regression baselines**, not
+- Fischer figure CSVs are **self-pinned regression baselines**, not
   digitized paper data. Passing them proves code stability, *not* paper fidelity.
 - Direct gap integrals now fail if the grid omits the superconducting edge.
   Sub-gap guard storage is valid only when the grid face covers every gap the

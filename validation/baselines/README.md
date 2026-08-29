@@ -18,15 +18,6 @@ Subdirectories map to phonon model / paper:
 - `ph0_kaplan/` — Ph0-Kaplan characterization baselines (Fig 6 gap
   suppression).
 - `transient/` — photon-kick demo output with four slow regression tests.
-- `marchegiani_2025/` — M25 rate-equation figures. The post-normalization
-  branch is unique; pin tests run on **every** platform with strict
-  `rtol = 1e-6` on the recorded producer platform and a conservative
-  `rtol = 1e-3` fallback elsewhere for final floating-point differences.
-  Current tables, PDFs, and `.artifact.json` records are published as one
-  OS-locked, manifest-authenticated bundle per figure. Fig. 3 bundles persist
-  branch state for reader-side residual reassembly; Fig. 4 bundles are
-  explicitly summary-only producer assertions.
-
 Fischer 2023 Fig. 3 also carries `# pinned_on: win32`, but its regression runs
 on every platform. The stamp scopes only the ratio-10 Windows/Linux OS-family
 envelope; ratios through one, same-OS-token ratio 10, and unmeasured OS pairs

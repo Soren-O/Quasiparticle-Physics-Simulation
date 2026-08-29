@@ -25,8 +25,8 @@ backends ship. Empty in v1.
 ## Tier 3 — Paper-topology numerical and artifact regressions
 
 Pinned against qpsim-generated CSV baselines and PDF plots under
-`validation/baselines/{ph0_constant, ph0_kaplan, transient,
-marchegiani_2025}/`. The paired tests cover some combination of solver
+`validation/baselines/{ph0_constant, ph0_kaplan, transient}/`. The paired
+tests cover some combination of solver
 residual/certificate checks, exact producer provenance, artifact
 currentness, formula transcription, and regression against an earlier
 qpsim solve. Full-size producers are generally slow or manual-slow; the
@@ -408,22 +408,12 @@ limitation until the next provenance-breaking reader revision.
 | Fig 8, qpsim-native PB x_qp(T_B) sweep | `fig8_xqp_pb.py` | summary-only v4 qpsim regression; certificate scalars are producer assertions requiring explicit opt-in |
 | Fig 8, paper-topology density sweep | `fig8_paper.py` | summary-only v5 qpsim regression; certificate scalars are producer assertions requiring explicit opt-in |
 
-### Marchegiani 2025 (`validation/marchegiani_2025/`)
+### Retired paper reproduction: Marchegiani 2025
 
-All sweeps run through the branch-continuation driver
-(`qpsim.services.rate_equation.solve_rate_equation_branch`) on the
-Γ̄-normalized density equations (2026-07-04); the historical
-multi-stability noise was a conditioning artifact of the missing
-`Γ̄ = Γ̃/N_CP(R)` normalization and is gone. All fast — the whole
-directory runs in the default gate (~15 s).
-
-| Figure | Module | Status |
-|---|---|---|
-| Eq. 8 Lambert-W T̄ | `fig3_crossover_temperature.py` | closed-form, machine precision |
-| Fig 3, μ_α vs T (small + large gap asymmetry) | `fig3_chemical_potentials.py` | authenticated qpsim regression with reader-reassembled full-state residual certificates and transcribed paper-formula μ inversions (SI Eqs. S2–S5); broad topology is checked manually, not against digitized points |
-| Fig 3, paper-styled panels + insets | `fig3_paper.py` | paper-topology qpsim regression; CSVs and one-page PDF are one manifest-authenticated bundle; manual broad paper anchors only |
-| Fig 4, Γ_P, Γ̃^eo_01/Γ̃^eo_10 vs T | `fig4_parity_rates.py` | authenticated summary-observable qpsim regression; the artifact records a producer assertion because raw branch states are not persisted; manual broad paper anchors only |
-| Fig 4, paper-styled two-stack with comparison models | `fig4_paper.py` | paper-topology qpsim regression: full model + global-QE and renormalized reductions; summary-only CSV and one-page PDF are authenticated together, without claiming reader-side residual reconstruction or digitized-data parity |
+The Marchegiani 2025 paper-reproduction modules, tests, and canonical bundles
+were retired on 2026-08-28. They remain recoverable from Git history. The
+generic M25 rate-equation, device, and UI capabilities remain active and retain
+their independent unit and integration coverage.
 
 ### Transient (`validation/transient/`)
 
@@ -455,8 +445,8 @@ than frozen here.
 
 ## Slow tier (`pytest -m slow`)
 
-Selected Fischer numerical regressions at larger grids. The
-Marchegiani sweeps are fast; the transient live regression is slow-marked.
+Selected Fischer numerical regressions at larger grids and the transient live
+regression are slow-marked.
 `manual_slow` producers are separate regeneration work and are not
 implied by a green default or hosted slow gate.
 

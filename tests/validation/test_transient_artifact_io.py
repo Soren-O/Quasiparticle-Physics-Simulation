@@ -118,6 +118,11 @@ def test_canonical_photon_kick_baseline_is_utf8_lf() -> None:
     assert text.startswith(
         f"# qpsim_artifact_schema={ARTIFACT_SCHEMA}\n"
     ), "Canonical transient artifact is legacy or has an unsupported schema."
+    assert plot_path().is_file()
+
+
+@pytest.mark.paper_validation
+def test_canonical_photon_kick_baseline_is_current_and_bound() -> None:
     baseline = read_baseline()
     assert baseline.fingerprint
     assert baseline.trajectory_evidence_scope == target.TRAJECTORY_EVIDENCE_SCOPE
