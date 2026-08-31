@@ -457,7 +457,7 @@ def _build(
 register(
     Benchmark(
         name="phonon-escape",
-        title="Phonon escape: relaxation rate and surviving bath fraction",
+        title="Phonon escape against its relaxation rate",
         tier="T2",
         formula_latex=(
             r"\frac{n(\omega,t)}{n_{\mathrm{bath}}(\omega)}"

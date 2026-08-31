@@ -315,7 +315,7 @@ def _build(
 
 register(Benchmark(
     name="self-consistent-gap",
-    title="Self-consistent gap: BCS closure against the finite-cutoff Delta(T)",
+    title="Self-consistent gap against the BCS closure",
     tier="T1",
     formula_latex=(
         r"\frac{1}{\lambda}=\int_{\Delta}^{\hbar\omega_D}"

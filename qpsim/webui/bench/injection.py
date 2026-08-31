@@ -254,7 +254,7 @@ def _build(
 register(
     Benchmark(
         name="injection",
-        title="External injection — a Gaussian line growing linearly in time",
+        title="Injection against a linearly growing line",
         # T1 throughout. The prediction reads no engine kernel, weight array,
         # density of states or grid array; it needs the schema's grid formula,
         # a Fermi-Dirac seed and the Gaussian. The one engine-derived input is

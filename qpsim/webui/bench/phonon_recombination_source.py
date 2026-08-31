@@ -332,7 +332,7 @@ def _build(
 
 register(Benchmark(
     name="phonon-recombination-source",
-    title="Phonon recombination source: the truncated Kaplan pair integral",
+    title="Phonon recombination against the Kaplan pair integral",
     # T3 in ω, which is where all the kernel content is: the scored quantity is
     # the engine's raw pair sum against an independently written continuum
     # quadrature of the same integral, with no endpoint correction on either

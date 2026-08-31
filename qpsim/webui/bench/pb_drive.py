@@ -387,7 +387,7 @@ def _build(
 register(
     Benchmark(
         name="pb-drive",
-        title="Pair-breaking drive: pair-generation source spectrum",
+        title="Pair-breaking drive against its source spectrum",
         tier="T1",
         formula_latex=(
             r"\frac{f_i(t)-f_i(0)}{t}=S_i+\mathcal{O}(f),\quad "

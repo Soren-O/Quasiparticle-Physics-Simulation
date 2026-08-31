@@ -516,7 +516,7 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
 register(
     Benchmark(
         name="phonon-scattering-source",
-        title="Phonon scattering source: the ω-resolved excess above the bath",
+        title="Phonon scattering against the excess above the bath",
         # AUDIT: the original claimed T1 and "no engine array is read into the
         # analytic curve". The second is true and the first does not follow
         # from it. T1 in the time law — the exponential flow of an affine ODE

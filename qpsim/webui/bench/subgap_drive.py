@@ -423,7 +423,7 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
 register(
     Benchmark(
         name="subgap-drive",
-        title="Sub-gap photon drive: two-rung ladder (exact Riccati)",
+        title="Sub-gap drive against a two-rung ladder",
         tier="T1",
         formula_latex=(
             r"\begin{aligned}"

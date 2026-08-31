@@ -945,14 +945,22 @@ async function openItem(catId, itemId) {
     // form shown here is the identical string the verdict is computed against.
     const declared = (tc.benchmark && state.benchmarks[tc.benchmark]) || tc.expect;
     if (declared) {
-      const stated = document.createElement("div");
+      // COLLAPSED BY DEFAULT, and deliberately not removed. Browsing a list of
+      // cases is not the moment to read a formula and a paragraph per card --
+      // three of them stacked is a wall of text before you have done anything.
+      // But the claim still has to be STATED here, because this is the same
+      // string the verdict is computed against later, and showing it only
+      // afterwards would let a prediction be read in the light of its own
+      // result. A disclosure keeps both: pre-registered, one click away.
+      // The post-run verdict boxes are separate and stay fully expanded.
+      const stated = document.createElement("details");
       stated.className = "expectation";
       const tier = declared.tier
         ? `<span class="ex-tier" title="${esc(TIER_NOTE[declared.tier] || "")}">`
           + `${esc(declared.tier)}</span>`
         : "";
       stated.innerHTML =
-        `<div class="ex-head"><span class="ex-verdict">Expected</span>${tier}</div>`
+        `<summary class="ex-head"><span class="ex-verdict">Expected</span>${tier}</summary>`
         + formulaBlock(
             tc.benchmark, declared.headline_latex || declared.formula_latex)
         + `<p class="ex-reason">${esc(declared.reason)}</p>`;

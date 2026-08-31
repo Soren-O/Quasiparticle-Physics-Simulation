@@ -413,7 +413,7 @@ def _build(
 
 register(Benchmark(
     name="diffusion",
-    title="Diffusion — cosine-mode decay rate λ(E) = D_eff(E) k²",
+    title="Diffusion against its eigenmode decay rate",
     # T1: the reference is written from the physics and reads no engine array.
     # It is nonetheless discretisation-aware in energy (it reproduces the
     # engine's finite-volume cell average analytically, because near the gap

@@ -552,6 +552,17 @@ ul.cons .eq { font-family: var(--math); white-space: nowrap; }
 .expectation.fail { border-left-color: var(--critical); }
 .expectation.unknown { border-left-color: var(--muted); }
 .ex-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+/* The PRE-RUN expectation is a <details>. A flex <summary> drops the
+   disclosure triangle in WebKit, leaving a header that is clickable but does
+   not look it, so restore list-item here. The post-run verdict boxes are
+   plain divs and keep the flex rule above. */
+details.expectation > summary.ex-head {
+  display: list-item; list-style-position: inside; cursor: pointer;
+}
+details.expectation > summary.ex-head:focus-visible {
+  outline: 2px solid var(--accent, currentColor); outline-offset: 2px;
+}
+details.expectation[open] > summary.ex-head { margin-bottom: 8px; }
 .ex-verdict {
   font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
   font-weight: 700; color: var(--muted);

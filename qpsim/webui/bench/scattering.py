@@ -362,7 +362,7 @@ def _build(setup: Any, arrays: dict[str, np.ndarray], summary: dict[str, Any]) -
 register(
     Benchmark(
         name="scattering",
-        title="e-ph scattering: Kaplan out-scattering rate at five energies",
+        title="Scattering against the Kaplan out-scattering rate",
         tier="T1",
         formula_latex=(
             r"\begin{aligned}"

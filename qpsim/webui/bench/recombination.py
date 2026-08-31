@@ -439,7 +439,7 @@ def _build(
 
 register(Benchmark(
     name="recombination",
-    title="Recombination - two-body decay x_qp(t) = x_th + X0/(1 + R_x X0 t)",
+    title="Recombination against two-body decay",
     # T1, with the qualification spelled out because an audit has already shown
     # the unqualified claim to be false.
     #
