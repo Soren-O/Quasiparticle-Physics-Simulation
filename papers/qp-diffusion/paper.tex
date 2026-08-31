@@ -415,11 +415,19 @@ limit. The distinction modifies the \(\vF\,\hat{\bp}\cdot\bnabla_{\br}(\DOS\,\fT
 \cref{eq:beta_twomode_L}---the ``spatial current.'' The isotropic
 part (\(\ell=0\)) of \(\fL\) is the energy distribution in amplitude
 form. Meanwhile, the dipole (\(\ell=1\)) of \(\fT\)
-carries the spatial current. Note that in neither \cref{eq:beta_twomode_L} nor \cref{eq:beta_twomode_T} does a dynamic term \( \partial_t \fT \) appear: in \cref{eq:beta_twomode_T}, \(\fT\) enters only through the collision functional \( J_T \). 
-Its anisotropic (dipole) part is therefore ``slaved'' to
-\(\bnabla_{\br}\fL\), fixed at each instant by the balance of streaming
-against collisions rather than evolved. This is similar to the derivation of
-Fick's law from the normal-metal Boltzmann equation. 
+carries the spatial current. In \cref{eq:beta_twomode_T} the transverse amplitude enters only through
+the collision functional \(J_T\), so that equation fixes \(\fT\) at each
+instant rather than propagating it. That is a consequence of the
+quasistatic condition recorded above, not an independent fact about the
+display: whenever the transverse relaxation carried by \(J_T\) is fast
+compared with the frequencies carried by \(\fT\), i.e.\ \(\omega\tautr\ll1\),
+the transverse time-derivative block is negligible beside it. Under that
+inequality the anisotropic (dipole) part of \(\fT\) is ``slaved'' to
+\(\bnabla_{\br}\fL\), fixed by the balance of streaming against collisions
+rather than evolved; where the inequality fails---at the gap edge, in
+particular---the block must be retained and \(\fT\) is evolved. This is the
+same argument, and the same small parameter, that yields Fick's law from
+the normal-metal Boltzmann equation. 
 The parity of the harmonics under \(\hat{\bp}\to-\hat{\bp}\) (even
 vs.\ odd \(\ell\)) will play a larger role here than in the
 normal-metal reduction: the branch-to-trajectory relabelling below
