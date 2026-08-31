@@ -100,7 +100,7 @@ published device analyses are \(\bnabla\cdot[(\DN/\DOS)\bnabla f]\) and \(\parti
 \(\chi_{\qp} \propto\DOS f\) the density carried by quasiparticles near a given
 energy. Neither of these agrees in general with the results we derive here, and
 both produce a spurious density-of-states-gradient drift for smoothly varying local-BCS gaps.
-We additionally derive the common-phase, above-gap scalar Kupriyanov--Lukichev
+We additionally obtain the common-phase, above-gap scalar Kupriyanov--Lukichev
 boundary law and the time-dependent spectral flow required when the gap varies in time.
 \end{abstract}
 
@@ -159,21 +159,6 @@ transport operator, and a transmon quasiparticle-diffusion measurement
 \(\chi_{\qp}\propto\DOS f\) the density carried by quasiparticles near a given
 energy.
 
-A separate branch of the literature already carries the operator in the
-form derived below: the dirty-limit kinetic-equation treatments of
-superconducting single-photon detectors. Eq.~(1) of
-Ref.~\onlinecite{vodolazov2017} reads, in that work's notation,
-\(\DOS\,\partial_t n=\DN\,\bnabla_{\br}\cdot\bigl[(\DOS^{2}-R_2^{2})\bnabla_{\br}n\bigr]-R_2\,(\partial_E n)\,\partial_t|\Delta|+I_{e\text{-}ph}+I_{e\text{-}e}\),
-with \(n\) the quasiparticle occupation and \(R_2\) that work's name for
-our \(N_2\). For a real BCS gap its spectral functions give
-\(\DOS^{2}-R_2^{2}=1\) above the local gap edge, so the coefficient
-standing inside the divergence is the undressed \(\DN\), and
-\(R_2=\DOS\,\Delta/E\) identifies the third term as the time-dependent
-spectral flow obtained in \cref{sec:tdep_spectral_flow}. That equation is
-stated there without derivation and without citation, the placement
-question is not posed, and in the calculations reported both the gradient
-term and the \(\partial_t|\Delta|\) term are switched off.
-
 For a spatially uniform gap/density-of-states these differing choices may reduce to the same result, which is partly why inconsistencies have persisted. 
 Meanwhile, the coefficient \(\DN/\DOS(E)\) of
 Refs.~\onlinecite{riwar2019} and \onlinecite{dong2022} is itself
@@ -186,7 +171,24 @@ the spectral weight \(1/\DOS\) stands relative to the divergence; once \(\Delta\
 leading order in \(\bnabla\Delta\). The drift introduced by a misplaced spectral weight can compete with
 ordinary diffusive spreading, depending on the gap profile and its amplitude.
 
-This paper derives the correct choice of diffusion operator (the placement of the spectral weight relative to the divergence) by both
+The operator derived below is already carried, in that form, in the
+dirty-limit kinetic-equation modelling of superconducting single-photon
+detectors. Eq.~(1) of
+Ref.~\onlinecite{vodolazov2017} reads, in that work's notation,
+\(\DOS\,\partial_t n=\DN\,\bnabla_{\br}\cdot\bigl[(\DOS^{2}-R_2^{2})\bnabla_{\br}n\bigr]-R_2\,(\partial_E n)\,\partial_t|\Delta|+I_{e\text{-}ph}+I_{e\text{-}e}\),
+with \(n\) the quasiparticle occupation and \(R_2\) that work's name for
+our \(N_2\) (that work's own \(N_2\) is a different object, vanishing for
+a real gap above the edge). For a real BCS gap its spectral functions give
+\(\DOS^{2}-R_2^{2}=1\) above the local gap edge, so the coefficient
+standing inside the divergence is the undressed \(\DN\), and
+\(R_2=\DOS\,\Delta/E\) identifies the third term as the time-dependent
+spectral flow obtained in \cref{sec:tdep_spectral_flow}. That equation is
+stated there without derivation and without citation, the placement
+question is not posed, and in the energy-resolved solve reported there both
+the gradient term and the \(\partial_t|\Delta|\) term are switched off (the
+subsequent two-temperature reduction retains them in energy-integrated form).
+
+This paper settles the correct choice of diffusion operator (the placement of the spectral weight relative to the divergence) by both
 routes the literature uses to reach an energy-resolved kinetic
 equation: projecting the quasiclassical theory onto a positive-energy
 quasiparticle occupation and adding elastic impurity scattering to the
@@ -209,8 +211,8 @@ charge-imbalance channel.) Relative to
 Ref.~\onlinecite{vodolazov2017}, which states the same operator without
 deriving it, what is new here is the derivation by two independent routes
 within an explicitly delimited sector, the assignment of the \(\DOS^{2}\)
-dressing to the transverse channel, the taxonomy of alternative placements
-and the drift they carry, and the scalar interface condition. 
+dressing to the transverse channel, and the taxonomy of alternative
+placements and the drift they carry. 
 
 The paper proceeds as follows. \Cref{sec:quasiclassical} assembles
 the quasiclassical machinery from which both routes start, closing
