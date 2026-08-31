@@ -76,9 +76,24 @@ hosseinkhani2018, and goldie2013.
 - **Two distinct direction symbols, and they are not interchangeable.**
   - \(\hat{\mathbf k}\) = momentum (wave-vector) direction.
   - \(\hat{\mathbf p}\) = trajectory (group-velocity) direction.
-  - They differ by the branch sign: \(\hat{\mathbf p}=s\,\hat{\mathbf k}\),
-    \(s=\operatorname{sgn}\xi_{\mathbf k}=\pm\). For hole-like quasiparticles
-    (\(\xi<0\)) they are antiparallel.
+  - They differ by the branch sign: \(\hat{\mathbf p}=\sigma\,\hat{\mathbf k}\),
+    \(\sigma=\operatorname{sgn}\xi_{\mathbf k}=\pm\). For hole-like quasiparticles
+    (\(\xi<0\)) they are antiparallel. (2026-08-05/10: the branch sign
+    is \(\sigma\) throughout the paper now; the former separate symbol
+    \(s\) of the \(\Phi\to0\) passage was unified into \(\sigma\).
+    Representation rule, final form 2026-08-10: momentum-space objects
+    are the UNLABELED \(f_{\bk}\), \(h_{\bk}\), with the branch
+    recorded by the FUNCTION
+    \(\sigma_{\bk}\equiv\operatorname{sgn}\xi_{\bk}\) (subscripted
+    like \(\lambda_{\bk}\) precisely to signal it is a function of
+    \(\bk\), hence redundant as a label on \(f\)); energy--angle
+    objects are the branch-resolved \(f_\sigma\), \(h_\sigma\), where
+    \(\sigma\) is a genuine two-valued INDEX (the value of
+    \(\sigma_{\bk}\) on the chosen branch at fixed \((E,\hat\bk)\),
+    where the map is two-to-one). `eq:beta_f_from_modes` is written
+    with \(f_{\bk}\), \(h_{\bk}\), \(\sigma_{\bk}\). Don't add a
+    branch label to momentum-space objects or drop it from
+    energy--angle ones.)
   - The single-particle / canonical-Boltzmann derivation
     (`eq:intro_canonical_boltzmann` … `eq:intro_boltzmann_clean`) is written
     in the **momentum** direction \(\hat{\mathbf k}\). From the
@@ -153,8 +168,8 @@ hosseinkhani2018, and goldie2013.
   \(\fT=\widetilde f_--\widetilde f_+\) without the \(\lambda_{\mathbf k}\)
   weight — the bare difference is \(\phi_T\), not \(\fT=f^{(2)}\). The
   branch-explicit derivation shows why the *drift* is shared: the antipodal
-  relabelling \(\hat{\mathbf p}=s\hat{\mathbf k}\) turns the branch-odd
-  \(s\,v_g\hat{\mathbf k}\cdot\nabla\) into the branch-even
+  relabelling \(\hat{\mathbf p}=\sigma\hat{\mathbf k}\) turns the branch-odd
+  \(\sigma\,v_g\hat{\mathbf k}\cdot\nabla\) into the branch-even
   \(v_g\hat{\mathbf p}\cdot\nabla\) (`eq:intro_branch` →
   `eq:intro_branch_traj`), so \(\fL\) and \(\phi_T\) inherit it.
   - Cross-coupling arises **only** if one (a) keeps the refraction force
@@ -169,10 +184,26 @@ hosseinkhani2018, and goldie2013.
     \(\fL^{\rm odd}=\phi_T^{\rm odd}\),
     \(\fT^{\rm odd}=-\lambda_{\bk}(\widetilde f_++\widetilde f_-)^{\rm odd}\).
     Don't extend \(\fT=\lambda\phi_T\) to odd harmonics or delete the
-    dictionary as "redundant".
+    dictionary as "redundant". (2026-08-04/05, author-directed: the
+    naive-map display `eq:intro_naive_map`, the step-by-step antipode
+    walk-through, `tab:change_of_variables`, and the standalone
+    `eq:intro_FphiT_def` display were all removed as over-defensive
+    scaffolding; don't re-add them or flag the missing table. The
+    surviving exposition leads with the physical statement — the
+    charge-balanced limit is \(\phi_T\to0\), NOT pointwise
+    \(\fT\to0\): \(\fT\)'s even harmonics are the net charge
+    imbalance, while its odd, dipole harmonic is a direction-resolved
+    branch imbalance netting zero charge that IS the current carrier
+    (\(\bvg\) flips with branch, so a branch-even trajectory-space
+    flow appears branch-odd at fixed momentum direction), later slaved
+    to \(\bnabla\fL\) and eliminated. The dictionary display,
+    with \(F\equiv\widetilde f_++\widetilde f_-\) defined inline,
+    remains as the algebraic support and its label is still referenced
+    from the paper and the supplement.)
   - **Hidden-harmonic map (`eq:sc_hidden_harmonic`):**
     \(f=f_0+\hat{\bp}\cdot\mathbf a\) ⇒ \(\fL=1-2f_0\),
-    \(\fT'=-2\lambda_{\bk}\hat{\bk}\cdot\mathbf a\). The scalar route's
+    \(\fT=-2\lambda_{\bk}\hat{\bk}\cdot\mathbf a\) (the prime dropped
+    2026-08-05 with the gauge specialization). The scalar route's
     \(P_1\) harmonic IS Kopnin's anisotropic transverse amplitude;
     \(\phi_T\equiv0\) ≡ Kopnin §10.5 charge-balanced sector
     \(\{\langle f_2\rangle=0,\ \mathbf f_1=0,\ \mathbf f_2\neq0\}\), a
@@ -202,7 +233,13 @@ hosseinkhani2018, and goldie2013.
 
 - **Electrostatics / charge imbalance.** The four-equation "kinetic core"
   deliberately omits the electrostatic closure because the applications
-  below use \(\fT\to0\). For nonzero \(\fT\) a gauge-invariant
+  below use the charge-balanced sector \(\phi_T\to0\) (2026-08-05: the
+  sector label in the text is now \(\phi_T\to0\), not \(\fT\to0\) —
+  \(\phi_T\to0\) kills only the even, net-charge harmonics of \(\fT\);
+  the odd, current-carrying harmonic survives, so \(\fT\to0\) was the
+  wrong label. The lone exception is the Usadel/matrix context, where
+  \(\fT\) denotes the isotropic component of the distribution matrix
+  and \(\fT\to0\) is correct as written). For nonzero \(\phi_T\) a gauge-invariant
   scalar-potential equation (local neutrality) is needed; the text says so
   and distinguishes "neglect backreaction" from "impose neutrality" (the
   latter fixes a generally *nonzero* potential, it does not set it to
@@ -306,10 +343,24 @@ hosseinkhani2018, and goldie2013.
   equation in a footnote attached to `eq:beta_f_from_modes`; the former
   display `eq:beta_conjugation_map` was folded into that footnote and
   the label no longer exists):**
-  \(h=\sigma(1-2n^{\mathrm K})=f^{(1)}+\sigma\lambda^{-1}f_2'\) — Kopnin's
-  \(n^{\mathrm K}\) is the Fermi function only on the electron-like branch;
-  the \(\sigma\) placement differs from Kopnin's Eq. (15.4) by exactly this
-  conjugation, by design.
+  \(h=\sigma(1-2n^{\mathrm K})=f^{(1)}+\sigma\lambda^{-1}f^{(2)}\) —
+  Kopnin's \(n^{\mathrm K}\) is the Fermi function only on the
+  electron-like branch; the \(\sigma\) placement differs from Kopnin's
+  Eq. (15.4) by exactly this conjugation, by design. (2026-08-05: the
+  whole change-of-variables construction was specialized to the
+  paper's sector, author-directed — the gauge-invariant machinery
+  \(\fT'\), \(\Phi\), \(\bps\), \(\widetilde\xi\), \(\widetilde E\),
+  and the Lorentz force were removed as unused generality; the
+  construction now uses \(E_{\bk}=\sqrt{\xi^2+\Delta^2}\),
+  \(\sigma=\operatorname{sgn}\xi\), \(\lambda=|\xi|/E\),
+  \(\bF=-\bnabla E_{\bk}\), and the footnote states the identity with
+  \(f^{(2)}\) plus a one-sentence general-gauge replacement map
+  pointing to Kopnin §15.1. Labels `eq:beta_fT_shift`,
+  `eq:beta_ps_def`, `eq:beta_pdot`, and `eq:intro_canonical_boltzmann`
+  were deleted — the canonical-equation display merged into prose
+  citing Kopnin Eqs. (1.87)–(1.88) at `eq:beta_boltzmann_explicit`,
+  which now IS the canonical equation. Don't reintroduce the gauge
+  machinery or flag the missing labels.)
 
 ### Settled items inherited from paper1/paper2, and from later review rounds
 
@@ -597,7 +648,7 @@ Soren-directed); this describes the *current* layout, not a change log:
   which now closes with the "Sector of this paper" paragraph (the
   compact assumption list: homogeneous s-wave BCS, real gap/no
   superflow/no drive, adiabatic local-BCS spectra, Born impurities,
-  charge-balanced \(\fT\to0\), PPG force dropped, \(E>\Delta\) domain).
+  charge-balanced \(\phi_T\to0\), PPG force dropped, \(E>\Delta\) domain).
 - The taxonomy section and the consistency-check/benchmark material
   (`sec:taxonomy`, `sec:program`, `sec:projection_vs_averaging`,
   `sec:self_consistent_feedback`, the four bench figures, the roadmap
@@ -632,10 +683,17 @@ Soren-directed); this describes the *current* layout, not a change log:
   cross-reference via xr-hyper, each needs the other's .aux), plain `make`
   afterwards; `make roadmap` rebuilds the routes figure; `make verify` runs
   the sympy proof-check scripts (needs `../.venv` or `make setup`).
-- Current clean-build state (verified 2026-08-04): paper.pdf 47pp,
-  supplement.pdf 65pp, zero undefined references/citations, zero overfull
-  hboxes or vboxes (the former ~3.3pt overfull vbox p.9 cleared when the
-  harmonic-exposition trims shifted pagination). `make
+- Current clean-build state (verified 2026-08-05, after the
+  restructure/trim sessions of 2026-08-04/05): paper.pdf 44pp,
+  supplement.pdf 65pp (paper now 43pp after the author's 2026-08-10
+  simplification pass), zero undefined references/citations, zero
+  overfull hboxes. One small overfull vbox (2.8 pt p. 8 as of
+  2026-08-10) is an accepted residual: a fixed
+  display/footnote glue deficit at a pinned page break, invisible
+  (~1 mm), unmoved by repeated prose rewordings. Such residuals
+  relocate with any edit; recover a rendered line on the offending
+  page if one grows past ~10 pt, but don't degrade prose chasing the
+  small ones. `make
   verify` is 7/7 PASS (`verify_fT.py`, `verify_gA_convention.py`,
   `verify_nonadiabatic.py`, `verify_proximity.py`, `verify_supercurrent.py`,
   `verify_tdep_inhomogeneous.py`, `verify_traces.py`).

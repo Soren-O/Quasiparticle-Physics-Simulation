@@ -170,8 +170,7 @@ the Keldysh quasiclassical normalization
   \hatg^{R}\circ\hatg^{K}+\hatg^{K}\circ\hatg^{A}=0,
   \label{eq:norm_RAK}
 \end{equation}
-where ``\(\circ\)'' (the main text's \(\otimes\), up to the kernel-sign
-convention noted below \cref{eq:keldysh_eilenberger}) is the
+where ``\(\circ\)'' (the main text's \(\otimes\)) is the
 Wigner-representation Moyal product; in the time--energy pair it reads
 \(A\circ B=A\,\ee^{(\ii\hbar/2)(\overleftarrow{\partial}_{\!E}\overrightarrow{\partial}_{\!t}-\overleftarrow{\partial}_{\!t}\overrightarrow{\partial}_{\!E})}B\)
 (expanded in \cref{eq:moyal_def}), with spatial gradients kept explicit in
@@ -945,7 +944,8 @@ longitudinal and transverse spectral coefficients
   \label{eq:DL_DT_def}
 \end{equation}
 which are (one quarter of) the Nambu traces of the matrix
-coefficients of \(\widetilde\bnabla\fL\) and (after \(\tau_3\)-conjugation)
+coefficients of \(\widetilde\bnabla\fL\) and (after right-multiplication by
+\(\tau_3\), i.e.\ under the \(\tau_3\)-trace)
 \(\widetilde\bnabla\fT\); we now evaluate them on the BCS bulk. Plugging in \cref{eq:gRgA}, \cref{eq:gRtau3gA}
 and using \(\Tr[\openone]=2\), \(\Tr[\tau_a]=0\):
 \begin{equation}
@@ -2807,7 +2807,10 @@ and heat currents are \(I=A J_{\mathrm{ch}}\) and
   =
   \frac{\pi^2 k_{\mathrm B}^2T}{3e^2}\,G_N ,
 \]
-which fixes the factors of two and the single-spin convention for \(N_0\).
+which fixes the factors of two in
+\cref{eq:KL_BC,eq:scalar_BC_L,eq:scalar_BC_T} and in the observable-current
+prefactors above. Neither identity involves \(N_0\); its single-spin
+convention is the one stated with \(\sigma_i\) beneath \cref{eq:KL_BC}.
 No explicit \(\hbar\) belongs in these stationary formulas: \(E\) is an
 energy, \(N_0\) is per energy-volume, and \(\hbar\) is already implicit in
 \(N_0\) and the microscopic barrier resistance.
@@ -2881,13 +2884,13 @@ ideal BCS background, with a nonuniform small-\(Q\) edge response). With
 a phase gradient the gauge-covariant gradient is
 \(\widetilde\bnabla\hatg=\bnabla\hatg-\ii Q[\tau_3,\hatg]\), \(Q\) the
 gauge-invariant superfluid momentum (taken along a single direction
-throughout, all currents understood as components along it). For the \emph{frozen} BCS spectral functions
+throughout, all currents understood as components along it). For the \emph{frozen} BCS spectral functions, above the gap (\(E>\Delta\), where \(\hatg^A=-\hatg^R\)),
 the supercurrent still does \emph{not} mix the channels: with the corrected
 propagators the \(\fT\)-sector Keldysh symbol is
 \(\hatg^K|_{\fT}=2\DOS\fT\,\openone\), so
 \([\tau_3,\hatg^K|_{\fT}]=0\) identically, and the remaining \(Q\)-term
 \(\hatg^K|_{\fT}[\tau_3,\hatg^A]=-4\DOS N_2\fT\,\tau_1\) is traceless in both
-scalar channels. The longitudinal
+scalar channels. In this above-gap sector the longitudinal
 current remains the undressed \(\bnabla\fL\) at \emph{all} \(Q\), and the
 transverse current \(\DOS^2\bnabla\fT\) (verified symbolically: all
 \(Q\)-dependent terms cancel in both projections).
@@ -3892,9 +3895,9 @@ self-consistency generically produces adds no new terms to the
 longitudinal projection: the fixed-\(E\) trace yields the spectral flow
 with local coefficients, the spatial current remains undressed with no
 \(\bnabla\Delta\) source, the drive does not mix the scalar channels, and
-the first Moyal correction to \(g_0^K\) is sourced only by \(\fT\), so
-the leading candidate \(\hbar\,\dot\Delta\,\partial_x\Delta\) cross term
-traces to zero in the energy mode (verified symbolically for generic
+the first Moyal correction to \(g_0^K\) is sourced only by \(\fT\), while
+the leading candidate \(\hbar\,\dot\Delta\,\partial_x\Delta\) cross term, which the outer Moyal brackets of \(\checkg_0\,\widetilde\bnabla\checkg_0\)
+do generate in the \(\fL\) sector, separately traces to zero in the energy mode (verified symbolically for generic
 \(\Delta(x,t)\) alongside the identities of main-text~\cref{M-sec:tdep_spectral_flow};
 script \texttt{verify\_tdep\_inhomogeneous.py} in the verification
 repository cited under Data and code availability in the main text). Self-consistency changes
@@ -3995,8 +3998,8 @@ face (\cref{fig:bench_interface}).
   are measured. The tracked moment is the center of mass of each
   operator's conserved density \(\DOS^{p}f\), which isolates the drift
   content of the flux; the first moment of \(f\) itself would
-  additionally respond to the spatially varying rate prefactor
-  \(\DOS^{\,q-p}(x)\). A1 (\(q=0\)) shows no DOS-gradient drift; the \(q=2\)
+  additionally respond to the spatially varying conserved-density weight
+  \(\DOS^{p}(x)\). A1 (\(q=0\)) shows no DOS-gradient drift; the \(q=2\)
   diagnostics drift up the gap gradient; the legacy placements C
   (\(q=-1\)) and B (\(q=-2\)) drift down, with magnitudes set
   asymptotically by \(q\). The prescribed 60\% ramp is deliberately
