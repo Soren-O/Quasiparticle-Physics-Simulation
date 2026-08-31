@@ -938,32 +938,42 @@ async function openItem(catId, itemId) {
          <span class="tc-title">${esc(tc.title)}</span>
          <span class="tc-mode">${esc(state.modeLabels[tc.mode] || tc.mode)}</span>
        </div>
-       <p class="tc-summary">${esc(tc.summary)}</p>
        <div class="tc-actions"></div>
        <div id="case-msg-${esc(tc.id)}"></div>`;
     // The claim is stated BEFORE the run, from the server's registry, so the
     // form shown here is the identical string the verdict is computed against.
     const declared = (tc.benchmark && state.benchmarks[tc.benchmark]) || tc.expect;
-    if (declared) {
-      // COLLAPSED BY DEFAULT, and deliberately not removed. Browsing a list of
-      // cases is not the moment to read a formula and a paragraph per card --
-      // three of them stacked is a wall of text before you have done anything.
-      // But the claim still has to be STATED here, because this is the same
-      // string the verdict is computed against later, and showing it only
-      // afterwards would let a prediction be read in the light of its own
-      // result. A disclosure keeps both: pre-registered, one click away.
-      // The post-run verdict boxes are separate and stay fully expanded.
+    if (tc.summary || declared) {
+      // ONE disclosure holding everything that is not the title, the mode or
+      // the buttons. Browsing a list of cases is choosing which to open, not
+      // reading a paragraph and a formula per card; three of those stacked is
+      // a wall of text before anything has been done.
+      //
+      // Collapsed, though, and not removed. The expectation in particular has
+      // to stay STATED before the run: it is the identical string the verdict
+      // is computed against, and revealing it only afterwards would let a
+      // prediction be read in the light of its own result. A disclosure keeps
+      // the pre-registration and gives back the page.
+      //
+      // The tier badge rides on the summary line rather than inside, because
+      // it is the one thing here worth seeing without a click -- a T2 result
+      // reuses the kernel it is checking, and that should not need expanding
+      // to discover. The post-run verdict boxes are separate and unaffected.
       const stated = document.createElement("details");
       stated.className = "expectation";
-      const tier = declared.tier
+      const tier = declared && declared.tier
         ? `<span class="ex-tier" title="${esc(TIER_NOTE[declared.tier] || "")}">`
           + `${esc(declared.tier)}</span>`
         : "";
       stated.innerHTML =
-        `<summary class="ex-head"><span class="ex-verdict">Expected</span>${tier}</summary>`
-        + formulaBlock(
-            tc.benchmark, declared.headline_latex || declared.formula_latex)
-        + `<p class="ex-reason">${esc(declared.reason)}</p>`;
+        `<summary class="ex-head">`
+        + `<span class="ex-verdict">What this checks</span>${tier}</summary>`
+        + (tc.summary ? `<p class="tc-summary">${esc(tc.summary)}</p>` : "")
+        + (declared
+            ? formulaBlock(
+                tc.benchmark, declared.headline_latex || declared.formula_latex)
+              + `<p class="ex-reason">${esc(declared.reason)}</p>`
+            : "");
       card.insertBefore(stated, card.querySelector(".tc-actions"));
     }
     const actions = card.querySelector(".tc-actions");
