@@ -164,6 +164,8 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
     switch shown on that does nothing, but a channel shown off that is doing
     most of the work.
     """
+    if _steady_state(setup):
+        return TermStatus(ABSENT, _STEADY_STATE_REASON)
     if not bool(_get(setup, f"{prefix}.enabled", False)):
         return TermStatus(OFF)
     if float(_get(setup, f"{prefix}.{coupling}", 0.0)) <= 0.0:
@@ -182,7 +184,27 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
     return TermStatus(ON)
 
 
+def _steady_state(setup: Any) -> bool:
+    """Does this setup select the 0-D steady-state solver?
+
+    That route reads the material, the phonon sector and the probe, and
+    NOTHING else -- no injection, no drives, no initial condition. Measured
+    bit-identical to 11 digits with injection at 2e-4 and at 2e-1. So every
+    source term is `absent` there in the precise sense this module means: not
+    in the model, and therefore neither on nor off.
+    """
+    return getattr(setup, "strategy", None) == "steady_state"
+
+
+_STEADY_STATE_REASON = (
+    "the steady-state strategy solves for the balance point from the material "
+    "and phonon sector alone, so no source term is part of that model"
+)
+
+
 def _injection(setup: Any) -> TermStatus:
+    if _steady_state(setup):
+        return TermStatus(ABSENT, _STEADY_STATE_REASON)
     if getattr(setup, "injection", None) is None:
         return TermStatus(ABSENT, "this mode has no injection source")
     if not bool(_get(setup, "injection.enabled", False)):

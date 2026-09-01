@@ -52,7 +52,11 @@ const MATERIAL_FIELDS = (withTransport) => ({
     F("material.tau_0_pb_ns", "τ₀^PB phonon-side (ns)", "number", { nullable: true }),
     ...(withTransport ? [F("material.D_0", "D₀ (μm²/ns)")] : []),
     F("material.rho_F", "ρ_F (eV⁻¹m⁻³)"),
-    F("material.dynes_gamma", "Dynes Γ (μeV)"),
+    // NO Dynes field here. The spatial transport layer refuses a broadened
+    // spectral context outright ("the finite-volume dressings do not
+    // implement Dynes broadening"), so any non-zero value entered here can
+    // only produce a failed run. Offering a control whose every non-default
+    // value is rejected is worse than not offering it.
   ],
 });
 const GRID_FIELDS = {
@@ -338,7 +342,11 @@ function renderField(field) {
       const mat = state.materials.find((m) => m.name === input.value);
       if (mat) {
         Object.assign(state.setup.material, mat.params);
-        renderForm();
+        // showWizardStep, not renderForm. renderForm writes the WHOLE form
+        // into #setup-form, which is the Conditions panel; geometry lives in
+        // #form-geometry on a different step. Calling it bare leaves the page
+        // showing one step's controls inside another's.
+        showWizardStep(wizard.index);
       }
     });
   } else {
@@ -483,11 +491,19 @@ async function showRunDetail() {
   if (r.error) html += `<div class="note">✗ ${esc(r.error)}</div>`;
 
   if (r.status === "done") {
-    const entries = Object.entries(r.summary || {});
+    // `benchmark` is a structured verdict, not a scalar. Left in the summary
+    // table it renders as "[object Object]" -- the run detail view was the
+    // one place a benchmark result was reported as nothing at all, while the
+    // test-case view (which calls renderBenchmark) showed it properly. Pull it
+    // out here and render it the same way, so the two paths agree.
+    const summary = r.summary || {};
+    const benchmark = summary.benchmark;
+    const entries = Object.entries(summary).filter(([k]) => k !== "benchmark");
     if (entries.length) {
       html += `<table class="list summary-table">${entries.map(([k, v]) =>
         `<tr><td>${esc(k)}</td><td>${esc(fmt(v))}</td></tr>`).join("")}</table>`;
     }
+    if (benchmark) html += `<div id="run-detail-benchmark"></div>`;
     const families = r.plot_params || {};
     html += `<div class="plot-grid">${(r.plots || [])
       .filter((p) => !families[p])
@@ -514,6 +530,14 @@ async function showRunDetail() {
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
+  // After the HTML is mounted, because renderBenchmark writes into a live
+  // node. The holder only exists when the run reported a verdict.
+  {
+    const holder = $("#run-detail-benchmark");
+    if (holder && r.summary && r.summary.benchmark) {
+      renderBenchmark(holder, r.summary.benchmark, id);
+    }
+  }
   // A simulation is something that already ran. Its settings are a record
   // of what produced these numbers, so they are shown and never offered for
   // editing: an edited run would pair one set of results with a different
@@ -549,6 +573,11 @@ async function refreshSetups() {
       $("#run-name").value = body.name;
       showView("new-run");
       switchMode(body.setup.mode, body.setup);
+      // switchMode ends in a bare renderForm(), which never touches
+      // #form-geometry. Without this the wizard opens on Geometry still
+      // showing the PREVIOUS setup's rows/cols/mesh while state.setup holds
+      // the loaded ones -- and Run then uses values the screen never showed.
+      showWizardStep(wizard.index);
     }));
   document.querySelectorAll("#setups-list [data-del]").forEach((b) =>
     b.addEventListener("click", async () => {

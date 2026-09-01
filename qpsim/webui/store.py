@@ -323,6 +323,11 @@ class Workspace:
                         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                         "schema_version": _SETUP_SCHEMA_VERSION,
                         "setup": envelope.setup.model_dump(),
+                        # The benchmark is part of what the setup IS -- a case
+                        # whose point is "score this against the diffusion
+                        # closed form" comes back as an unscored setup without
+                        # it, and silently, which is worse than failing to save.
+                        "benchmark": envelope.benchmark,
                     },
                 )
                 return slug
@@ -334,6 +339,7 @@ class Workspace:
                 "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "schema_version": _SETUP_SCHEMA_VERSION,
                 "setup": envelope.setup.model_dump(),
+                "benchmark": envelope.benchmark,   # see the note above
             },
         )
         return slug
@@ -397,7 +403,13 @@ class Workspace:
                 if rho_f < _RHO_F_MIGRATION_CUTOFF_EV:
                     material["rho_F"] = rho_f * 1.0e6
         return SetupEnvelope.model_validate(
-            {"name": data.get("name", slug), "setup": setup_data}
+            # `benchmark` is absent from every file written before it was
+            # persisted, so read it with a default rather than requiring it.
+            {
+                "name": data.get("name", slug),
+                "setup": setup_data,
+                "benchmark": data.get("benchmark"),
+            }
         )
 
     def delete_setup(self, slug: str) -> None:

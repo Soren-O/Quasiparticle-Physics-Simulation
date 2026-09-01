@@ -217,8 +217,18 @@ def _plot_occupation_spectrum_2d(
 def _plot_xqp_profile_2d(arrays: dict[str, np.ndarray]) -> bytes:
     """Cell-ordered x_qp, which is the readable view for a 1-D reduction."""
     profile = np.asarray(arrays["xqp_profile"], dtype=float)
-    fig, ax = _new_axes("cell (mask order)", "x_qp", "x_qp per cell")
-    ax.semilogy(np.arange(profile.size), _positive(profile), marker=".", lw=1.0)
+    # Against the recorded distance where the run emits one. `x_um` holds cell
+    # CENTRES, (i + 1/2)h; plotting against arange puts every point half a
+    # cell to the left of where it was computed, which is invisible in a plot
+    # and wrong in a fit -- and a length axis is what a reader wants anyway.
+    x = arrays.get("x_um")
+    if x is not None and np.asarray(x).size == profile.size:
+        fig, ax = _new_axes("x (μm)", "x_qp", "x_qp per cell")
+        abscissa = np.asarray(x, dtype=float)
+    else:
+        fig, ax = _new_axes("cell (mask order)", "x_qp", "x_qp per cell")
+        abscissa = np.arange(profile.size, dtype=float)
+    ax.semilogy(abscissa, _positive(profile), marker=".", lw=1.0)
     return _finish(fig)
 
 
@@ -444,9 +454,19 @@ def _plot_phonon_frame(
     """Phonon occupation at one frequency, over the device."""
     stack = arrays["snap_n_ph"]
     t = float(arrays["snap_t_ns"][frame])
+    # The run records the frequency axis its phonon populations are indexed
+    # by, so name the frequency rather than its position. "bin 60" is not a
+    # physical quantity and cannot be compared between two runs on different
+    # grids -- the same index is a different frequency. Falls back to the
+    # index for payloads written before the axis was emitted.
+    axis = arrays.get("snap_omega_bins")
+    if axis is not None and omega < np.asarray(axis).size:
+        where = f"ω = {float(np.asarray(axis)[omega]):.4g} μeV"
+    else:
+        where = f"ω bin {omega}"
     return _draw_frame(
         arrays, summary, stack[frame, omega],
-        f"n_ph at ω bin {omega} — t = {t:.4g} ns",
+        f"n_ph at {where} — t = {t:.4g} ns",
         "n_ph", _frame_norm(stack[:, omega]),
     )
 

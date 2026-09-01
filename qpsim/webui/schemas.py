@@ -179,6 +179,31 @@ class PhononSector(StrictModel):
     # Only meaningful in the dynamic modes; thermal_bath pins n_ph outright.
     initial: PhononInitialCondition = PhononInitialCondition()
 
+    @model_validator(mode="after")
+    def _seed_needs_a_phonon_equation(self) -> "PhononSector":
+        """A phonon seed under ``thermal_bath`` is discarded, so refuse it.
+
+        ``thermal_bath`` pins n_ph at the Bose-Einstein value and the executors
+        pass ``phonon_escape_time=None``, on which both collision layers skip
+        the phonon advance entirely. A seed asked for here therefore validates
+        cleanly, is silently replaced by None, and the run reports nothing --
+        the state the user described is not the state that is solved.
+
+        Refused rather than warned, and refused at the SCHEMA rather than in
+        the validator, because this pairing is a property of the sector object
+        itself: any route that builds one gets the check, including callers
+        that never go through ``validate_setup``.
+        """
+        if self.mode == "thermal_bath" and self.initial.kind != "bath":
+            raise ValueError(
+                f"phonons.initial.kind={self.initial.kind!r} needs a phonon "
+                "equation to act on, but phonons.mode='thermal_bath' pins n_ph "
+                "at the bath and solves none, so the seed would be discarded. "
+                "Choose 'dynamic_escape' or 'dynamic_closed', or leave the "
+                "seed at 'bath'."
+            )
+        return self
+
 
 class CollisionTerms(StrictModel):
     """Which electron-phonon channels are present in the kinetic equation.

@@ -479,7 +479,13 @@ def run_kinetics(
     )
 
     def hook(elapsed: float, total: float) -> bool:
-        progress(0.05 + 0.9 * min(1.0, elapsed / total), "stepping")
+        # "stepping" says only that it has not finished. The 0-D path already
+        # reports simulated time, and on a long spatial march that is the
+        # difference between a progress bar and a number the user can act on.
+        progress(
+            0.05 + 0.9 * min(1.0, elapsed / total),
+            f"t = {elapsed:.4g} / {total:.4g} ns",
+        )
         return not is_cancelled()
 
     with warnings.catch_warnings(record=True) as caught:

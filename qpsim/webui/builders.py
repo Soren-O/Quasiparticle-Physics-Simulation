@@ -292,6 +292,55 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         # them (the equal-gap interface guard below was found exactly that
         # way, by a test that posted a retired mode name and got a 200).
         if setup.strategy == "steady_state":
+            # This strategy reads a STRICT SUBSET of the setup: material,
+            # phonons.mode and probe. Every physical input listed below is
+            # discarded -- measured bit-identical to 11 digits with injection
+            # at 2e-4 and at 2e-1, while the terms panel still reported the
+            # source as on. Before the mode collapse these fields could not be
+            # set on this route at all, because it was a separate mode with a
+            # narrower schema; making `strategy` a setting is what created a
+            # path where they can be set, look accepted and do nothing.
+            #
+            # Refused rather than warned: a setup carrying a drive that is
+            # dropped is not the setup the user described, and a run that
+            # returns the thermal answer to a driven question is wrong in the
+            # way that is hardest to notice.
+            # "Enabled" is not the same as "acting", and only an ACTING term
+            # is one this strategy discards. A photon drive is switched by its
+            # COUPLING -- every kernel term is multiplied by it, so c_phot = 0
+            # applies nothing however enabled it is -- and injection by its
+            # rate. Keying the refusal on `enabled` alone would reject setups
+            # where nothing would have happened anyway, which is the mirror of
+            # the defect this check exists to prevent. Same rule as
+            # `terms._photon` / `terms._injection`, deliberately.
+            def _acting(node_name: str, magnitude: str) -> bool:
+                node = getattr(setup, node_name, None)
+                if node is None or not bool(getattr(node, "enabled", False)):
+                    return False
+                return float(getattr(node, magnitude, 0.0) or 0.0) > 0.0
+
+            dropped: list[str] = []
+            if _acting("injection", "rate_per_ns"):
+                dropped.append("injection")
+            if getattr(setup, "drives", None):
+                dropped.append("drives")
+            initial = getattr(setup, "initial", None)
+            initial_kind = getattr(initial, "kind", "thermal") if initial else "thermal"
+            if initial_kind != "thermal":
+                dropped.append(f"initial.kind={initial_kind!r}")
+            if _acting("subgap_drive", "c_phot"):
+                dropped.append("subgap_drive")
+            if _acting("pb_drive", "c_phot_PB"):
+                dropped.append("pb_drive")
+            if dropped:
+                report.errors.append(
+                    "strategy='steady_state' solves a 0-D steady state from the "
+                    "material, the phonon sector and the probe alone, so it would "
+                    f"silently discard: {', '.join(dropped)}. Choose "
+                    "strategy='time_march' to drive the system, or clear these "
+                    "fields to state that the run is undriven."
+                )
+
             c = setup.collisions
             if setup.phonons.mode == "thermal_bath":
                 # No phonon equation exists in this sector: n is pinned at the bath.

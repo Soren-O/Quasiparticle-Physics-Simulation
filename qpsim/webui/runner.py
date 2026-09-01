@@ -360,6 +360,17 @@ class JobRunner:
             manifest["status"] = current_status
             manifest["progress"] = job.progress
             manifest["progress_message"] = job.message
+            # Wall-clock so far. A fraction alone cannot distinguish a run
+            # that is slow from one that has stopped advancing, which is the
+            # question actually being asked when someone opens a running job.
+            started = manifest.get("started_at") or manifest.get("created_at")
+            if started is not None:
+                try:
+                    manifest["elapsed_s"] = max(
+                        0.0, time.time() - float(started)
+                    )
+                except (TypeError, ValueError):
+                    pass
         # A live terminal job with a still-active disk manifest means
         # the final write is in flight (or stashed and just retried);
         # serve the disk state as-is — never promote the status without
