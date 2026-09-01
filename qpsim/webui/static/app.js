@@ -119,8 +119,12 @@ const FORMS = {
       title: "Boundary",
       hint: "Applied to the whole device rim. reflective keeps everything in; absorbing and dirichlet let quasiparticles leave.",
       fields: [
-        F("boundary.kind", "Condition", "select", { options: ["reflective", "absorbing", "dirichlet", "neumann"] }),
+        F("boundary.kind", "Condition", "select", { options: ["reflective", "absorbing", "dirichlet", "neumann", "robin"] }),
         F("boundary.value", "Value"),
+        F("boundary.aux_value", "Second coefficient (robin)", "number", { nullable: true }),
+        F("boundary.per_edge", "Per-edge overrides", "params", {
+          placeholder: '{"left": {"kind": "absorbing"}}',
+        }),
       ],
     },
     {
@@ -134,11 +138,55 @@ const FORMS = {
       title: "Gap regions",
       hint: "column_step puts gap_left before the step fraction and gap_right after. In 2D that boundary is a curve of faces; a finite G_N makes every face along it a Kupriyanov–Lukichev barrier. It only shows when something drives a flux across the step.",
       fields: [
-        F("gap_regions.kind", "Kind", "select", { options: ["uniform", "column_step"] }),
+        F("gap_regions.kind", "Kind", "select", { options: ["uniform", "column_step", "expression"] }),
         F("gap_regions.gap_left", "Gap left (μeV)"),
         F("gap_regions.gap_right", "Gap right (μeV)"),
         F("gap_regions.step_fraction", "Step position (0–1)"),
         F("gap_regions.interface_G_N", "Interface G_N", "number", { nullable: true }),
+        F("gap_regions.expression", "Δ(x, y) expression", "text", {
+          nullable: true,
+          placeholder: "gap*(1.0 + 0.5*x)",
+        }),
+        F("gap_regions.params", "Expression params", "params", {
+          placeholder: '{"depth": 0.4}',
+        }),
+      ],
+    },
+    {
+      title: "Phonon sector",
+      hint: "thermal_bath pins n_ph at the bath and solves NO phonon equation, which is why the three phonon-sector term buttons are inert under it. The dynamic sectors solve one: dynamic_escape lets phonons leave to the substrate in tau_l, dynamic_closed keeps them. A seed only means something where an equation exists to move it.",
+      fields: [
+        F("phonons.mode", "Sector", "select", { options: ["thermal_bath", "dynamic_escape", "dynamic_closed"] }),
+        F("phonons.tau_l_ns", "τ_l escape (ns)"),
+        F("phonons.use_phonon_side_kernel", "Phonon-side kernel", "check"),
+        F("phonons.initial.kind", "Seed", "select", { options: ["bath", "thermal_at", "scaled", "expression"] }),
+        F("phonons.initial.T_eff", "Seed T_eff (K)", "number", { nullable: true }),
+        F("phonons.initial.factor", "Seed × bath"),
+        F("phonons.initial.expression", "Seed expression", "text", {
+          nullable: true,
+          placeholder: "n_bath*(1.0 + 2.0*np.exp(-omega/50.0))",
+        }),
+        F("phonons.initial.params", "Seed params", "params"),
+      ],
+    },
+    {
+      title: "Initial condition",
+      hint: "Where the quasiparticles start. thermal is the fixed point, so a run left there does not move -- every other kind is a departure the relaxation has something to relax from. The energy and space profiles multiply.",
+      fields: [
+        F("initial.kind", "Kind", "select", { options: ["thermal", "excess", "absolute"] }),
+        F("initial.amplitude", "Amplitude"),
+        F("initial.energy.kind", "Energy profile", "select", { options: ["flat", "thermal", "monoenergetic", "gap_edge", "expression"] }),
+        F("initial.energy.T_eff", "T_eff (K)", "number", { nullable: true }),
+        F("initial.energy.E_0", "E₀ (μeV)", "number", { nullable: true }),
+        F("initial.energy.width", "Width (μeV)", "number", { nullable: true }),
+        F("initial.energy.expression", "Energy expression", "text", { nullable: true, placeholder: "np.exp(-(E-gap)/20.0)" }),
+        F("initial.space.kind", "Space profile", "select", { options: ["uniform", "gaussian", "point", "expression"] }),
+        F("initial.space.x_0", "x₀ (0–1)"),
+        F("initial.space.y_0", "y₀ (0–1)"),
+        F("initial.space.sigma", "σ (0–1)"),
+        F("initial.space.expression", "Space expression", "text", { nullable: true, placeholder: "np.exp(-((x-0.5)**2)/0.02)" }),
+        F("initial.expression", "Whole-field expression", "text", { nullable: true }),
+        F("initial.params", "Params", "params"),
       ],
     },
     {
@@ -348,6 +396,37 @@ function renderField(field) {
         // showing one step's controls inside another's.
         showWizardStep(wizard.index);
       }
+    });
+  } else if (field.type === "text" || field.type === "params") {
+    // STRING-VALUED fields. Without this branch they fell through to the
+    // numeric one below, where parseFloat of an expression is NaN and the
+    // box resynced to the model -- so the control looked live, accepted
+    // typing, and discarded it. `geometry.gds_path` was declared "text" and
+    // was inert for exactly this reason; every expression field in this
+    // form would have been too.
+    input = document.createElement("input");
+    input.type = "text";
+    const asText = (v) => (v == null ? "" : (field.type === "params" ? JSON.stringify(v) : String(v)));
+    input.value = asText(value);
+    if (field.placeholder) input.placeholder = field.placeholder;
+    input.addEventListener("change", () => {
+      const raw = input.value.trim();
+      if (field.type === "params") {
+        // A {name: number} map for the expression to read. Reject anything
+        // else rather than storing a shape the engine cannot use.
+        if (raw === "") { setByPath(state.setup, field.path, {}); return; }
+        try {
+          const obj = JSON.parse(raw);
+          const ok = obj && typeof obj === "object" && !Array.isArray(obj)
+            && Object.values(obj).every((v) => typeof v === "number" && Number.isFinite(v));
+          if (!ok) throw new Error("not a flat {name: number} object");
+          setByPath(state.setup, field.path, obj);
+        } catch {
+          input.value = asText(getByPath(state.setup, field.path));
+        }
+        return;
+      }
+      setByPath(state.setup, field.path, raw === "" ? (field.nullable ? null : "") : raw);
     });
   } else {
     input = document.createElement("input");
