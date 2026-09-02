@@ -35,7 +35,30 @@ class Element {
     this._innerHTML = "";
   }
   appendChild(child) { child.parent = this; this.children.push(child); return child; }
-  setAttribute(key, value) { this.attributes[key] = String(value); }
+  get classList() {
+    const el = this;
+    const list = () => el.className.split(/\s+/).filter(Boolean);
+    return {
+      add: (...names) => { el.className = [...new Set([...list(), ...names])].join(" "); },
+      remove: (...names) => { el.className = list().filter((c) => !names.includes(c)).join(" "); },
+      toggle: (name, force) => {
+        const has = list().includes(name);
+        const on = force === undefined ? !has : Boolean(force);
+        if (on && !has) el.className = [...list(), name].join(" ");
+        if (!on && has) el.className = list().filter((c) => c !== name).join(" ");
+        return on;
+      },
+      contains: (name) => list().includes(name),
+    };
+  }
+  setAttribute(key, value) {
+    this.attributes[key] = String(value);
+    if (key === "class") this.className = String(value);
+    if (key === "id") this.id = String(value);
+    if (key.startsWith("data-")) {
+      this.dataset[key.slice(5).replace(/-(\w)/g, (_, ch) => ch.toUpperCase())] = String(value);
+    }
+  }
   getAttribute(key) { return key in this.attributes ? this.attributes[key] : null; }
   addEventListener(event, fn) { (this.listeners[event] ||= []).push(fn); }
   dispatch(event) { for (const fn of this.listeners[event] || []) fn({ target: this }); }
@@ -56,10 +79,11 @@ class Element {
 
 function matches(el, selector) {
   return selector.split(",").some((part) => {
-    const m = part.trim().match(/^([a-z]*)((?:\.[\w-]+)*)((?:\[[^\]]+\])*)$/i);
+    const m = part.trim().match(/^([a-z]*)(#[\w-]+)?((?:\.[\w-]+)*)((?:\[[^\]]+\])*)$/i);
     if (!m) throw new Error(`harness: unsupported selector ${JSON.stringify(part)}`);
-    const [, tag, classes, attrs] = m;
+    const [, tag, id, classes, attrs] = m;
     if (tag && el.tagName !== tag.toUpperCase()) return false;
+    if (id && el.id !== id.slice(1)) return false;
     const have = el.className.split(/\s+/).filter(Boolean);
     for (const c of classes.split(".").filter(Boolean)) if (!have.includes(c)) return false;
     for (const attr of attrs.match(/\[[^\]]+\]/g) || []) {
@@ -83,6 +107,7 @@ function matches(el, selector) {
 
 const document = {
   createElement: (tag) => new Element(tag),
+  createElementNS: (_ns, tag) => new Element(tag),
   // Page-level lookups get a throwaway element: app.js wires its buttons at
   // load (initCopyEditing) and a null there would abort before any control
   // under test is built. Nothing reads these back.
@@ -102,7 +127,13 @@ const sandbox = {
     scrollTo: noop,
   },
   localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
-  fetch: () => Promise.reject(new Error("harness: no network")),
+  // An offline server, not a broken one: the app's own `api()` sees a
+  // not-ok response and takes its error path, instead of an unhandled
+  // rejection killing the process the moment a control asks the server.
+  fetch: () => Promise.resolve({
+    ok: false, status: 503,
+    json: () => Promise.resolve({ ok: false, errors: ["harness: no network"] }),
+  }),
   console,
   setInterval: () => 0, clearInterval: noop, setTimeout: () => 0, clearTimeout: noop,
   Image: class {}, Blob: class {}, URL: { createObjectURL: () => "" },

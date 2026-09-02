@@ -31,6 +31,9 @@ from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.webui.builders import (
     _DIRECTIONS,
     _edges_facing,
+    boundary_sources_2d,
+    build_boundary_conditions_2d,
+    build_geometry_2d,
     build_initial_state_2d,
     build_phonon_seed_2d,
     build_state_2d,
@@ -39,6 +42,7 @@ from qpsim.webui.execute import X_QP_CONVENTION, _xqp_profile_2d
 from qpsim.webui.plots import (
     render_cell_field_png,
     render_mask_png,
+    render_mask_raw_png,
     render_phonon_seed_png,
 )
 from qpsim.webui.schemas import AnySetup, KineticsSetup
@@ -53,6 +57,83 @@ def _refused(*errors: str) -> dict[str, Any]:
         "ok": False, "errors": list(errors), "notes": [],
         "geometry": None, "seed": None, "phonons": None, "images": {},
     }
+
+
+def geometry_block(setup: KineticsSetup) -> dict[str, Any]:
+    """The geometry as the run would build it, and nothing else.
+
+    What the geometry page needs on every import and after every edge
+    assignment: the mask as a one-pixel-per-cell image, every rim segment
+    with its EFFECTIVE condition and where that condition came from (the
+    rim default, a direction alias, or the segment's own id), the layout
+    origin, and the aliases resolved on this mask. Cheap on purpose -- no
+    spectral context, no seed -- so a click can re-ask it. Raises the
+    builders' ValueError for a setup they refuse; the route turns that into
+    a message.
+    """
+    geometry = build_geometry_2d(setup)
+    conditions = build_boundary_conditions_2d(setup, geometry)
+    sources = boundary_sources_2d(setup, geometry)
+    mesh = float(geometry.mesh_size)
+    rows, cols = geometry.shape
+    edges = []
+    for edge in geometry.edges:
+        bc = conditions[edge.edge_id]
+        edges.append({
+            "id": edge.edge_id,
+            "normal": edge.normal,
+            "faces": len(edge.faces),
+            # Cell units on integer grid lines (what the page draws in), and
+            # microns (what a person reads).
+            "x0": float(edge.x0), "y0": float(edge.y0),
+            "x1": float(edge.x1), "y1": float(edge.y1),
+            "x0_um": edge.x0 * mesh, "y0_um": edge.y0 * mesh,
+            "x1_um": edge.x1 * mesh, "y1_um": edge.y1 * mesh,
+            "condition": {
+                "kind": str(bc.kind),
+                "value": None if bc.value is None else float(bc.value),
+                "aux_value": None if bc.aux_value is None else float(bc.aux_value),
+            },
+            "source": sources[edge.edge_id],
+        })
+    bounds = geometry.bounds or (0.0, 0.0, cols * mesh, rows * mesh)
+    block: dict[str, Any] = {
+        "name": geometry.name,
+        "source": geometry.source or "rectangle",
+        "origin_um": [float(bounds[0]), float(bounds[1])],
+        "bounds_um": [float(b) for b in bounds],
+        "rows": rows, "cols": cols,
+        "cells": geometry.cell_count,
+        "dimensionality": geometry.dimensionality,
+        "mesh_size_um": mesh,
+        "width_um": cols * mesh, "height_um": rows * mesh,
+        "edges": edges,
+        "directions": {d: _edges_facing(geometry, d) for d in _DIRECTIONS},
+        "rim_default": {
+            "kind": str(setup.boundary.kind),
+            "value": float(setup.boundary.value),
+            "aux_value": setup.boundary.aux_value,
+        },
+        "mask_png": _data_uri(render_mask_raw_png(geometry.mask)),
+    }
+    if setup.geometry.kind == "gds" and setup.geometry.gds_path:
+        block["gds_layers"] = discover_gds_layers(Path(setup.geometry.gds_path))
+        block["gds_layer"] = int(setup.geometry.gds_layer)
+    return block
+
+
+def build_geometry(setup: AnySetup) -> dict[str, Any]:
+    """The geometry block, or a refusal in the builders' own words."""
+    if not isinstance(setup, KineticsSetup):
+        return {"ok": False, "errors": [
+            f"The {setup.mode!r} mode has no geometry: it is a rate-equation "
+            "model over a temperature sweep, not a device.",
+        ], "geometry": None}
+    try:
+        block = geometry_block(setup)
+    except (ValueError, ArithmeticError, OSError) as exc:
+        return {"ok": False, "errors": [str(exc)], "geometry": None}
+    return {"ok": True, "errors": [], "geometry": block}
 
 
 def build_preview(setup: AnySetup) -> dict[str, Any]:
@@ -78,7 +159,6 @@ def build_preview(setup: AnySetup) -> dict[str, Any]:
 
     geometry = thermal.geometry
     mesh = float(geometry.mesh_size)
-    rows, cols = geometry.shape
     delta_0 = float(setup.material.Delta_0)
     # The same call run_kinetics makes for summary.x_qp_initial and for the
     # thermal reference, so the preview's numbers are the run's numbers.
@@ -116,52 +196,14 @@ def build_preview(setup: AnySetup) -> dict[str, Any]:
         phonons["n_ph_seed_mean"] = float(np.mean(phonon_seed))
         phonons["n_ph_bath_mean"] = float(np.mean(bath))
 
-    edges = [
-        {
-            "id": edge.edge_id,
-            "normal": edge.normal,
-            "faces": len(edge.faces),
-            # Segment coordinates are recorded in cell units on integer grid
-            # lines; in microns they are the extents the mask figure draws.
-            "x0_um": edge.x0 * mesh, "y0_um": edge.y0 * mesh,
-            "x1_um": edge.x1 * mesh, "y1_um": edge.y1 * mesh,
-        }
-        for edge in geometry.edges
-    ]
-    # Geometry.bounds, which nothing read until now: the window the mask was
-    # rasterised into, in LAYOUT coordinates (one cell of padding included).
-    # Mask coordinates start at 0; layout x = origin + mask x. For a rectangle
-    # the origin is (0, 0) and the field is a tautology; for a layout it is
-    # how a segment on this figure is found back on the chip.
-    bounds = geometry.bounds or (0.0, 0.0, cols * mesh, rows * mesh)
-    geometry_block: dict[str, Any] = {
-        "name": geometry.name,
-        "source": geometry.source or "rectangle",
-        "origin_um": [float(bounds[0]), float(bounds[1])],
-        "bounds_um": [float(b) for b in bounds],
-    }
-    if setup.geometry.kind == "gds" and setup.geometry.gds_path:
-        # Discovery + select: the layers that carry polygons, so the person
-        # can pick one that exists rather than guess a number.
-        geometry_block["gds_layers"] = discover_gds_layers(Path(setup.geometry.gds_path))
-        geometry_block["gds_layer"] = int(setup.geometry.gds_layer)
+    # The geometry block is the geometry page's own payload (see
+    # geometry_block): the same edges, conditions, aliases and layout
+    # origin, built by the same call, so the two views cannot disagree.
     return {
         "ok": True,
         "errors": [],
         "notes": list(notes),
-        "geometry": {
-            **geometry_block,
-            "rows": rows, "cols": cols,
-            "cells": geometry.cell_count,
-            "dimensionality": geometry.dimensionality,
-            "mesh_size_um": mesh,
-            "width_um": cols * mesh, "height_um": rows * mesh,
-            "edges": edges,
-            # The direction aliases the per-edge table accepts, resolved to
-            # the segments they would address on THIS mask. A direction that
-            # resolves to nothing is one the engine will refuse.
-            "directions": {d: _edges_facing(geometry, d) for d in _DIRECTIONS},
-        },
+        "geometry": geometry_block(setup),
         "seed": {
             "kind": setup.initial.kind,
             "x_qp_initial": float(np.mean(profile)),

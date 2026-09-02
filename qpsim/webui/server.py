@@ -40,7 +40,7 @@ from qpsim.webui.plots import (
     render_formula,
     render_plot,
 )
-from qpsim.webui.preview import build_preview
+from qpsim.webui.preview import build_geometry, build_preview
 from qpsim.webui.runner import JobRunner
 from qpsim.webui.schemas import (
     MODE_CLASSES,
@@ -231,6 +231,15 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         :mod:`qpsim.webui.preview`.
         """
         return build_preview(envelope.setup)
+
+    @app.post("/api/geometry")
+    def geometry(envelope: SetupEnvelope) -> dict[str, Any]:
+        """The geometry alone, for the geometry page: the mask as an image,
+        every rim segment with its effective condition and its source, the
+        aliases resolved. Cheap enough to re-ask after every edge assignment,
+        which is what keeps the page's colours the engine's truth rather than
+        a second implementation of the precedence rules."""
+        return build_geometry(envelope.setup)
 
     @app.post("/api/terms")
     def terms(envelope: SetupEnvelope) -> dict[str, dict[str, str]]:

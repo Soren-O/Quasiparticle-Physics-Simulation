@@ -360,6 +360,9 @@ const state = {
   benchmarks: {},       // name -> declared closed form, from /api/benchmarks
   termStatus: {},       // term -> {state, reason}, from /api/terms
   edgeIds: [],          // segment ids of the last previewed geometry
+  geometry: null,       // the last imported geometry block (see importGeometry)
+  geometryStale: false, // the form changed since that import
+  selectedEdge: null,   // edge id open in the assignment panel
   // Why termStatus is empty, when it is. An empty map means "not known", which
   // the panel must SAY rather than draw as "no terms in this model".
   termError: "",
@@ -378,6 +381,9 @@ async function switchMode(mode, presetSetup) {
     const { body } = await api(`/api/defaults/${mode}`);
     state.setup = body;
   }
+  state.geometry = null;
+  state.geometryStale = false;
+  state.selectedEdge = null;
   renderForm();
   $("#feedback").innerHTML = "";
 }
@@ -728,6 +734,265 @@ function renderFeedback(body, okMessage) {
 async function doValidate() {
   const { body } = await postJSON("/api/validate", envelope());
   renderFeedback(body, "Setup is valid.");
+}
+
+/* ---------- the geometry page ----------
+   The old desktop app's page, on the web: the setup on the left, the
+   imported geometry drawn on the right, hover an edge to see its name, click
+   it to assign its boundary condition. The figure is an SVG in the mask's
+   own cell coordinates over a one-pixel-per-cell image of the mask, so the
+   edges the engine will assemble on are the lines that are clickable.
+
+   The colours are the ENGINE's answer: after every assignment the page asks
+   /api/geometry again and redraws from what it returns, rather than keeping
+   a second copy of the precedence rules (id beats alias beats rim) here. */
+
+const EDGE_COLOURS = {
+  reflective: "#1155AA", neumann: "#CC7A00", dirichlet: "#008844",
+  absorbing: "#333333", robin: "#7A4A00",
+};
+const EDGE_HOVER = "#FFD500";
+const BOUNDARY_LABELS = {
+  reflective: "Insulated / reflective (zero flux)",
+  neumann: "Neumann (prescribed outward gradient)",
+  dirichlet: "Dirichlet (fixed value)",
+  absorbing: "Absorbing",
+  robin: "Robin (mixed: outward gradient + β·u = γ)",
+};
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, String(v));
+  return el;
+}
+
+async function importGeometry() {
+  const status = $("#geometry-status");
+  status.textContent = "Importing…";
+  const { ok, body } = await postJSON("/api/geometry", envelope());
+  if (!ok || !body.ok) {
+    state.geometry = null;
+    renderGeometryFigure($("#geometry-figure"), null);
+    const errors = (body.errors || body.detail || ["unknown error"]);
+    status.textContent = "Import failed: " + (Array.isArray(errors)
+      ? errors.map((e) => (typeof e === "string" ? e : e.msg || JSON.stringify(e))).join("; ")
+      : String(errors));
+    return;
+  }
+  state.geometry = body.geometry;
+  state.geometryStale = false;
+  state.edgeIds = body.geometry.edges.map((e) => e.id);
+  renderGeometryFigure($("#geometry-figure"), body.geometry);
+  renderGeometryStatus();
+  if (state.selectedEdge && !state.edgeIds.includes(state.selectedEdge)) closeEdgeEditor();
+  else if (state.selectedEdge) openEdgeEditor(state.selectedEdge);
+}
+
+function renderGeometryStatus() {
+  const g = state.geometry;
+  const status = $("#geometry-status");
+  if (!g) { status.textContent = "No geometry loaded. Import geometry to begin."; return; }
+  const overridden = g.edges.filter((e) => e.source !== "rim").length;
+  status.textContent =
+    `${g.name}: ${g.cells} cells at ${fmt(g.mesh_size_um)} μm, ${g.edges.length} edge segments, `
+    + `${overridden} with their own condition, the rest at the rim default (${g.rim_default.kind}). `
+    + (state.geometryStale ? "The form changed since this import — import again. " : "")
+    + "Click any edge to assign its boundary condition.";
+}
+
+function edgeStroke(edge) {
+  return EDGE_COLOURS[edge.condition.kind] || "#555555";
+}
+
+function renderGeometryFigure(host, g) {
+  host.innerHTML = "";
+  host.classList.toggle("stale", Boolean(state.geometryStale));
+  const legend = $("#edge-legend");
+  if (!g) {
+    const p = document.createElement("p");
+    p.className = "placeholder";
+    p.textContent = "Import geometry to begin";
+    host.appendChild(p);
+    if (legend) legend.classList.add("hidden");
+    return;
+  }
+  const title = document.createElement("div");
+  title.className = "figure-title";
+  title.textContent = `${g.name} | ${g.source}${g.gds_layer != null ? ` | layer ${g.gds_layer}` : ""} | edges=${g.edges.length}`;
+  host.appendChild(title);
+
+  // The SVG's user units are CELLS; y is flipped so row 0 is at the bottom,
+  // matching every figure and the y_um column in the tables.
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${g.cols} ${g.rows}`, preserveAspectRatio: "xMidYMid meet",
+    class: "geometry-svg", "data-cols": g.cols, "data-rows": g.rows,
+  });
+  const image = svgEl("image", { x: 0, y: 0, width: g.cols, height: g.rows, preserveAspectRatio: "none" });
+  image.setAttribute("href", g.mask_png);
+  svg.appendChild(image);
+  const flip = (y) => g.rows - y;
+  for (const edge of g.edges) {
+    const group = svgEl("g", { class: "edge", "data-edge": edge.id, "data-source": edge.source });
+    // A wide invisible stroke is what the pointer hits; the visible line sits on top.
+    const hit = svgEl("line", {
+      x1: edge.x0, y1: flip(edge.y0), x2: edge.x1, y2: flip(edge.y1),
+      class: "edge-hit", stroke: "transparent", "stroke-width": 14,
+      "vector-effect": "non-scaling-stroke", "pointer-events": "stroke",
+    });
+    const line = svgEl("line", {
+      x1: edge.x0, y1: flip(edge.y0), x2: edge.x1, y2: flip(edge.y1),
+      class: "edge-line", stroke: edgeStroke(edge),
+      "stroke-width": edge.source === "rim" ? 2 : 4,
+      "stroke-dasharray": edge.source === "rim" ? "6 4" : "none",
+      "vector-effect": "non-scaling-stroke", "stroke-linecap": "butt",
+      "pointer-events": "none",
+    });
+    group.appendChild(line);
+    group.appendChild(hit);
+    hit.addEventListener("mouseenter", () => {
+      line.setAttribute("stroke", EDGE_HOVER);
+      line.setAttribute("stroke-width", 6);
+      $("#edge-hover").textContent = `Hover edge: ${edge.id} (${edge.normal}, ${edge.faces} faces, ${edge.condition.kind}) — click to assign`;
+    });
+    hit.addEventListener("mouseleave", () => {
+      line.setAttribute("stroke", edgeStroke(edge));
+      line.setAttribute("stroke-width", edge.source === "rim" ? 2 : 4);
+      $("#edge-hover").textContent = "Hover edge: none";
+    });
+    hit.addEventListener("click", () => openEdgeEditor(edge.id));
+    svg.appendChild(group);
+  }
+  host.appendChild(svg);
+  const axes = document.createElement("div");
+  axes.className = "figure-axes";
+  axes.textContent = `${fmt(g.width_um)} × ${fmt(g.height_um)} μm · x right, y up · origin (${fmt(g.origin_um[0])}, ${fmt(g.origin_um[1])}) μm in the layout`;
+  host.appendChild(axes);
+
+  if (legend) {
+    legend.classList.remove("hidden");
+    legend.innerHTML = Object.entries(EDGE_COLOURS).map(([kind, colour]) =>
+      `<span class="swatch"><i style="background:${colour}"></i>${esc(kind)}</span>`).join("")
+      + `<span class="swatch"><i class="dashed"></i>dashed = rim default</span>`
+      + `<span class="swatch"><i style="background:${EDGE_HOVER}"></i>hover</span>`;
+  }
+}
+
+function openEdgeEditor(edgeId) {
+  const g = state.geometry;
+  const edge = g && g.edges.find((e) => e.id === edgeId);
+  const panel = $("#edge-editor");
+  if (!edge) { closeEdgeEditor(); return; }
+  state.selectedEdge = edgeId;
+  const current = edge.condition;
+  const provenance = edge.source === "rim"
+    ? `takes the rim default (${g.rim_default.kind})`
+    : edge.source === "id" ? "assigned by its own id"
+    : `assigned through the direction alias "${edge.source.split(":")[1]}"`;
+  panel.classList.remove("hidden");
+  panel.innerHTML = "";
+  // Built element by element rather than from an HTML string, so the panel
+  // can be driven under the test harness's fake DOM exactly as the form
+  // controls are.
+  const el = (tag, props, text) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === "className") node.className = v; else node[k] = v;
+    }
+    if (text != null) node.textContent = text;
+    return node;
+  };
+  panel.appendChild(el("h3", {}, "Assign boundary condition"));
+  panel.appendChild(el("p", { className: "hint" },
+    `Edge ${edge.id}: normal ${edge.normal}, ${edge.faces} faces, from `
+    + `(${fmt(edge.x0_um)}, ${fmt(edge.y0_um)}) to (${fmt(edge.x1_um)}, ${fmt(edge.y1_um)}) μm. `
+    + `Currently ${current.kind} — ${provenance}.`));
+  const grid = el("div", { className: "field-grid" });
+  const field = (labelText, input) => {
+    const label = el("label");
+    label.appendChild(el("span", { className: "fname" }, labelText));
+    label.appendChild(input);
+    grid.appendChild(label);
+    return input;
+  };
+  const kindSel = el("select", { id: "edge-kind" });
+  for (const [k, l] of Object.entries(BOUNDARY_LABELS)) {
+    const o = el("option", { value: k }, `${k} — ${l}`);
+    kindSel.appendChild(o);
+  }
+  kindSel.value = current.kind;
+  field("Type", kindSel);
+  const valueIn = field("Value", el("input", {
+    id: "edge-value", type: "text", value: current.value == null ? "" : String(current.value),
+  }));
+  const auxIn = field("Aux value (Robin γ)", el("input", {
+    id: "edge-aux", type: "text", value: current.aux_value == null ? "" : String(current.aux_value),
+  }));
+  panel.appendChild(grid);
+  panel.appendChild(el("p", { className: "hint" },
+    "Neumann uses the outward gradient. Robin uses outward gradient + β·u = γ, with β as the value."));
+  const actions = el("div", { className: "action-row" });
+  const assignBtn = el("button", { type: "button", className: "primary", id: "edge-assign" }, `Assign to ${edge.id}`);
+  const rimBtn = el("button", { type: "button", id: "edge-rim" }, "Use rim default");
+  const cancelBtn = el("button", { type: "button", id: "edge-cancel" }, "Cancel");
+  for (const b of [assignBtn, rimBtn, cancelBtn]) actions.appendChild(b);
+  panel.appendChild(actions);
+  const msg = el("div", { className: "hint", id: "edge-editor-msg" });
+  panel.appendChild(msg);
+
+  const syncFields = () => {
+    const kind = kindSel.value;
+    valueIn.disabled = !(kind === "neumann" || kind === "dirichlet" || kind === "robin");
+    auxIn.disabled = kind !== "robin";
+  };
+  kindSel.addEventListener("change", syncFields);
+  syncFields();
+  assignBtn.addEventListener("click", () => {
+    const kind = kindSel.value;
+    const needsValue = kind === "neumann" || kind === "dirichlet" || kind === "robin";
+    const value = needsValue ? parseFloat(valueIn.value) : 0.0;
+    if (needsValue && !Number.isFinite(value)) {
+      msg.textContent = "A numeric value is required for this boundary type.";
+      return;
+    }
+    let aux = null;
+    if (kind === "robin") {
+      const raw = String(auxIn.value).trim();
+      aux = raw === "" ? 0.0 : parseFloat(raw);
+      if (!Number.isFinite(aux)) {
+        msg.textContent = "The Robin aux value must be numeric.";
+        return;
+      }
+    }
+    state.setup.boundary.per_edge = state.setup.boundary.per_edge || {};
+    state.setup.boundary.per_edge[edge.id] = { kind, value, aux_value: aux };
+    msg.textContent = "";
+    assignmentsChanged();
+  });
+  rimBtn.addEventListener("click", () => {
+    if (state.setup.boundary.per_edge) delete state.setup.boundary.per_edge[edge.id];
+    assignmentsChanged();
+  });
+  cancelBtn.addEventListener("click", closeEdgeEditor);
+}
+
+function closeEdgeEditor() {
+  state.selectedEdge = null;
+  const panel = $("#edge-editor");
+  panel.classList.add("hidden");
+  panel.innerHTML = "";
+}
+
+// After any change to the assignments: the per-edge table on this page is
+// redrawn from the setup, and the figure is re-asked from the engine.
+function assignmentsChanged() {
+  if (wizard.index === 0) renderStepForm("#form-geometry", geometrySections(state.mode));
+  importGeometry();
+}
+
+function clearEdgeOverrides() {
+  state.setup.boundary.per_edge = {};
+  assignmentsChanged();
 }
 
 /* ---------- pre-run preview ----------
@@ -2064,6 +2329,13 @@ function showWizardStep(index) {
   refreshTerms().then(renderTermPanel);
   if (name === "geometry") {
     renderStepForm("#form-geometry", geometrySections(mode));
+    // The figure belongs to the imported geometry, not to the form: keep it
+    // across page changes, and hide the actions in the read-only view.
+    for (const id of ["#btn-import-geometry", "#btn-clear-overrides"]) {
+      $(id).classList.toggle("hidden", wizard.readOnly);
+    }
+    renderGeometryFigure($("#geometry-figure"), state.geometry);
+    renderGeometryStatus();
   }
   if (name === "conditions") {
     renderStepForm("#setup-form", conditionSections(mode));
@@ -2412,6 +2684,16 @@ function initWizard() {
     $(sel).addEventListener("change", stalePreview);
     $(sel).addEventListener("click", (e) => { if (e.target.closest("button")) stalePreview(); });
   }
+  $("#btn-import-geometry").addEventListener("click", importGeometry);
+  $("#btn-clear-overrides").addEventListener("click", clearEdgeOverrides);
+  // A change to the geometry form makes the figure a picture of a different
+  // device; say so on it rather than hide it.
+  $("#form-geometry").addEventListener("change", () => {
+    if (!state.geometry) return;
+    state.geometryStale = true;
+    $("#geometry-figure").classList.add("stale");
+    renderGeometryStatus();
+  });
 }
 
 /* =====================================================================

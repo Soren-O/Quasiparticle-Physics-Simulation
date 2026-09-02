@@ -754,6 +754,23 @@ _CONDITION_COLOURS = {
 _NORMAL_OFFSETS = {"up": (0.0, -1.0), "down": (0.0, 1.0), "left": (-1.0, 0.0), "right": (1.0, 0.0)}
 
 
+def render_mask_raw_png(mask: np.ndarray) -> bytes:
+    """The mask as an image with ONE PIXEL PER CELL, row 0 at the bottom.
+
+    No axes, no margins: the geometry page draws its own edges over this in
+    the mask's cell coordinates, so the image must be the mask and nothing
+    else. Material cells are a flat tint, empty cells transparent; the
+    browser scales it up without smoothing.
+    """
+    from matplotlib import image as mpimage
+    field = np.asarray(mask).astype(bool)
+    rgba = np.zeros((*field.shape, 4), dtype=float)
+    rgba[field] = (0.42, 0.62, 0.86, 0.55)
+    buf = io.BytesIO()
+    mpimage.imsave(buf, rgba, format="png", origin="lower")
+    return buf.getvalue()
+
+
 def render_mask_png(
     mask: np.ndarray,
     mesh_size_um: float,

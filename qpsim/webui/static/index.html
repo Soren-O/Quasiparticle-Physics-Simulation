@@ -146,9 +146,27 @@
             <p class="lede">The mask decides the dimensionality: a rectangle one cell wide is a 1-D
               strip and a single cell is 0-D, both solved by the same core. It also decides which
               terms exist &mdash; a single cell has no neighbours to diffuse to, so the next step
-              will show the transport term greyed.</p>
+              will show the transport term greyed. Import the geometry to see it on the right,
+              then click any edge to assign its boundary condition.</p>
           </div>
-          <form id="form-geometry" onsubmit="return false"></form>
+          <div class="geometry-layout">
+            <div class="geometry-left">
+              <form id="form-geometry" onsubmit="return false"></form>
+              <div class="action-row geometry-actions">
+                <button id="btn-import-geometry" class="primary" type="button">Import geometry</button>
+                <button id="btn-clear-overrides" type="button">Set all edges to the rim default</button>
+              </div>
+              <div id="geometry-status" class="hint">No geometry loaded. Import geometry to begin.</div>
+              <div id="edge-hover" class="hint edge-hover">Hover edge: none</div>
+            </div>
+            <div class="geometry-right">
+              <div id="geometry-figure" class="geometry-figure">
+                <p class="placeholder">Import geometry to begin</p>
+              </div>
+              <div id="edge-legend" class="edge-legend hidden"></div>
+              <div id="edge-editor" class="edge-editor hidden"></div>
+            </div>
+          </div>
         </div>
 
         <div class="step-panel hidden" id="step-equations">

@@ -759,3 +759,38 @@ tr.verdict-queued .verdict, tr.verdict-running .verdict { color: var(--accent); 
   border-radius: 8px; background: var(--surface);
 }
 .live-frame figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* ---- the geometry page: form left, imported geometry right ---- */
+.geometry-layout {
+  display: grid; grid-template-columns: minmax(340px, 5fr) minmax(360px, 7fr); gap: 26px;
+  align-items: start;
+}
+@media (max-width: 980px) { .geometry-layout { grid-template-columns: 1fr; } }
+.geometry-left { min-width: 0; }
+.geometry-right { min-width: 0; position: sticky; top: 12px; }
+.geometry-actions { margin-top: 10px; }
+.edge-hover { color: var(--accent); min-height: 1.4em; }
+.geometry-figure {
+  border: 1px solid var(--grid); border-radius: 8px; background: var(--surface);
+  padding: 10px 12px; min-height: 240px;
+}
+.geometry-figure .placeholder { color: var(--muted); text-align: center; margin: 100px 0; }
+.geometry-figure .figure-title { font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px; }
+.geometry-figure .figure-axes { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.geometry-figure.stale { opacity: 0.6; }
+.geometry-figure.stale::after {
+  content: "Geometry changed since this import — import again.";
+  display: block; color: var(--warning-ink); font-size: 12px; margin-top: 4px;
+}
+.geometry-svg { width: 100%; height: auto; max-height: 62vh; display: block; }
+.geometry-svg image { image-rendering: pixelated; image-rendering: crisp-edges; }
+.geometry-svg .edge-hit { cursor: pointer; }
+.edge-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; font-size: 12px; color: var(--ink-2); }
+.edge-legend .swatch { display: inline-flex; align-items: center; gap: 5px; }
+.edge-legend .swatch i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; }
+.edge-legend .swatch i.dashed { background: repeating-linear-gradient(90deg, var(--ink-2) 0 6px, transparent 6px 10px); }
+.edge-editor {
+  border: 1px solid var(--grid); border-radius: 8px; background: var(--surface);
+  padding: 10px 12px; margin-top: 10px;
+}
+.edge-editor h3 { margin: 0 0 6px; font-size: 15px; }

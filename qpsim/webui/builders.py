@@ -855,14 +855,24 @@ def build_boundary_conditions_2d(
     """Per-edge conditions: the rim default, then any named overrides.
 
     An override key is either a real segment id or one of the four direction
-    aliases.
+    aliases. Aliases are applied FIRST and ids second, whatever order the
+    dict holds them in: an alias names every segment facing that way, an id
+    names one rim, and the specific must beat the general. Before this the
+    outcome depended on insertion order, so a "left" entry added after an
+    "edge_0003" entry silently overrode it.
     """
     conditions = geometry.conditions(_boundary_condition(setup.boundary))
-    for key, spec in setup.boundary.per_edge.items():
-        condition = _boundary_condition(spec)
-        if key in conditions:
-            conditions[key] = condition
-            continue
+    per_edge = dict(setup.boundary.per_edge)
+    for key in per_edge:
+        if key not in conditions and key not in _DIRECTIONS:
+            # Assembly requires every outward face to be named, so an
+            # unrecognised id is a condition that would silently never apply.
+            raise ValueError(
+                f"This geometry has no edge {key!r}. Use one of "
+                f"{', '.join(_DIRECTIONS)}, or a segment id: "
+                f"{', '.join(sorted(conditions))}."
+            )
+    for key, spec in per_edge.items():
         if key in _DIRECTIONS:
             matched = _edges_facing(geometry, key)
             if not matched:
@@ -870,17 +880,33 @@ def build_boundary_conditions_2d(
                     f"This geometry has no edge facing {key!r}. Its segments "
                     f"are: {', '.join(sorted(conditions))}."
                 )
+            condition = _boundary_condition(spec)
             for edge_id in matched:
                 conditions[edge_id] = condition
-            continue
-        # Assembly requires every outward face to be named, so an
-        # unrecognised id is a condition that would silently never apply.
-        raise ValueError(
-            f"This geometry has no edge {key!r}. Use one of "
-            f"{', '.join(_DIRECTIONS)}, or a segment id: "
-            f"{', '.join(sorted(conditions))}."
-        )
+    for key, spec in per_edge.items():
+        if key in conditions and key not in _DIRECTIONS:
+            conditions[key] = _boundary_condition(spec)
     return conditions
+
+
+def boundary_sources_2d(
+    setup: KineticsSetup, geometry: Geometry,
+) -> dict[str, str]:
+    """Where each edge's condition comes from: ``"id"``, ``"alias:<dir>"`` or ``"rim"``.
+
+    The same precedence as :func:`build_boundary_conditions_2d`, stated once:
+    an id entry beats an alias entry beats the rim default.
+    """
+    per_edge = setup.boundary.per_edge
+    sources = {edge.edge_id: "rim" for edge in geometry.edges}
+    for key in per_edge:
+        if key in _DIRECTIONS:
+            for edge_id in _edges_facing(geometry, key):
+                sources[edge_id] = f"alias:{key}"
+    for key in per_edge:
+        if key in sources and key not in _DIRECTIONS:
+            sources[key] = "id"
+    return sources
 
 
 def build_gap_per_cell_2d(setup: KineticsSetup, geometry: Geometry) -> np.ndarray | None:
