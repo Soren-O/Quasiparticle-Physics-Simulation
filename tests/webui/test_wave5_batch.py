@@ -59,10 +59,10 @@ def _by_case(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 class TestTheCatalogueModule:
     def test_every_case_is_listed_with_its_source(self) -> None:
         cases = verdicts.catalogue_cases()
-        assert len(cases) == 38
+        assert len(cases) == 45
         sources = {c.source for c in cases}
         assert sources == {"benchmark", "expectation", "none"}
-        assert sum(1 for c in cases if c.benchmark) == 10
+        assert sum(1 for c in cases if c.benchmark) == 17
         assert sum(1 for c in cases if c.expect) == 5
 
     def test_a_case_resolves_to_the_setup_the_browser_would_run(self) -> None:
@@ -122,10 +122,10 @@ class TestTheBatchOverHttp:
         assert rows["scat-only"]["source"] == "expectation"
         assert rows["scat-only"]["verdict"] == "pass", rows["scat-only"]["detail"]
         # The cases not queued are still rows -- the table is the catalogue.
-        assert len(report["rows"]) == 38
+        assert len(report["rows"]) == 45
         assert rows["diff-benchmark"]["verdict"] == "not run"
         assert report["counts"]["pass"] == 3
-        assert report["checkable"] == 15
+        assert report["checkable"] == 22
 
     def test_the_report_scores_what_the_cli_scores(self, client: TestClient) -> None:
         """Two paths, one module: the queued run and the in-process run of
@@ -141,7 +141,7 @@ class TestTheBatchOverHttp:
         """Queued only -- not waited for: 38 runs is minutes. The point is
         that the whole catalogue is one request, with nothing skipped."""
         body = client.post("/api/catalogue/run-all", json={}).json()
-        assert len(body["queued"]) == 38, body["skipped"]
+        assert len(body["queued"]) == 45, body["skipped"]
         assert body["skipped"] == []
         for q in body["queued"]:
             client.post(f"/api/runs/{q['run_id']}/cancel")

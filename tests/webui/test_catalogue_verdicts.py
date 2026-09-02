@@ -32,6 +32,17 @@ RECORDED_ERROR = {
     "prc-benchmark": 5.6967e-08,
     "pesc-benchmark": 3.4394e-12,
     "gapeq-benchmark": 3.1528e-04,
+    # Wave 6, the boundary-condition suite (2026-09-02). The two strip sines
+    # and the rectangle are stencil errors; Neumann is an unfinished transient;
+    # Robin is first order by the engine's construction; the annulus is the
+    # staircase rim -- see each module's `convergence` for the sequence.
+    "bc-absorbing-benchmark": 8.0293e-04,
+    "bc-dirichlet-benchmark": 8.0293e-04,
+    "bc-neumann-benchmark": 2.8495e-08,
+    "bc-robin-even-benchmark": 2.2928e-02,
+    "bc-robin-odd-benchmark": 8.6701e-03,
+    "bc-rectangle-benchmark": 2.7275e-03,
+    "bc-annulus-benchmark": 5.1562e-03,
 }
 
 _BENCH_CASES = [c for c in verdicts.catalogue_cases() if c.benchmark]

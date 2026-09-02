@@ -14,6 +14,12 @@ from __future__ import annotations
 # duplicate names, so a copy-pasted module fails loudly at import rather
 # than silently shadowing the term it was copied from.
 from qpsim.webui.bench import (  # noqa: F401
+    bc_absorbing,
+    bc_annulus,
+    bc_dirichlet,
+    bc_neumann,
+    bc_rectangle,
+    bc_robin,
     diffusion,
     injection,
     pb_drive,

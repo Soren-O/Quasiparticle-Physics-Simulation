@@ -954,6 +954,953 @@
       ]
     },
     {
+      "id": "boundary-conditions",
+      "title": "Boundary conditions and geometry",
+      "blurb": "Transport alone against a closed form, one rim condition at a time. Each case prepares an eigenmode of the Laplacian under that rim and checks its decay rate over energy; the rim sets the wavenumber, the energy dependence is the diffusion operator's dressing. The Robin cases are first order by the engine's construction and say so.",
+      "items": [
+        {
+          "id": "bc-absorbing",
+          "title": "Absorbing ends",
+          "sector": "qp",
+          "available": true,
+          "blurb": "f = 0 at both ends of a strip: sine modes.",
+          "cases": [
+            {
+              "id": "bc-absorbing-benchmark",
+              "title": "Absorbing ends: sine-mode decay",
+              "mode": "kinetics",
+              "summary": "A sine on a strip whose two ends absorb. The cell-centred sine is an exact eigenvector of the discrete operator, so the residual is the stencil's.",
+              "benchmark": "bc-absorbing",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 1,
+                "geometry.cols": 32,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "reflective",
+                "boundary.per_edge": {
+                  "left": {
+                    "kind": "absorbing",
+                    "value": 0.0,
+                    "aux_value": null
+                  },
+                  "right": {
+                    "kind": "absorbing",
+                    "value": 0.0,
+                    "aux_value": null
+                  }
+                },
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['a'] * np.sin(params['m'] * np.pi * x)",
+                "initial.params": {
+                  "a": 0.2,
+                  "m": 1.0
+                },
+                "dt": 0.05,
+                "max_time": 40.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 2.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "bc-dirichlet",
+          "title": "Dirichlet ends",
+          "sector": "qp",
+          "available": true,
+          "blurb": "f held at a non-zero value at both ends.",
+          "cases": [
+            {
+              "id": "bc-dirichlet-benchmark",
+              "title": "Dirichlet ends at g ≠ 0: sine-mode decay towards g",
+              "mode": "kinetics",
+              "summary": "The same sine about a fixed baseline g the rim holds; checks the inhomogeneous Dirichlet source.",
+              "benchmark": "bc-dirichlet",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 1,
+                "geometry.cols": 32,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "reflective",
+                "boundary.per_edge": {
+                  "left": {
+                    "kind": "dirichlet",
+                    "value": 0.05,
+                    "aux_value": null
+                  },
+                  "right": {
+                    "kind": "dirichlet",
+                    "value": 0.05,
+                    "aux_value": null
+                  }
+                },
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['g'] + params['a'] * np.sin(params['m'] * np.pi * x)",
+                "initial.params": {
+                  "g": 0.05,
+                  "a": 0.2,
+                  "m": 1.0
+                },
+                "dt": 0.05,
+                "max_time": 40.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 2.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "bc-neumann",
+          "title": "Neumann ends",
+          "sector": "qp",
+          "available": true,
+          "blurb": "A prescribed flux in one end and out the other.",
+          "cases": [
+            {
+              "id": "bc-neumann-benchmark",
+              "title": "Neumann ends with a prescribed flux: the linear steady state",
+              "mode": "kinetics",
+              "summary": "Equal and opposite fluxes drive the strip to an exact line; compared cell by cell for every bin predicted to have settled.",
+              "benchmark": "bc-neumann",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 1,
+                "geometry.cols": 16,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "reflective",
+                "boundary.per_edge": {
+                  "left": {
+                    "kind": "neumann",
+                    "value": -0.005,
+                    "aux_value": null
+                  },
+                  "right": {
+                    "kind": "neumann",
+                    "value": 0.005,
+                    "aux_value": null
+                  }
+                },
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['f0'] + 0.0 * x",
+                "initial.params": {
+                  "f0": 0.5
+                },
+                "dt": 0.1,
+                "max_time": 160.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 16.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "bc-robin",
+          "title": "Robin ends",
+          "sector": "qp",
+          "available": true,
+          "blurb": "∂ₙf + βf = γ at both ends: the finite-transparency contact.",
+          "cases": [
+            {
+              "id": "bc-robin-even-benchmark",
+              "title": "Robin ends: even mode decay",
+              "mode": "kinetics",
+              "summary": "cos k(x − L/2) with k tan(kL/2) = β, about the steady state γ/β. First order in dx by the engine's construction.",
+              "benchmark": "bc-robin-even",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 1,
+                "geometry.cols": 32,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "reflective",
+                "boundary.per_edge": {
+                  "left": {
+                    "kind": "robin",
+                    "value": 0.015625,
+                    "aux_value": 0.0046875
+                  },
+                  "right": {
+                    "kind": "robin",
+                    "value": 0.015625,
+                    "aux_value": 0.0046875
+                  }
+                },
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['finf'] + params['a'] * np.cos(params['k'] * (x_um - params['half']))",
+                "initial.params": {
+                  "finf": 0.3,
+                  "a": 0.2,
+                  "k": 0.01344271232842781,
+                  "half": 64.0
+                },
+                "dt": 0.1,
+                "max_time": 100.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 5.0
+              }
+            },
+            {
+              "id": "bc-robin-odd-benchmark",
+              "title": "Robin ends: odd mode decay",
+              "mode": "kinetics",
+              "summary": "sin k(x − L/2) with k cot(kL/2) = −β, about the steady state γ/β. First order in dx by the engine's construction.",
+              "benchmark": "bc-robin-odd",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 1,
+                "geometry.cols": 32,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "reflective",
+                "boundary.per_edge": {
+                  "left": {
+                    "kind": "robin",
+                    "value": 0.015625,
+                    "aux_value": 0.0046875
+                  },
+                  "right": {
+                    "kind": "robin",
+                    "value": 0.015625,
+                    "aux_value": 0.0046875
+                  }
+                },
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['finf'] + params['a'] * np.sin(params['k'] * (x_um - params['half']))",
+                "initial.params": {
+                  "finf": 0.3,
+                  "a": 0.2,
+                  "k": 0.031699341220544956,
+                  "half": 64.0
+                },
+                "dt": 0.1,
+                "max_time": 100.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 5.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "bc-rectangle",
+          "title": "Absorbing rectangle",
+          "sector": "qp",
+          "available": true,
+          "blurb": "The rim default on all four sides of a 2-D device.",
+          "cases": [
+            {
+              "id": "bc-rectangle-benchmark",
+              "title": "Absorbing rectangle: sin·sin mode decay",
+              "mode": "kinetics",
+              "summary": "The separable sine product on a 16×32 rectangle with every face absorbing.",
+              "benchmark": "bc-rectangle",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 32,
+                "geometry.kind": "rectangle",
+                "geometry.rows": 16,
+                "geometry.cols": 32,
+                "geometry.mesh_size_um": 4.0,
+                "boundary.kind": "absorbing",
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['a'] * np.sin(params['m'] * np.pi * x) * np.sin(params['n'] * np.pi * y)",
+                "initial.params": {
+                  "a": 0.2,
+                  "m": 1.0,
+                  "n": 1.0
+                },
+                "dt": 0.025,
+                "max_time": 12.0,
+                "stop_tol": 0.0,
+                "snapshot_interval": 1.0
+              }
+            }
+          ]
+        },
+        {
+          "id": "bc-annulus",
+          "title": "Absorbing annulus",
+          "sector": "qp",
+          "available": true,
+          "blurb": "Two typed outlines, an inner rim, a Bessel mode.",
+          "cases": [
+            {
+              "id": "bc-annulus-benchmark",
+              "title": "Absorbing annulus: Bessel cross-product mode decay",
+              "mode": "kinetics",
+              "summary": "A ring from two polygons with both rims absorbing; the fundamental radial mode's rate against the Bessel cross-product root.",
+              "benchmark": "bc-annulus",
+              "overrides": {
+                "material.name": "Al",
+                "material.Delta_0": 180.0,
+                "material.T_c": 1.18,
+                "material.tau_0": 438.0,
+                "material.D_0": 60.0,
+                "material.dynes_gamma": 0.0,
+                "T_bath": 0.1,
+                "grid.min_factor": 1.0,
+                "grid.max_factor": 4.0,
+                "grid.num_bins": 16,
+                "geometry.kind": "polygons",
+                "geometry.mesh_size_um": 2.5,
+                "geometry.polygons": [
+                  [
+                    [
+                      80.0,
+                      40.0
+                    ],
+                    [
+                      79.807389,
+                      43.920686
+                    ],
+                    [
+                      79.231411,
+                      47.803613
+                    ],
+                    [
+                      78.277613,
+                      51.611387
+                    ],
+                    [
+                      76.955181,
+                      55.307337
+                    ],
+                    [
+                      75.276851,
+                      58.855869
+                    ],
+                    [
+                      73.258784,
+                      62.222809
+                    ],
+                    [
+                      70.920418,
+                      65.375731
+                    ],
+                    [
+                      68.284271,
+                      68.284271
+                    ],
+                    [
+                      65.375731,
+                      70.920418
+                    ],
+                    [
+                      62.222809,
+                      73.258784
+                    ],
+                    [
+                      58.855869,
+                      75.276851
+                    ],
+                    [
+                      55.307337,
+                      76.955181
+                    ],
+                    [
+                      51.611387,
+                      78.277613
+                    ],
+                    [
+                      47.803613,
+                      79.231411
+                    ],
+                    [
+                      43.920686,
+                      79.807389
+                    ],
+                    [
+                      40.0,
+                      80.0
+                    ],
+                    [
+                      36.079314,
+                      79.807389
+                    ],
+                    [
+                      32.196387,
+                      79.231411
+                    ],
+                    [
+                      28.388613,
+                      78.277613
+                    ],
+                    [
+                      24.692663,
+                      76.955181
+                    ],
+                    [
+                      21.144131,
+                      75.276851
+                    ],
+                    [
+                      17.777191,
+                      73.258784
+                    ],
+                    [
+                      14.624269,
+                      70.920418
+                    ],
+                    [
+                      11.715729,
+                      68.284271
+                    ],
+                    [
+                      9.079582,
+                      65.375731
+                    ],
+                    [
+                      6.741216,
+                      62.222809
+                    ],
+                    [
+                      4.723149,
+                      58.855869
+                    ],
+                    [
+                      3.044819,
+                      55.307337
+                    ],
+                    [
+                      1.722387,
+                      51.611387
+                    ],
+                    [
+                      0.768589,
+                      47.803613
+                    ],
+                    [
+                      0.192611,
+                      43.920686
+                    ],
+                    [
+                      0.0,
+                      40.0
+                    ],
+                    [
+                      0.192611,
+                      36.079314
+                    ],
+                    [
+                      0.768589,
+                      32.196387
+                    ],
+                    [
+                      1.722387,
+                      28.388613
+                    ],
+                    [
+                      3.044819,
+                      24.692663
+                    ],
+                    [
+                      4.723149,
+                      21.144131
+                    ],
+                    [
+                      6.741216,
+                      17.777191
+                    ],
+                    [
+                      9.079582,
+                      14.624269
+                    ],
+                    [
+                      11.715729,
+                      11.715729
+                    ],
+                    [
+                      14.624269,
+                      9.079582
+                    ],
+                    [
+                      17.777191,
+                      6.741216
+                    ],
+                    [
+                      21.144131,
+                      4.723149
+                    ],
+                    [
+                      24.692663,
+                      3.044819
+                    ],
+                    [
+                      28.388613,
+                      1.722387
+                    ],
+                    [
+                      32.196387,
+                      0.768589
+                    ],
+                    [
+                      36.079314,
+                      0.192611
+                    ],
+                    [
+                      40.0,
+                      0.0
+                    ],
+                    [
+                      43.920686,
+                      0.192611
+                    ],
+                    [
+                      47.803613,
+                      0.768589
+                    ],
+                    [
+                      51.611387,
+                      1.722387
+                    ],
+                    [
+                      55.307337,
+                      3.044819
+                    ],
+                    [
+                      58.855869,
+                      4.723149
+                    ],
+                    [
+                      62.222809,
+                      6.741216
+                    ],
+                    [
+                      65.375731,
+                      9.079582
+                    ],
+                    [
+                      68.284271,
+                      11.715729
+                    ],
+                    [
+                      70.920418,
+                      14.624269
+                    ],
+                    [
+                      73.258784,
+                      17.777191
+                    ],
+                    [
+                      75.276851,
+                      21.144131
+                    ],
+                    [
+                      76.955181,
+                      24.692663
+                    ],
+                    [
+                      78.277613,
+                      28.388613
+                    ],
+                    [
+                      79.231411,
+                      32.196387
+                    ],
+                    [
+                      79.807389,
+                      36.079314
+                    ]
+                  ],
+                  [
+                    [
+                      49.951847,
+                      39.019829
+                    ],
+                    [
+                      49.807853,
+                      38.049097
+                    ],
+                    [
+                      49.569403,
+                      37.097153
+                    ],
+                    [
+                      49.238795,
+                      36.173166
+                    ],
+                    [
+                      48.819213,
+                      35.286033
+                    ],
+                    [
+                      48.314696,
+                      34.444298
+                    ],
+                    [
+                      47.730105,
+                      33.656067
+                    ],
+                    [
+                      47.071068,
+                      32.928932
+                    ],
+                    [
+                      46.343933,
+                      32.269895
+                    ],
+                    [
+                      45.555702,
+                      31.685304
+                    ],
+                    [
+                      44.713967,
+                      31.180787
+                    ],
+                    [
+                      43.826834,
+                      30.761205
+                    ],
+                    [
+                      42.902847,
+                      30.430597
+                    ],
+                    [
+                      41.950903,
+                      30.192147
+                    ],
+                    [
+                      40.980171,
+                      30.048153
+                    ],
+                    [
+                      40.0,
+                      30.0
+                    ],
+                    [
+                      39.019829,
+                      30.048153
+                    ],
+                    [
+                      38.049097,
+                      30.192147
+                    ],
+                    [
+                      37.097153,
+                      30.430597
+                    ],
+                    [
+                      36.173166,
+                      30.761205
+                    ],
+                    [
+                      35.286033,
+                      31.180787
+                    ],
+                    [
+                      34.444298,
+                      31.685304
+                    ],
+                    [
+                      33.656067,
+                      32.269895
+                    ],
+                    [
+                      32.928932,
+                      32.928932
+                    ],
+                    [
+                      32.269895,
+                      33.656067
+                    ],
+                    [
+                      31.685304,
+                      34.444298
+                    ],
+                    [
+                      31.180787,
+                      35.286033
+                    ],
+                    [
+                      30.761205,
+                      36.173166
+                    ],
+                    [
+                      30.430597,
+                      37.097153
+                    ],
+                    [
+                      30.192147,
+                      38.049097
+                    ],
+                    [
+                      30.048153,
+                      39.019829
+                    ],
+                    [
+                      30.0,
+                      40.0
+                    ],
+                    [
+                      30.048153,
+                      40.980171
+                    ],
+                    [
+                      30.192147,
+                      41.950903
+                    ],
+                    [
+                      30.430597,
+                      42.902847
+                    ],
+                    [
+                      30.761205,
+                      43.826834
+                    ],
+                    [
+                      31.180787,
+                      44.713967
+                    ],
+                    [
+                      31.685304,
+                      45.555702
+                    ],
+                    [
+                      32.269895,
+                      46.343933
+                    ],
+                    [
+                      32.928932,
+                      47.071068
+                    ],
+                    [
+                      33.656067,
+                      47.730105
+                    ],
+                    [
+                      34.444298,
+                      48.314696
+                    ],
+                    [
+                      35.286033,
+                      48.819213
+                    ],
+                    [
+                      36.173166,
+                      49.238795
+                    ],
+                    [
+                      37.097153,
+                      49.569403
+                    ],
+                    [
+                      38.049097,
+                      49.807853
+                    ],
+                    [
+                      39.019829,
+                      49.951847
+                    ],
+                    [
+                      40.0,
+                      50.0
+                    ],
+                    [
+                      40.980171,
+                      49.951847
+                    ],
+                    [
+                      41.950903,
+                      49.807853
+                    ],
+                    [
+                      42.902847,
+                      49.569403
+                    ],
+                    [
+                      43.826834,
+                      49.238795
+                    ],
+                    [
+                      44.713967,
+                      48.819213
+                    ],
+                    [
+                      45.555702,
+                      48.314696
+                    ],
+                    [
+                      46.343933,
+                      47.730105
+                    ],
+                    [
+                      47.071068,
+                      47.071068
+                    ],
+                    [
+                      47.730105,
+                      46.343933
+                    ],
+                    [
+                      48.314696,
+                      45.555702
+                    ],
+                    [
+                      48.819213,
+                      44.713967
+                    ],
+                    [
+                      49.238795,
+                      43.826834
+                    ],
+                    [
+                      49.569403,
+                      42.902847
+                    ],
+                    [
+                      49.807853,
+                      41.950903
+                    ],
+                    [
+                      49.951847,
+                      40.980171
+                    ],
+                    [
+                      50.0,
+                      40.0
+                    ]
+                  ]
+                ],
+                "geometry.require_connected": true,
+                "boundary.kind": "absorbing",
+                "diffusion_model": "A1",
+                "collisions.scattering": false,
+                "collisions.recombination": false,
+                "gap_regions.kind": "uniform",
+                "injection.enabled": false,
+                "subgap_drive.enabled": false,
+                "pb_drive.enabled": false,
+                "phonons.mode": "thermal_bath",
+                "self_consistent_gap": false,
+                "initial.kind": "absolute",
+                "initial.expression": "params['a'] * np.maximum(np.cos(np.pi * (np.sqrt((x_um - params['cx'])**2 + (y_um - params['cy'])**2) - params['rmid']) / params['width']), 0.0)",
+                "initial.params": {
+                  "a": 0.2,
+                  "cx": 42.5,
+                  "cy": 42.5,
+                  "rmid": 25.0,
+                  "width": 30.0
+                },
+                "dt": 0.01,
+                "max_time": 6.5,
+                "stop_tol": 0.0,
+                "snapshot_interval": 0.125
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "literature",
       "title": "Literature reproductions",
       "blurb": "The conditions of a published point, set up so you can vary them. These are not the certified figure reproductions: those are full sweeps with pinned baselines and provenance, and they live in the validation suite.",

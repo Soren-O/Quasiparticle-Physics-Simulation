@@ -59,6 +59,21 @@ from typing import Any
 
 import numpy as np
 
+from qpsim.webui.bench._transport import (
+    MIN_DECAY_EXPONENT as _MIN_DECAY_EXPONENT,
+)
+from qpsim.webui.bench._transport import (
+    MIN_MODE_FRACTION as _MIN_MODE_FRACTION,
+)
+from qpsim.webui.bench._transport import (
+    PQ as _PQ,
+)
+from qpsim.webui.bench._transport import (
+    SHAPE_TOL as _SHAPE_TOL,
+)
+from qpsim.webui.bench._transport import (
+    fit_rates as _fit_rates,
+)
 from qpsim.webui.benchmarks import Benchmark, Curve, register
 
 # The case this benchmark is written for, as web-schema override paths.
@@ -134,32 +149,10 @@ CASE_OVERRIDES: dict[str, Any] = {
     "snapshot_interval": 1.0,
 }
 
-# (p, q) per operator name. Deliberately a second copy of what
-# qpsim.transport.diffusion.base.DiffusionModel holds rather than an import:
-# the dressing exponents ARE the physics under test here, and a reference that
-# imported them would follow the engine silently wherever it went. If the two
-# ever disagree this benchmark fails, which is the point of it.
-_PQ: dict[str, tuple[int, int]] = {
-    "A1": (1, 0), "A1P": (1, 2), "A2": (2, 2), "C": (0, -1), "B": (0, -2),
-}
-
-# The mode amplitude must be a real modulation, not the residue of a uniform
-# start. A thermal (spatially flat) initial condition projects onto the cosine
-# at ~1e-26 of the field, and the ratio of two such numbers is a finite,
-# entirely fictitious decay rate -- the run looks measured and means nothing.
-_MIN_MODE_FRACTION = 1e-6
-# The reference must predict real decay over the window, or the check is
-# 0 == 0: with D_0 = 0 the closed form is also zero everywhere and a benchmark
-# that scored it would report a perfect pass for a run in which the term under
-# test did nothing at all. 0.1 e-foldings is a ~10% amplitude change. Not "any
-# nonzero decay", because a run with lambda*T = 1e-9 is arithmetically
-# scoreable and physically vacuous, and PASS would be read as evidence that
-# diffusion works; not 1.0 either, because the fit resolves ln A to 1e-14 and
-# refusing a legitimately shorter window would be pure superstition.
-_MIN_DECAY_EXPONENT = 0.1
-# The cosine must still BE the prepared state: this bounds the t=0 residual
-# after removing the cell mean and the mode, relative to the field's own peak.
-_SHAPE_TOL = 1e-10
+# The (p, q) dressing table, the mode/decay/shape thresholds and the
+# least-squares fit are shared with the boundary-condition benchmarks and
+# live in bench/_transport.py, with their reasoning; the names here are the
+# ones this module's prose uses.
 
 
 def _mode_numbers(setup: Any) -> tuple[float, float]:
@@ -260,27 +253,6 @@ def _analytic_rates(setup: Any, energies: np.ndarray) -> tuple[np.ndarray, float
         n * np.pi / (setup.geometry.rows * dx)
     ) ** 2
     return d_eff * k2, float(k2)
-
-
-def _fit_rates(times: np.ndarray, amps: np.ndarray) -> tuple[np.ndarray, float]:
-    """Least-squares decay rate per bin from ln|A(t)|, and the worst residual.
-
-    A least squares over every recorded frame rather than the endpoint ratio:
-    Crank-Nicolson multiplies the mode by a fixed factor per step, so ln|A| is
-    exactly linear in t and the fit residual is a measurement in its own right
-    -- it is how a decay that is NOT a single exponential (a leaked second
-    mode, a clipped state, a term that is not actually off) announces itself.
-    """
-    log_a = np.log(np.abs(amps))
-    t_centred = times - times.mean()
-    slope = (t_centred[:, None] * (log_a - log_a.mean(axis=0))).sum(axis=0) / (
-        t_centred**2
-    ).sum()
-    intercept = log_a.mean(axis=0) - slope * times.mean()
-    model = intercept[None, :] + np.outer(times, slope)
-    spread = np.max(np.abs(log_a - log_a.mean(axis=0)), axis=0)
-    residual = np.max(np.abs(log_a - model) / np.maximum(spread, 1e-300))
-    return -slope, float(residual)
 
 
 def _build(
