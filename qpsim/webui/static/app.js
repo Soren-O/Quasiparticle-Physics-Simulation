@@ -40,6 +40,61 @@ function fmt(v) {
 /* ---------- form schema ---------- */
 
 const F = (path, label, type = "number", opts = {}) => ({ path, label, type, ...opts });
+// An item-relative field inside a list control: the same shape as F, but the
+// path is relative to ONE ENTRY and is resolved against the entry's model
+// (DriveSpec, EdgeCondition) rather than the setup -- the structural test in
+// tests/webui/test_form_controls_bind.py checks both kinds.
+const I = (path, label, type = "number", opts = {}) => ({ path, label, type, ...opts });
+
+const ENERGY_KINDS = ["flat", "thermal", "monoenergetic", "gap_edge", "expression"];
+const SPACE_KINDS = ["uniform", "gaussian", "point", "expression"];
+const TIME_KINDS = ["constant", "pulse", "ramp", "exponential", "expression"];
+const BOUNDARY_KINDS = ["reflective", "absorbing", "dirichlet", "neumann", "robin"];
+
+// One entry of the repeatable drives list: A · g_E(E) · g_S(x,y) · g_T(t).
+const DRIVE_ITEM = [
+  I("enabled", "Enabled", "check"),
+  I("channel", "Channel", "select", { options: ["gain", "loss"] }),
+  I("amplitude", "Amplitude A (1/ns)"),
+  I("energy.kind", "Energy shape", "select", { options: ENERGY_KINDS }),
+  I("energy.T_eff", "T_eff (K)", "number", { nullable: true }),
+  I("energy.E_0", "E₀ (μeV)", "number", { nullable: true }),
+  I("energy.width", "Width (μeV)", "number", { nullable: true }),
+  I("energy.expression", "Energy expression", "text", { nullable: true, placeholder: "np.exp(-(E-gap)/20.0)" }),
+  I("space.kind", "Space shape", "select", { options: SPACE_KINDS }),
+  I("space.x_0", "x₀ (0–1)"),
+  I("space.y_0", "y₀ (0–1)"),
+  I("space.sigma", "σ (0–1)"),
+  I("space.expression", "Space expression", "text", { nullable: true }),
+  I("time.kind", "Time shape", "select", { options: TIME_KINDS }),
+  I("time.t_on", "t_on (ns)"),
+  I("time.t_off", "t_off (ns)", "number", { nullable: true }),
+  I("time.tau", "τ (ns)", "number", { nullable: true }),
+  I("time.expression", "Time expression", "text", { nullable: true }),
+  I("expression", "Whole-field expression g(E,x,y,t)", "text", { nullable: true }),
+  I("params", "Params", "params"),
+];
+// A NEW drive is enabled with no amplitude, and the schema refuses to run it
+// until one is set ("would look driven and be undriven"). Enabled, because a
+// drive added to the list is a drive the person wants; the amplitude is the
+// one thing the app must not invent.
+const BLANK_DRIVE = () => ({
+  enabled: true, channel: "gain", amplitude: 0,
+  energy: { kind: "flat", T_eff: null, E_0: null, width: null, expression: null },
+  space: { kind: "uniform", x_0: 0.5, y_0: 0.5, sigma: 0.12, expression: null },
+  time: { kind: "constant", t_on: 0, t_off: null, tau: null, expression: null },
+  expression: null, params: {},
+});
+
+// One per-edge override. A new one is absorbing: an override equal to the
+// rim default would do nothing, and the absorbing trap on one end is the
+// standard quasiparticle-trapping experiment.
+const EDGE_ITEM = [
+  I("kind", "Condition", "select", { options: BOUNDARY_KINDS }),
+  I("value", "Value (β for robin)"),
+  I("aux_value", "Second coefficient γ (robin)", "number", { nullable: true }),
+];
+const BLANK_EDGE = () => ({ kind: "absorbing", value: 0, aux_value: null });
 
 const MATERIAL_FIELDS = (withTransport) => ({
   title: "Material",
@@ -119,11 +174,16 @@ const FORMS = {
       title: "Boundary",
       hint: "Applied to the whole device rim. reflective keeps everything in; absorbing and dirichlet let quasiparticles leave.",
       fields: [
-        F("boundary.kind", "Condition", "select", { options: ["reflective", "absorbing", "dirichlet", "neumann", "robin"] }),
+        F("boundary.kind", "Condition", "select", { options: BOUNDARY_KINDS }),
         F("boundary.value", "Value"),
         F("boundary.aux_value", "Second coefficient (robin)", "number", { nullable: true }),
-        F("boundary.per_edge", "Per-edge overrides", "params", {
-          placeholder: '{"left": {"kind": "absorbing"}}',
+        // A table, not a JSON box. As a "params" field this control accepted
+        // only a flat {name: number} map, so the nested value its own
+        // placeholder showed was rejected on every change and the box
+        // resynced -- it rendered, took typing, and discarded it.
+        F("boundary.per_edge", "Per-edge overrides", "keyed_list", {
+          item: EDGE_ITEM, blank: BLANK_EDGE, itemLabel: "edge",
+          keyLabel: "Edge id", keyOptions: ["up", "down", "left", "right"],
         }),
       ],
     },
@@ -175,12 +235,12 @@ const FORMS = {
       fields: [
         F("initial.kind", "Kind", "select", { options: ["thermal", "excess", "absolute"] }),
         F("initial.amplitude", "Amplitude"),
-        F("initial.energy.kind", "Energy profile", "select", { options: ["flat", "thermal", "monoenergetic", "gap_edge", "expression"] }),
+        F("initial.energy.kind", "Energy profile", "select", { options: ENERGY_KINDS }),
         F("initial.energy.T_eff", "T_eff (K)", "number", { nullable: true }),
         F("initial.energy.E_0", "E₀ (μeV)", "number", { nullable: true }),
         F("initial.energy.width", "Width (μeV)", "number", { nullable: true }),
         F("initial.energy.expression", "Energy expression", "text", { nullable: true, placeholder: "np.exp(-(E-gap)/20.0)" }),
-        F("initial.space.kind", "Space profile", "select", { options: ["uniform", "gaussian", "point", "expression"] }),
+        F("initial.space.kind", "Space profile", "select", { options: SPACE_KINDS }),
         F("initial.space.x_0", "x₀ (0–1)"),
         F("initial.space.y_0", "y₀ (0–1)"),
         F("initial.space.sigma", "σ (0–1)"),
@@ -198,6 +258,13 @@ const FORMS = {
         F("injection.sigma_over_delta", "Line width σ (×Δ)"),
         F("injection.rate_per_ns", "Peak rate (1/ns)"),
         F("injection.where", "Where", "select", { options: ["left_edge", "uniform", "centre_cell"] }),
+      ],
+    },
+    {
+      title: "Drives",
+      hint: "Shaped external sources, A · g_E(E) · g_S(x,y) · g_T(t), as many as needed. A pulse is time shape = pulse with t_on/t_off: switch it on, switch it off, fit the decay. gain adds to df/dt; loss is a rate multiplying f. Shapes are peak-normalised, so A means the same thing whichever shape is chosen. An enabled drive with amplitude 0 is refused rather than run.",
+      fields: [
+        F("drives", "Drives", "list", { item: DRIVE_ITEM, blank: BLANK_DRIVE, itemLabel: "drive" }),
       ],
     },
     {
@@ -353,6 +420,7 @@ function renderStepForm(selector, sections) {
 }
 
 function renderField(field) {
+  if (field.type === "list" || field.type === "keyed_list") return renderList(field);
   const label = document.createElement("label");
   const name = document.createElement("span");
   name.className = "fname";
@@ -450,6 +518,133 @@ function renderField(field) {
     });
   }
   input.dataset.path = field.path;
+  label.appendChild(input);
+  return label;
+}
+
+/* ---------- list controls ----------
+   A variable-length list of sub-forms bound to an array (`list`) or to an
+   {id: entry} map (`keyed_list`). Each entry's controls are ordinary fields
+   whose paths are made absolute here -- `drives.0.amplitude`,
+   `boundary.per_edge.left.kind` -- so they go through the same renderField
+   and the same getByPath/setByPath as every other control, and a typo in an
+   entry template is caught by the same structural test. Only this container
+   re-renders on add/remove/rename, so typing elsewhere keeps its focus. */
+
+function renderList(field) {
+  const box = document.createElement("div");
+  box.className = "list-field";
+  box.dataset.path = field.path;
+  const keyed = field.type === "keyed_list";
+  const entries = () => {
+    let current = getByPath(state.setup, field.path);
+    if (current == null) {
+      current = keyed ? {} : [];
+      setByPath(state.setup, field.path, current);
+    }
+    return current;
+  };
+
+  const draw = () => {
+    box.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "list-head";
+    head.textContent = field.label;
+    box.appendChild(head);
+    const current = entries();
+    const keys = keyed ? Object.keys(current) : current.map((_, i) => String(i));
+    if (!keys.length) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.textContent = `No ${field.itemLabel}s. Add one below.`;
+      box.appendChild(empty);
+    }
+    let suggestions = null;
+    if (keyed && field.keyOptions) {
+      suggestions = document.createElement("datalist");
+      suggestions.id = `keys-${field.path.replace(/\./g, "-")}`;
+      for (const opt of field.keyOptions) {
+        const o = document.createElement("option");
+        o.value = opt;
+        suggestions.appendChild(o);
+      }
+      box.appendChild(suggestions);
+    }
+    for (const key of keys) {
+      const entry = document.createElement("fieldset");
+      entry.className = "list-entry";
+      entry.dataset.key = key;
+      const legend = document.createElement("legend");
+      legend.textContent = keyed
+        ? `${field.itemLabel} ${key}` : `${field.itemLabel} ${Number(key) + 1}`;
+      entry.appendChild(legend);
+      const grid = document.createElement("div");
+      grid.className = "field-grid";
+      if (keyed) grid.appendChild(renderKeyInput(field, current, key, suggestions, draw));
+      for (const sub of field.item) {
+        grid.appendChild(renderField({ ...sub, path: `${field.path}.${key}.${sub.path}` }));
+      }
+      entry.appendChild(grid);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn danger list-remove";
+      remove.textContent = `Remove ${field.itemLabel}`;
+      remove.addEventListener("click", () => {
+        if (keyed) delete current[key]; else current.splice(Number(key), 1);
+        draw();
+      });
+      entry.appendChild(remove);
+      box.appendChild(entry);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "btn list-add";
+    add.textContent = `Add ${field.itemLabel}`;
+    add.addEventListener("click", () => {
+      const now = entries();
+      if (keyed) {
+        // The first suggested id not yet used; past those, a placeholder the
+        // person must rename -- and the engine rejects an id the geometry
+        // does not have, so an unrenamed one cannot run.
+        const free = (field.keyOptions || []).find((k) => !(k in now));
+        let id = free;
+        for (let n = 1; id == null || id in now; n++) id = `${field.itemLabel}_${n}`;
+        now[id] = field.blank();
+      } else {
+        now.push(field.blank());
+      }
+      draw();
+    });
+    box.appendChild(add);
+  };
+  draw();
+  return box;
+}
+
+function renderKeyInput(field, current, key, suggestions, redraw) {
+  const label = document.createElement("label");
+  const name = document.createElement("span");
+  name.className = "fname";
+  name.textContent = field.keyLabel || "id";
+  label.appendChild(name);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = key;
+  input.dataset.key = `${field.path}.${key}`;
+  if (suggestions) input.setAttribute("list", suggestions.id);
+  input.addEventListener("change", () => {
+    const next = input.value.trim();
+    if (next === key) return;
+    // Empty, a dot (it would split the path), or an id already in use:
+    // resync rather than store a key the engine cannot address.
+    if (!next || next.includes(".") || Object.prototype.hasOwnProperty.call(current, next)) {
+      input.value = key;
+      return;
+    }
+    current[next] = current[key];
+    delete current[key];
+    redraw();
+  });
   label.appendChild(input);
   return label;
 }

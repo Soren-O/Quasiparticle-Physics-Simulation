@@ -707,3 +707,13 @@ body.viewing-settings #view-new-run::before {
   font-size: 13px;
   max-width: 78ch;
 }
+
+/* ---- list controls (drives, per-edge overrides) ---- */
+.field-grid .list-field { grid-column: 1 / -1; display: block; }
+.list-field .list-head { color: var(--ink-2); margin: 4px 0; font-weight: 600; }
+.list-entry {
+  border: 1px solid var(--grid); border-radius: 8px; padding: 8px 12px; margin: 6px 0;
+}
+.list-entry legend { color: var(--ink-2); font-size: 12.5px; padding: 0 6px; }
+.list-entry .list-remove { margin-top: 6px; }
+.list-add { margin-top: 6px; }
