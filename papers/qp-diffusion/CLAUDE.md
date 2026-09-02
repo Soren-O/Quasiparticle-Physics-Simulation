@@ -226,10 +226,29 @@ hosseinkhani2018, and goldie2013.
   cancels the radial gap force in the local-energy variable. Correct
   local-energy bookkeeping; survives the \(\hbar\) accounting.
 
-- **Adiabatic projection** onto the instantaneous positive-energy Bogoliubov
-  band; validity \(\hbar|\xi_{\mathbf k}\dot\Delta|/E^3\ll1\) (plus a smooth
-  spatial analogue). Deliberate scope statement; numerical \(O(1)\) factors
-  are immaterial in a \(\ll1\) condition.
+- **Adiabatic projection — REOPENED AND RE-SETTLED 2026-09-02 (Soren: "derive
+  the correct physics and make the paper consistent").** There are TWO
+  conditions and they are not interchangeable. (i) Branch adiabaticity
+  (neglect of interbranch coherence at fixed \(\xi\); the Boltzmann form):
+  \(\hbar|\xi\dot\Delta|/E_\xi^3\ll1\); exact ratio
+  \(|h_{+-}|/|h_{--}-h_{++}|=\hbar|\xi\dot\Delta|/4E_\xi^3\); globally
+  bounded by \((2/3\sqrt3)\hbar|\dot\Delta|/\Delta^2\) (max at
+  \(\xi=\Delta/\sqrt2\)) and VANISHING at \(\xi=0\). (ii) Fixed-energy
+  instantaneous-BCS spectral functions (the Wigner \((E,t)\) Moyal
+  expansion, app:nonadiabatic): \(\hbar E|\dot\Delta|/W^3\ll1\),
+  \(W=\sqrt{E^2-\Delta^2}\), plus \(\hbar^2E^2\Delta|\ddot\Delta|/W^6\ll1\);
+  relative DOS correction \((\hbar\dot\Delta/W^2)^2/8\). On shell
+  (ii)/(i) \(=N_1^4\), with OPPOSITE gap-edge trends; (ii) fails inside
+  \((E-\Delta)/\Delta\lesssim\tfrac12(\hbar|\dot\Delta|/\Delta^2)^{2/3}\).
+  The old rationale ("numerical O(1) factors are immaterial") is WITHDRAWN:
+  the factor is \(N_1^4\), unbounded. The main text (framework passage,
+  sector list, matrix-Usadel adiabatic limit) now quotes (ii) for the
+  spectral approximation and (i) only for branch coherence; the
+  supplement's former sentence identifying the two was removed. Everything
+  above was re-derived independently in sympy on 2026-09-02, including the
+  appendix's Moyal residual, \(\alpha,\beta\) and star normalization
+  (`derive_adiabaticity_2026-09-02.py` beside the handoff). No displayed
+  equation or number changes; this is a scope statement.
 
 - **Electrostatics / charge imbalance.** The four-equation "kinetic core"
   deliberately omits the electrostatic closure because the applications

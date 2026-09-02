@@ -299,9 +299,19 @@ can be solved separately.
 The validity of this relies on an adiabatic local-BCS
 spectral approximation, in which the retarded and advanced propagators are
 taken to have their equilibrium BCS form evaluated at the instantaneous
-local gap, and the gap-driven
-spectrum varies slowly enough to track quasi-statically
-(\(\hbar|\xi_{\bk}\dot\Delta|/E^3\ll1\)). The distribution still feeds back on the spectrum, but only
+local gap. Two distinct conditions enter, and they are not
+interchangeable. The branch projection behind the Boltzmann form
+(no interbranch transitions along a trajectory) requires
+\(\hbar|\xi_{\bk}\dot\Delta|/E^3\ll1\), a bounded parameter, at most
+\(2\hbar|\dot\Delta|/(3\sqrt3\,\Delta^2)\), that vanishes at the gap
+edge. Using the fixed-energy instantaneous-BCS spectral functions
+themselves requires the spectral angle to change slowly on the local
+scale \(W=\sqrt{E^2-\Delta^2}\), \(\hbar E|\dot\Delta|/W^3\ll1\)
+(SM~\cref{SM-app:nonadiabatic}), a pointwise condition that exceeds the
+branch parameter on shell by \(\DOS^4\) and fails inside an edge layer
+\((E-\Delta)/\Delta\lesssim\tfrac12(\hbar|\dot\Delta|/\Delta^2)^{2/3}\),
+where the moving-shell description of \cref{sec:tdep_spectral_flow},
+lifetime broadening, or self-consistency must take over. The distribution still feeds back on the spectrum, but only
 through the gap: the self-consistent \(\Delta\) responds to the
 occupation, and the spectrum follows. What the closure drops is the
 \emph{direct} channel, in which the nonequilibrium distribution would
@@ -949,8 +959,12 @@ conditions, not the bulk operator); the gap is real and positive, with
 no condensate momentum, no supercurrent, and no electromagnetic drive
 except where one is deliberately reintroduced. The spectral functions
 are the local adiabatic BCS forms evaluated at the instantaneous local
-gap (valid when \(\Delta\) varies slowly on the coherence length and
-quasi-statically in time [\(\hbar|\xi_{\bk}\dot\Delta|/E^{3}\ll1\)]), with
+gap (valid when \(\Delta\) varies slowly on the coherence length and, at
+fixed energy, slowly on the local spectral scale,
+\(\hbar E|\dot\Delta|/W^{3}\ll1\) with \(W=\sqrt{E^2-\Delta^2}\)
+[SM~\cref{SM-app:nonadiabatic}]; the weaker branch condition
+\(\hbar|\xi_{\bk}\dot\Delta|/E^{3}\ll1\) controls only the neglect of
+interbranch coherence), with
 no proximity structures, no subgap states, and gradient corrections to
 the spectra neglected. Elastic scattering is by nonmagnetic impurities
 in the Born limit. The kinetics are restricted to the charge-balanced
@@ -1723,7 +1737,8 @@ matrix level gives the Usadel equation \cite{usadel1970} for
 written here in the adiabatic limit, where the \(\otimes\) products of
 \cref{eq:intro_usadel_matrix} are taken at zeroth order in the
 Wigner--Moyal gradient expansion (exact for a fully stationary problem,
-with the time-gradient corrections otherwise neglected), so reducing to
+with the time-gradient corrections otherwise neglected; the expansion
+parameter is \(\hbar E|\dot\Delta|/W^3\), SM~\cref{SM-app:nonadiabatic}), so reducing to
 ordinary products and the normalization to \(\checkg_0^2=1\), and with
 the covariant \(\widetilde{\bnabla}\) reduced to \(\bnabla\) in
 anticipation of the real-\(\Delta\), no-supercurrent sector adopted

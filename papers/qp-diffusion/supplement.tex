@@ -1706,7 +1706,10 @@ energy) in exact agreement with the pointwise fixed-\(E\) trace equation
 This also states the cost of the step. The argument is intrinsic to the
 scalar, energy-shell projection, but it still uses the instantaneous BCS
 spectral map and the static dirty-limit current. It assumes no nonadiabatic
-spectral corrections, no Landau-Zener-like branch conversion, and no unresolved
+spectral corrections [\(\hbar E|\dot\Delta|/W^3\ll1\),
+\(W=\sqrt{E^2-\Delta^2}\), \cref{app:nonadiabatic}], no Landau-Zener-like
+branch conversion [\(\hbar|\xi\dot\Delta|/E_\xi^3\ll1\),
+\cref{eq:branch_coherence_estimate}], and no unresolved
 charge-imbalance dynamics beyond the \(J_1\) collision bookkeeping. For a
 spatially varying gap, fixed-\(\xi\) and fixed-\(E\) spatial gradients also
 differ; the cancellation of the corresponding \(\nabla\Delta\,\partial_E\)
@@ -1826,7 +1829,12 @@ but an intrinsic moving-\(\xi\), gauge-invariant-energy, or branch-covariant
 matrix dirty-limit derivation has not been performed. The fixed-\(E\)
 constant-trace reduction yields the stated scalar content, while the
 off-diagonal coherences are suppressed by the adiabatic parameter of
-\cref{eq:branch_coherence_estimate}. What lies beyond the present assumptions is
+\cref{eq:branch_coherence_estimate}; the instantaneous spectral functions
+that the assembled equation imports (the \(\DOS\) weight on the left and
+the undressed flux on the right) are controlled by the more restrictive
+Moyal parameter \(\hbar E|\dot\Delta|/W^3\) of \cref{app:nonadiabatic},
+which is the binding condition on
+\cref{eq:branch_projector_A1}. What lies beyond the present assumptions is
 no longer fully open: the supercurrent-induced longitudinal--transverse mixing
 and the non-BCS proximity dressings are established, while the normalized
 spectral correction and collisionless coherence residual give the leading
@@ -1892,9 +1900,27 @@ Thus the branch-projector reduction is controlled when
 \(\hbar|\xi\dot\Delta|/E_\xi^3\ll1\), and it is even safer in the
 charge-balanced longitudinal sector where the branch-antisymmetric source
 \(h_{--}-h_{++}\) is absent or rapidly relaxed into the transverse channel.
-This estimate is the branch-basis version of the assumption already implicit
-in using instantaneous BCS spectral functions: the gap changes slowly compared
-with the local quasiparticle splitting \(2E_\xi/\hbar\).
+This parameter controls only the interbranch coherence at fixed \(\xi\).
+It is globally bounded,
+\(\hbar|\xi\dot\Delta|/E_\xi^3\le(2/3\sqrt3)\,\hbar|\dot\Delta|/\Delta^2\)
+(the maximum at \(\xi=\Delta/\sqrt2\)), and it vanishes at \(\xi=0\),
+where the eigenvectors of \(H_\xi\) do not rotate; it therefore reduces to
+the single energy-independent statement \(\hbar|\dot\Delta|\ll\Delta^2\)
+and carries no energy resolution. It is \emph{not} the condition for
+using instantaneous BCS spectral functions at fixed energy. That
+condition, derived in \cref{app:nonadiabatic}, is
+\(\hbar E|\dot\Delta|/W^3\ll1\) with \(W=\sqrt{E^2-\Delta^2}\): on shell
+(\(|\xi|=W\)) it exceeds the branch parameter by \(\DOS^4=E^4/W^4\), and
+it diverges at the gap edge where the branch parameter vanishes. The two
+conditions govern different objects. The branch projection follows each
+state along its moving energy \(E_\xi(t)\), which is adiabatic even at
+the edge; the fixed-\(E\) Wigner representation asks for the propagator
+at an energy across which the gap edge itself sweeps. The fixed-\(E\)
+spectral functions therefore fail inside an edge layer
+\((E-\Delta)/\Delta\lesssim\tfrac12(\hbar|\dot\Delta|/\Delta^2)^{2/3}\),
+within which the moving-shell variable \(W\)
+(\cref{sec:moving_bin_projection}), lifetime broadening, or
+self-consistency must regularize the description.
 
 \subsubsection{Conservative-form longitudinal kinetic equation:
 \texorpdfstring{\(p=1\)}{p=1}}
@@ -3191,7 +3217,18 @@ carries inverse powers of \(W=\sqrt{E^2-\Delta^2}\)
 ordering requires the spectral angle to change slowly on the local
 branch-splitting scale,
 \(\hbar|\partial_t\theta|/W\sim\hbar E|\dot\Delta|/W^3\ll1\) (with the
-analogous \(\ddot\Delta\) condition). Sufficiently close to the edge the
+analogous \(\ddot\Delta\) condition,
+\(\hbar^2E^2\Delta|\ddot\Delta|/W^6\ll1\)); the relative density-of-states
+correction \(\hbar^2d_3/\DOS\) is
+\((\hbar\dot\Delta/W^2)^2/8+O(\ddot\Delta)\). This is the condition for the
+fixed-energy instantaneous-BCS spectral functions themselves, and it is
+distinct from, and on shell stronger by \(\DOS^4\) than, the
+branch-adiabaticity parameter \(\hbar|\xi\dot\Delta|/E_\xi^3\) of
+\cref{eq:branch_coherence_estimate}, which is bounded and vanishes at the
+gap edge. In terms of the single small parameter
+\(\hbar|\dot\Delta|/\Delta^2\) the expansion fails inside an edge layer
+\((E-\Delta)/\Delta\lesssim\tfrac12(\hbar|\dot\Delta|/\Delta^2)^{2/3}\).
+Sufficiently close to the edge the
 expansion must be regularized by lifetime broadening, self-consistency, or
 an explicit edge treatment. The spectral equations and star normalization,
 the energy/charge decoupling, \cref{eq:nonad_coherence_source}, and its exact
