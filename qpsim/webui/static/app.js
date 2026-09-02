@@ -584,10 +584,14 @@ async function showRunDetail() {
     }
     if (benchmark) html += `<div id="run-detail-benchmark"></div>`;
     const families = r.plot_params || {};
+    // Each figure is wrapped in its own download link: a PNG that can only
+    // be right-clicked out of the page is not a deliverable.
     html += `<div class="plot-grid">${(r.plots || [])
       .filter((p) => !families[p])
-      .map((p) => `<img src="/api/runs/${esc(id)}/plots/${esc(p)}.png"`
-        + ` alt="${esc(p)}" loading="lazy">`).join("")}</div>`;
+      .map((p) => `<a href="/api/runs/${esc(id)}/plots/${esc(p)}.png"`
+        + ` download="${esc(id)}-${esc(p)}.png" title="Download ${esc(p)}.png">`
+        + `<img src="/api/runs/${esc(id)}/plots/${esc(p)}.png"`
+        + ` alt="${esc(p)}" loading="lazy"></a>`).join("")}</div>`;
     // A figure family is one image plus a control per index -- the run
     // replayed, rather than the single frame it happened to end on.
     for (const [name, params] of Object.entries(families)) {
@@ -601,11 +605,21 @@ async function showRunDetail() {
           ${params.frame > 1
             ? `<button type="button" class="play" data-playing="0">▶ Play</button>`
             : ""}
+          <a class="btn download-png" download>⬇ PNG</a>
+          ${FRAME_CSV[name] && (r.csvs || []).includes(FRAME_CSV[name])
+            ? `<a class="btn download-csv" download>⬇ ${esc(FRAME_CSV[name])}.csv (this frame)</a>`
+            : ""}
         </figcaption>
       </figure>`;
     }
+    // The whole payload last: every figure and table above is one reduction
+    // of it, and the arrays nobody has drawn yet are only reachable this way.
+    // Not offered when the detail poll could not open the arrays.
     html += `<div class="downloads">${(r.csvs || []).map((c) =>
-      `<a class="btn" href="/api/runs/${esc(id)}/csv/${esc(c)}.csv">⬇ ${esc(c)}.csv</a>`).join("")}</div>`;
+      `<a class="btn" href="/api/runs/${esc(id)}/csv/${esc(c)}.csv">⬇ ${esc(c)}.csv</a>`).join("")}${
+      r.artifacts_error ? "" :
+      `<a class="btn" href="/api/runs/${esc(id)}/result.npz" title="Every array the run wrote, as numpy's .npz">⬇ result.npz (all arrays)</a>`
+    }</div>`;
   }
   html += `<details><summary>Setup used</summary><pre class="json">${esc(JSON.stringify(r.setup, null, 2))}</pre></details>`;
   $("#run-detail").innerHTML = html;
@@ -672,11 +686,24 @@ async function refreshSetups() {
    stutters while each frame round-trips, which reads as the simulation
    being jerky rather than the images arriving. */
 
+// Which table holds the numbers behind each figure family's frame. The CSV
+// route takes the same `frame` index the scrubber does, so the link is
+// exactly the frame on screen -- not the endpoint the table defaults to.
+const FRAME_CSV = {
+  field_over_time: "profile",
+  gap_over_time: "profile",
+  energy_resolved_map: "occupation",
+  phonon_field_over_time: "phonons",
+  phonon_occupation_map: "phonons",
+};
+
 function initScrubber(figure) {
   const img = figure.querySelector("img");
   const inputs = [...figure.querySelectorAll("input[type=range]")];
   const runId = figure.dataset.run;
   const plot = figure.dataset.plot;
+  const pngLink = figure.querySelector(".download-png");
+  const csvLink = figure.querySelector(".download-csv");
 
   const url = () => {
     const q = inputs.map((i) => `${i.dataset.param}=${i.value}`).join("&");
@@ -688,6 +715,17 @@ function initScrubber(figure) {
       i.nextElementSibling.textContent = `${i.value} / ${i.max}`;
     }
     img.src = url();
+    const stamp = inputs.map((i) => `${i.dataset.param}${i.value}`).join("-");
+    if (pngLink) {
+      pngLink.href = url();
+      pngLink.download = `${runId}-${plot}-${stamp}.png`;
+    }
+    const frameInput = inputs.find((i) => i.dataset.param === "frame");
+    if (csvLink && frameInput) {
+      csvLink.href = `/api/runs/${encodeURIComponent(runId)}`
+        + `/csv/${encodeURIComponent(FRAME_CSV[plot])}.csv?frame=${frameInput.value}`;
+      csvLink.download = `${runId}-${FRAME_CSV[plot]}-frame${frameInput.value}.csv`;
+    }
   };
   inputs.forEach((i) => i.addEventListener("input", draw));
   draw();

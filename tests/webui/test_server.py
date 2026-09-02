@@ -418,9 +418,12 @@ class TestFigureFamilies:
         manifest = self._recorded_run(client)
         families = manifest["plot_params"]
         assert set(families) == {
-            "field_over_time", "energy_resolved_map", "phonon_field_over_time",
+            "field_over_time", "gap_over_time", "energy_resolved_map",
+            "phonon_field_over_time", "phonon_occupation_map",
         }
         assert families["field_over_time"] == {"frame": 4}
+        assert families["gap_over_time"] == {"frame": 4}
+        assert families["phonon_occupation_map"] == {"frame": 4}
         assert families["energy_resolved_map"]["frame"] == 4
         assert families["energy_resolved_map"]["energy"] == 24
 

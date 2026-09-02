@@ -232,6 +232,87 @@ def _plot_xqp_profile_2d(arrays: dict[str, np.ndarray]) -> bytes:
     return _finish(fig)
 
 
+def _convention_label(summary: dict[str, Any]) -> str:
+    """The x_qp axis label, taken from the convention the run RECORDED.
+
+    x_qp is a ratio whose value depends on a convention -- this engine's
+    n_qp/(4 rho_F Delta_0) is half the paper's -- and a payload carries both
+    ``obs_x_qp_mean`` and ``obs_x_qp_mean_paper``. A figure that hardcodes
+    one label while plotting the other array is wrong by a factor of two
+    with nothing red. So the label is read from ``summary["x_qp_convention"]``,
+    which names the convention of the UNSUFFIXED arrays this figure draws,
+    and a run that recorded none says so on the axis rather than borrowing a
+    default.
+    """
+    convention = summary.get("x_qp_convention")
+    if isinstance(convention, str) and convention.strip():
+        return f"x_qp  [{convention.strip()}]"
+    return "x_qp  [convention not recorded]"
+
+
+def _draw_xqp_time_series(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> tuple[Any, Any, Any]:
+    """x_qp against time, with the solver residual on a twin log axis.
+
+    Returns the figure and both axes rather than PNG bytes so a test can read
+    the plotted values back: bytes cannot show which array a curve came from,
+    and this figure exists to show ``obs_x_qp_mean`` itself, not a reduction
+    of something adjacent to it. Values go on the line untouched for the same
+    reason; the log axis clips non-positives at draw time.
+    """
+    t = np.asarray(arrays["snap_t_ns"], dtype=float)
+    fig, ax = _new_axes("t (ns)", _convention_label(summary), "x_qp over time")
+    ax.plot(
+        t, np.asarray(arrays["obs_x_qp_mean"], dtype=float),
+        color=SERIES[0], marker=MARKERS[0], markersize=3.5, linewidth=1.8,
+        label="cell mean",
+    )
+    if "obs_x_qp_max" in arrays:
+        ax.plot(
+            t, np.asarray(arrays["obs_x_qp_max"], dtype=float),
+            color=SERIES[1], marker=MARKERS[1], markersize=3.5, linewidth=1.4,
+            label="cell max",
+        )
+    # The reference the run is measured AGAINST: "x_qp = 1.1e-5" is unreadable
+    # until the reader knows how far above thermal it sits. It is in the same
+    # convention as the curves -- execute.py computes it with the same
+    # qp_fraction and delta_0.
+    thermal = summary.get("x_qp_thermal")
+    if isinstance(thermal, (int, float)) and np.isfinite(thermal) and thermal > 0.0:
+        ax.axhline(
+            float(thermal), color=MUTED, linestyle=":", linewidth=1.4,
+            label="thermal",
+        )
+    ax.set_yscale("log")
+
+    residual = None
+    rate = arrays.get("snap_max_rate")
+    if rate is not None and np.asarray(rate).shape == t.shape:
+        residual = ax.twinx()
+        residual.plot(
+            t, _positive(np.asarray(rate, dtype=float)),
+            color=SERIES[5], linestyle="--", linewidth=1.3,
+            label="max rate (residual)",
+        )
+        residual.set_yscale("log")
+        residual.set_ylabel("max |df/dt| (1/ns)", color=INK)
+        residual.tick_params(colors=MUTED, labelcolor=INK)
+        for spine in residual.spines.values():
+            spine.set_color(BASELINE)
+    handles, labels = ax.get_legend_handles_labels()
+    if residual is not None:
+        more, more_labels = residual.get_legend_handles_labels()
+        handles, labels = handles + more, labels + more_labels
+    ax.legend(handles, labels, loc="best", fontsize=8)
+    return fig, ax, residual
+
+
+def _plot_xqp_time_series(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> bytes:
+    fig, _ax, _residual = _draw_xqp_time_series(arrays, summary)
+    return _finish(fig)
 
 
 # -- m25_junction -----------------------------------------------------
@@ -383,6 +464,15 @@ def _frame_axes(arrays, summary, title):
     return fig, ax, mesh, (0.0, cols * mesh, 0.0, rows * mesh)
 
 
+class _UniformNorm(Normalize):
+    """The colour scale of a field that is ONE number in every frame.
+
+    A norm needs vmin < vmax, so a uniform stack gets a synthetic spread;
+    this subclass marks that the spread is synthetic, so the colourbar can
+    say "uniform" and print the one value instead of printing the spread.
+    """
+
+
 def _frame_norm(stack: np.ndarray) -> Any:
     """One colour scale across EVERY frame.
 
@@ -396,7 +486,7 @@ def _frame_norm(stack: np.ndarray) -> Any:
         return Normalize(vmin=0.0, vmax=1.0)
     lo, hi = float(np.min(finite)), float(np.max(finite))
     if hi <= lo:
-        hi = lo + max(abs(lo) * 1e-6, 1e-30)
+        return _UniformNorm(vmin=lo, vmax=lo + max(abs(lo) * 1e-6, 1e-30))
     return Normalize(vmin=lo, vmax=hi)
 
 
@@ -408,7 +498,15 @@ def _draw_frame(arrays, summary, values, title, label, norm) -> bytes:
         reconstruct_field(mask, values), origin="lower", extent=extent,
         cmap=SEQ_BLUE, norm=norm, interpolation="nearest",
     )
-    fig.colorbar(image, ax=ax, label=label)
+    bar = fig.colorbar(image, ax=ax, label=label)
+    if isinstance(norm, _UniformNorm):
+        # Left alone, the bar prints the synthetic spread -- "+1.8e2" with
+        # ticks at 0.000025 -- which reads as structure in a field that has
+        # none. A pinned gap is the everyday case, not a corner.
+        value = float(norm.vmin)
+        bar.set_ticks([value])
+        bar.set_ticklabels([f"{value:.6g}"])
+        bar.set_label(f"{label} — uniform in every frame")
     return _finish(fig)
 
 
@@ -442,8 +540,8 @@ def _plot_energy_map(
     e_over_gap = float(arrays["E_bins"][energy]) / gap
     return _draw_frame(
         arrays, summary, stack[frame, energy],
-        f"f at E = {e_over_gap:.4g} Δ — t = {t:.4g} ns",
-        "f", _frame_norm(stack[:, energy]),
+        f"occupation f at E = {e_over_gap:.4g} Δ — t = {t:.4g} ns",
+        "f (occupation, not density)", _frame_norm(stack[:, energy]),
     )
 
 
@@ -468,6 +566,71 @@ def _plot_phonon_frame(
         arrays, summary, stack[frame, omega],
         f"n_ph at {where} — t = {t:.4g} ns",
         "n_ph", _frame_norm(stack[:, omega]),
+    )
+
+
+def _plot_gap_frame(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int = 0,
+) -> bytes:
+    """The gap over the device at one recorded time.
+
+    Recorded per frame because the gap follows the occupation where the run
+    solves it self-consistently. A run with a pinned gap draws the same map
+    in every frame, which is a true statement about that run and cheaper
+    than a rule deciding when the figure is "interesting".
+    """
+    stack = np.asarray(arrays["snap_gap"], dtype=float)
+    t = float(arrays["snap_t_ns"][frame])
+    return _draw_frame(
+        arrays, summary, stack[frame],
+        f"Δ over the device — t = {t:.4g} ns "
+        f"(frame {frame + 1} of {stack.shape[0]})",
+        "Δ (μeV)", _frame_norm(stack),
+    )
+
+
+def _phonon_occupation_integral(
+    arrays: dict[str, np.ndarray], frame: int,
+) -> np.ndarray:
+    """``∫ n_ph dω`` per cell at one frame, on the lattice the run recorded.
+
+    Trapezoid over the recorded centres: the phonon state is a POINT SAMPLE
+    on its lattice, and that lattice is a clustered union of the difference
+    and sum lattices rather than a uniform grid, so neither a bin-count sum
+    nor a fixed dω is the integral. The result is an OCCUPATION integrated
+    over frequency, in μeV, and deliberately not an energy: weighting by ω
+    and a mode density is the quantity this repo once came within inches of
+    double counting, and it must not be drawn until someone establishes
+    whether the ω lattice already carries a mode density.
+    """
+    n_ph = np.asarray(arrays["snap_n_ph"][frame], dtype=float)  # (Nω, Ncells)
+    omega = np.asarray(arrays["snap_omega_bins"], dtype=float)
+    if omega.shape != (n_ph.shape[0],):
+        raise ValueError(
+            f"the recorded phonon lattice has {omega.shape[0]} frequencies but "
+            f"the frame holds {n_ph.shape[0]}; integrating would pair "
+            "populations with the wrong frequencies."
+        )
+    return np.trapezoid(n_ph, omega, axis=0)
+
+
+def _plot_phonon_occupation_frame(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int = 0,
+) -> bytes:
+    """Frequency-integrated phonon occupation over the device at one time."""
+    frames = int(np.asarray(arrays["snap_t_ns"]).shape[0])
+    t = float(arrays["snap_t_ns"][frame])
+    # Every frame's integral, because the colour scale is global (see
+    # _frame_norm) and needs the run's range, not this frame's.
+    integrals = np.stack(
+        [_phonon_occupation_integral(arrays, k) for k in range(frames)]
+    )
+    return _draw_frame(
+        arrays, summary, integrals[frame],
+        f"∫ n_ph dω over the device — t = {t:.4g} ns "
+        f"(frame {frame + 1} of {frames})",
+        "∫ n_ph dω (μeV) — occupation, no mode density",
+        _frame_norm(integrals),
     )
 
 
@@ -552,8 +715,21 @@ class _PlotSpec:
     """
 
     render: Callable[..., bytes]
-    requires: str | None = None
+    requires: str | tuple[str, ...] | None = None
     params: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+
+def _required(requires: str | tuple[str, ...] | None) -> tuple[str, ...]:
+    """The arrays an entry needs -- ALL of them, or it is not offered.
+
+    A tuple is for a figure built from two arrays that are only meaningful
+    together: phonon populations without the lattice they were recorded on
+    is the bin-count defect again, and a figure offered for a run that then
+    cannot render it 404s after the user has already clicked.
+    """
+    if requires is None:
+        return ()
+    return (requires,) if isinstance(requires, str) else tuple(requires)
 
 
 def _plot_occupation_either_shape(arrays, summary):
@@ -590,6 +766,10 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             _plot_field_frame, requires="snap_xqp_profile",
             params={"frame": ("snap_t_ns", 0)},
         ),
+        "gap_over_time": _PlotSpec(
+            _plot_gap_frame, requires="snap_gap",
+            params={"frame": ("snap_gap", 0)},
+        ),
         "energy_resolved_map": _PlotSpec(
             _plot_energy_map, requires="snap_f",
             params={"frame": ("snap_f", 0), "energy": ("snap_f", 1)},
@@ -598,11 +778,22 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
             _plot_phonon_frame, requires="snap_n_ph",
             params={"frame": ("snap_n_ph", 0), "omega": ("snap_n_ph", 1)},
         ),
+        "phonon_occupation_map": _PlotSpec(
+            _plot_phonon_occupation_frame,
+            requires=("snap_n_ph", "snap_omega_bins"),
+            params={"frame": ("snap_n_ph", 0)},
+        ),
         "geometry": _PlotSpec(
             lambda a, s: _plot_geometry_mask(a, s), requires="mask",
         ),
         "xqp_profile": _PlotSpec(
             lambda a, s: _plot_xqp_profile_2d(a), requires="xqp_profile",
+        ),
+        # The run AS A TIME SERIES. The frames above answer "where"; this one
+        # answers "when" -- when the density settles, when the residual
+        # stops falling -- which no single frame can.
+        "xqp_over_time": _PlotSpec(
+            _plot_xqp_time_series, requires=("snap_t_ns", "obs_x_qp_mean"),
         ),
         # One name for the question a reader is actually asking -- "show me the
         # occupation" -- dispatching on which field the strategy produced.
@@ -637,7 +828,7 @@ def available_plots(mode: str, array_names: Collection[str]) -> list[str]:
     return [
         name
         for name, spec in _PLOTS.get(mode, {}).items()
-        if spec.requires is None or spec.requires in array_names
+        if all(needed in array_names for needed in _required(spec.requires))
     ]
 
 
@@ -678,7 +869,7 @@ def render_plot(
 ) -> bytes:
     """Render one named figure to PNG bytes; raises KeyError for unknown names."""
     spec = _PLOTS.get(mode, {}).get(name)
-    if spec is None or (spec.requires is not None and spec.requires not in arrays):
+    if spec is None or any(needed not in arrays for needed in _required(spec.requires)):
         raise KeyError(f"No plot named {name!r} for mode {mode!r}.")
     if not spec.params:
         return spec.render(arrays, summary)
@@ -698,6 +889,14 @@ def render_plot(
 
 
 # -- CSV export -------------------------------------------------------
+#
+# A table is a FRAME of a run when the run recorded frames: ``frame=None`` is
+# the endpoint the run finished on (the arrays every run writes), ``frame=k``
+# is the k-th recorded snapshot. Every table that could hold more than one
+# time carries a ``t_ns`` column naming the one it holds, so the file states
+# its own time instead of leaving that to the URL it was fetched from.
+
+CsvBuilder = Callable[[dict[str, np.ndarray], dict[str, Any], int | None], str]
 
 
 def _csv_from_columns(header: Iterable[str], columns: list[np.ndarray]) -> str:
@@ -709,6 +908,39 @@ def _csv_from_columns(header: Iterable[str], columns: list[np.ndarray]) -> str:
     return out.getvalue()
 
 
+def _frame_index(arrays: dict[str, np.ndarray], frame: int | None) -> int | None:
+    """Validate a requested frame against what the run recorded.
+
+    Raises KeyError -- the server's 404 -- rather than IndexError deep in
+    numpy, for the same reason the figure families do: a scrubber can outrun
+    a run. ``None`` is the endpoint and always valid.
+    """
+    if frame is None:
+        return None
+    if "snap_t_ns" not in arrays:
+        raise KeyError("this run recorded no frames, so there is no frame to select.")
+    count = int(np.asarray(arrays["snap_t_ns"]).shape[0])
+    if not 0 <= int(frame) < count:
+        raise KeyError(f"frame={frame} is outside the run's range 0..{count - 1}.")
+    return int(frame)
+
+
+def _no_frames(name: str, frame: int | None) -> None:
+    """A table with no frame axis refuses a frame rather than ignoring it."""
+    if frame is not None:
+        raise KeyError(f"{name!r} has no frame axis; 'frame' does not apply.")
+
+
+def _frame_time(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None,
+) -> float:
+    """The simulation time a table holds, in ns; NaN if the run did not say."""
+    if frame is not None:
+        return float(arrays["snap_t_ns"][frame])
+    total = summary.get("total_time_ns")
+    return float(total) if isinstance(total, (int, float)) else float("nan")
+
+
 def _csv_ss_occupation(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(
         ["E_ueV", "f", "f_thermal"],
@@ -718,16 +950,6 @@ def _csv_ss_occupation(arrays: dict[str, np.ndarray]) -> str:
 
 def _csv_ss_phonons(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(["omega_ueV", "n_ph"], [arrays["omega_bins"], arrays["n_ph"]])
-
-
-
-
-
-
-
-
-
-
 
 
 def _csv_m25_sweep(arrays: dict[str, np.ndarray]) -> str:
@@ -750,46 +972,147 @@ def _cell_coordinates(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, np.nda
     return cols.astype(float), rows.astype(float)
 
 
-def _csv_kinetics_profile(arrays: dict[str, np.ndarray]) -> str:
-    """Per-cell x_qp with the cell's place on the mask.
+def _cell_columns(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> tuple[list[str], list[np.ndarray]]:
+    """``col, row`` in mask order, plus ``x_um, y_um`` when the mesh is known.
+
+    Cell CENTRES, (i + 1/2)h -- the convention ``x_um`` is emitted in on a
+    strip and the figures' extents use, where i*h would put every point half
+    a cell off. The micron columns are omitted rather than guessed when the
+    run did not record its mesh size: ``col``/``row`` stay exact, and a
+    length axis invented from a default is the mislabelling this module
+    refuses in ``_required_scale``.
+    """
+    col, row = _cell_coordinates(arrays)
+    header, cols = ["col", "row"], [col, row]
+    mesh = summary.get("mesh_size_um")
+    if isinstance(mesh, (int, float)) and np.isfinite(mesh) and mesh > 0.0:
+        header += ["x_um", "y_um"]
+        cols += [(col + 0.5) * float(mesh), (row + 0.5) * float(mesh)]
+    return header, cols
+
+
+def _csv_kinetics_profile(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """Per-cell x_qp with the cell's place on the device.
 
     Without this a 2-D run's numbers cannot leave the browser at all: the
     result was four PNGs and a handful of summary scalars, so replotting,
     fitting, or comparing against another tool was impossible.
     """
-    col, row = _cell_coordinates(arrays)
-    header = ["col", "row", "x_qp", "x_qp_paper"]
-    cols = [col, row, arrays["xqp_profile"], 2.0 * arrays["xqp_profile"]]
-    if "gap_per_cell" in arrays:
+    k = _frame_index(arrays, frame)
+    header, cols = _cell_columns(arrays, summary)
+    n = int(cols[0].size)
+    profile = np.asarray(
+        arrays["xqp_profile"] if k is None else arrays["snap_xqp_profile"][k],
+        dtype=float,
+    )
+    header += ["t_ns", "x_qp", "x_qp_paper"]
+    cols += [np.full(n, _frame_time(arrays, summary, k)), profile, 2.0 * profile]
+    gap = arrays.get("gap_per_cell") if k is None else arrays["snap_gap"][k]
+    if gap is not None:
         header.append("gap_ueV")
-        cols.append(arrays["gap_per_cell"])
+        cols.append(np.asarray(gap, dtype=float))
     return _csv_from_columns(header, cols)
 
 
-def _csv_kinetics_occupation(arrays: dict[str, np.ndarray]) -> str:
-    """f(E) per cell at the final time, one column per cell."""
+def _csv_kinetics_occupation(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """f(E) per cell, one column per cell, at the endpoint or a recorded frame."""
+    k = _frame_index(arrays, frame)
     col, row = _cell_coordinates(arrays)
-    f = arrays["f_final"]
+    f = np.asarray(arrays["f_final"] if k is None else arrays["snap_f"][k], dtype=float)
+    energies = np.asarray(arrays["E_bins"], dtype=float)
     return _csv_from_columns(
-        ["E_ueV", *[f"f_col={int(c)}_row={int(r)}" for c, r in zip(col, row, strict=True)]],
-        [arrays["E_bins"], *[f[:, j] for j in range(f.shape[1])]],
+        ["E_ueV", "t_ns",
+         *[f"f_col={int(c)}_row={int(r)}" for c, r in zip(col, row, strict=True)]],
+        [energies, np.full(energies.size, _frame_time(arrays, summary, k)),
+         *[f[:, j] for j in range(f.shape[1])]],
     )
 
 
-def _csv_kinetics_occupation_either_shape(arrays: dict[str, np.ndarray]) -> str:
+def _csv_kinetics_occupation_either_shape(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
     """`occupation.csv` for either strategy -- see the plot of the same name."""
     if "f_final" in arrays:
-        return _csv_kinetics_occupation(arrays)
+        return _csv_kinetics_occupation(arrays, summary, frame)
+    _frame_index(arrays, frame)
     return _csv_ss_occupation(arrays)
 
 
-def _csv_kinetics_time_series(arrays: dict[str, np.ndarray]) -> str:
-    """Recorded frames reduced to per-time observables."""
+def _csv_kinetics_phonons(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """n_ph(ω) per cell at one recorded frame, one column per cell.
+
+    The spatial route records phonons only as frames -- there is no endpoint
+    phonon array -- so the endpoint table is the LAST recorded frame, and the
+    ``t_ns`` column says which time that is rather than implying max_time.
+    The frequency column is the lattice the run recorded, never one rebuilt
+    from the setup (see T3SpatialBackend.phonon_frequency_axis).
+    """
+    k = _frame_index(arrays, frame)
+    if k is None:
+        k = int(np.asarray(arrays["snap_t_ns"]).shape[0]) - 1
+    n_ph = np.asarray(arrays["snap_n_ph"][k], dtype=float)  # (Nω, Ncells)
+    omega = np.asarray(arrays["snap_omega_bins"], dtype=float)
+    col, row = _cell_coordinates(arrays)
     return _csv_from_columns(
-        ["t_ns", "max_rate_per_ns", "x_qp_mean", "x_qp_max"],
-        [arrays["snap_t_ns"], arrays["snap_max_rate"],
-         arrays["obs_x_qp_mean"], arrays["obs_x_qp_max"]],
+        ["omega_ueV", "t_ns",
+         *[f"n_ph_col={int(c)}_row={int(r)}" for c, r in zip(col, row, strict=True)]],
+        [omega, np.full(omega.size, float(arrays["snap_t_ns"][k])),
+         *[n_ph[:, j] for j in range(n_ph.shape[1])]],
     )
+
+
+def _csv_kinetics_phonons_either_shape(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """`phonons.csv` for either payload shape.
+
+    The 0-D solver writes ``n_ph`` on ``omega_bins``; the spatial time march
+    writes ``snap_n_ph`` frames on ``snap_omega_bins`` when its phonon sector
+    is dynamic. Dispatch on the array present, as the figures do. Before this
+    the table was keyed on ``n_ph`` alone, so the phonon sector on a geometry
+    was view-only: drawable, never downloadable.
+    """
+    if "snap_n_ph" in arrays:
+        return _csv_kinetics_phonons(arrays, summary, frame)
+    _frame_index(arrays, frame)
+    return _csv_ss_phonons(arrays)
+
+
+def _csv_kinetics_time_series(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """Recorded frames reduced to per-time observables.
+
+    Both x_qp conventions, as the profile table carries them. ``n_ph_mean``
+    is the UNWEIGHTED mean of n_ph over lattice points and cells -- one
+    number for "how much phonon occupation is there", present only when the
+    phonon sector was dynamic; it is not an energy and carries no mode
+    density (see the occupation map). ``Q_i`` is the readout probe as a
+    time series where the run computed one.
+    """
+    _no_frames("time_series", frame)
+    header = ["t_ns", "max_rate_per_ns", "x_qp_mean", "x_qp_max"]
+    cols = [arrays["snap_t_ns"], arrays["snap_max_rate"],
+            arrays["obs_x_qp_mean"], arrays["obs_x_qp_max"]]
+    for name in ("obs_x_qp_mean_paper", "obs_x_qp_max_paper"):
+        if name in arrays:
+            header.append(name.removeprefix("obs_"))
+            cols.append(arrays[name])
+    if "snap_n_ph" in arrays:
+        header.append("n_ph_mean")
+        cols.append(np.asarray(arrays["snap_n_ph"], dtype=float).mean(axis=(1, 2)))
+    if "obs_Q_i" in arrays:
+        header.append("Q_i")
+        cols.append(arrays["obs_Q_i"])
+    return _csv_from_columns(header, cols)
 
 
 def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
@@ -805,12 +1128,26 @@ def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
     return _csv_from_columns(header, cols)
 
 
-_CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
-    "m25_junction": {"sweep": _csv_m25_sweep},
+def _framed_sweep(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None,
+) -> str:
+    _no_frames("sweep", frame)
+    return _csv_m25_sweep(arrays)
+
+
+def _framed_benchmark(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None,
+) -> str:
+    _no_frames("analytic_comparison", frame)
+    return _csv_benchmark(arrays)
+
+
+_CSVS: dict[str, dict[str, CsvBuilder]] = {
+    "m25_junction": {"sweep": _framed_sweep},
     "kinetics": {
         "profile": _csv_kinetics_profile,
         "occupation": _csv_kinetics_occupation_either_shape,
-        "phonons": _csv_ss_phonons,
+        "phonons": _csv_kinetics_phonons_either_shape,
         "time_series": _csv_kinetics_time_series,
     },
 }
@@ -818,33 +1155,48 @@ _CSVS: dict[str, dict[str, Callable[[dict[str, np.ndarray]], str]]] = {
 # A table that needs an array the run did not produce must not be offered, or
 # the download 404s after the user has already clicked it. Keyed by (mode,
 # name), not by name alone: "time_series" means a different array in each mode
-# -- kinetics only has one when frames were requested --
-# and a single global entry would hide a table that is always there.
-_CSV_REQUIRES: dict[tuple[str, str], str] = {
-    ("kinetics", "time_series"): "snap_t_ns",
-    # Same two-payload-shapes problem as the figures: a table offered for a
-    # run that cannot build it 404s after the user has already clicked it.
-    ("kinetics", "profile"): "xqp_profile",
-    ("kinetics", "phonons"): "n_ph",
+# -- kinetics only has one when frames were requested -- and a single global
+# entry would hide a table that is always there. A predicate rather than one
+# array name because `phonons` is built from EITHER payload shape, and the
+# spatial one needs its frequency axis as well as its populations: a phonon
+# table without the lattice it was recorded on is the bin-count defect again.
+_CSV_OFFERED: dict[tuple[str, str], Callable[[Collection[str]], bool]] = {
+    ("kinetics", "time_series"): lambda have: "snap_t_ns" in have,
+    ("kinetics", "profile"): lambda have: "xqp_profile" in have,
+    ("kinetics", "phonons"): lambda have: (
+        "n_ph" in have or {"snap_n_ph", "snap_omega_bins"} <= set(have)
+    ),
 }
 
 for _mode, _mode_csvs in _CSVS.items():
-    _mode_csvs["analytic_comparison"] = _csv_benchmark
-    _CSV_REQUIRES[(_mode, "analytic_comparison")] = "bench_x"
+    _mode_csvs["analytic_comparison"] = _framed_benchmark
+    _CSV_OFFERED[(_mode, "analytic_comparison")] = lambda have: "bench_x" in have
 
 
 def available_csvs(mode: str, array_names: Collection[str]) -> list[str]:
     return [
         name
         for name in _CSVS.get(mode, {})
-        if (required := _CSV_REQUIRES.get((mode, name))) is None
-        or required in array_names
+        if (offered := _CSV_OFFERED.get((mode, name))) is None
+        or offered(array_names)
     ]
 
 
-def render_csv(mode: str, name: str, arrays: dict[str, np.ndarray]) -> str:
-    """Render one named table to CSV text; raises KeyError for unknown names."""
+def render_csv(
+    mode: str,
+    name: str,
+    arrays: dict[str, np.ndarray],
+    summary: dict[str, Any] | None = None,
+    params: dict[str, int | None] | None = None,
+) -> str:
+    """Render one named table to CSV text; raises KeyError for unknown names.
+
+    ``params["frame"]`` selects a recorded frame for the tables that have a
+    frame axis and is a KeyError -- a 404 -- on the ones that do not, or when
+    the run has no such frame. Omitted, the table is the run's endpoint.
+    """
     builder = _CSVS.get(mode, {}).get(name)
     if builder is None:
         raise KeyError(f"No CSV named {name!r} for mode {mode!r}.")
-    return builder(arrays)
+    frame = (params or {}).get("frame")
+    return builder(arrays, summary or {}, None if frame is None else int(frame))

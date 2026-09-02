@@ -366,19 +366,54 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         return Response(content=png, media_type="image/png", headers=_CACHE_HEADERS)
 
     @app.get("/api/runs/{run_id}/csv/{name}.csv")
-    def runs_csv(run_id: str, name: str) -> Response:
+    def runs_csv(run_id: str, name: str, frame: int | None = None) -> Response:
         manifest, arrays = _load_run_artifacts(run_id)
         try:
-            text = render_csv(manifest["mode"], name, arrays)
+            # `frame` selects a recorded snapshot on the tables that have a
+            # frame axis; omitted, the table is the run's endpoint. A frame
+            # the run does not have, or on a table without that axis, is a
+            # 404 from render_csv's KeyError rather than a silent endpoint.
+            text = render_csv(
+                manifest["mode"], name, arrays, manifest.get("summary", {}),
+                {"frame": frame},
+            )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
+        stem = f"{run_id}-{name}" if frame is None else f"{run_id}-{name}-frame{frame}"
         return Response(
             content=text,
             media_type="text/csv",
             headers={
-                "Content-Disposition": f'attachment; filename="{run_id}-{name}.csv"',
+                "Content-Disposition": f'attachment; filename="{stem}.csv"',
                 **_CACHE_HEADERS,
             },
+        )
+
+    @app.get("/api/runs/{run_id}/result.npz")
+    def runs_arrays(run_id: str) -> FileResponse:
+        """The run's arrays, whole and unrendered.
+
+        Every figure and table above is one reduction of this file, chosen
+        here. The arrays nobody has written a figure for -- and there are
+        several -- were unreachable until this route: a reader with numpy
+        and a question this interface did not anticipate needs the payload,
+        not a PNG of it. Served as the file on disk, byte for byte, so what
+        is downloaded is what the run wrote.
+        """
+        try:
+            workspace.read_manifest(run_id)
+            path = workspace.run_dir(run_id) / "result.npz"
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(404, f"No run {run_id!r}.") from exc
+        if not path.is_file():
+            raise HTTPException(
+                404, "Run has no result arrays: not finished, or they were not writable.",
+            )
+        return FileResponse(
+            path,
+            media_type="application/octet-stream",
+            filename=f"{run_id}-result.npz",
+            headers=_CACHE_HEADERS,
         )
 
     class _RevalidatingStatic(StaticFiles):
