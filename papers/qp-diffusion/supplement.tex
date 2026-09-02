@@ -3600,39 +3600,91 @@ discarded) give, for the center of mass of that density,
   \avg{\,q\,\DN\,\DOS^{\,q-p-1}\,\bnabla_{\br}\DOS\,},
   \label{eq:Lpq_first_moment}
 \end{equation}
-the average taken over the conserved density itself. A narrow packet
-held at fixed energy therefore drifts at the local velocity inside the
-brackets. For \(q=0\) nothing moves on any static profile: the
-microscopic operator A1 responds to gap inhomogeneity only through its
-conserved-density weight and the subgap blocking, its undressed
-current integrating to a boundary term. The legacy placement C,
-\((p,q)=(0,-1)\), instead drifts at
+the average taken over the conserved density itself. This moment is a
+structural diagnostic of \(q\neq0\), but it is a different physical
+quantity for each member of the family: for the \(p=0\) placements it is
+the first moment of the bare occupation, which is not the density of
+anything. The quantity common to all members is the quasiparticle
+density \(\DOS f\), whose energy integral is \(n_{\qp}\)
+(\cref{sec:self_consistent_feedback}). For a readout density
+\(\DOS^{s}f\) the same two integrations by parts give
 \begin{equation}
-  \bv_{C}
+  \begin{split}
+  \frac{\dd\avg{\br}_{s}}{\dd t}
+  &=
+  (q+s-p)\,\DN\avg{\DOS^{\,q-p-1}\bnabla_{\br}\DOS}_{s}
+  \\
+  &\quad
+  +(s-p)\,
+  \frac{\int(\br-\avg{\br}_{s})\,\DOS^{\,s-p-1}\,
+        (\bnabla_{\br}\DOS\cdot\mathbf j)\,\dd^{d}r}
+       {\int\DOS^{s}f\,\dd^{d}r},
+  \end{split}
+  \label{eq:readout_first_moment}
+\end{equation}
+with \(\mathbf j=-\DN\DOS^{q}\bnabla_{\br}f\) the flux of the conserved
+density and \(\avg{\cdot}_{s}\) the average over \(\DOS^{s}f\); \(s=p\)
+recovers \cref{eq:Lpq_first_moment}. For a packet narrow on the scale
+over which \(\bnabla\DOS\) varies the shape term reduces to
+\((s-p)\DN\avg{\DOS^{\,q-p-1}\bnabla_{\br}\DOS}_{s}\), so that
+\begin{equation}
+  \frac{\dd\avg{\br}_{s}}{\dd t}
+  \simeq
+  \bigl[q+2(s-p)\bigr]\,\DN\,\DOS^{\,q-p-1}\,\bnabla_{\br}\DOS .
+  \label{eq:readout_drift_narrow}
+\end{equation}
+On the quasiparticle density (\(s=1\)) the prefactor is \(q+2(1-p)\).
+For A1, \((p,q)=(1,0)\), it vanishes, and both terms of
+\cref{eq:readout_first_moment} vanish with it at every packet width:
+nothing moves on any static profile, because the microscopic operator
+responds to gap inhomogeneity only through its conserved-density weight
+and the subgap blocking, its undressed current integrating to a boundary
+term. The prefactor also vanishes for A2, \((2,2)\), and for the
+constant-\(\tau\) placement B, \((0,-2)\), whose flux drift and
+conserved-weight response cancel in the quasiparticle density at leading
+order, leaving only the finite-width remainder of the shape term in
+\cref{eq:readout_first_moment}. The legacy placement C,
+\((p,q)=(0,-1)\), moves its own conserved moment, the bare occupation, at
+\begin{equation}
+  \bv_{C}^{(0)}
   =
   \bnabla_{\br}\frac{\DN}{\DOS}
   =
   -\frac{\DN}{\DOS}\,\bnabla_{\br}\ln\DOS
   =
-  -\DN\,\frac{\Delta\,\bnabla_{\br}\Delta}{E\sqrt{E^{2}-\Delta^{2}}}.
+  -\DN\,\frac{\Delta\,\bnabla_{\br}\Delta}{E\sqrt{E^{2}-\Delta^{2}}},
   \label{eq:legacy_drift_velocity}
 \end{equation}
-At fixed energy \(\DOS\) increases with the local gap, so this
-velocity points down the gap gradient and diverges toward the local
-gap edge, the energies at which quasiparticle populations
-concentrate. On any gap well, whether an engineered trap or the
-suppression a localized population digs for itself through the gap
+and its quasiparticle density at the equal and opposite
+\begin{equation}
+  \bv_{C}
+  =
+  +\DN\,\DOS^{-2}\,\bnabla_{\br}\DOS
+  =
+  +\DN\,\frac{\Delta\,\bnabla_{\br}\Delta}{E\sqrt{E^{2}-\Delta^{2}}}.
+  \label{eq:legacy_density_drift}
+\end{equation}
+At fixed energy \(\DOS\) increases with the local gap, so the
+quasiparticle-density drift points up the gap gradient and diverges
+toward the local gap edge, the energies at which quasiparticle
+populations concentrate. On any gap well, whether an engineered trap or
+the suppression a localized population digs for itself through the gap
 equation (\cref{sec:self_consistent_feedback}), the legacy placement
-therefore drives a passive fixed-energy distribution into the well.
+therefore drives the quasiparticle density of a passive fixed-energy
+distribution out of the well, while A1 leaves it in place; in the
+narrow-packet law the difference
+\(\bv_{C}-\bv_{\mathrm{A1}}=\DN\DOS^{-2}\bnabla_{\br}\DOS\) is
+independent of the readout weight \(s\).
 The drift is spurious in a precise sense: it is produced by the
 placement of the spectral weight, not by the microscopics; neither
 route (main-text~\cref{M-sec:scalar_diffusion,M-sec:usadel_route}) yields it. Nor is
-the artifact a proxy for physical trapping: gap-edge blocking and
+the artifact a statement about physical trapping: gap-edge blocking and
 inelastic relaxation into gap-suppressed regions survive in A1, and
 what A1 lacks is solely the fixed-energy advective response to
 \(\bnabla\DOS\). The benchmarks of \cref{sec:program} measure the
-drift spectrum of \cref{eq:Lpq_first_moment} directly and construct a
-local P\'eclet number comparing it with ordinary diffusion.
+quasiparticle-density drift of \cref{eq:readout_first_moment} directly,
+and \cref{sec:self_consistent_feedback} constructs a
+local P\'eclet number comparing its magnitude with ordinary diffusion.
 
 The family also organizes conservation-law bookkeeping. If the conserved
 shell density is \(\mathcal W(E,\br)\,f\), transported by the weighted
@@ -3859,11 +3911,15 @@ nonequilibrium populations concentrate. Every \(q\neq0\) member of
 \cref{eq:Lpq_expanded} converts this into the first-moment drift of
 \cref{eq:Lpq_first_moment}, with the sign of \(q\): divergent
 at the edge for \(q-p>-2\) and finite precisely at the marginal exponent
-\(q-p=-2\) of the legacy placement B; the
+\(q-p=-2\) of the legacy placement B; on the quasiparticle density the
+prefactor becomes \(q+2(1-p)\) [\cref{eq:readout_drift_narrow}], which
+also vanishes for B and A2; the
 dirty-limit operator A1 (\(q=0\)) has no drift response at any amplitude.
 
-For the legacy placement C, \((p,q)=(0,-1)\), that drift is the
-fixed-energy velocity \(\bv_C\) of \cref{eq:legacy_drift_velocity}. A
+For the legacy placement C, \((p,q)=(0,-1)\), that drift has the
+fixed-energy magnitude \(|\bv_C|\) of
+\cref{eq:legacy_drift_velocity,eq:legacy_density_drift} (directed out of
+the well on the quasiparticle density). A
 compact local diagnostic compares it with diffusion over a length
 \(L_{\Delta}\), where
 \(|\delta\Delta|\simeq L_{\Delta}|\partial_x\Delta|\):
@@ -3922,9 +3978,12 @@ Four benchmark problems separate the models cleanly:
   \item a spatially varying gap with no collisions, where A1
   carries \emph{no} DOS-gradient drift (the inhomogeneity enters only
   through \(\mathcal{D}_L\) and the outside spectral factor), the legacy
-  placement C carries the spurious drift of its \(q=-1\) flux, and the \(q=2\)
-  diagnostics drift with the opposite sign and, asymptotically
-  (\(E\gg\Delta\)), twice the magnitude;
+  placement C carries the spurious drift of its \(q=-1\) flux, which
+  moves its quasiparticle density up the gap gradient at
+  \(\DN\DOS^{-2}\partial_x\DOS\) [\cref{eq:legacy_density_drift}], the
+  \((1,2)\) diagnostic moves it the same way at, asymptotically
+  (\(E\gg\Delta\)), twice that rate, and A2 and B carry no
+  quasiparticle-density drift at leading order in the gradient;
   \item an interface or trap geometry (the configuration of engineered
   quasiparticle traps \cite{riwar2016,hosseinkhani2018,riwar2019}), where conservation of the integrated
   quasiparticle number can be tested against boundary conditions, and where
@@ -3959,10 +4018,13 @@ parameters, \(\DN=6~\mu\mathrm{m}^2/\mathrm{ns}\),
 A1\('\) is labeled A1P in the legends). The measured points sit on the analytic
 spectra in all three problems: the uniform-gap rates trace
 \(\DOS^{\,q-p}\), with A1 and C coincident on \(\DN/\DOS\)
-(\cref{fig:bench_uniform}); the ramp drift velocities (measured on the center of mass of each
-operator's conserved density \(\DOS^{p}f\)) trace
-\(\DN\,q\,\DOS^{\,q-p-1}\partial_x\DOS\), with A1 driftless and the
-\(q=2\) diagnostics moving opposite to the legacy placements
+(\cref{fig:bench_uniform}); the ramp drift velocities (measured on the
+center of mass of the quasiparticle density \(\DOS f\), the same readout
+for every operator) trace the exact initial rate of
+\cref{eq:readout_first_moment}, asymptotically
+\(\DN\,[q+2(1-p)]\,\DOS^{\,q-p-1}\partial_x\DOS\): A1 is driftless, C and
+the \((1,2)\) diagnostic move up the gap gradient, and A2 and B carry no
+net drift
 (\cref{fig:bench_drift}); and the interface problem separates the
 conserved densities, A1 and A2 relaxing to distinct closed-box equilibria
 while both carry a continuous current through the Kupriyanov--Lukichev
@@ -3994,15 +4056,19 @@ face (\cref{fig:bench_interface}).
   \(\exp[-(x-x_0)^2/\sigma^2]\) (\(\sigma=8~\mu\mathrm{m}\)) on
   a static linear ramp \(\Delta(x)\) rising from \(\Delta_0\) to
   \(1.6\,\Delta_0\) across the strip, with no collisions. Lines are the
-  analytic drift \(v=\DN\,q\,\DOS^{\,q-p-1}\,\partial_x\DOS\); markers
-  are measured. The tracked moment is the center of mass of each
-  operator's conserved density \(\DOS^{p}f\), which isolates the drift
-  content of the flux; the first moment of \(f\) itself would
-  additionally respond to the spatially varying conserved-density weight
-  \(\DOS^{p}(x)\). A1 (\(q=0\)) shows no DOS-gradient drift; the \(q=2\)
-  diagnostics drift up the gap gradient; the legacy placements C
-  (\(q=-1\)) and B (\(q=-2\)) drift down, with magnitudes set
-  asymptotically by \(q\). The prescribed 60\% ramp is deliberately
+  exact initial rate of \cref{eq:readout_first_moment} on the initial
+  packet, which on this ramp agrees with the narrow-packet form
+  \(v=\DN\,[q+2(1-p)]\,\DOS^{\,q-p-1}\,\partial_x\DOS\) to about 2\%;
+  markers are measured over \(4\)~ns. The tracked moment is the center
+  of mass of the quasiparticle density \(\DOS f\), the same physical
+  quantity for every operator; each operator's own conserved-density
+  moment \(\DOS^{p}f\) would instead isolate the flux drift
+  \(\DN\,q\,\DOS^{\,q-p-1}\partial_x\DOS\) of \cref{eq:Lpq_first_moment},
+  which for the \(p=0\) legacy placements points the opposite way. A1
+  shows no DOS-gradient drift; the legacy placement C (\(q=-1\)) and the
+  \((1,2)\) diagnostic drift up the gap gradient, with magnitudes set
+  asymptotically by \(q+2(1-p)=1\) and \(2\); A2 and B
+  (\(q+2(1-p)=0\)) carry no net drift of \(\DOS f\). The prescribed 60\% ramp is deliberately
   large to discriminate the operators; it is not intended as a typical
   self-consistent gap suppression.}
   \label{fig:bench_drift}
@@ -4035,26 +4101,41 @@ face (\cref{fig:bench_interface}).
 \Cref{fig:bench_feedback} realizes the fourth test with the same
 discretization (well depth \(\delta\Delta/\Delta_0=0.05\) dug by a
 maintained near-edge population of width \(10~\mu\mathrm{m}\); probe read
-out at \(E=1.08\,\Delta_0\)). In the quasi-static well the probe's
-conserved-density center of mass reproduces the analytic drift spectrum
-evaluated on the self-generated profile: the legacy placements
-drive the passive probe \emph{into} the population-generated well (C and
-B within a few percent of the prediction), the \(q=2\) diagnostics expel
-it, and A1 produces no fixed-energy DOS-gradient motion: zero to
-round-off in the quasi-static calculation, since its undressed face flux
-telescopes across the well. With fully dynamic feedback (the gap tracking
-the well-generating population every step) the same sign pattern survives; the
-bookkeeping drift from the energy-space spectral-flow
-advection (which the fixed-\(E\) benchmark discretization
-omits) is measured rather than hidden, at the percent level for the
-\(p\geq1\) operators over the \(20\)-ns run and zero for \(p=0\)
-(A1's residual center-of-mass motion under dynamic feedback is this
-bookkeeping effect, about a factor of \(3\) below the legacy drift at
-this well depth, not a DOS-gradient response).
-An inward passive-tracer response to a population-generated gap well is
-therefore a structural artifact of the \(q<0\) legacy placements; the
-microscopic operator (by either route) has no such fixed-energy
-DOS-gradient drift.
+out at \(E=1.08\,\Delta_0\) on its quasiparticle density \(\DOS f\)). In
+the quasi-static well the initial center-of-mass rate of the probe's
+quasiparticle density follows the exact law
+\cref{eq:readout_first_moment} evaluated on the self-generated profile:
+the legacy placement C drives the passive probe \emph{out of} the
+population-generated well (\(+0.024~\mu\mathrm{m}/\mathrm{ns}\) fitted
+over the first nanosecond against an initial rate of \(+0.027\); the
+shortfall is the packet spreading during the fit window), the \((1,2)\)
+diagnostic expels it more strongly (\(+0.325\) against \(+0.383\)), A2
+and B show only the finite-width remainder of
+\cref{eq:readout_first_moment} set by the well's curvature (\(+0.025\)
+and \(-0.003\); their leading-order drift is zero), and A1 produces no
+fixed-energy DOS-gradient motion: zero to round-off at every time in the
+quasi-static calculation, since its undressed face flux telescopes across
+the well. Beyond the first few nanoseconds the packets have spread to the
+width of the well and the centroid of \(\DOS f\) mixes drift with the
+spatial variation of the readout weight itself, so the long-time curves
+of \cref{fig:bench_feedback}(b) are no longer drift velocities; A2's late
+rise and C's turnover are this finite-width effect. With fully dynamic
+feedback (the gap tracking the well-generating population every step)
+the sign pattern of the initial rates survives (C \(+0.014\), the
+\((1,2)\) diagnostic \(+0.24\), A2 and B within \(0.007\) of zero); the
+bookkeeping drift of the conserved total from the energy-space
+spectral-flow advection (which the fixed-\(E\) benchmark discretization
+omits) is measured rather than hidden, at the percent level
+(\(2\)--\(5\%\)) for the \(p\geq1\) operators over the \(20\)-ns run and
+zero to round-off for \(p=0\) (A1's residual center-of-mass motion under
+dynamic feedback, \(-0.009~\mu\mathrm{m}/\mathrm{ns}\), is this
+bookkeeping effect, comparable to the legacy drift at this well depth,
+not a DOS-gradient response).
+A fixed-energy DOS-gradient drift of a passive tracer's quasiparticle
+density, directed out of a population-generated gap well, is therefore a
+structural artifact of the legacy placement C (and of the
+transverse-dressed diagnostic); the microscopic operator (by either
+route) has no such drift.
 
 \begin{figure}[t]
   \centering
@@ -4066,16 +4147,24 @@ DOS-gradient drift.
   fully dynamic feedback under A1 (dashed); the dotted line marks the
   probe packet on the flank. Only the well-generating population enters
   the gap closure; the separate probe is excluded and is therefore
-  passive. (b)~Probe center-of-mass drift at
-  \(E=1.08\,\Delta_0\) in the quasi-static well: the legacy placements C
-  and B fall toward the well, the \(q=2\) diagnostics A1\('\) (legend:
-  A1P) and A2 are
-  expelled, and the microscopic A1 stays exactly put. (c)~Measured
-  (markers) versus analytic (lines) drift velocity at the probe versus
-  well depth: the response scales with the feedback strength with the
-  sign of \(q\), and A1's vanishing drift is parameter-free. The 5\%
-  well is deliberately exaggerated for discrimination, and inward probe
-  drift is not net compression of the well-generating population.}
+  passive. (b)~Center-of-mass shift of the probe's quasiparticle density
+  \(\DOS f\) at
+  \(E=1.08\,\Delta_0\) in the quasi-static well: the legacy placement C
+  and the \((1,2)\) diagnostic A1\('\) (legend: A1P) move away from the
+  well, the microscopic A1 stays exactly put at all times, and A2 and B,
+  which have no leading-order drift, show the finite-width remainder of
+  \cref{eq:readout_first_moment}, which grows as the packets spread to
+  the width of the well (A2's late rise, C's turnover); beyond the first
+  few nanoseconds the curves are no longer drift velocities.
+  (c)~Drift velocity at the probe versus well depth, fitted over the
+  first nanosecond (markers) against the exact initial rate of
+  \cref{eq:readout_first_moment} (lines): the response scales with the
+  feedback strength with the sign of \(q+2(1-p)\), the fitted means sit
+  below the initial rates by the packet spreading during the fit window,
+  and A1's vanishing drift is parameter-free. The 5\%
+  well is deliberately exaggerated for discrimination, and the
+  passive-probe drift is not a statement about the net spreading of the
+  well-generating population.}
   \label{fig:bench_feedback}
 \end{figure}
 

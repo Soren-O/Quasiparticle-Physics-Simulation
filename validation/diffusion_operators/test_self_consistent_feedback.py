@@ -37,28 +37,39 @@ def test_dig_well_reaches_fixed_point() -> None:
     assert float(np.max(np.abs(once_more - well))) < 1e-10 * gap0
 
 
-def test_probe_drift_signs_split_by_q() -> None:
-    # Static self-dug well: A1 (q = 0) does not move at all; C/B (q < 0)
-    # fall toward the well; A1P/A2 (q = 2) are expelled from it.
+def test_probe_drift_splits_by_readout_law() -> None:
+    # Static self-dug well, probe read on its quasiparticle density N_1 f:
+    # A1 does not move at all; the legacy C (+1) and A1P (+2) drift *away*
+    # from the well; A2 and B (0) show only the finite-packet residual of
+    # the well's curvature.
     result = run(**_SMALL)
     ei = result.e_index
     assert abs(result.drift_measured["A1"][ei]) < 1e-8
-    assert result.drift_measured["C"][ei] < 0.0
-    assert result.drift_measured["B"][ei] < 0.0
+    assert result.drift_measured["C"][ei] > 0.0
     assert result.drift_measured["A1P"][ei] > 0.0
-    assert result.drift_measured["A2"][ei] > 0.0
+    assert result.drift_measured["A1P"][ei] > result.drift_measured["C"][ei]
+    a1p = abs(float(result.drift_measured["A1P"][ei]))
+    for name in ("A2", "B"):
+        residual = abs(float(result.drift_measured[name][ei]))
+        assert residual < 0.2 * a1p, (name, residual, a1p)
 
 
 def test_drift_matches_analytic_velocity() -> None:
     result = run(**_SMALL)
     ei = result.e_index
-    assert result.drift_analytic["A1"][ei] == 0.0
-    for name in ("C", "B"):
+    a1p_analytic = abs(float(result.drift_analytic["A1P"][ei]))
+    # A1: exactly null (undressed flux telescopes) -- round-off only.
+    assert abs(float(result.drift_analytic["A1"][ei])) < 1e-12 * a1p_analytic
+    # A2, B: null at leading order; only the shape term of the well's curvature.
+    for name in ("A2", "B"):
+        assert abs(float(result.drift_analytic[name][ei])) < 0.1 * a1p_analytic, name
+    # The fitted mean over the 4-step window sits below the exact initial
+    # rate by the packet-spreading correction (about 10% for C and 15% for
+    # the fast-diffusing A1P at the paper's settings).
+    for name, tol in (("C", 0.15), ("A1P", 0.25)):
         measured = float(result.drift_measured[name][ei])
         analytic = float(result.drift_analytic[name][ei])
-        assert abs(measured - analytic) < 0.25 * abs(analytic), (
-            name, measured, analytic,
-        )
+        assert abs(measured - analytic) < tol * abs(analytic), (name, measured, analytic)
 
 
 def test_dynamic_mode_quantifies_bookkeeping() -> None:
@@ -69,5 +80,6 @@ def test_dynamic_mode_quantifies_bookkeeping() -> None:
     # A1's N_1 f bookkeeping responds to the moving well: finite, small,
     # and reported rather than hidden.
     assert 0.0 < result.conservation_drift["A1"] < 0.05
-    # The self-focusing signature survives full dynamics.
-    assert result.drift_measured["C"][ei] < 0.0
+    # The legacy placement's outward drift of the quasiparticle density
+    # survives full dynamics.
+    assert result.drift_measured["C"][ei] > 0.0
