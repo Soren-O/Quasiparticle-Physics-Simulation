@@ -39,6 +39,7 @@ from qpsim.webui.plots import (
     render_formula,
     render_plot,
 )
+from qpsim.webui.preview import build_preview
 from qpsim.webui.runner import JobRunner
 from qpsim.webui.schemas import (
     MODE_CLASSES,
@@ -218,6 +219,17 @@ def create_app(workspace_root: Path | str) -> FastAPI:
     def validate(envelope: SetupEnvelope) -> dict[str, Any]:
         report = validate_setup(envelope.setup)
         return {"ok": report.ok, "errors": report.errors, "warnings": report.warnings}
+
+    @app.post("/api/preview")
+    def preview(envelope: SetupEnvelope) -> dict[str, Any]:
+        """What the setup would solve on, before it runs.
+
+        The mask as a picture, the seed as a picture and as numbers, the
+        seed's clipping notes, and the rim's segment ids -- all built by the
+        same calls the run makes, stopped before the first step. See
+        :mod:`qpsim.webui.preview`.
+        """
+        return build_preview(envelope.setup)
 
     @app.post("/api/terms")
     def terms(envelope: SetupEnvelope) -> dict[str, dict[str, str]]:

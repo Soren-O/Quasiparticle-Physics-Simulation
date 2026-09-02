@@ -499,14 +499,14 @@ def _draw_frame(arrays, summary, values, title, label, norm) -> bytes:
         cmap=SEQ_BLUE, norm=norm, interpolation="nearest",
     )
     bar = fig.colorbar(image, ax=ax, label=label)
-    if isinstance(norm, _UniformNorm):
+    if isinstance(norm, _UniformNorm) and norm.vmin is not None:
         # Left alone, the bar prints the synthetic spread -- "+1.8e2" with
         # ticks at 0.000025 -- which reads as structure in a field that has
         # none. A pinned gap is the everyday case, not a corner.
         value = float(norm.vmin)
         bar.set_ticks([value])
         bar.set_ticklabels([f"{value:.6g}"])
-        bar.set_label(f"{label} — uniform in every frame")
+        bar.set_label(f"{label} — uniform field")
     return _finish(fig)
 
 
@@ -632,6 +632,51 @@ def _plot_phonon_occupation_frame(
         "∫ n_ph dω (μeV) — occupation, no mode density",
         _frame_norm(integrals),
     )
+
+
+# -- pre-run preview --------------------------------------------------
+#
+# The same figures a finished run gets, drawn from a mask and a seed before
+# anything runs. They take plain arrays rather than a run's payload so the
+# preview endpoint and the run detail cannot drift into two pictures of one
+# device.
+
+
+def render_mask_png(mask: np.ndarray, mesh_size_um: float) -> bytes:
+    """The geometry figure, from a mask rather than a run's arrays."""
+    return _plot_geometry_mask(
+        {"mask": np.asarray(mask, dtype=float)}, {"mesh_size_um": float(mesh_size_um)},
+    )
+
+
+def render_cell_field_png(
+    mask: np.ndarray, mesh_size_um: float, values: np.ndarray, title: str, label: str,
+) -> bytes:
+    """One per-cell field over the device -- a seed, before any run."""
+    values = np.asarray(values, dtype=float)
+    return _draw_frame(
+        {"mask": np.asarray(mask)}, {"mesh_size_um": float(mesh_size_um)},
+        values, title, label, _frame_norm(values[None, :]),
+    )
+
+
+def render_phonon_seed_png(
+    omega: np.ndarray, seed: np.ndarray, bath: np.ndarray, gap: float,
+) -> bytes:
+    """The phonon population a run starts from, against the bath it departs from."""
+    x = np.asarray(omega, dtype=float) / float(gap)
+    fig, ax = _new_axes("ω / Δ", "n_ph(ω)", "Phonon seed against the bath")
+    ax.semilogy(
+        x, _positive(np.asarray(bath, dtype=float)),
+        linestyle="--", color=MUTED, linewidth=2, label="bath (thermal)",
+    )
+    ax.semilogy(
+        x, _positive(np.asarray(seed, dtype=float)),
+        color=SERIES[0], linewidth=2, label="seed",
+    )
+    _clamp_log_floor(ax, np.asarray(seed, dtype=float))
+    ax.legend()
+    return _finish(fig)
 
 
 # -- formulas ---------------------------------------------------------

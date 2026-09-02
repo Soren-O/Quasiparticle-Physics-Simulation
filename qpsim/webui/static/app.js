@@ -353,6 +353,7 @@ const state = {
   catId: null,
   benchmarks: {},       // name -> declared closed form, from /api/benchmarks
   termStatus: {},       // term -> {state, reason}, from /api/terms
+  edgeIds: [],          // segment ids of the last previewed geometry
   // Why termStatus is empty, when it is. An empty map means "not known", which
   // the panel must SAY rather than draw as "no terms in this model".
   termError: "",
@@ -563,7 +564,10 @@ function renderList(field) {
     if (keyed && field.keyOptions) {
       suggestions = document.createElement("datalist");
       suggestions.id = `keys-${field.path.replace(/\./g, "-")}`;
-      for (const opt of field.keyOptions) {
+      // The direction aliases always; the real segment ids once a preview
+      // has named them -- on a GDS mask those are the only ids that exist.
+      const known = [...field.keyOptions, ...(state.edgeIds || [])];
+      for (const opt of known.filter((k, i) => known.indexOf(k) === i)) {
         const o = document.createElement("option");
         o.value = opt;
         suggestions.appendChild(o);
@@ -670,6 +674,57 @@ function renderFeedback(body, okMessage) {
 async function doValidate() {
   const { body } = await postJSON("/api/validate", envelope());
   renderFeedback(body, "Setup is valid.");
+}
+
+/* ---------- pre-run preview ----------
+   The geometry, the seed and the rim, built by the same calls the run
+   makes and stopped before the first step. Answers "is this the device I
+   meant" and "where does it start" before a solve is spent finding out. */
+
+async function doPreview() {
+  const { ok, body } = await postJSON("/api/preview", envelope());
+  const panel = $("#preview");
+  if (!ok || !body.ok) {
+    renderFeedback(body, "");
+    panel.classList.add("hidden");
+    return;
+  }
+  $("#feedback").innerHTML = "";
+  const g = body.geometry;
+  const seed = body.seed || {};
+  const ph = body.phonons || {};
+  state.edgeIds = g.edges.map((e) => e.id);
+  let html = `<div class="stale-banner">The setup changed since this preview was built. Click Preview again.</div>`;
+  html += `<h3>Preview</h3>`;
+  html += `<p class="hint">${esc(g.name)}: ${g.cells} cells, ${g.rows}×${g.cols} at ${esc(fmt(g.mesh_size_um))} μm `
+    + `(${esc(fmt(g.width_um))} × ${esc(fmt(g.height_um))} μm), ${["0-D", "1-D", "2-D"][g.dimensionality]}. `
+    + `Seed: ${esc(seed.kind)}, x_qp = ${esc(fmt(seed.x_qp_initial))} (mean) / ${esc(fmt(seed.x_qp_initial_max))} (max) `
+    + `against thermal ${esc(fmt(seed.x_qp_thermal))}, in ${esc(seed.x_qp_convention)}. `
+    + `Phonons: ${esc(ph.mode)}${ph.seeded ? ", seeded away from the bath" : ", start at the bath"}.</p>`;
+  for (const n of body.notes || []) html += `<div class="note">⚠ ${esc(n)}</div>`;
+  html += `<div class="preview-grid">`;
+  for (const [key, alt] of [["mask", "mask"], ["seed_xqp", "seeded x_qp"], ["phonon_seed", "phonon seed"]]) {
+    if (body.images[key]) html += `<img src="${body.images[key]}" alt="${esc(alt)}">`;
+  }
+  html += `</div>`;
+  // The rim, so a per-edge condition can be addressed by an id that exists.
+  // Direction aliases are shown resolved to segments: on an annulus "right"
+  // names BOTH rims, which is worth seeing before typing it.
+  html += `<h4>Edges</h4><table class="list"><tr><th>id</th><th>normal</th><th>faces</th><th>from (μm)</th><th>to (μm)</th></tr>`
+    + g.edges.map((e) => `<tr><td><code>${esc(e.id)}</code></td><td>${esc(e.normal)}</td><td>${e.faces}</td>`
+      + `<td>(${esc(fmt(e.x0_um))}, ${esc(fmt(e.y0_um))})</td><td>(${esc(fmt(e.x1_um))}, ${esc(fmt(e.y1_um))})</td></tr>`).join("")
+    + `</table>`;
+  html += `<p class="hint">Direction aliases on this mask: `
+    + Object.entries(g.directions).map(([d, ids]) => `${esc(d)} → ${ids.length ? ids.map(esc).join(", ") : "<em>none</em>"}`).join("; ")
+    + `.</p>`;
+  panel.innerHTML = html;
+  panel.classList.remove("hidden", "stale");
+}
+
+// Any edit after a preview makes the picture a picture of something else.
+// Rather than hide it -- it is still useful -- say so on it.
+function stalePreview() {
+  $("#preview").classList.add("stale");
 }
 async function doSaveSetup() {
   const { ok, body } = await postJSON("/api/setups", envelope());
@@ -1832,6 +1887,10 @@ function showWizardStep(index) {
   for (const id of ["#btn-validate", "#btn-save-setup", "#btn-run"]) {
     $(id).classList.toggle("hidden", wizard.readOnly || !last);
   }
+  // Preview on every page: the geometry step is where the mask matters and
+  // the conditions step is where the seed does. Read-only settings are a
+  // record and get no buttons.
+  $("#btn-preview").classList.toggle("hidden", wizard.readOnly);
   $("#run-name").disabled = wizard.readOnly;
   document.body.classList.toggle("viewing-settings", wizard.readOnly);
   crumbsInto("#wizard-crumbs", wizard.readOnly
@@ -2198,6 +2257,12 @@ function initWizard() {
   }
   $("#btn-next").addEventListener("click", () => showWizardStep(wizard.index + 1));
   $("#btn-back").addEventListener("click", () => showWizardStep(wizard.index - 1));
+  $("#btn-preview").addEventListener("click", doPreview);
+  // `change` bubbles from every control; list add/remove are button clicks.
+  for (const sel of ["#form-geometry", "#setup-form"]) {
+    $(sel).addEventListener("change", stalePreview);
+    $(sel).addEventListener("click", (e) => { if (e.target.closest("button")) stalePreview(); });
+  }
 }
 
 /* =====================================================================

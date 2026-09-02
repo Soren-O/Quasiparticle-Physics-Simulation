@@ -204,7 +204,7 @@ def run_steady_state_0d(
     summary["x_qp_thermal_paper"] = qp_fraction_paper(
         f_ref, ctx, delta_0=gap0
     )
-    summary["x_qp_convention"] = "qpsim: n_qp/(4 rho_F Delta_0)"
+    summary["x_qp_convention"] = X_QP_CONVENTION
     if setup.material.rho_F > 0.0:
         summary["n_qp_per_m3"] = qp_number_density(solved.f, ctx, setup.material.rho_F)
 
@@ -400,6 +400,11 @@ def _require_single_cell_for_steady_state(setup: KineticsSetup) -> None:
             "use strategy='time_march', which reaches a steady state by "
             "advancing to stop_tol and imposes no such restriction."
         )
+
+
+# x_qp is a RATIO whose value depends on a convention (the paper's is twice
+# this), so every place that reports one names it -- with this one string.
+X_QP_CONVENTION = "qpsim: n_qp/(4 rho_F Delta_0)"
 
 
 def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
@@ -636,7 +641,7 @@ def run_kinetics(
         "x_qp_mean_paper": 2.0 * float(np.mean(profile)),
         "x_qp_max_paper": 2.0 * float(np.max(profile)),
         "x_qp_min_paper": 2.0 * float(np.min(profile)),
-        "x_qp_convention": "qpsim: n_qp/(4 rho_F Delta_0)",
+        "x_qp_convention": X_QP_CONVENTION,
         "total_time_ns": float(result.elapsed),
         # The reference the run is measured AGAINST, which this mode never
         # reported and both retired modes did. Without it "x_qp = 1.1e-5" is

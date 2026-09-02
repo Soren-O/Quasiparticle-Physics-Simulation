@@ -717,3 +717,19 @@ body.viewing-settings #view-new-run::before {
 .list-entry legend { color: var(--ink-2); font-size: 12.5px; padding: 0 6px; }
 .list-entry .list-remove { margin-top: 6px; }
 .list-add { margin-top: 6px; }
+
+/* ---- pre-run preview ---- */
+#preview { margin: 12px 0; }
+#preview h3 { margin: 8px 0 2px; }
+#preview h4 { margin: 12px 0 4px; }
+#preview .preview-grid { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0; }
+#preview .preview-grid img {
+  max-width: 100%; width: 420px; border: 1px solid var(--grid); border-radius: 8px;
+  background: var(--surface);
+}
+#preview .stale-banner {
+  display: none; padding: 6px 10px; margin: 6px 0; border-radius: 6px;
+  background: #fdf4e0; border: 1px solid #eda100; color: var(--warning-ink);
+}
+#preview.stale .stale-banner { display: block; }
+#preview.stale .preview-grid img { opacity: 0.55; }
