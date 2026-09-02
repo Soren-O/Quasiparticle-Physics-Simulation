@@ -314,13 +314,20 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             # returns the thermal answer to a driven question is wrong in the
             # way that is hardest to notice.
             # "Enabled" is not the same as "acting", and only an ACTING term
-            # is one this strategy discards. A photon drive is switched by its
-            # COUPLING -- every kernel term is multiplied by it, so c_phot = 0
-            # applies nothing however enabled it is -- and injection by its
-            # rate. Keying the refusal on `enabled` alone would reject setups
-            # where nothing would have happened anyway, which is the mirror of
-            # the defect this check exists to prevent. Same rule as
-            # `terms._photon` / `terms._injection`, deliberately.
+            # is one this strategy discards: injection by its rate. Keying
+            # the refusal on `enabled` alone would reject setups where
+            # nothing would have happened anyway, which is the mirror of the
+            # defect this check exists to prevent. Same rule as
+            # `terms._injection`, deliberately.
+            #
+            # The PHOTON drives are NOT in this list, and were for a day. The
+            # steady-state executor passes photon_params and pb_photon_params
+            # to the solver, and it was measured on the catalogue's own cases
+            # (2026-09-01): pb_drive on/off moves x_qp by a factor of 151,
+            # subgap_drive by 0.88. Listing them here refused eight catalogue
+            # cases -- the Fischer Fig. 6 point among them -- that are driven
+            # steady states, which is the opposite error to the one this
+            # guard exists to catch.
             def _acting(node_name: str, magnitude: str) -> bool:
                 node = getattr(setup, node_name, None)
                 if node is None or not bool(getattr(node, "enabled", False)):
@@ -336,10 +343,6 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
             initial_kind = getattr(initial, "kind", "thermal") if initial else "thermal"
             if initial_kind != "thermal":
                 dropped.append(f"initial.kind={initial_kind!r}")
-            if _acting("subgap_drive", "c_phot"):
-                dropped.append("subgap_drive")
-            if _acting("pb_drive", "c_phot_PB"):
-                dropped.append("pb_drive")
             if dropped:
                 report.errors.append(
                     "strategy='steady_state' solves a 0-D steady state from the "

@@ -740,3 +740,14 @@ body.viewing-settings #view-new-run::before {
   background: #fff; color: var(--ink); border: 1px solid var(--baseline);
   border-radius: 6px; padding: 4px 8px; resize: vertical;
 }
+
+/* ---- catalogue verdicts ---- */
+.verdicts-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 18px 0 8px; }
+.verdicts-head h2 { margin: 0; font-size: 18px; }
+table.report td { vertical-align: top; font-size: 12.5px; }
+table.report code { font-size: 11px; color: var(--muted); }
+table.report .verdict { font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+tr.verdict-pass .verdict { color: #085508; }
+tr.verdict-fail .verdict, tr.verdict-failed .verdict { color: var(--critical); }
+tr.verdict-unknown .verdict, tr.verdict-none .verdict, tr.verdict-not-run .verdict { color: var(--muted); }
+tr.verdict-queued .verdict, tr.verdict-running .verdict { color: var(--accent); }

@@ -231,6 +231,9 @@
           </div>
           <div class="name-row">
             <label>Run name <input id="run-name" type="text" value="Untitled run" size="40"></label>
+            <label title="Score this run against a closed form. A benchmark that does not describe the setup says so in the run's notes.">
+              Analytic check <select id="run-benchmark"><option value="">(none)</option></select>
+            </label>
           </div>
           <form id="setup-form" onsubmit="return false"></form>
         </div>

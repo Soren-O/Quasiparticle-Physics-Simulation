@@ -685,7 +685,30 @@ function renderKeyInput(field, current, key, suggestions, redraw) {
 }
 
 function envelope() {
-  return { name: $("#run-name").value || "Untitled run", setup: state.setup };
+  // `benchmark` is an assertion ABOUT the run, not part of the physics, so it
+  // rides on the envelope beside the name. Until now only catalogue cases
+  // could send one; a setup a person authored could never be scored.
+  return {
+    name: $("#run-name").value || "Untitled run",
+    setup: state.setup,
+    benchmark: $("#run-benchmark").value || null,
+  };
+}
+
+// The closed forms that apply to the current mode, as options. Rebuilt on
+// every wizard page because the mode is what decides which apply.
+function refreshBenchmarkOptions(selected) {
+  const select = $("#run-benchmark");
+  const keep = selected !== undefined ? selected : select.value;
+  select.innerHTML = `<option value="">(none)</option>`;
+  for (const [name, b] of Object.entries(state.benchmarks || {})) {
+    if (Array.isArray(b.modes) && b.modes.length && !b.modes.includes(state.mode)) continue;
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = `${b.title || name} [${b.tier || "?"}]`;
+    select.appendChild(o);
+  }
+  select.value = [...select.options].some((o) => o.value === keep) ? keep : "";
 }
 
 function renderFeedback(body, okMessage) {
@@ -960,6 +983,7 @@ async function refreshSetups() {
       // showing the PREVIOUS setup's rows/cols/mesh while state.setup holds
       // the loaded ones -- and Run then uses values the screen never showed.
       showWizardStep(wizard.index);
+      refreshBenchmarkOptions(body.benchmark || "");
     }));
   document.querySelectorAll("#setups-list [data-del]").forEach((b) =>
     b.addEventListener("click", async () => {
@@ -1253,8 +1277,83 @@ async function openTestSimulations() {
     sec.appendChild(b);
   }
   host.appendChild(sec);
+  host.appendChild(catalogueReportSection());
   showView("catalogue");
   window.scrollTo(0, 0);
+  refreshCatalogueReport();
+}
+
+/* ---------- the catalogue as a batch ----------
+   Every case queued with one click and every verdict in one table. The
+   server scores the rows (qpsim/webui/verdicts.py) from the latest run each
+   case produced; this only draws them, and keeps drawing while any is
+   still running. */
+
+function catalogueReportSection() {
+  const sec = document.createElement("section");
+  sec.className = "group verdicts";
+  sec.id = "catalogue-report";
+  sec.innerHTML = `
+    <div class="verdicts-head">
+      <h2>Verdicts</h2>
+      <button type="button" class="btn" id="btn-run-all-cases">Run every case</button>
+      <button type="button" class="btn" id="btn-refresh-report">Refresh</button>
+      <span class="hint" id="report-summary"></span>
+    </div>
+    <div id="report-table"></div>`;
+  sec.querySelector("#btn-run-all-cases").addEventListener("click", runAllCases);
+  sec.querySelector("#btn-refresh-report").addEventListener("click", refreshCatalogueReport);
+  return sec;
+}
+
+async function runAllCases() {
+  const btn = $("#btn-run-all-cases");
+  btn.disabled = true;
+  const { ok, body } = await postJSON("/api/catalogue/run-all", {});
+  btn.disabled = false;
+  if (!ok) {
+    $("#report-summary").textContent = `Could not queue the cases: ${JSON.stringify(body)}`;
+    return;
+  }
+  const skipped = (body.skipped || []).map((s) => `${s.case} (${(s.errors || []).join("; ")})`);
+  $("#report-summary").textContent =
+    `${(body.queued || []).length} queued` + (skipped.length ? `; skipped: ${skipped.join(", ")}` : "");
+  refreshCatalogueReport();
+}
+
+let reportTimer = null;
+async function refreshCatalogueReport() {
+  const table = $("#report-table");
+  if (!table) return;
+  const { ok, body } = await api("/api/catalogue/report");
+  if (!ok) { table.innerHTML = `<div class="err">The report is unavailable.</div>`; return; }
+  const counts = Object.entries(body.counts || {}).map(([k, n]) => `${n} ${k}`).join(", ");
+  const summaryEl = $("#report-summary");
+  if (summaryEl && !summaryEl.textContent.includes("queued")) {
+    summaryEl.textContent = `${body.checkable} of ${(body.rows || []).length} cases make a checkable claim — ${counts}.`;
+  }
+  const errCell = (r) => r.error == null ? "—" : Number(r.error).toExponential(2);
+  const tolCell = (r) => r.rel_tol == null ? "—" : Number(r.rel_tol).toExponential(0);
+  table.innerHTML = `<table class="list report"><tr><th>case</th><th>source</th><th>tier</th>
+      <th>verdict</th><th>error</th><th>tolerance</th><th>run</th></tr>` +
+    (body.rows || []).map((r) => `<tr class="verdict-${esc(r.verdict).replace(/\s+/g, "-")}">
+      <td title="${esc(r.detail || "")}">${esc(r.title)}<br><code>${esc(r.case)}</code></td>
+      <td>${esc(r.source)}${r.benchmark ? `<br><code>${esc(r.benchmark)}</code>` : ""}</td>
+      <td>${esc(r.tier || "—")}</td>
+      <td><span class="verdict">${esc(r.verdict)}</span></td>
+      <td>${errCell(r)}</td><td>${tolCell(r)}</td>
+      <td>${r.run_id ? `<button class="btn" data-open-run="${esc(r.run_id)}">open</button>` : "—"}</td>
+    </tr>`).join("") + `</table>`;
+  table.querySelectorAll("[data-open-run]").forEach((b) => b.addEventListener("click", () => {
+    state.detailRunId = b.dataset.openRun;
+    showView("runs");
+  }));
+  clearTimeout(reportTimer);
+  // Keep the table live while the batch runs; stop the moment it settles,
+  // so a page left open does not poll forever.
+  if (body.active && !document.getElementById("view-catalogue").classList.contains("hidden")) {
+    reportTimer = setTimeout(refreshCatalogueReport, 2000);
+  }
 }
 
 function crumbs(trail) {
@@ -1930,6 +2029,8 @@ function showWizardStep(index) {
   // the conditions step is where the seed does. Read-only settings are a
   // record and get no buttons.
   $("#btn-preview").classList.toggle("hidden", wizard.readOnly);
+  refreshBenchmarkOptions();
+  $("#run-benchmark").disabled = wizard.readOnly;
   $("#run-name").disabled = wizard.readOnly;
   document.body.classList.toggle("viewing-settings", wizard.readOnly);
   crumbsInto("#wizard-crumbs", wizard.readOnly

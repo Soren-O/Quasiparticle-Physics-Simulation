@@ -187,3 +187,41 @@ class TestFiguresNameThePhysicalQuantity:
         )
         assert with_x.startswith(b"\x89PNG\r\n\x1a\n")
         assert with_x != without
+
+
+class TestPhotonDrivesActInTheSteadyState:
+    """The guard above once listed the photon drives among what steady_state
+    discards, by analogy with injection and without a measurement. That
+    refused eight catalogue cases -- the Fischer Fig. 6 point among them --
+    which are driven steady states. Measured on the catalogue's own case:
+    the pair-breaking drive moves x_qp by a factor of ~150. So the guard
+    must accept it, the terms panel must call it on, and this test holds
+    the number that decides between the two claims.
+    """
+
+    @staticmethod
+    def _driven_case() -> KineticsSetup:
+        from qpsim.webui.verdicts import build_case_setup, catalogue_cases
+
+        case = next(c for c in catalogue_cases() if c.id == "pair-breaking-driven")
+        setup = build_case_setup(case)
+        assert isinstance(setup, KineticsSetup)
+        assert setup.strategy == "steady_state"
+        assert setup.pb_drive.enabled and setup.pb_drive.c_phot_PB > 0.0
+        return setup
+
+    def test_an_acting_photon_drive_is_accepted(self) -> None:
+        assert validate_setup(self._driven_case()).ok
+
+    def test_the_terms_panel_calls_it_on(self) -> None:
+        assert term_status(self._driven_case())["photpb"].state == "on"
+
+    def test_and_it_moves_the_answer(self) -> None:
+        from qpsim.webui.execute import run_kinetics
+
+        driven = self._driven_case()
+        quiet = self._driven_case()
+        quiet.pb_drive.enabled = False
+        x_on = run_kinetics(driven, lambda *a, **k: None, lambda: False).summary["x_qp"]
+        x_off = run_kinetics(quiet, lambda *a, **k: None, lambda: False).summary["x_qp"]
+        assert x_on > 10.0 * x_off, (x_on, x_off)

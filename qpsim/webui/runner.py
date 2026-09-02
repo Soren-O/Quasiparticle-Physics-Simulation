@@ -85,8 +85,19 @@ class JobRunner:
         self._jobs: dict[str, JobState] = {}
         self._lock = threading.Lock()
 
-    def submit(self, envelope: SetupEnvelope, *, warnings: list[str] | None = None) -> str:
-        """Queue a run; validation warnings persist as the run's first notes."""
+    def submit(
+        self,
+        envelope: SetupEnvelope,
+        *,
+        warnings: list[str] | None = None,
+        case: dict[str, Any] | None = None,
+    ) -> str:
+        """Queue a run; validation warnings persist as the run's first notes.
+
+        ``case`` is the catalogue case this run reproduces, when it is one.
+        Recorded on the manifest so the catalogue report can find a case's
+        latest run without matching on names, which are free text.
+        """
         run_id = self.workspace.new_run_id()
         manifest: dict[str, Any] = {
             "id": run_id,
@@ -95,11 +106,14 @@ class JobRunner:
             "status": "queued",
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "setup": envelope.setup.model_dump(),
+            "benchmark": envelope.benchmark,
             "summary": {},
             "notes": list(warnings or []),
             "error": None,
             "elapsed_s": None,
         }
+        if case is not None:
+            manifest["case"] = dict(case)
         self.workspace.write_manifest(run_id, manifest)
         job = JobState(run_id=run_id)
         with self._lock:

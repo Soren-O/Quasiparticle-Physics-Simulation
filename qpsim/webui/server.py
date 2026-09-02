@@ -16,17 +16,17 @@ import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
 from qpsim import __version__
 from qpsim.materials import list_materials, load_material
-from qpsim.webui import benchmarks
+from qpsim.webui import benchmarks, verdicts
 from qpsim.webui.builders import validate_setup
 from qpsim.webui.hosts import is_loopback_host
 from qpsim.webui.plots import (
@@ -258,7 +258,13 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             envelope = workspace.load_setup(slug)
         except (FileNotFoundError, ValueError) as exc:  # ValueError: unsafe slug
             raise HTTPException(404, f"No setup {slug!r}.") from exc
-        return {"name": envelope.name, "setup": envelope.setup.model_dump()}
+        # `benchmark` was persisted (Wave 0) and then dropped right here on
+        # the way back out, so a saved check could never be restored.
+        return {
+            "name": envelope.name,
+            "setup": envelope.setup.model_dump(),
+            "benchmark": envelope.benchmark,
+        }
 
     @app.delete("/api/setups/{slug}")
     def setups_delete(slug: str) -> dict[str, bool]:
@@ -267,6 +273,50 @@ def create_app(workspace_root: Path | str) -> FastAPI:
         except ValueError as exc:  # unsafe slug
             raise HTTPException(404, f"No setup {slug!r}.") from exc
         return {"deleted": True}
+
+    # -- the catalogue as a batch -------------------------------------
+
+    @app.post("/api/catalogue/run-all")
+    def catalogue_run_all(
+        only: Annotated[list[str] | None, Body(embed=True)] = None,
+    ) -> dict[str, Any]:
+        """Queue every catalogue case (or the named ones) as ordinary runs.
+
+        Each run is tagged with its case so the report can find it. A case
+        whose setup does not validate is skipped and named, not silently
+        left out: a batch that quietly ran 36 of 38 would report a cleaner
+        catalogue than exists.
+        """
+        wanted = set(only) if only else None
+        cases = verdicts.catalogue_cases()
+        queued: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        for case in cases:
+            if wanted is not None and case.id not in wanted:
+                continue
+            try:
+                envelope = verdicts.envelope_for(case)
+            except (ValueError, TypeError) as exc:
+                skipped.append({"case": case.id, "errors": [str(exc)]})
+                continue
+            report = validate_setup(envelope.setup)
+            if not report.ok:
+                skipped.append({"case": case.id, "errors": report.errors})
+                continue
+            run_id = runner.submit(envelope, warnings=report.warnings, case=case.tag())
+            queued.append({"case": case.id, "run_id": run_id})
+        known = {c.id for c in cases}
+        return {
+            "queued": queued,
+            "skipped": skipped,
+            "unknown": sorted(wanted - known) if wanted else [],
+        }
+
+    @app.get("/api/catalogue/report")
+    def catalogue_report() -> dict[str, Any]:
+        """Every case against its most recent tagged run, scored."""
+        manifests = [runner.overlay(m) for m in workspace.list_runs()]
+        return verdicts.report(verdicts.catalogue_cases(), manifests)
 
     # -- runs ---------------------------------------------------------
 

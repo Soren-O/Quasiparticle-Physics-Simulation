@@ -164,8 +164,10 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
     switch shown on that does nothing, but a channel shown off that is doing
     most of the work.
     """
-    if _steady_state(setup):
-        return TermStatus(ABSENT, _STEADY_STATE_REASON)
+    # NOT gated on the steady-state strategy: that executor passes both
+    # photon drives to the solver, and they move the answer (measured on the
+    # catalogue cases, 2026-09-01: pb_drive on/off changes x_qp 151-fold).
+    # Reporting them absent there was the panel stating something untrue.
     if not bool(_get(setup, f"{prefix}.enabled", False)):
         return TermStatus(OFF)
     if float(_get(setup, f"{prefix}.{coupling}", 0.0)) <= 0.0:
@@ -187,18 +189,20 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
 def _steady_state(setup: Any) -> bool:
     """Does this setup select the 0-D steady-state solver?
 
-    That route reads the material, the phonon sector and the probe, and
-    NOTHING else -- no injection, no drives, no initial condition. Measured
-    bit-identical to 11 digits with injection at 2e-4 and at 2e-1. So every
-    source term is `absent` there in the precise sense this module means: not
-    in the model, and therefore neither on nor off.
+    That route reads the material, the phonon sector, the probe and the two
+    PHOTON drives -- and no injection, no prescribed drives, no initial
+    condition. Measured bit-identical to 11 digits with injection at 2e-4 and
+    at 2e-1, so injection is `absent` there in the precise sense this module
+    means: not in the model, and therefore neither on nor off. The photon
+    drives are in the model (see `_photon`).
     """
     return getattr(setup, "strategy", None) == "steady_state"
 
 
 _STEADY_STATE_REASON = (
-    "the steady-state strategy solves for the balance point from the material "
-    "and phonon sector alone, so no source term is part of that model"
+    "the steady-state strategy solves for the balance point from the material, "
+    "the phonon sector and the photon drives; an injected source is not part "
+    "of that model"
 )
 
 
