@@ -9,6 +9,7 @@ from qpsim.geometries import (
     connected_component_count,
     extract_edge_segments,
     from_gds,
+    from_polygons,
     gds_support_available,
     rectangle,
     strip,
@@ -231,3 +232,61 @@ class TestGdsLayerSelection:
         self._two_layer_file(monkeypatch)
         with pytest.raises(ValueError, match="layer 7"):
             gds_module.rasterize_gds_layer("fake.gds", layer=7, mesh_size=1.0)
+
+
+class TestFromPolygons:
+    """The file-free constructor: same rasteriser, same rules as a layer."""
+
+    def test_a_rectangle_outline_is_the_rectangle(self):
+        geometry = from_polygons([[[0, 0], [12, 0], [12, 4], [0, 4]]], mesh_size=1.0)
+        assert geometry.cell_count == 48
+        assert geometry.dimensionality == 2
+        assert geometry.source == "polygons"
+        # One cell of padding on every side, in layout units.
+        assert geometry.bounds == (-1.0, -1.0, 13.0, 5.0)
+        assert {e.normal for e in geometry.edges} == {"up", "down", "left", "right"}
+
+    def test_a_reversed_inner_contour_is_a_hole(self):
+        outer = [[0, 0], [10, 0], [10, 10], [0, 10]]
+        inner = [[3, 3], [3, 7], [7, 7], [7, 3]]          # wound the other way
+        annulus = from_polygons([outer, inner], mesh_size=1.0)
+        assert annulus.cell_count == 100 - 16
+        # Two rims: the inner one faces every direction as well.
+        assert sum(1 for e in annulus.edges if e.normal == "right") == 2
+
+    def test_too_coarse_a_mesh_breaks_a_neck_and_says_so(self):
+        dumbbell = [
+            [[0, 0], [4, 0], [4, 4], [0, 4]],
+            [[4, 1.6], [6, 1.6], [6, 2.4], [4, 2.4]],
+            [[6, 0], [10, 0], [10, 4], [6, 4]],
+        ]
+        assert from_polygons(dumbbell, mesh_size=0.5).cell_count > 0
+        with pytest.raises(ValueError, match="too coarse"):
+            from_polygons(dumbbell, mesh_size=2.0)
+
+    def test_disconnected_is_allowed_when_asked(self):
+        two = [[[0, 0], [2, 0], [2, 2], [0, 2]], [[5, 0], [7, 0], [7, 2], [5, 2]]]
+        with pytest.raises(ValueError, match="connected"):
+            from_polygons(two, mesh_size=1.0)
+        assert from_polygons(two, mesh_size=1.0, require_connected=False).cell_count == 8
+
+    @pytest.mark.skipif(not gds_support_available(), reason="needs gdstk")
+    def test_a_layer_and_its_polygons_give_the_same_mask(self, tmp_path):
+        import gdstk
+        from qpsim.geometries import from_gds
+
+        outer = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        inner = [(3, 3), (3, 7), (7, 7), (7, 3)]
+        library = gdstk.Library()
+        cell = library.new_cell("TOP")
+        cell.add(gdstk.Polygon(outer, layer=2), gdstk.Polygon(inner, layer=2))
+        path = tmp_path / "annulus.gds"
+        library.write_gds(str(path))
+
+        from_file = from_gds(path, layer=2, mesh_size=1.0)
+        by_hand = from_polygons([outer, inner], mesh_size=1.0)
+        np.testing.assert_array_equal(from_file.mask, by_hand.mask)
+        assert from_file.bounds == by_hand.bounds
+        assert [(e.edge_id, e.normal, len(e.faces)) for e in from_file.edges] == [
+            (e.edge_id, e.normal, len(e.faces)) for e in by_hand.edges
+        ]

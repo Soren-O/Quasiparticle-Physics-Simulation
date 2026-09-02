@@ -20,11 +20,13 @@ follows; the tests hold that equality.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from qpsim.collisions.phonon import build_phonon_frequency_map
+from qpsim.geometries import discover_gds_layers
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.webui.builders import (
     _DIRECTIONS,
@@ -71,7 +73,7 @@ def build_preview(setup: AnySetup) -> dict[str, Any]:
         thermal = build_state_2d(setup)
         seeded, notes = build_initial_state_2d(setup, thermal)
         phonon_seed = build_phonon_seed_2d(setup, thermal.geometry)
-    except (ValueError, ArithmeticError) as exc:
+    except (ValueError, ArithmeticError, OSError) as exc:
         return _refused(str(exc))
 
     geometry = thermal.geometry
@@ -84,7 +86,13 @@ def build_preview(setup: AnySetup) -> dict[str, Any]:
     thermal_profile = _xqp_profile_2d(thermal, delta_0)
 
     images: dict[str, str | None] = {
-        "mask": _data_uri(render_mask_png(geometry.mask, mesh)),
+        # The rim drawn on the mask, each segment in its condition's colour
+        # and labelled by id -- the picture a per-edge override is written
+        # against.
+        "mask": _data_uri(render_mask_png(
+            geometry.mask, mesh, geometry.edges,
+            thermal.conditions or geometry.conditions(),
+        )),
         "seed_xqp": _data_uri(render_cell_field_png(
             geometry.mask, mesh, profile,
             f"x_qp at t = 0 — {setup.initial.kind} seed",
@@ -120,12 +128,29 @@ def build_preview(setup: AnySetup) -> dict[str, Any]:
         }
         for edge in geometry.edges
     ]
+    # Geometry.bounds, which nothing read until now: the window the mask was
+    # rasterised into, in LAYOUT coordinates (one cell of padding included).
+    # Mask coordinates start at 0; layout x = origin + mask x. For a rectangle
+    # the origin is (0, 0) and the field is a tautology; for a layout it is
+    # how a segment on this figure is found back on the chip.
+    bounds = geometry.bounds or (0.0, 0.0, cols * mesh, rows * mesh)
+    geometry_block: dict[str, Any] = {
+        "name": geometry.name,
+        "source": geometry.source or "rectangle",
+        "origin_um": [float(bounds[0]), float(bounds[1])],
+        "bounds_um": [float(b) for b in bounds],
+    }
+    if setup.geometry.kind == "gds" and setup.geometry.gds_path:
+        # Discovery + select: the layers that carry polygons, so the person
+        # can pick one that exists rather than guess a number.
+        geometry_block["gds_layers"] = discover_gds_layers(Path(setup.geometry.gds_path))
+        geometry_block["gds_layer"] = int(setup.geometry.gds_layer)
     return {
         "ok": True,
         "errors": [],
         "notes": list(notes),
         "geometry": {
-            "name": geometry.name,
+            **geometry_block,
             "rows": rows, "cols": cols,
             "cells": geometry.cell_count,
             "dimensionality": geometry.dimensionality,

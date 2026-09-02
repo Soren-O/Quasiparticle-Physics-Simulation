@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -642,11 +642,75 @@ def _plot_phonon_occupation_frame(
 # device.
 
 
-def render_mask_png(mask: np.ndarray, mesh_size_um: float) -> bytes:
-    """The geometry figure, from a mask rather than a run's arrays."""
-    return _plot_geometry_mask(
-        {"mask": np.asarray(mask, dtype=float)}, {"mesh_size_um": float(mesh_size_um)},
+# Colour per boundary-condition kind on the rim overlay. Fixed, so the same
+# kind is the same colour in every preview.
+_CONDITION_COLOURS = {
+    "reflective": MUTED,
+    "absorbing": SERIES[5],
+    "dirichlet": SERIES[2],
+    "neumann": SERIES[1],
+    "robin": SERIES[4],
+}
+# Where a segment's label sits: just outside the material, along the
+# outward normal. Normals are named in MASK-ROW order -- "up" faces
+# decreasing row -- and row 0 is drawn at y = 0, so "up" points to -y here.
+_NORMAL_OFFSETS = {"up": (0.0, -1.0), "down": (0.0, 1.0), "left": (-1.0, 0.0), "right": (1.0, 0.0)}
+
+
+def render_mask_png(
+    mask: np.ndarray,
+    mesh_size_um: float,
+    edges: Sequence[Any] | None = None,
+    conditions: dict[str, Any] | None = None,
+) -> bytes:
+    """The geometry figure, from a mask rather than a run's arrays.
+
+    With ``edges`` (the geometry's segments) each rim segment is drawn in the
+    colour of its condition and labelled with its id, which is the picture a
+    per-edge override needs: on an annulus "right" names BOTH rims, and only
+    a labelled figure shows which id is the inner one.
+    """
+    if not edges:
+        return _plot_geometry_mask(
+            {"mask": np.asarray(mask, dtype=float)}, {"mesh_size_um": float(mesh_size_um)},
+        )
+    field = np.asarray(mask, dtype=float)
+    mesh = float(mesh_size_um)
+    rows, cols = field.shape
+    cells = int(np.count_nonzero(field))
+    fig, ax = _new_axes("x (μm)", "y (μm)", f"Geometry — {cells} cells at {mesh:g} μm")
+    ax.pcolormesh(
+        np.arange(cols + 1) * mesh, np.arange(rows + 1) * mesh,
+        np.ma.masked_where(field <= 0.0, field),
+        cmap=SEQ_BLUE, vmin=0.0, vmax=2.0, shading="flat",
     )
+    seen: dict[str, Any] = {}
+    for edge in edges:
+        kind = "reflective"
+        if conditions and edge.edge_id in conditions:
+            kind = str(getattr(conditions[edge.edge_id], "kind", "reflective"))
+        colour = _CONDITION_COLOURS.get(kind, INK)
+        (line,) = ax.plot(
+            [edge.x0 * mesh, edge.x1 * mesh], [edge.y0 * mesh, edge.y1 * mesh],
+            color=colour, linewidth=3.0, solid_capstyle="butt",
+        )
+        seen.setdefault(kind, line)
+        dx, dy = _NORMAL_OFFSETS.get(edge.normal, (0.0, 0.0))
+        ax.annotate(
+            edge.edge_id,
+            ((edge.x0 + edge.x1) / 2.0 * mesh + 0.35 * mesh * dx,
+             (edge.y0 + edge.y1) / 2.0 * mesh + 0.35 * mesh * dy),
+            ha="center", va="center", fontsize=7, color=colour,
+            rotation=90 if edge.normal in ("left", "right") else 0,
+        )
+    ax.legend(
+        list(seen.values()), list(seen), title="rim condition",
+        loc="upper right", fontsize=8, title_fontsize=8,
+    )
+    ax.set_aspect("equal")
+    ax.grid(False)
+    ax.margins(0.08)
+    return _finish(fig)
 
 
 def render_cell_field_png(

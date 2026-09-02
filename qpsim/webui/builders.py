@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -45,7 +46,14 @@ from qpsim.fields.initial import (
     spatial_profile,
 )
 from qpsim.fields.safe_eval import compile_expression
-from qpsim.geometries import Geometry, from_gds, gds_support_available, rectangle
+from qpsim.geometries import (
+    Geometry,
+    discover_gds_layers,
+    from_gds,
+    from_polygons,
+    gds_support_available,
+    rectangle,
+)
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.materials.database import Material
@@ -437,6 +445,10 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         if source.kind == "gds":
             if not source.gds_path:
                 report.errors.append("Kinetics: a GDS source needs gds_path.")
+            elif not Path(source.gds_path).is_file():
+                report.errors.append(
+                    f"Kinetics: GDS file not found: {source.gds_path}"
+                )
             elif not gds_support_available():
                 report.errors.append(
                     "Kinetics: GDS import needs the optional 'gdstk' "
@@ -734,6 +746,13 @@ def build_geometry_2d(setup: KineticsSetup) -> Geometry:
         return rectangle(
             source.rows, source.cols, mesh_size=source.mesh_size_um,
         )
+    if source.kind == "polygons":
+        if not source.polygons:
+            raise ValueError("A polygons geometry needs at least one polygon.")
+        return from_polygons(
+            source.polygons, source.mesh_size_um,
+            require_connected=source.require_connected,
+        )
     if source.gds_path is None:
         raise ValueError("A GDS geometry needs gds_path.")
     if not gds_support_available():
@@ -741,6 +760,18 @@ def build_geometry_2d(setup: KineticsSetup) -> Geometry:
             "GDS import needs the optional 'gdstk' package, which is not "
             'installed. Install it with: pip install -e ".[gds]" -- or choose '
             "the rectangle geometry."
+        )
+    # Checked here rather than left to the reader: gdstk answers a missing
+    # file with an OSError and a wrong layer with "No polygons found on
+    # layer N", neither of which tells the person what to type instead.
+    path = Path(source.gds_path)
+    if not path.is_file():
+        raise ValueError(f"GDS file not found: {source.gds_path}")
+    layers = discover_gds_layers(path)
+    if source.gds_layer not in layers:
+        raise ValueError(
+            f"Layer {source.gds_layer} carries no polygons in {path.name}; the "
+            f"layers with polygons are: {', '.join(str(n) for n in layers)}."
         )
     return from_gds(
         source.gds_path, source.gds_layer, source.mesh_size_um,

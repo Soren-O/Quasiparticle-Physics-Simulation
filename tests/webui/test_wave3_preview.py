@@ -208,11 +208,14 @@ class TestTheSeedFigures:
 
 
 class TestRefusalsAreMessages:
-    def test_a_gds_setup_without_gdstk_is_a_message(self, client: TestClient) -> None:
-        body = _preview(client, _setup(geometry__kind="gds", geometry__gds_path="device.gds"))
+    def test_a_gds_setup_that_cannot_be_read_is_a_message(self, client: TestClient) -> None:
+        """Without gdstk the message names the package; with it, the file."""
+        body = _preview(client, _setup(geometry__kind="gds", geometry__gds_path="no-such.gds"))
         assert body["ok"] is False
         assert body["geometry"] is None
-        assert body["errors"] and ("gdstk" in body["errors"][0] or "GDS" in body["errors"][0])
+        assert body["errors"] and (
+            "gdstk" in body["errors"][0] or "no-such.gds" in body["errors"][0]
+        )
 
     def test_the_junction_mode_has_no_geometry(self, client: TestClient) -> None:
         body = _preview(client, M25JunctionSetup().model_dump(mode="json"))

@@ -543,17 +543,20 @@ def run_kinetics(
     # species. Derived from the profile rather than recomputed, so the two can
     # never disagree.
     payload.arrays["xqp_profile_paper"] = 2.0 * profile
-    if 1 in geometry.shape:
-        # A strip has a distance coordinate and a reader plots against it. The
+    if geometry.dimensionality <= 1:
+        # A strip has a distance coordinate and a reader plots against it (a
+        # single cell is the degenerate strip and keeps its one position). The
         # mask plus mesh_size encodes the same information, but making every
         # consumer reconstruct it is how the 1-D mode's plots would quietly
         # stop working when that mode goes.
         # CELL CENTRES, (i + 1/2) h -- the convention the retired 1-D mode used.
         # Emitting i*h instead offsets every profile by half a cell, which is
-        # invisible in a plot and wrong in a fit.
-        payload.arrays["x_um"] = (
-            np.arange(geometry.cell_count, dtype=float) + 0.5
-        ) * geometry.mesh_size
+        # invisible in a plot and wrong in a fit. The index is the cell's own
+        # row or column, not its position in mask order: for a rectangle the
+        # two coincide, for a rasterised outline (padded, offset) they do not.
+        rows_idx, cols_idx = np.nonzero(np.asarray(geometry.mask, dtype=bool))
+        along = cols_idx if geometry.occupied_shape[0] == 1 else rows_idx
+        payload.arrays["x_um"] = (along.astype(float) + 0.5) * geometry.mesh_size
 
     if result.snapshots:
         payload.arrays["snap_t_ns"] = np.array([s.t for s in result.snapshots])

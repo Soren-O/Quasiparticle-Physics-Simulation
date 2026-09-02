@@ -512,21 +512,47 @@ class GeometrySource(StrictModel):
 
     ``rectangle`` needs nothing but its extent. ``gds`` rasterises one layer
     of a layout file; that needs the optional ``gdstk`` package, and the
-    builder says so rather than failing on an import.
+    builder says so rather than failing on an import. ``polygons`` rasterises
+    outlines stated right here, in microns -- the same rasteriser and the
+    same hole rule as a layer, with neither the package nor a file, so a
+    non-rectangular device (an annulus, a strip with a pad) can be authored
+    in the browser.
 
     The mask decides the dimensionality: ``rows = 1`` is a 1-D strip and
     ``rows = cols = 1`` is a single 0-D cell, both solved by the same core.
     """
 
-    kind: Literal["rectangle", "gds"] = "rectangle"
+    kind: Literal["rectangle", "gds", "polygons"] = "rectangle"
     rows: Annotated[int, Field(ge=1, le=512)] = 24
     cols: Annotated[int, Field(ge=1, le=512)] = 24
     mesh_size_um: Annotated[float, Field(gt=0.0)] = 4.0
     gds_path: str | None = None
     gds_layer: Annotated[int, Field(ge=0)] = 0
+    # Each polygon is a list of [x, y] points in microns. A contour wound the
+    # opposite way to the dominant one carves a hole.
+    polygons: list[list[list[float]]] | None = None
     # A rasterised layout that lands in more than one piece is nearly always
     # a stray polygon or too coarse a mesh, not a real device.
     require_connected: bool = True
+
+    @model_validator(mode="after")
+    def polygons_are_polygons(self) -> GeometrySource:
+        if self.kind != "polygons":
+            return self
+        if not self.polygons:
+            raise ValueError("kind='polygons' needs at least one polygon.")
+        for i, poly in enumerate(self.polygons):
+            if len(poly) < 3:
+                raise ValueError(
+                    f"Polygon {i} has {len(poly)} point(s); an outline needs at least 3."
+                )
+            for point in poly:
+                if len(point) != 2:
+                    raise ValueError(
+                        f"Polygon {i} has a point with {len(point)} coordinate(s); "
+                        "each point is [x, y] in microns."
+                    )
+        return self
 
 
 BoundaryKind = Literal[

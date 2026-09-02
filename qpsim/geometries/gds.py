@@ -23,9 +23,9 @@ __all__ = [
 ]
 
 try:  # optional
-    import gdstk  # type: ignore[import-not-found]
+    import gdstk  # type: ignore[import-not-found, unused-ignore]
 except ImportError:  # pragma: no cover - exercised by the availability test
-    gdstk = None
+    gdstk = None  # type: ignore[assignment, unused-ignore]
 
 
 def gds_support_available() -> bool:
@@ -44,7 +44,7 @@ def _require_gdstk() -> None:
 def _iter_top_polygons(gds_path: str | Path) -> list[Any]:
     """Every polygon in the file, with references flattened away."""
     _require_gdstk()
-    library = gdstk.read_gds(str(gds_path))
+    library: Any = gdstk.read_gds(str(gds_path))
     top_cells = library.top_level() or list(library.cells)
     polygons: list[Any] = []
     for idx, top_cell in enumerate(top_cells):

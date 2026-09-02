@@ -733,3 +733,10 @@ body.viewing-settings #view-new-run::before {
 }
 #preview.stale .stale-banner { display: block; }
 #preview.stale .preview-grid img { opacity: 0.55; }
+
+/* ---- polygon outlines ---- */
+.field-grid textarea {
+  font: inherit; font-family: var(--mono); font-size: 12px; width: 62%;
+  background: #fff; color: var(--ink); border: 1px solid var(--baseline);
+  border-radius: 6px; padding: 4px 8px; resize: vertical;
+}

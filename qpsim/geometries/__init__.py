@@ -10,11 +10,13 @@ rather than separate objects:
 * :func:`rectangle` with ``rows=cols=1`` is 0-D -- the operator is identically
   zero, i.e. collisions with no transport.
 
-Constructors: :func:`rectangle`, :func:`strip`, :func:`from_gds`.
+Constructors: :func:`rectangle`, :func:`strip`, :func:`from_gds`,
+:func:`from_polygons`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from qpsim.geometries.gds import (
     discover_gds_layers,
     gds_support_available,
     rasterize_gds_layer,
+    rasterize_polygons,
 )
 from qpsim.geometries.mask import (
     connected_component_count,
@@ -41,6 +44,7 @@ __all__ = [
     "discover_gds_layers",
     "extract_edge_segments",
     "from_gds",
+    "from_polygons",
     "gds_support_available",
     "rectangle",
     "rectangle_mask",
@@ -77,11 +81,25 @@ class Geometry:
         return int(np.count_nonzero(self.mask))
 
     @property
+    def occupied_shape(self) -> tuple[int, int]:
+        """Rows and columns the MATERIAL spans, not the grid it sits in.
+
+        A rectangle fills its grid, so the two agree. A rasterised outline
+        is padded by a cell on every side and to at least 8x8, so the grid
+        says nothing about the device: a 3 um strip at a 3 um mesh is one
+        cell across and eight grid rows tall.
+        """
+        rows, cols = np.nonzero(np.asarray(self.mask, dtype=bool))
+        if rows.size == 0:
+            return (0, 0)
+        return (int(rows.max() - rows.min()) + 1, int(cols.max() - cols.min()) + 1)
+
+    @property
     def dimensionality(self) -> int:
-        """0, 1 or 2, from the mask's extent rather than from a mode flag."""
-        rows, cols = self.shape
+        """0, 1 or 2, from the material's extent rather than from a mode flag."""
         if self.cell_count <= 1:
             return 0
+        rows, cols = self.occupied_shape
         return 1 if (rows == 1 or cols == 1) else 2
 
     def conditions(
@@ -125,21 +143,62 @@ def from_gds(
     a different device.
     """
     mask, bounds = rasterize_gds_layer(gds_path, layer, mesh_size)
+    return _solvable(
+        mask, bounds, mesh_size,
+        name=f"{Path(gds_path).stem}_L{int(layer)}",
+        source=str(gds_path), layer=int(layer),
+        require_connected=require_connected,
+    )
+
+
+def from_polygons(
+    polygons: Sequence[Sequence[Sequence[float]]],
+    mesh_size: float,
+    *,
+    require_connected: bool = True,
+    name: str | None = None,
+) -> Geometry:
+    """Rasterize explicit polygons (layout units) into a solvable geometry.
+
+    The file-free half of :func:`from_gds`, so a device can be stated in the
+    setup itself with neither gdstk nor a layout file. Same rasteriser, same
+    winding rule for holes, same connectedness check -- a layer and the same
+    polygons typed by hand give the same mask, and a test holds them equal.
+    """
+    arrays = [np.asarray(p, dtype=float) for p in polygons]
+    mask, bounds = rasterize_polygons(arrays, mesh_size)
+    return _solvable(
+        mask, bounds, mesh_size,
+        name=name or f"polygons_{len(arrays)}", source="polygons", layer=None,
+        require_connected=require_connected,
+    )
+
+
+def _solvable(
+    mask: np.ndarray,
+    bounds: Sequence[float],
+    mesh_size: float,
+    *,
+    name: str,
+    source: str,
+    layer: int | None,
+    require_connected: bool,
+) -> Geometry:
     if require_connected:
         count = connected_component_count(mask)
         if count != 1:
             raise ValueError(
-                f"Geometry must be one connected region; the rasterized layer "
-                f"has {count}. Either the layer carries more than one shape, or "
-                f"mesh_size={mesh_size:g} is too coarse to keep a narrow "
+                f"Geometry must be one connected region; the rasterized "
+                f"outline has {count}. Either it carries more than one shape, "
+                f"or mesh_size={mesh_size:g} is too coarse to keep a narrow "
                 f"feature joined."
             )
     return Geometry(
-        name=f"{Path(gds_path).stem}_L{int(layer)}",
+        name=name,
         mask=mask,
         edges=extract_edge_segments(mask),
         mesh_size=float(mesh_size),
-        bounds=(bounds[0], bounds[1], bounds[2], bounds[3]),
-        source=str(gds_path),
-        layer=int(layer),
+        bounds=(float(bounds[0]), float(bounds[1]), float(bounds[2]), float(bounds[3])),
+        source=source,
+        layer=layer,
     )

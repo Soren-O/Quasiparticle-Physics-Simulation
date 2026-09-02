@@ -159,14 +159,20 @@ const FORMS = {
     { title: "Bath & grid", fields: [BATH_FIELD, ...GRID_FIELDS.fields], hint: "Spatial transport needs Dynes Γ = 0." },
     {
       title: "Geometry",
-      hint: "The mask sets the dimensionality: rows = 1 is a 1D strip, 1×1 is a single 0-D cell. Cells are square, so mesh size fixes the resolution in both directions.",
+      hint: "The mask sets the dimensionality: rows = 1 is a 1D strip, 1×1 is a single 0-D cell. Cells are square, so mesh size fixes the resolution in both directions. Source: rectangle uses rows × columns; gds rasterises one layer of a file; polygons rasterises outlines typed below. Preview to see the mask and its edge ids.",
       fields: [
-        F("geometry.kind", "Source", "select", { options: ["rectangle", "gds"] }),
+        F("geometry.kind", "Source", "select", { options: ["rectangle", "gds", "polygons"] }),
         F("geometry.rows", "Rows", "int"),
         F("geometry.cols", "Columns", "int"),
         F("geometry.mesh_size_um", "Mesh size (μm)"),
         F("geometry.gds_path", "GDS file", "text"),
         F("geometry.gds_layer", "GDS layer", "int"),
+        // Outlines stated here, in microns: the same rasteriser as a layer,
+        // with neither gdstk nor a file. A contour wound the other way is a
+        // hole, so an annulus is an outer square plus an inner one reversed.
+        F("geometry.polygons", "Polygons (μm, JSON)", "polygons", {
+          placeholder: '[[[0,0],[40,0],[40,12],[0,12]]]',
+        }),
         F("geometry.require_connected", "Require one connected region", "check"),
       ],
     },
@@ -466,6 +472,31 @@ function renderField(field) {
         showWizardStep(wizard.index);
       }
     });
+  } else if (field.type === "polygons") {
+    // A list of polygons, each a list of [x, y] points in microns. Its own
+    // type rather than "params": that box accepts a flat {name: number} map
+    // and would discard every outline typed into it, silently -- which is
+    // what happened to the per-edge overrides.
+    input = document.createElement("textarea");
+    input.rows = 3;
+    input.value = value == null ? "" : JSON.stringify(value);
+    if (field.placeholder) input.placeholder = field.placeholder;
+    input.addEventListener("change", () => {
+      const raw = input.value.trim();
+      if (raw === "") { setByPath(state.setup, field.path, null); return; }
+      try {
+        const polys = JSON.parse(raw);
+        const isPoint = (p) => Array.isArray(p) && p.length === 2
+          && p.every((v) => typeof v === "number" && Number.isFinite(v));
+        const ok = Array.isArray(polys) && polys.length > 0
+          && polys.every((poly) => Array.isArray(poly) && poly.length >= 3 && poly.every(isPoint));
+        if (!ok) throw new Error("not a list of polygons of [x, y] points");
+        setByPath(state.setup, field.path, polys);
+      } catch {
+        const current = getByPath(state.setup, field.path);
+        input.value = current == null ? "" : JSON.stringify(current);
+      }
+    });
   } else if (field.type === "text" || field.type === "params") {
     // STRING-VALUED fields. Without this branch they fell through to the
     // numeric one below, where parseFloat of an expression is NaN and the
@@ -696,8 +727,15 @@ async function doPreview() {
   state.edgeIds = g.edges.map((e) => e.id);
   let html = `<div class="stale-banner">The setup changed since this preview was built. Click Preview again.</div>`;
   html += `<h3>Preview</h3>`;
-  html += `<p class="hint">${esc(g.name)}: ${g.cells} cells, ${g.rows}×${g.cols} at ${esc(fmt(g.mesh_size_um))} μm `
-    + `(${esc(fmt(g.width_um))} × ${esc(fmt(g.height_um))} μm), ${["0-D", "1-D", "2-D"][g.dimensionality]}. `
+  html += `<p class="hint">${esc(g.name)} (${esc(g.source)}): ${g.cells} cells, ${g.rows}×${g.cols} at ${esc(fmt(g.mesh_size_um))} μm `
+    + `(${esc(fmt(g.width_um))} × ${esc(fmt(g.height_um))} μm), ${["0-D", "1-D", "2-D"][g.dimensionality]}`
+    + (g.origin_um && (g.origin_um[0] !== 0 || g.origin_um[1] !== 0)
+      ? `; layout origin (${esc(fmt(g.origin_um[0]))}, ${esc(fmt(g.origin_um[1]))}) μm, so layout x = origin + mask x`
+      : "")
+    + (Array.isArray(g.gds_layers)
+      ? `; layers with polygons in this file: ${g.gds_layers.map(esc).join(", ")} (using ${esc(g.gds_layer)})`
+      : "")
+    + `. `
     + `Seed: ${esc(seed.kind)}, x_qp = ${esc(fmt(seed.x_qp_initial))} (mean) / ${esc(fmt(seed.x_qp_initial_max))} (max) `
     + `against thermal ${esc(fmt(seed.x_qp_thermal))}, in ${esc(seed.x_qp_convention)}. `
     + `Phonons: ${esc(ph.mode)}${ph.seeded ? ", seeded away from the bath" : ", start at the bath"}.</p>`;
@@ -716,7 +754,8 @@ async function doPreview() {
     + `</table>`;
   html += `<p class="hint">Direction aliases on this mask: `
     + Object.entries(g.directions).map(([d, ids]) => `${esc(d)} → ${ids.length ? ids.map(esc).join(", ") : "<em>none</em>"}`).join("; ")
-    + `.</p>`;
+    + `. An alias naming more than one segment applies to all of them; address a single rim by its id. `
+    + `Normals are named in mask-row order: "up" faces decreasing row, which the figure draws at the bottom (row 0 is y = 0).</p>`;
   panel.innerHTML = html;
   panel.classList.remove("hidden", "stale");
 }
