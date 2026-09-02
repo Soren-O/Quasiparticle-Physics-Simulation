@@ -569,6 +569,103 @@ def _plot_phonon_frame(
     )
 
 
+def _plot_qp_energy_time_series(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> bytes:
+    """The quasiparticle budget against time: number, energy, and energy per
+    quasiparticle -- the last one is what 'hot' means."""
+    t = np.asarray(arrays["snap_t_ns"], dtype=float)
+    gap = _gap(summary)
+    fig, ax = _new_axes(
+        "t (ns)", "⟨E⟩ / Δ  (mean energy per quasiparticle)", "Quasiparticle budget",
+    )
+    mean_e = np.asarray(arrays["obs_E_qp_mean"], dtype=float) / gap
+    ax.plot(
+        t, mean_e, color=SERIES[0], marker=MARKERS[0], markersize=3.5, linewidth=1.8,
+        label="⟨E⟩ / Δ",
+    )
+    totals = ax.twinx()
+    number = np.asarray(arrays["obs_x_qp_total"], dtype=float)
+    energy = np.asarray(arrays["obs_E_qp_total"], dtype=float) / gap
+    totals.plot(
+        t, number, color=SERIES[1], linestyle="--", linewidth=1.4, label="Σ x_qp (number)",
+    )
+    totals.plot(
+        t, energy, color=SERIES[2], linestyle=":", linewidth=1.4, label="Σ E_qp / Δ (energy)",
+    )
+    totals.set_ylabel("device totals, x_qp units (summed over cells)", color=INK)
+    totals.tick_params(colors=MUTED, labelcolor=INK)
+    for spine in totals.spines.values():
+        spine.set_color(BASELINE)
+    handles, labels = ax.get_legend_handles_labels()
+    more, more_labels = totals.get_legend_handles_labels()
+    ax.legend(handles + more, labels + more_labels, loc="best", fontsize=8)
+    return _finish(fig)
+
+
+def _plot_phonon_temperature_field(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> bytes:
+    """The endpoint's effective phonon temperature per cell, blank where the
+    spectrum has no single temperature (the fit residual gate)."""
+    t_eff = np.asarray(arrays["phonon_T_eff"], dtype=float)
+    fitted = np.isfinite(t_eff)
+    norm = _frame_norm(t_eff[fitted][None, :]) if fitted.any() else Normalize(0.0, 1.0)
+    return _draw_frame(
+        arrays, summary, t_eff,
+        f"Effective phonon temperature at the end — {int(fitted.sum())} of "
+        f"{fitted.size} cells have one",
+        "T_eff (K), Bose-Einstein shape fit over ω ≥ 2Δ; blank = no single temperature",
+        norm,
+    )
+
+
+def _plot_analytic_field(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any],
+) -> bytes:
+    """Simulated field, the closed form's field, and their difference.
+
+    The two fields share one colour scale so a wrong amplitude is visible as
+    a wrong shade; the difference has its own, symmetric about zero, so a
+    rim that sits a cell inside the true boundary shows as a signed band
+    rather than vanishing into the field's dynamic range.
+    """
+    from qpsim.grid.spatial_grid import reconstruct_field
+    sim = np.asarray(arrays["bench_field_sim"], dtype=float)
+    ana = np.asarray(arrays["bench_field_analytic"], dtype=float)
+    mask = np.asarray(arrays["mask"]).astype(bool)
+    mesh = _mesh(summary)
+    rows, cols = mask.shape
+    extent = (0.0, cols * mesh, 0.0, rows * mesh)
+    label = str((summary.get("benchmark") or {}).get("field_label") or "field")
+    fig, axes = plt.subplots(1, 3, figsize=(12.0, 4.0), dpi=130, layout="constrained")
+    fig.patch.set_facecolor(SURFACE)
+    shared = _frame_norm(np.stack([sim, ana]))
+    diff = sim - ana
+    span = float(np.max(np.abs(diff))) if diff.size else 0.0
+    panels = (
+        (sim, "simulated", SEQ_BLUE, shared),
+        (ana, "closed form", SEQ_BLUE, shared),
+        (diff, "simulated − closed form", "RdBu_r", Normalize(-span or -1e-300, span or 1e-300)),
+    )
+    for ax, (values, title, cmap, norm) in zip(axes, panels, strict=True):
+        ax.set_facecolor(SURFACE)
+        image = ax.imshow(
+            reconstruct_field(mask, values), origin="lower", extent=extent,
+            cmap=cmap, norm=norm, interpolation="nearest",
+        )
+        ax.set_title(title, color=INK, fontsize=10)
+        ax.set_xlabel("x (μm)", color=INK)
+        ax.set_aspect("equal")
+        for spine in ax.spines.values():
+            spine.set_color(BASELINE)
+        ax.tick_params(colors=MUTED, labelcolor=INK)
+        fig.colorbar(image, ax=ax, shrink=0.85)
+    axes[0].set_ylabel("y (μm)", color=INK)
+    fig.suptitle(label, color=INK, fontsize=10)
+    return _finish(fig)
+
+
 def _plot_gap_frame(
     arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int = 0,
 ) -> bytes:
@@ -904,6 +1001,13 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
         "xqp_over_time": _PlotSpec(
             _plot_xqp_time_series, requires=("snap_t_ns", "obs_x_qp_mean"),
         ),
+        "qp_energy_over_time": _PlotSpec(
+            _plot_qp_energy_time_series,
+            requires=("snap_t_ns", "obs_E_qp_mean", "obs_x_qp_total", "obs_E_qp_total"),
+        ),
+        "phonon_temperature_field": _PlotSpec(
+            _plot_phonon_temperature_field, requires=("phonon_T_eff", "mask"),
+        ),
         # One name for the question a reader is actually asking -- "show me the
         # occupation" -- dispatching on which field the strategy produced.
         # Splitting it into two names would make the figure a run offers depend
@@ -929,6 +1033,9 @@ _PLOTS: dict[str, dict[str, _PlotSpec]] = {
 for _mode_plots in _PLOTS.values():
     _mode_plots["analytic_comparison"] = _PlotSpec(
         _plot_analytic_comparison, requires="bench_analytic"
+    )
+    _mode_plots["analytic_field_comparison"] = _PlotSpec(
+        _plot_analytic_field, requires=("bench_field_sim", "bench_field_analytic", "mask"),
     )
 
 
@@ -1215,6 +1322,13 @@ def _csv_kinetics_time_series(
         if name in arrays:
             header.append(name.removeprefix("obs_"))
             cols.append(arrays[name])
+    for name, column in (
+        ("obs_x_qp_total", "x_qp_total"), ("obs_E_qp_total", "E_qp_total"),
+        ("obs_E_qp_mean", "E_qp_mean_ueV"),
+    ):
+        if name in arrays:
+            header.append(column)
+            cols.append(arrays[name])
     if "snap_n_ph" in arrays:
         header.append("n_ph_mean")
         cols.append(np.asarray(arrays["snap_n_ph"], dtype=float).mean(axis=(1, 2)))
@@ -1234,6 +1348,32 @@ def _csv_benchmark(arrays: dict[str, np.ndarray]) -> str:
         suffix = "" if sim.shape[0] == 1 else f"_{i}"
         header += [f"simulated{suffix}", f"analytic{suffix}"]
         cols += [sim[i], ana[i]]
+    return _csv_from_columns(header, cols)
+
+
+def _csv_phonon_temperature(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """The endpoint's phonon temperature per cell, with the fit residual that
+    decided whether it is a temperature at all (NaN where it is not)."""
+    _no_frames("phonon_temperature", frame)
+    header, cols = _cell_columns(arrays, summary)
+    header += ["T_eff_K", "fit_residual"]
+    cols += [np.asarray(arrays["phonon_T_eff"], dtype=float),
+             np.asarray(arrays["phonon_T_eff_residual"], dtype=float)]
+    return _csv_from_columns(header, cols)
+
+
+def _csv_analytic_field(
+    arrays: dict[str, np.ndarray], summary: dict[str, Any], frame: int | None = None,
+) -> str:
+    """The field comparison the benchmark stored, cell by cell."""
+    _no_frames("analytic_field", frame)
+    header, cols = _cell_columns(arrays, summary)
+    sim = np.asarray(arrays["bench_field_sim"], dtype=float)
+    ana = np.asarray(arrays["bench_field_analytic"], dtype=float)
+    header += ["simulated", "analytic", "difference"]
+    cols += [sim, ana, sim - ana]
     return _csv_from_columns(header, cols)
 
 
@@ -1258,6 +1398,7 @@ _CSVS: dict[str, dict[str, CsvBuilder]] = {
         "occupation": _csv_kinetics_occupation_either_shape,
         "phonons": _csv_kinetics_phonons_either_shape,
         "time_series": _csv_kinetics_time_series,
+        "phonon_temperature": _csv_phonon_temperature,
     },
 }
 
@@ -1275,11 +1416,18 @@ _CSV_OFFERED: dict[tuple[str, str], Callable[[Collection[str]], bool]] = {
     ("kinetics", "phonons"): lambda have: (
         "n_ph" in have or {"snap_n_ph", "snap_omega_bins"} <= set(have)
     ),
+    ("kinetics", "phonon_temperature"): lambda have: (
+        {"phonon_T_eff", "phonon_T_eff_residual", "mask"} <= set(have)
+    ),
 }
 
 for _mode, _mode_csvs in _CSVS.items():
     _mode_csvs["analytic_comparison"] = _framed_benchmark
     _CSV_OFFERED[(_mode, "analytic_comparison")] = lambda have: "bench_x" in have
+    _mode_csvs["analytic_field"] = _csv_analytic_field
+    _CSV_OFFERED[(_mode, "analytic_field")] = lambda have: (
+        {"bench_field_sim", "bench_field_analytic", "mask"} <= set(have)
+    )
 
 
 def available_csvs(mode: str, array_names: Collection[str]) -> list[str]:

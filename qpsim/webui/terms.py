@@ -189,26 +189,25 @@ def _photon(setup: Any, prefix: str, occupancy: str, coupling: str) -> TermStatu
 def _steady_state(setup: Any) -> bool:
     """Does this setup select the 0-D steady-state solver?
 
-    That route reads the material, the phonon sector, the probe and the two
-    PHOTON drives -- and no injection, no prescribed drives, no initial
-    condition. Measured bit-identical to 11 digits with injection at 2e-4 and
-    at 2e-1, so injection is `absent` there in the precise sense this module
-    means: not in the model, and therefore neither on nor off. The photon
-    drives are in the model (see `_photon`).
+    That route reads the material, the phonon sector, the probe, the two
+    PHOTON drives and, since Wave 7, a STATIC injection -- and no prescribed
+    (time-dependent) drives and no initial condition, which a root find has
+    no axis for. Those two are `absent` there in the precise sense this
+    module means: not in the model, and therefore neither on nor off.
     """
     return getattr(setup, "strategy", None) == "steady_state"
 
 
 _STEADY_STATE_REASON = (
-    "the steady-state strategy solves for the balance point from the material, "
-    "the phonon sector and the photon drives; an injected source is not part "
-    "of that model"
+    "the steady-state strategy is a root find with no time axis and no initial "
+    "condition; a prescribed drive or a prepared start is not part of that model"
 )
 
 
 def _injection(setup: Any) -> TermStatus:
-    if _steady_state(setup):
-        return TermStatus(ABSENT, _STEADY_STATE_REASON)
+    # Not gated on the steady-state strategy since Wave 7: a static injection
+    # is folded into the solver's ExternalFlux there, and the measured answer
+    # moves with it (tests/webui/test_wave7_deferred.py).
     if getattr(setup, "injection", None) is None:
         return TermStatus(ABSENT, "this mode has no injection source")
     if not bool(_get(setup, "injection.enabled", False)):

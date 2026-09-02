@@ -82,6 +82,14 @@ class Curve:
     # point where nothing is wrong.
     metric: str = "pointwise"
     note: str = ""
+    # Optional: the same comparison as a FIELD over the device at one moment
+    # -- what the simulation holds per cell against what the closed form
+    # predicts there. Per-cell arrays in mask order; ``field_label`` says
+    # which quantity, at which energy and time. Stored beside the curve so
+    # the picture and the verdict come from one build.
+    field_sim: np.ndarray | None = None
+    field_analytic: np.ndarray | None = None
+    field_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -263,6 +271,9 @@ def attach(
     arrays["bench_analytic"] = np.atleast_2d(
         np.asarray(curve.y_analytic, dtype=float)
     )
+    if curve.field_sim is not None and curve.field_analytic is not None:
+        arrays["bench_field_sim"] = np.asarray(curve.field_sim, dtype=float)
+        arrays["bench_field_analytic"] = np.asarray(curve.field_analytic, dtype=float)
     summary["benchmark"] = {
         **score,
         "x_label": curve.x_label,
@@ -271,5 +282,6 @@ def attach(
         "log_x": curve.log_x,
         "log_y": curve.log_y,
         "note": curve.note,
+        "field_label": curve.field_label,
     }
     return []

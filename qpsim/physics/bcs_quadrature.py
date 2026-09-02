@@ -101,11 +101,78 @@ def bcs_dos_cell_weights(
     Explicit bounds also allow a cell crossed by a physical band boundary to
     be split exactly, which is needed for the M25 ``R<``/``R>`` moments.
     """
+    band = _bcs_band_cells(E_bins, dE_bins, gap, lower_bound, upper_bound)
+    if band is None:
+        return np.zeros(np.asarray(E_bins).size, dtype=float)
+    lo, hi = band
+    if gap == 0.0:
+        return hi - lo
+
+    # Factored form avoids cancellation in E²-Δ² for the first cell.
+    xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
+    xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))
+    return xi_hi - xi_lo
+
+
+def bcs_energy_cell_weights(
+    E_bins: np.ndarray,
+    dE_bins: np.ndarray,
+    gap: float,
+    *,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
+) -> np.ndarray:
+    r"""Exact per-cell weights of the ENERGY-weighted BCS measure.
+
+    Each returned weight is
+
+    ``∫_(cell ∩ [lower_bound, upper_bound]) E · E / sqrt(E² - Δ²) dE``
+
+    -- the first moment of the same measure :func:`bcs_dos_cell_weights`
+    integrates, on the same cells with the same band rules, so that a
+    quasiparticle energy ``Σ W_i f_i`` and a quasiparticle number
+    ``Σ w_i f_i`` are two moments of one quadrature rather than two
+    conventions. The antiderivative is elementary:
+
+    ``∫ E² / sqrt(E² - Δ²) dE = ½ [ E sqrt(E² - Δ²) + Δ² ln(E + sqrt(E² - Δ²)) ]``
+
+    which is what makes this exact at the gap edge, where the integrand's
+    ``1/sqrt`` singularity would defeat any cell-centred product ``E_i w_i``.
+    At ``gap = 0`` the measure is ``E dE`` and the weight is ``(hi² - lo²)/2``.
+    """
+    band = _bcs_band_cells(E_bins, dE_bins, gap, lower_bound, upper_bound)
+    if band is None:
+        return np.zeros(np.asarray(E_bins).size, dtype=float)
+    lo, hi = band
+    if gap == 0.0:
+        return 0.5 * (hi - lo) * (hi + lo)
+
+    def antiderivative(e: np.ndarray) -> np.ndarray:
+        xi = np.sqrt(np.maximum((e - gap) * (e + gap), 0.0))
+        return 0.5 * (e * xi + gap * gap * np.log(e + xi))
+
+    return antiderivative(hi) - antiderivative(lo)
+
+
+def _bcs_band_cells(
+    E_bins: np.ndarray,
+    dE_bins: np.ndarray,
+    gap: float,
+    lower_bound: float | None,
+    upper_bound: float | None,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """The part of every cell inside the band, as ``(lo, hi)`` edge arrays.
+
+    ``None`` when the band is empty. Shared by the number and the energy
+    weights so the two moments cannot disagree about which cells count: the
+    coverage contract (the grid must start at or below the band edge) and
+    the explicit-bound splitting are stated once, here.
+    """
     if not np.isfinite(gap) or gap < 0.0:
         raise ValueError("gap must be finite and non-negative.")
     edges = cell_edges_from_widths(E_bins, dE_bins)
     if gap == 0.0 and lower_bound is None and upper_bound is None:
-        return np.diff(edges)
+        return edges[:-1], edges[1:]
 
     requested_lo = gap if lower_bound is None else float(lower_bound)
     requested_hi = edges[-1] if upper_bound is None else float(upper_bound)
@@ -131,18 +198,12 @@ def bcs_dos_cell_weights(
         )
 
     if band_hi <= band_lo:
-        return np.zeros(np.asarray(E_bins).size, dtype=float)
+        return None
 
     lo = np.maximum(edges[:-1], band_lo)
     hi = np.minimum(edges[1:], band_hi)
     hi = np.maximum(hi, lo)
-    if gap == 0.0:
-        return hi - lo
-
-    # Factored form avoids cancellation in E²-Δ² for the first cell.
-    xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
-    xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))
-    return xi_hi - xi_lo
+    return lo, hi
 
 
 def represented_bcs_weights(

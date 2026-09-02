@@ -373,6 +373,15 @@ def _build(
         )
     )
 
+    # The same comparison as a field at the last frame, for the live bin
+    # with the most signal left (see bench/_transport.decay_rate_curve).
+    live_bins = np.flatnonzero(live)
+    j_star = int(live_bins[np.argmax(np.abs(amps[-1, live_bins]))])
+    t_last = float(times[-1] - times[0])
+    field_analytic = (
+        frames[0, j_star].mean()
+        + amps[0, j_star] * phi * np.exp(-float(exact[np.searchsorted(live_bins, j_star)]) * t_last)
+    )
     return Curve(
         x=x,
         y_sim=measured,
@@ -380,6 +389,12 @@ def _build(
         x_label="E / Δ",
         y_label="cosine-mode decay rate λ(E)  (1/ns)",
         note=note,
+        field_sim=frames[-1, j_star],
+        field_analytic=np.asarray(field_analytic, dtype=float),
+        field_label=(
+            f"f at E = {energies[j_star] / gap:.3g} Δ, t = {times[-1]:.4g} ns: "
+            "simulated against the prepared mode decayed at the closed-form rate"
+        ),
     )
 
 

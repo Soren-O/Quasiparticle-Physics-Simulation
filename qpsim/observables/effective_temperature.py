@@ -75,7 +75,8 @@ def effective_phonon_temperature(
     *,
     T_bath: float,
     T_max: float | None = None,
-) -> float:
+    return_residual: bool = False,
+) -> float | tuple[float, float]:
     r"""Fit the ``n_ph(ω ≥ 2Δ)`` shape to a Bose-Einstein profile.
 
     Not the Fischer 2023 ``T_*`` — see the module docstring.
@@ -99,10 +100,20 @@ def effective_phonon_temperature(
         but narrow enough for :func:`scipy.optimize.minimize_scalar`
         to converge in a handful of iterations.
 
+    return_residual
+        Also return the fit's residual: the weighted standard deviation of
+        ``log(n_ph / n_BE(T))`` over the fitted band at the optimum, i.e. how
+        far the spectrum's SHAPE is from any single Bose-Einstein. A caller
+        assigning a temperature to a non-thermal spectrum needs this number
+        to know whether the temperature means anything; ``0`` for an exact
+        Bose-Einstein, and ``0`` too when no pair-breaking mode is occupied
+        (the fit then returns ``T_bath`` with nothing to fit).
+
     Returns
     -------
-    float
-        Effective phonon temperature in K.
+    float, or (float, float)
+        Effective phonon temperature in K, and with ``return_residual`` the
+        residual described above.
     """
     n_ph = _finite_real_array("n_ph", n_ph)
     omega_bins = _finite_real_array("omega_bins", omega_bins)
@@ -129,7 +140,7 @@ def effective_phonon_temperature(
 
     mask = (omega_bins >= 2.0 * gap) & (n_ph > 0.0)
     if not np.any(mask):
-        return float(T_bath)
+        return (float(T_bath), 0.0) if return_residual else float(T_bath)
 
     omega_fit = omega_bins[mask]
     n_fit = n_ph[mask]
@@ -226,7 +237,7 @@ def effective_phonon_temperature(
         (_weighted_variance_of_log_ratio(log_lower), log_lower),
         (_weighted_variance_of_log_ratio(log_upper), log_upper),
     )
-    _, best_log_T = min(candidates, key=lambda item: item[0])
+    best_fun, best_log_T = min(candidates, key=lambda item: item[0])
     # exp(log(bound)) can round one ulp outside the original interval.
     # Preserve the documented hard bounds in the returned representation.
     T_eff = min(max(float(np.exp(best_log_T)), T_bath), upper)
@@ -243,4 +254,9 @@ def effective_phonon_temperature(
             RuntimeWarning,
             stacklevel=2,
         )
+    if return_residual:
+        # The objective is the weighted VARIANCE of the log ratio; its square
+        # root is the shape's departure from a Bose-Einstein in log units,
+        # i.e. a relative deviation for small values.
+        return T_eff, float(np.sqrt(max(float(best_fun), 0.0)))
     return T_eff

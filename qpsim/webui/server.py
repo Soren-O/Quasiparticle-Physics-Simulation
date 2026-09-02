@@ -35,6 +35,7 @@ from qpsim.webui.plots import (
     available_plots,
     plot_parameter_arrays,
     plot_parameters,
+    render_cell_field_png,
     render_csv,
     render_formula,
     render_plot,
@@ -450,6 +451,30 @@ def create_app(workspace_root: Path | str) -> FastAPI:
                 **_CACHE_HEADERS,
             },
         )
+
+    @app.get("/api/runs/{run_id}/live.png")
+    def runs_live(run_id: str) -> Response:
+        """The most recent recorded frame of a run that is still going.
+
+        Served from the worker's memory, not the run directory: the arrays
+        are written only when the run ends. It is the SAME reconstruction the
+        finished run will store, so watching a run is not watching a preview
+        of something else. A run that is not running, or has not recorded a
+        frame yet, is a 404 -- the run detail knows to show its stored frames
+        instead.
+        """
+        live = runner.live_state(run_id)
+        if live is None or live.latest_frame is None or live.status != "running":
+            raise HTTPException(
+                404, "No live frame: the run is not running, or has not recorded one yet.",
+            )
+        frame = live.latest_frame
+        png = render_cell_field_png(
+            frame.mask, frame.mesh_size_um, frame.xqp_profile,
+            f"x_qp over the device — t = {frame.t_ns:.4g} ns (live)",
+            f"x_qp  [{frame.x_qp_convention}]",
+        )
+        return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/runs/{run_id}/result.npz")
     def runs_arrays(run_id: str) -> FileResponse:

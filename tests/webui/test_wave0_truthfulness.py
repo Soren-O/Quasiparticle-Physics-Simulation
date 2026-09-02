@@ -41,20 +41,31 @@ def _steady_state() -> KineticsSetup:
 
 
 class TestSteadyStateDiscardsNothingSilently:
-    """`steady_state` reads material, phonon sector and probe -- nothing else.
+    """`steady_state` is a root find: no time axis, no initial condition.
 
     Measured before the fix: an injected setup ran clean and returned x_qp
     identical to the thermal value, i.e. the drive had no effect, while the
-    terms panel reported the source as on.
+    terms panel reported the source as on. Wave 7 then folded a STATIC
+    injection into the solver's external flux, so injection is accepted and
+    acts (tests/webui/test_wave7_deferred.py holds the number); what a root
+    find still cannot take -- prescribed drives, a prepared start -- is
+    still refused here.
     """
 
-    def test_an_acting_injection_is_refused(self) -> None:
+    def test_a_static_injection_is_accepted_and_acts(self) -> None:
         setup = _steady_state()
         setup.injection.enabled = True
         setup.injection.rate_per_ns = 2e-1
+        assert validate_setup(setup).ok
+
+    def test_a_prescribed_drive_is_refused(self) -> None:
+        from qpsim.webui.schemas import DriveSpec
+
+        setup = _steady_state()
+        setup.drives = [DriveSpec(enabled=True, amplitude=1e-3)]
         report = validate_setup(setup)
         assert not report.ok
-        assert any("silently discard" in e for e in report.errors)
+        assert any("silently discard" in e and "drives" in e for e in report.errors)
 
     def test_a_non_thermal_initial_condition_is_refused(self) -> None:
         setup = _steady_state()
@@ -86,11 +97,11 @@ class TestSteadyStateDiscardsNothingSilently:
         setup.injection.rate_per_ns = 2e-1
         assert validate_setup(setup).ok
 
-    def test_the_terms_panel_calls_the_source_absent_not_on(self) -> None:
+    def test_the_terms_panel_calls_the_source_on_under_both_strategies(self) -> None:
         setup = _steady_state()
         setup.injection.enabled = True
         setup.injection.rate_per_ns = 2e-1
-        assert term_status(setup)["src"].state == "absent"
+        assert term_status(setup)["src"].state == "on"
         setup.strategy = "time_march"
         assert term_status(setup)["src"].state == "on"
 

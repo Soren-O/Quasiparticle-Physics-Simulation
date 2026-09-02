@@ -329,6 +329,20 @@ def decay_rate_curve(
             if not live.all() else ""
         )
     )
+    # The comparison as a FIELD, at the last frame, for the fitted bin with
+    # the most signal left: what every cell holds against what the closed
+    # form -- the prepared amplitude decayed at the EXACT rate -- puts there.
+    # On a rectangle this is the stencil error spread over the mode; on a
+    # staircase rim it is where the discrete boundary sits.
+    fitted_bins = np.flatnonzero(live)
+    j_star = int(fitted_bins[np.argmax(np.abs(amps[-1, fitted_bins]))])
+    t_last = float(times[-1] - times[0])
+    field_analytic = np.asarray(base, dtype=float).reshape(-1, phi.size)[
+        j_star if np.ndim(baseline) else 0
+    ] if np.ndim(baseline) else float(baseline)
+    field_analytic = field_analytic + amps[0, j_star] * phi * np.exp(
+        -float(d_eff_per_bin(setup, energies)[j_star] * k2) * t_last
+    )
     return Curve(
         x=x,
         y_sim=measured,
@@ -336,4 +350,10 @@ def decay_rate_curve(
         x_label="E / Δ",
         y_label="mode decay rate λ(E)  (1/ns)",
         note=note,
+        field_sim=frames[-1, j_star],
+        field_analytic=np.asarray(field_analytic, dtype=float),
+        field_label=(
+            f"f at E = {energies[j_star] / gap:.3g} Δ, t = {times[-1]:.4g} ns: "
+            "simulated against the prepared mode decayed at the closed-form rate"
+        ),
     )

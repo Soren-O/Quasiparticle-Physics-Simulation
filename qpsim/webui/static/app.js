@@ -881,6 +881,15 @@ async function showRunDetail() {
   for (const n of r.notes || []) html += `<div class="note">⚠ ${esc(n)}</div>`;
   if (r.error) html += `<div class="note">✗ ${esc(r.error)}</div>`;
 
+  if (r.status === "running" && r.live_frame_t_ns != null) {
+    // The frame the worker recorded last, re-fetched on every poll (the
+    // query string is the frame time, so a new frame is a new URL and the
+    // browser cannot serve the previous one from cache).
+    html += `<figure class="live-frame">
+      <img src="/api/runs/${esc(id)}/live.png?t=${encodeURIComponent(r.live_frame_t_ns)}" alt="latest recorded frame">
+      <figcaption>Latest recorded frame, t = ${esc(fmt(r.live_frame_t_ns))} ns — the run is still going.</figcaption>
+    </figure>`;
+  }
   if (r.status === "done") {
     // `benchmark` is a structured verdict, not a scalar. Left in the summary
     // table it renders as "[object Object]" -- the run detail view was the

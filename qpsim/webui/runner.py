@@ -55,6 +55,9 @@ class JobState:
     started_monotonic: float | None = None
     # Terminal manifest whose disk write failed; overlay retries it.
     pending_manifest: dict[str, Any] | None = None
+    # The most recent recorded frame of a RUNNING spatial job, for the live
+    # view. Cleared with the job; a finished run reads its stored frames.
+    latest_frame: Any = None
     # Set when the worker has completed its final persistence attempt. A
     # terminal job is not safe to delete before this point because the worker
     # could otherwise recreate its directory after deletion.
@@ -145,8 +148,12 @@ class JobRunner:
 
         try:
             self._write_manifest_or_stash(job, manifest)
+            def keep_frame(frame: Any) -> None:
+                job.latest_frame = frame
+
             payload = execute_setup(
-                envelope.setup, progress, job.cancel_event.is_set
+                envelope.setup, progress, job.cancel_event.is_set,
+                on_frame=keep_frame,
             )
             if envelope.benchmark:
                 # After the solve and before persistence, so the comparison
@@ -374,6 +381,9 @@ class JobRunner:
             manifest["status"] = current_status
             manifest["progress"] = job.progress
             manifest["progress_message"] = job.message
+            frame = job.latest_frame
+            if current_status == "running" and frame is not None:
+                manifest["live_frame_t_ns"] = float(frame.t_ns)
             # Wall-clock so far. A fraction alone cannot distinguish a run
             # that is slow from one that has stopped advancing, which is the
             # question actually being asked when someone opens a running job.

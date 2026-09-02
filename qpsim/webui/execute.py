@@ -26,6 +26,7 @@ import numpy as np
 from qpsim.backends.t3_diffusion import T3DiffusionBackend
 from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
 from qpsim.constants import H_OVER_KB_K_PER_HZ
+from qpsim.devices.external_flux import ExternalFlux
 from qpsim.fields.drive import StaticDrive, SumDrive
 from qpsim.grid.spatial_grid import reconstruct_field
 from qpsim.observables import (
@@ -39,7 +40,7 @@ from qpsim.observables import (
     qp_fraction_paper,
     qp_number_density,
 )
-from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
+from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights, bcs_energy_cell_weights
 from qpsim.physics.gap_equation import calibrate_gap
 from qpsim.services.rate_equation import (
     chemical_potentials_kelvin,
@@ -60,6 +61,7 @@ from qpsim.webui.builders import (
     build_state_0d,
     build_state_2d,
     drive_dicts,
+    injection_line,
     mb_probe_invalid_reason,
     steady_state_solver_kwargs,
 )
@@ -173,6 +175,14 @@ def run_steady_state_0d(
     photon_params, pb_params = drive_dicts(setup)
     kwargs = steady_state_solver_kwargs(setup)
     f_ref = state.f.copy()
+    # A STATIC injection is a source with no time axis, which is exactly what
+    # a root find can carry: the same Gaussian line the time march spreads
+    # over its cells, here on the single cell, as the solver's ExternalFlux.
+    # Before this the field validated, was displayed as on, and was dropped.
+    flux = None
+    if setup.injection.enabled and setup.injection.rate_per_ns > 0.0:
+        gain = setup.injection.rate_per_ns * injection_line(setup, state.spectral.E)
+        flux = ExternalFlux(gain=gain, loss_rate=np.zeros_like(gain))
 
     _check_cancel(is_cancelled)
     progress(0.15, "solving steady state")
@@ -183,6 +193,7 @@ def run_steady_state_0d(
             state,
             photon_params=photon_params,
             pb_photon_params=pb_params,
+            external_flux=flux,
             **kwargs,  # type: ignore[arg-type]
         )
     payload.notes.extend(str(w.message) for w in caught)
@@ -205,6 +216,16 @@ def run_steady_state_0d(
         f_ref, ctx, delta_0=gap0
     )
     summary["x_qp_convention"] = X_QP_CONVENTION
+    summary["injection_rate_per_ns"] = (
+        float(setup.injection.rate_per_ns) if flux is not None else 0.0
+    )
+    # The mean energy per quasiparticle from the two moments of one
+    # quadrature (number and energy weights on the same cells).
+    e_weights = bcs_energy_cell_weights(ctx.E, ctx.dE, ctx.gap)
+    number = float(np.sum(ctx.cell_weights * solved.f))
+    if number > 0.0:
+        summary["E_qp_mean_ueV"] = float(np.sum(e_weights * solved.f)) / number
+        summary["E_qp_mean_over_gap"] = summary["E_qp_mean_ueV"] / float(ctx.gap)
     if setup.material.rho_F > 0.0:
         summary["n_qp_per_m3"] = qp_number_density(solved.f, ctx, setup.material.rho_F)
 
@@ -373,12 +394,40 @@ def run_m25_junction(
     return payload
 
 
+@dataclass(frozen=True)
+class LiveFrame:
+    """One recorded frame, handed out WHILE the run is still going.
+
+    The same ``x_qp`` profile the finished run stores in
+    ``snap_xqp_profile`` -- computed by the same call at the moment the
+    backend records the snapshot -- so what a person watches during a run
+    is what the run will have recorded, not a preview of something else.
+    """
+
+    t_ns: float
+    xqp_profile: np.ndarray       # (Ncells,), mask order
+    mask: np.ndarray              # (rows, cols) bool
+    mesh_size_um: float
+    x_qp_convention: str
+
+
+FrameFn = Callable[[LiveFrame], None]
+
+
 def execute_setup(
-    setup: AnySetup, progress: ProgressFn, is_cancelled: CancelledFn
+    setup: AnySetup,
+    progress: ProgressFn,
+    is_cancelled: CancelledFn,
+    *,
+    on_frame: FrameFn | None = None,
 ) -> RunPayload:
-    """Dispatch a validated setup to its mode executor."""
+    """Dispatch a validated setup to its mode executor.
+
+    ``on_frame`` receives each recorded frame as it is captured (spatial time
+    march only); the other routes record no frames and never call it.
+    """
     if isinstance(setup, KineticsSetup):
-        return run_kinetics(setup, progress, is_cancelled)
+        return run_kinetics(setup, progress, is_cancelled, on_frame=on_frame)
     return run_m25_junction(setup, progress, is_cancelled)
 
 
@@ -407,6 +456,58 @@ def _require_single_cell_for_steady_state(setup: KineticsSetup) -> None:
 X_QP_CONVENTION = "qpsim: n_qp/(4 rho_F Delta_0)"
 
 
+def _qp_energy_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
+    """Per-cell quasiparticle ENERGY in the x_qp normalisation.
+
+    ``Σ_i W_i f_i / Δ_0`` with ``W_i`` the exact energy-weighted BCS cell
+    integral, so that divided by the number profile it is the mean energy per
+    quasiparticle in μeV. Same grouping by distinct gap as the number profile.
+    """
+    if not np.isfinite(delta_0) or delta_0 <= 0.0:
+        raise ValueError("delta_0 must be finite and positive.")
+    gaps = state.gaps()
+    distinct, group_index = np.unique(gaps, return_inverse=True)
+    weights = np.column_stack([
+        bcs_energy_cell_weights(state.spectral.E, state.spectral.dE, float(g))
+        for g in distinct
+    ])[:, group_index]
+    return np.einsum("ec,ec->c", weights, state.f) / delta_0
+
+
+# The phonon-temperature fit is trusted only where the spectrum's shape is
+# within this of a single Bose-Einstein (weighted std of the log ratio over
+# the pair-breaking band). Beyond it the cell is reported as having no single
+# temperature, which is the physics, not a failure.
+PHONON_T_EFF_RESIDUAL_MAX = 0.05
+
+
+def _phonon_temperature_field(
+    n_ph: np.ndarray, omega: np.ndarray, gap: float, t_bath: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-cell effective phonon temperature and the fit's residual.
+
+    ``T_eff`` is NaN where the residual exceeds ``PHONON_T_EFF_RESIDUAL_MAX``
+    or the fit is underdetermined; the residual is always reported so the
+    gate can be read off rather than trusted.
+    """
+    n_cells = n_ph.shape[1]
+    t_eff = np.full(n_cells, np.nan)
+    residual = np.full(n_cells, np.nan)
+    for j in range(n_cells):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                t_j, r_j = effective_phonon_temperature(
+                    n_ph[:, j], omega, gap, T_bath=t_bath, return_residual=True,
+                )
+        except ValueError:
+            continue
+        residual[j] = r_j
+        if r_j <= PHONON_T_EFF_RESIDUAL_MAX:
+            t_eff[j] = t_j
+    return t_eff, residual
+
+
 def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
     """Per-cell ``x_qp`` on a geometry, one quadrature per distinct gap.
 
@@ -426,7 +527,10 @@ def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
 
 
 def run_kinetics(
-    setup: KineticsSetup, progress: ProgressFn, is_cancelled: CancelledFn
+    setup: KineticsSetup,
+    progress: ProgressFn,
+    is_cancelled: CancelledFn,
+    on_frame: FrameFn | None = None,
 ) -> RunPayload:
     if setup.strategy == "steady_state":
         _require_single_cell_for_steady_state(setup)
@@ -483,6 +587,22 @@ def run_kinetics(
         phonon_seed=build_phonon_seed_2d(setup, geometry),
     )
 
+    def emit_frame(snapshot: Any) -> None:
+        # The SAME reconstruction the finished run stores: a live frame that
+        # differed from the recorded one would be a picture of nothing.
+        if on_frame is None:
+            return
+        on_frame(LiveFrame(
+            t_ns=float(snapshot.t),
+            xqp_profile=_xqp_profile_2d(
+                replace(state, f=snapshot.f, gap_per_cell=snapshot.gap_per_cell),
+                delta_0,
+            ),
+            mask=np.asarray(geometry.mask, dtype=bool),
+            mesh_size_um=float(geometry.mesh_size),
+            x_qp_convention=X_QP_CONVENTION,
+        ))
+
     def hook(elapsed: float, total: float) -> bool:
         # "stepping" says only that it has not finished. The 0-D path already
         # reports simulated time, and on a long spatial march that is the
@@ -509,6 +629,7 @@ def run_kinetics(
             ),
             snapshot_interval=setup.snapshot_interval,
             progress_hook=hook,
+            on_snapshot=emit_frame if on_frame is not None else None,
         )
     final = result.state
     n_steps, converged, last_rate = (
@@ -582,6 +703,30 @@ def run_kinetics(
             payload.arrays["snap_omega_bins"] = backend.phonon_frequency_axis(
                 final
             )
+            # The endpoint's phonon temperature FIELD, gated by the fit's own
+            # residual: a non-thermal spectrum has no single temperature, and
+            # a cell where the Bose-Einstein shape does not fit says so as NaN
+            # rather than as a number.
+            t_eff, t_res = _phonon_temperature_field(
+                np.asarray(result.snapshots[-1].n_ph, dtype=float),
+                np.asarray(payload.arrays["snap_omega_bins"], dtype=float),
+                float(final.spectral.gap), float(setup.T_bath),
+            )
+            payload.arrays["phonon_T_eff"] = t_eff
+            payload.arrays["phonon_T_eff_residual"] = t_res
+            fitted = np.isfinite(t_eff)
+            payload.summary["phonon_T_eff_cells_fitted"] = int(fitted.sum())
+            payload.summary["phonon_T_eff_mean_K"] = (
+                float(np.mean(t_eff[fitted])) if fitted.any() else float("nan")
+            )
+            if not fitted.all():
+                payload.notes.append(
+                    f"Phonon temperature: {int((~fitted).sum())} of {fitted.size} "
+                    "cells have no single temperature -- their n_ph(ω) departs "
+                    "from a Bose-Einstein shape by more than "
+                    f"{PHONON_T_EFF_RESIDUAL_MAX:g} in log ratio over the "
+                    "pair-breaking band -- and are reported as NaN."
+                )
         payload.arrays["snap_xqp_profile"] = np.stack([
             _xqp_profile_2d(replace(final, f=s.f, gap_per_cell=s.gap_per_cell),
                             delta_0)
@@ -599,6 +744,31 @@ def run_kinetics(
         payload.arrays["obs_x_qp_max_paper"] = (
             2.0 * payload.arrays["obs_x_qp_max"]
         )
+        # The QUASIPARTICLE budget, per frame, from the two moments of one
+        # quadrature: number Σ w_i f_i and energy Σ W_i f_i, both summed over
+        # cells, in the x_qp normalisation (units of 4 rho_F Delta_0 per
+        # cell). Their ratio is the mean energy per quasiparticle, which is
+        # what "hot" means. Transport alone conserves both bin by bin; a
+        # source adds to both; recombination removes number AND energy; the
+        # phonon side is deliberately NOT reported -- see the note below.
+        number_frames = np.array([
+            float(np.sum(_xqp_profile_2d(
+                replace(final, f=s.f, gap_per_cell=s.gap_per_cell), delta_0,
+            )))
+            for s in result.snapshots
+        ])
+        energy_frames = np.array([
+            float(np.sum(_qp_energy_profile_2d(
+                replace(final, f=s.f, gap_per_cell=s.gap_per_cell), delta_0,
+            )))
+            for s in result.snapshots
+        ])
+        payload.arrays["obs_x_qp_total"] = number_frames
+        payload.arrays["obs_E_qp_total"] = energy_frames
+        with np.errstate(divide="ignore", invalid="ignore"):
+            payload.arrays["obs_E_qp_mean"] = np.where(
+                number_frames > 0.0, energy_frames / number_frames, np.nan,
+            )
         # The probe AS A TIME SERIES, which is what makes a readout transient
         # legible -- the 0-D transient reports it and the endpoint value alone
         # cannot answer "when does Q_i recover". Single cell only, for the same
@@ -617,6 +787,23 @@ def run_kinetics(
                     for s in result.snapshots
                 ])
 
+    # Mean energy per quasiparticle at the end, and the phonon side's honest
+    # absence: n_ph on the recorded lattice is an occupation PER MODE, and a
+    # phonon energy needs the mode density (Debye omega^2 per unit volume, in
+    # sound velocities the material table mostly lacks). Adding one on top of
+    # a lattice whose kernels may already carry it is the double count this
+    # repo once came within inches of; until that is established, no
+    # omega-weighted phonon quantity is reported -- see the plan's 5.2.
+    number_end = float(np.sum(profile))
+    energy_end = float(np.sum(_qp_energy_profile_2d(final, delta_0)))
+    if setup.phonons.mode != "thermal_bath":
+        payload.notes.append(
+            "Phonon energy is not reported: the recorded n_ph is an occupation "
+            "per mode, and turning it into an energy needs a phonon mode "
+            "density the engine does not carry (and must not add on top of "
+            "kernels that may already carry it). The quasiparticle-side budget "
+            "(obs_x_qp_total, obs_E_qp_total, obs_E_qp_mean) is exact."
+        )
     payload.summary.update({
         # The reference gap the figures normalise energy by. Without it
         # `plots._gap` falls back to 1.0 and the occupation spectrum plots
@@ -634,6 +821,10 @@ def run_kinetics(
         # third one.
         "n_steps": int(n_steps),
         "converged": bool(converged),
+        "E_qp_mean_ueV": (energy_end / number_end) if number_end > 0.0 else float("nan"),
+        "E_qp_mean_over_gap": (
+            (energy_end / number_end) / delta_0 if number_end > 0.0 else float("nan")
+        ),
         "final_max_rate": float(last_rate),
         "x_qp_mean": float(np.mean(profile)),
         "x_qp_max": float(np.max(profile)),

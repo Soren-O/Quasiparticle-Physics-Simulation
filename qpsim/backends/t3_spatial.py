@@ -665,6 +665,7 @@ class T3SpatialBackend:
         gap_quantum: float | None = None,
         snapshot_interval: float | None = None,
         progress_hook: Callable[[float, float], bool] | None = None,
+        on_snapshot: Callable[[SpatialSnapshot], None] | None = None,
     ) -> SpatialRunResult:
         """Fixed-step dynamics until the residual falls below ``stop_tol``.
 
@@ -734,6 +735,8 @@ class T3SpatialBackend:
                     state, external_gain=gain, external_loss=loss,
                 )))),
             ))
+            if on_snapshot is not None:
+                on_snapshot(snapshots[-1])
         next_capture = float(snapshot_interval) if capture else float("inf")
 
         current = state
@@ -770,6 +773,10 @@ class T3SpatialBackend:
             )))
             if elapsed >= next_capture:
                 snapshots.append(self._snapshot(current, elapsed, last_rate))
+                # Handed out as it is recorded, so a caller can show the run
+                # while it is going; the list above is what the result keeps.
+                if on_snapshot is not None:
+                    on_snapshot(snapshots[-1])
                 # Advance past every boundary already overtaken, so a coarse
                 # dt against a fine interval emits one frame per step instead
                 # of spinning out a backlog of duplicates at the same time.
@@ -786,6 +793,8 @@ class T3SpatialBackend:
         # end on a stale frame.
         if capture and (not snapshots or snapshots[-1].t < elapsed):
             snapshots.append(self._snapshot(current, elapsed, last_rate))
+            if on_snapshot is not None:
+                on_snapshot(snapshots[-1])
         return SpatialRunResult(
             state=current,
             n_steps=n_steps,

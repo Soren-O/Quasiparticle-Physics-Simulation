@@ -751,3 +751,11 @@ tr.verdict-pass .verdict { color: #085508; }
 tr.verdict-fail .verdict, tr.verdict-failed .verdict { color: var(--critical); }
 tr.verdict-unknown .verdict, tr.verdict-none .verdict, tr.verdict-not-run .verdict { color: var(--muted); }
 tr.verdict-queued .verdict, tr.verdict-running .verdict { color: var(--accent); }
+
+/* ---- live frame while a run is going ---- */
+.live-frame { margin: 12px 0; }
+.live-frame img {
+  display: block; max-width: 100%; width: 520px; border: 1px solid var(--grid);
+  border-radius: 8px; background: var(--surface);
+}
+.live-frame figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }

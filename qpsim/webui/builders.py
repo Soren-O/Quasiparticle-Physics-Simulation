@@ -300,19 +300,16 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
         # them (the equal-gap interface guard below was found exactly that
         # way, by a test that posted a retired mode name and got a 200).
         if setup.strategy == "steady_state":
-            # This strategy reads a STRICT SUBSET of the setup: material,
-            # phonons.mode and probe. Every physical input listed below is
-            # discarded -- measured bit-identical to 11 digits with injection
-            # at 2e-4 and at 2e-1, while the terms panel still reported the
-            # source as on. Before the mode collapse these fields could not be
-            # set on this route at all, because it was a separate mode with a
-            # narrower schema; making `strategy` a setting is what created a
-            # path where they can be set, look accepted and do nothing.
-            #
-            # Refused rather than warned: a setup carrying a drive that is
-            # dropped is not the setup the user described, and a run that
-            # returns the thermal answer to a driven question is wrong in the
-            # way that is hardest to notice.
+            # This strategy reads the material, the phonon sector, the probe,
+            # the photon drives and -- since Wave 7 -- a STATIC injection,
+            # folded into the solver's ExternalFlux. What it still cannot
+            # take is anything time-dependent or a prepared start: the
+            # prescribed `drives` (a steady state has no t) and a non-thermal
+            # `initial` (a root find has no initial condition). Those were
+            # measured to be discarded -- bit-identical to 11 digits -- while
+            # the terms panel reported them as on, and are refused rather
+            # than warned: a run that returns the undriven answer to a driven
+            # question is wrong in the way that is hardest to notice.
             # "Enabled" is not the same as "acting", and only an ACTING term
             # is one this strategy discards: injection by its rate. Keying
             # the refusal on `enabled` alone would reject setups where
@@ -335,8 +332,6 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 return float(getattr(node, magnitude, 0.0) or 0.0) > 0.0
 
             dropped: list[str] = []
-            if _acting("injection", "rate_per_ns"):
-                dropped.append("injection")
             if getattr(setup, "drives", None):
                 dropped.append("drives")
             initial = getattr(setup, "initial", None)
@@ -345,11 +340,28 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 dropped.append(f"initial.kind={initial_kind!r}")
             if dropped:
                 report.errors.append(
-                    "strategy='steady_state' solves a 0-D steady state from the "
-                    "material, the phonon sector and the probe alone, so it would "
-                    f"silently discard: {', '.join(dropped)}. Choose "
-                    "strategy='time_march' to drive the system, or clear these "
-                    "fields to state that the run is undriven."
+                    "strategy='steady_state' is a root find: it has no time axis "
+                    "and no initial condition, so it would silently discard: "
+                    f"{', '.join(dropped)}. Choose strategy='time_march' for a "
+                    "prescribed drive or a prepared start, or clear these fields. "
+                    "(A static injection and the photon drives ARE honoured here.)"
+                )
+            # The backend refuses an ExternalFlux under unaccelerated Picard
+            # with a dynamic phonon sector (the f-perturbation feeds the
+            # phonon-emission cycle and Picard oscillates). Say so here, in the
+            # setup's own words, rather than after the solve.
+            if (
+                _acting("injection", "rate_per_ns")
+                and setup.phonons.mode != "thermal_bath"
+                and (setup.solver.method if setup.solver.method != "auto" else "picard")
+                == "picard"
+                and int(setup.solver.anderson_depth) == 0
+            ):
+                report.errors.append(
+                    "A static injection with a dynamic phonon sector needs an "
+                    "accelerated solver: set solver.anderson_depth >= 1 or "
+                    "solver.method = 'coupled_newton'. Unaccelerated Picard "
+                    "oscillates under an external source."
                 )
 
             c = setup.collisions
@@ -962,6 +974,21 @@ def _validate_gap_map_against_grid(
         )
 
 
+def injection_line(setup: KineticsSetup, energies: np.ndarray) -> np.ndarray:
+    """The Gaussian-in-energy source, peak-normalised, on ``energies``.
+
+    ONE definition for both strategies: the time march spreads it over the
+    cells it targets, the steady state folds it into an ``ExternalFlux`` on
+    its single cell. A second copy of this line is how the two would come to
+    inject different spectra for the same setup.
+    """
+    injection = setup.injection
+    gap = setup.material.Delta_0
+    centre = injection.center_over_delta * gap
+    sigma = injection.sigma_over_delta * gap
+    return np.exp(-0.5 * ((np.asarray(energies, dtype=float) - centre) / sigma) ** 2)
+
+
 def build_injection_2d(
     setup: KineticsSetup, state: T3SpatialState,
 ) -> tuple[np.ndarray, np.ndarray] | None:
@@ -970,10 +997,7 @@ def build_injection_2d(
     if not injection.enabled:
         return None
     energies = state.spectral.E
-    gap = setup.material.Delta_0
-    centre = injection.center_over_delta * gap
-    sigma = injection.sigma_over_delta * gap
-    line = np.exp(-0.5 * ((energies - centre) / sigma) ** 2)
+    line = injection_line(setup, energies)
 
     rows, cols = np.nonzero(state.geometry.mask)
     gain = np.zeros((energies.size, state.f.shape[1]))
