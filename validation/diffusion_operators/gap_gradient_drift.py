@@ -2,16 +2,25 @@
 
 With a spatially-varying gap the conserved density ``u = N_1^p f`` obeys
 ``d_t u = d_x(D_eff d_x u) - d_x(v_d u)`` with ``D_eff = D_N N_1^{q-p}`` and
-``v_d = D_N p N_1^{q-p-1} d_x N_1``. The first moment of ``u`` then drifts at
+``v_d = D_N p N_1^{q-p-1} d_x N_1``. For a narrow packet the first moment
+of a readout weight ``w = N_1^s f`` then drifts at
 
-    v_com = <d_x D_eff> + <v_d> = D_N q N_1^{q-p-1} d_x N_1 ,
+    v_com = D_N [q + 2(s - p)] N_1^{q-p-1} d_x N_1 .
 
-so the drift is controlled by ``q``: the dirty-limit operator A1
-(``q = 0``) has *no* DOS-gradient drift, the diagnostics A1P/A2
-(``q = 2``) drift *up* the gap gradient (differing by one power of
-``N_1``, ratio ``1/N_1``), and C/B (``q < 0``) drift *down* it. We launch
-a narrow packet at every energy in a
-fixed gap ramp (no collisions) and read each energy's center-of-mass drift.
+With ``s = p`` this is each operator's own conserved-density moment,
+``D_N q N_1^{q-p-1} d_x N_1``, a structural diagnostic of ``q != 0``. The
+benchmark instead reads every operator on the *same* physical quantity,
+the quasiparticle density ``N_1 f`` (``s = 1``, whose energy integral is
+``n_qp``), so the prefactor is ``q + 2(1 - p)``: the dirty-limit operator
+A1 (1, 0) has *no* DOS-gradient drift, the legacy placement C (0, -1)
+drifts *up* the gap gradient at ``D_N N_1^{-2} d_x N_1`` (the same
+magnitude as, and the opposite sign to, its own-moment drift), the A1P
+diagnostic (1, 2) drifts up at ``2 D_N d_x N_1``, and A2 (2, 2) and
+B (0, -2) carry no net drift of ``N_1 f``. We launch a narrow packet at
+every energy in a fixed gap ramp (no collisions) and read each energy's
+center-of-mass drift. The analytic curves are the exact initial rate of
+the ``N_1 f`` centre of mass (:func:`exact_initial_drift`), which on the
+linear ramp agrees with the narrow-packet form to about 2%.
 
 Run ``python -m validation.diffusion_operators.gap_gradient_drift`` to write
 the CSV + figure under ``outputs/diffusion_operators/``.
@@ -30,6 +39,8 @@ from qpsim.physics.spectral import SpectralContext, bcs_density_of_states
 from validation.diffusion_operators import (
     BENCHMARK_MODELS,
     D0_DEFAULT,
+    READOUT_WEIGHT,
+    exact_initial_drift,
     results_dir,
     write_csv,
 )
@@ -80,8 +91,6 @@ def run(
     packet = np.exp(-((x - x0) / packet_sigma_um) ** 2)
     f_seed = np.tile(0.3 * packet, (NE, 1))
 
-    # Analytic COM drift v_com = D_N q N_1^{q-p-1} d_x N_1 at the packet centre.
-    dN1_dx = np.gradient(N1, x, axis=1)[:, center]
     N1_center = N1[:, center]
 
     backend = T3Spatial1DBackend()
@@ -100,15 +109,17 @@ def run(
             diffusion_model=model,
             gap_profile=ramp,
         )
-        com0 = _center_of_mass(state.f, N1, p, x)
+        com0 = _center_of_mass(state.f, N1, x)
         evolving = state
         for _ in range(n_steps):
             evolving = backend.apply_transport(evolving, dt)
-        com1 = _center_of_mass(evolving.f, N1, p, x)
+        com1 = _center_of_mass(evolving.f, N1, x)
         drift_measured[model.name] = (com1 - com0) / (n_steps * dt)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            v = D0 * q * np.power(N1_center, q - p - 1) * dN1_dx
-        drift_analytic[model.name] = v
+        # Exact initial rate of the N_1 f centre of mass on the ramp
+        # (narrow-packet form: D_N [q + 2(1 - p)] N_1^{q-p-1} d_x N_1).
+        drift_analytic[model.name] = exact_initial_drift(
+            f_seed, N1, x, p, q, D0=D0
+        )
 
     return DriftResult(
         E=E,
@@ -121,12 +132,16 @@ def run(
 
 
 def _center_of_mass(
-    f: np.ndarray, N1: np.ndarray, p: int, x: np.ndarray
+    f: np.ndarray, N1: np.ndarray, x: np.ndarray, s: int = READOUT_WEIGHT
 ) -> np.ndarray:
-    """Per-energy first moment of the conserved density ``u = N_1^p f``."""
-    u = np.power(N1, p) * f
-    weight = np.sum(u, axis=1)
-    moment = np.sum(x[None, :] * u, axis=1)
+    """Per-energy first moment of the readout density ``w = N_1^s f``.
+
+    The default ``s = READOUT_WEIGHT = 1`` is the quasiparticle density,
+    the same physical quantity for every operator.
+    """
+    w = np.power(N1, s) * f
+    weight = np.sum(w, axis=1)
+    moment = np.sum(x[None, :] * w, axis=1)
     return moment / weight
 
 

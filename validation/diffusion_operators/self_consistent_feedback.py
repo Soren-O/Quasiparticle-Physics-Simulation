@@ -12,27 +12,32 @@ whose linearization is the Owen--Scalapino form
 ``delta_Delta/Delta_0 = -2 int dE/E N_1 f``. A localized quasiparticle
 population therefore digs a gap well under itself, and the gap acquires
 exactly the spatial gradient that separates the ``L_{p,q}`` operators:
-``v_com = D_N q N_1^{q-p-1} d_x N_1`` (benchmark 2), now evaluated on a
-*self-generated* profile rather than an imposed ramp. (The package's
+``v_com = D_N [q + 2(1 - p)] N_1^{q-p-1} d_x N_1`` for the quasiparticle
+density ``N_1 f`` (benchmark 2), now evaluated on a *self-generated*
+profile rather than an imposed ramp. (The package's
 ``self_consistent_gap`` support in the homogeneous ``t3_diffusion``
 backend solves the same closure with no spatial resolution; this
 benchmark supplies the spatial coupling.)
 
 Setup: a "heavy" population digs the well (Picard-iterated to the
 self-consistent fixed point); a weak probe packet on the well's flank is
-evolved as a passive tracer and its conserved-density center of mass is
-tracked. In the measurement configuration the heavy population -- think a
+evolved as a passive tracer and the center of mass of its quasiparticle
+density ``N_1 f`` (the same readout for every operator) is tracked. In
+the measurement configuration the heavy population -- think a
 maintained hot spot or trapped population, quasi-static on probe-transport
 timescales -- holds the well fixed, so the benchmark-2 drift analytics
 apply exactly and the expected signature is parameter-free:
 
-* A1 ``(q = 0)``  -- no DOS-gradient drift: the probe COM stays put
-  (to round-off, since its undressed face flux telescopes);
-* C/B ``(q < 0)`` -- drift *toward* the well the population dug
-  (self-focusing: quasiparticles are attracted to their own gap
-  suppression);
-* A1P/A2 ``(q = 2)`` -- drift *away* from the well (expelled from the
-  depression they create).
+* A1 (1, 0) -- no DOS-gradient drift: the probe COM stays put (to
+  round-off, since its undressed face flux telescopes);
+* C (0, -1) -- the probe's quasiparticle density drifts *away* from the
+  well the population dug, at ``D_N N_1^{-2} d_x N_1`` (its own conserved
+  moment, the bare occupation, moves the opposite way);
+* A1P (1, 2) -- drifts away from the well at ``2 D_N d_x N_1``;
+* A2 (2, 2) and B (0, -2) -- no net drift of ``N_1 f`` at leading order
+  in the gap gradient (flux drift and conserved-weight response cancel);
+  the exact initial rate keeps only the small finite-width remainder set
+  by the well's curvature.
 
 ``run(dynamic=True)`` instead lets the heavy population diffuse with the
 gap tracking it every step (fully dynamic feedback). The well then
@@ -63,6 +68,8 @@ from qpsim.transport.diffusion.base import DiffusionModel
 from validation.diffusion_operators import (
     BENCHMARK_MODELS,
     D0_DEFAULT,
+    READOUT_WEIGHT,
+    exact_initial_drift,
     results_dir,
     write_csv,
 )
@@ -132,11 +139,15 @@ def dig_well(
 
 
 def _com_per_energy(
-    N1: np.ndarray, p: int, f: np.ndarray, x: np.ndarray
+    N1: np.ndarray, f: np.ndarray, x: np.ndarray, s: int = READOUT_WEIGHT
 ) -> np.ndarray:
-    """Per-energy first moment of the conserved density ``N_1**p f``."""
-    u = np.power(N1, p) * f
-    return np.sum(x[None, :] * u, axis=1) / np.sum(u, axis=1)
+    """Per-energy first moment of the readout density ``N_1**s f``.
+
+    The default ``s = READOUT_WEIGHT = 1`` is the quasiparticle density,
+    the same physical quantity for every operator.
+    """
+    w = np.power(N1, s) * f
+    return np.sum(x[None, :] * w, axis=1) / np.sum(w, axis=1)
 
 
 def run(
@@ -165,8 +176,12 @@ def run(
     (default) holds the well fixed;
     ``dynamic=True`` lets the heavy population spread with the gap
     tracking it. Drift velocities are fitted over the first ``fit_steps``
-    steps; the analytic prediction ``D_N q N_1^{q-p-1} d_x N_1`` is
-    averaged over the initial probe's conserved density.
+    steps; the analytic prediction is the exact initial rate of the
+    probe's ``N_1 f`` centre of mass (:func:`exact_initial_drift`), whose
+    narrow-packet form is ``D_N [q + 2(1 - p)] N_1^{q-p-1} d_x N_1``. The
+    fitted mean over the window sits below the initial rate by the
+    packet-spreading correction (about 10% for C and 15% for the
+    fast-diffusing A1P at the default settings).
     """
     if not 1 <= fit_steps <= n_steps:
         raise ValueError(
@@ -217,15 +232,11 @@ def run(
         gap_initial[model.name] = gap_profile.copy()
 
         N1_x = _n1_columns(E, gap_profile)
-        # Analytic drift on the realized initial profile, averaged over the
-        # probe's conserved density (finite-packet prediction).
-        dN1_dx = np.gradient(N1_x, x, axis=1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            v_field = D0 * q * np.power(N1_x, q - p - 1) * dN1_dx
-        v_field = np.nan_to_num(v_field)
-        u0 = np.power(N1_x, p) * f_probe0
-        drift_analytic[model.name] = np.sum(v_field * u0, axis=1) / np.sum(
-            u0, axis=1
+        # Exact initial rate of the probe's N_1 f centre of mass on the
+        # realized initial profile (finite-packet prediction; narrow-packet
+        # form D_N [q + 2(1 - p)] N_1^{q-p-1} d_x N_1).
+        drift_analytic[model.name] = exact_initial_drift(
+            f_probe0, N1_x, x, p, q, D0=D0
         )
 
         def make_state(
@@ -255,7 +266,7 @@ def run(
 
         com_t = np.empty((n_steps + 1, NE))
         N1_now = N1_x
-        com_t[0] = _com_per_energy(N1_now, p, probe.f, x)
+        com_t[0] = _com_per_energy(N1_now, probe.f, x)
 
         if not dynamic:
             backend = T3Spatial1DBackend()
@@ -271,7 +282,7 @@ def run(
                 heavy = replace(heavy, gap_profile=gap_profile)
                 probe = replace(probe, gap_profile=gap_profile)
                 N1_now = _n1_columns(E, gap_profile)
-            com_t[step + 1] = _com_per_energy(N1_now, p, probe.f, x)
+            com_t[step + 1] = _com_per_energy(N1_now, probe.f, x)
 
         gap_final[model.name] = gap_profile.copy()
         probe_com[model.name] = com_t[:, e_index]

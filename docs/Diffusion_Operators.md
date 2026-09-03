@@ -112,10 +112,15 @@ the scalar-gap `SpectralContext`.
 1. **`uniform_gap_packet`** — the measured `D_eff(E)/D_N` traces `N_1^{q-p}`:
    falling (A1 and C, identical curves), rising (A1P), flat (A2), steeply
    falling (B); `n_qp` conserved to ~1e-15.
-2. **`gap_gradient_drift`** — the COM drift velocity matches
-   `v = D_N q N_1^{q-p-1} d_x N_1`: A1 (`q = 0`) shows *no* drift, A1P/A2
-   (`q = 2`) drift *up* the gap gradient (differing by one power of `N_1`),
-   and C/B (`q < 0`) drift *down* it.
+2. **`gap_gradient_drift`** — every operator is read out on the same
+   physical quantity, the quasiparticle density `N_1 f` (`READOUT_WEIGHT = 1`);
+   its COM drift matches the exact initial rate (`exact_initial_drift`), whose
+   narrow-packet form is `v = D_N [q + 2(1 - p)] N_1^{q-p-1} d_x N_1`: A1 shows
+   *no* drift, the legacy C (`+1`) and A1P (`+2`) drift *up* the gap gradient,
+   and A2 and B (`0`) carry no net drift of `N_1 f`. (Each operator's own
+   conserved-density moment `N_1^p f` would give the prefactor `q` instead —
+   for the `p = 0` legacy placements the opposite direction; that reading was
+   retired 2026-09-01.)
 3. **`interface_trap`** — a two-gap Kupriyanov–Lukichev interface: current is
    continuous across it while `f` is discontinuous (jump = bulk current /
    `G_N [N_1^L N_1^R - N_2^L N_2^R]`); a closed relaxation shows A1 and A2

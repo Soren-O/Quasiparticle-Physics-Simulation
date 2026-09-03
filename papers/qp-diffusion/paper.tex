@@ -76,7 +76,7 @@
 
 \begin{document}
 
-\title{Which Diffusion Equation for Nonequilibrium Superconducting Quasiparticles?}
+\title{A Diffusion Equation for Nonequilibrium Superconducting Quasiparticles}
 
 \author{Soren Ormseth}
 \affiliation{Department of Physics, University of Wisconsin--Madison, Madison, Wisconsin 53706, USA}
@@ -84,31 +84,24 @@
 \date{\today}
 
 \begin{abstract}
-Which energy-resolved diffusion operator governs a nonequilibrium
-quasiparticle occupation when a superconducting gap varies in space?
-For a homogeneous normal-state material in the dirty limit, with a
-slowly varying local BCS gap, nonmagnetic Born disorder, and negligible
-charge imbalance, we show that two microscopic constructions---a
-branch-projected scalar kinetic theory and a Keldysh--Usadel
-reduction---are related by an exact change of variables. In the scalar
-construction, impurity coherence factors enforce \(\DOS\DE=\DN\); both
-routes then yield the conserved spectral density \(\DOS f\) and the
-undressed current \(-\DN\bnabla f\). The \(\DOS^2\) dressing instead
-belongs to the transverse charge-imbalance channel. The alternative placement
-\(\bnabla\cdot[(\DN/\DOS)\bnabla f]\), used as the energy-resolved
-starting point in a published gap-engineered-trap analysis, is not
-selected by either reduction and produces a spurious
-density-of-states-gradient drift for smoothly varying local-BCS gaps.
-We derive the common-phase, above-gap scalar Kupriyanov--Lukichev
-boundary law and the time-dependent spectral-flow completion, organize candidate
-operators in a two-exponent taxonomy, and benchmark prescribed and
-self-consistent profiles. The benchmarks demonstrate passive inward
-probe drift for the legacy placements and identically zero
-density-of-states-gradient drift for the microscopic operator; they do
-not imply net nonlinear focusing or negate physical trapping by
-gap-edge blocking and inelastic relaxation. We delimit the gap-edge,
-proximity, supercurrent, nonadiabatic, and charge-imbalance regimes in
-which the coupled two-mode or full matrix equations must be retained.
+To understand quasiparticle dynamics in nonequilibrium superconductivity, we need to know how quasiparticles move through the material. 
+In the dirty limit, we expect a diffusion-like equation for the quasiparticles.  
+The ordinary diffusion equation reads \( \partial_t \chi = \bnabla\cdot(D\,\bnabla \chi) \). 
+When quasiparticles can be described by a classical scalar occupation \(f(E,\br,t)\), various energy-resolved diffusion operators have been used inconsistently in the literature. 
+For a homogeneous normal-state material in the dirty limit with a
+slowly varying local Bardeen–Cooper–Schrieffer (BCS) gap, nonmagnetic Born disorder, and negligible
+charge imbalance, we show that two microscopic formalisms (related by an exact change of variables), a
+branch-projected scalar kinetic formalism and a Keldysh--Usadel
+formalism, up to collision and spectral-flow terms, yield the same diffusion equation:
+\(\partial_t(\DOS f)=\bnabla\cdot(\DN\,\bnabla f)\), with \(\DOS(E)\)
+the BCS density-of-states factor, \(f\) the quasiparticle occupation,
+and \(\DN\) the normal-state diffusion coefficient. Two examples of alternative diffusion operators that have been used in
+published device analyses are \(\bnabla\cdot[(\DN/\DOS)\bnabla f]\) and \(\partial_t\chi_{\qp}=(\DN/\DOS)\nabla_{\br}^{2}\chi_{\qp}\), with
+\(\chi_{\qp} \propto\DOS f\) the density carried by quasiparticles near a given
+energy. Neither of these agrees in general with the results we derive here, and
+both produce a spurious density-of-states-gradient drift for smoothly varying local-BCS gaps.
+We additionally obtain the common-phase, above-gap scalar Kupriyanov--Lukichev
+boundary law and the time-dependent spectral flow required when the gap varies in time.
 \end{abstract}
 
 \maketitle
@@ -116,62 +109,133 @@ which the coupled two-mode or full matrix equations must be retained.
 % ===================== BODY (from main.tex) =====================
 
 \section{Introduction}
-Modeling nonequilibrium quasiparticles with spatial resolution in a
-superconducting device turns on a question that sounds innocuous:
+
+Modeling nonequilibrium quasiparticles resolved in both energy and space in a
+superconducting device raises the question:
 which energy-resolved spatial operator \(\LD\) moves the quasiparticle
-occupation \(f(E,\br,t)\) through the device? Recent resonator and
+occupation \(f(E,\br,t)\) through the device? The answer matters
+across superconducting technology. In pair-breaking photon
+sensors, such as kinetic-inductance detectors or superconducting
+tunnel-junction spectrometers, the detector response is set by the
+kinetics of the photon-generated quasiparticles: their distribution in
+energy \cite{goldie2013} and, in imaging spectrometers, their
+diffusion out of the absorption site, which sets pulse shape and
+position-dependent energy resolution \cite{kozorezov2002,segall2004}.
+In superconducting qubits, quasiparticles that reach a Josephson
+junction produce relaxation and parity errors, and normal-metal or
+gap-engineered traps are transport-engineering responses to these
+quasiparticles \cite{martinis2009,riwar2016,hosseinkhani2018,riwar2019,dong2022}. In
+all of these devices the gap can vary in space either by designed gap steps and films of differing thickness, or
+self-consistently, through suppression by the quasiparticle population
+itself.
+
+Recent resonator and
 qubit treatments are usually spatially homogeneous or zero-dimensional
 in their kinetics
-\cite{goldie2013,catelani2019,fischer2023,fischer2024,marchegiani2025},
-but spatial simulations---normal-metal and gap-engineered
-quasiparticle traps are the prototypical examples
-\cite{riwar2016,hosseinkhani2018,riwar2019}---cannot avoid the choice,
-and the published equations differ in form. Normal-metal-trap analyses
-diffuse the energy-integrated density with a constant coefficient
-\cite{riwar2016,hosseinkhani2018}; the gap-engineered-trap analysis of
-Ref.~\onlinecite{riwar2019} starts instead from the energy-resolved
-coefficient \(\DN/\DOS(E)\)---\(\DN\) the normal-state diffusion
-constant, \(\DOS\) the BCS density-of-states factor---placed inside
-the divergence, \(\bnabla_{\br}\cdot[(\DN/\DOS)\bnabla_{\br}f]\), a
-Fick ansatz for the occupation itself.
+\cite{goldie2013,catelani2019,fischer2023,fischer2024,marchegiani2025}.
+The prototypical exceptions are the spatial treatments of superconducting tunnel-junction photon
+spectrometers \cite{kozorezov2002,segall2004} and of normal-metal or
+gap-engineered quasiparticle traps
+\cite{riwar2016,hosseinkhani2018,riwar2019}. But across the literature the published equations differ
+in form. Spectrometer models and normal-metal-trap analyses diffuse
+the quasiparticle density with a constant coefficient
+\cite{kozorezov2002,segall2004,riwar2016,hosseinkhani2018}, the energy
+dependence of the coefficient either integrated out or frozen by
+assuming a stationary energy distribution, an assumption
+Ref.~\onlinecite{kozorezov2002} states explicitly. The
+gap-engineered-trap analysis of Ref.~\onlinecite{riwar2019} starts
+instead from an energy-resolved coefficient \(\DN/\DOS(E)\), where
+\(\DN\) is the normal-state diffusion constant and \(\DOS\) is the BCS
+density-of-states factor. This coefficient is placed inside the
+divergence, \(\bnabla_{\br}\cdot[(\DN/\DOS)\bnabla_{\br}f]\) [their
+Eq.~(A1)], and the
+resulting ansatz is a type of ``Fick's Law'' for the occupation. An
+earlier qubit quasiparticle analysis \cite{martinis2009} quotes the
+same energy-resolved coefficient for aluminum without an accompanying
+transport operator, and a transmon quasiparticle-diffusion measurement
+\cite{dong2022} uses it in a Fick's law for the quasiparticle
+\emph{density} instead of the occupation,
+\(\partial_t\chi_{\qp}=(\DN/\DOS)\nabla_{\br}^{2}\chi_{\qp}\), with
+\(\chi_{\qp}\propto\DOS f\) the density carried by quasiparticles near a given
+energy.
 
-For a spatially uniform gap the choice is invisible. The coefficient
-\(\DN/\DOS(E)\) is microscopically supported---the
-Bardeen--Rickayzen--Tewordt (BRT) coherence-factor cancellation produces
-exactly this rate \cite{bardeen1959}---and every placement of the
-spectral weight \(1/\DOS\) yields the same uniform-gap relaxation.
-Once \(\Delta\) varies in space, the placements separate already at
-leading order in \(\bnabla\Delta\): at fixed energy the Fick placement
-acquires a density-of-states-gradient drift, divergent toward the local
-gap edge, that drives a passive distribution down the gap gradient.
-The microscopically selected operator carries no such fixed-energy
-drift. Spatial gap variation occurs both in engineered traps and under
-self-consistent gap feedback; the net transport effect nevertheless
-competes with ordinary diffusion and depends on the profile and
-amplitude.
+For a spatially uniform gap/density-of-states these differing choices may reduce to the same result, which is partly why inconsistencies have persisted. 
+Meanwhile, the coefficient \(\DN/\DOS(E)\) of
+Refs.~\onlinecite{riwar2019} and \onlinecite{dong2022} is itself
+genuine: the Bardeen--Rickayzen--Tewordt (BRT) coherence-factor
+cancellation produces exactly this coefficient
+\cite{bardeen1959}, so the energy-resolved Fick ansatz looks
+microscopically credible. The issue is that the BRT cancellation is only a
+uniform-gap result. It constrains the coefficient, but not where
+the spectral weight \(1/\DOS\) stands relative to the divergence; once \(\Delta\) varies in space, the placements separate already at
+leading order in \(\bnabla\Delta\). The drift introduced by a misplaced spectral weight can compete with
+ordinary diffusive spreading, depending on the gap profile and its amplitude.
 
-This paper settles the placement from the microscopic theory, by both
+The operator derived below is already carried, in that form, in the
+dirty-limit kinetic-equation modelling of superconducting single-photon
+detectors. Eq.~(1) of
+Ref.~\onlinecite{vodolazov2017} reads, in that work's notation,
+\(\DOS\,\partial_t n=\DN\,\bnabla_{\br}\cdot\bigl[(\DOS^{2}-R_2^{2})\bnabla_{\br}n\bigr]-R_2\,(\partial_E n)\,\partial_t|\Delta|+I_{e\text{-}ph}+I_{e\text{-}e}\),
+with \(n\) the quasiparticle occupation and \(R_2\) that work's name for
+our \(N_2\) (that work's own \(N_2\) is a different object, vanishing for
+a real gap above the edge). For a real BCS gap its spectral functions give
+\(\DOS^{2}-R_2^{2}=1\) above the local gap edge, so the coefficient
+standing inside the divergence is the undressed \(\DN\), and
+\(R_2=\DOS\,\Delta/E\) identifies the third term as the time-dependent
+spectral flow obtained in \cref{sec:tdep_spectral_flow}. That equation is
+stated there without derivation and without citation, the placement
+question is not posed, and in the energy-resolved solve reported there both
+the gradient term and the \(\partial_t|\Delta|\) term are switched off (the
+subsequent two-temperature reduction retains them in energy-integrated form).
+
+This paper settles the correct choice of diffusion operator (the placement of the spectral weight relative to the divergence) by both
 routes the literature uses to reach an energy-resolved kinetic
 equation: projecting the quasiclassical theory onto a positive-energy
 quasiparticle occupation and adding elastic impurity scattering to the
 resulting Boltzmann-like equation, or angular averaging the matrix
 theory into the Usadel equation and reducing its Keldysh block. Within
-a common, explicitly delimited sector---homogeneous material, local
-BCS spectra, isotropic \(s\)-wave gap, nonmagnetic Born impurities,
-negligible charge imbalance---the two routes select the \emph{same}
-operator: conserved spectral density \(\DOS f\), spatial current
-\(-\DN\bnabla_{\br}f\) undressed above the local gap edge and blocked
-below it, and no density-of-states-gradient drift---the operator
-labeled A1 in the taxonomy of \cref{sec:taxonomy}---with the
-squared-DOS dressing \(\DOS^{2}\) belonging to the transverse
-(charge-imbalance) channel. The candidate placements are organized
-into a two-exponent operator family \(L_{p,q}\) (\cref{sec:taxonomy}),
-the Kupriyanov--Lukichev interface condition is projected onto the same
-scalar current, and the operators are benchmarked numerically on
-prescribed and self-consistently generated gap profiles
-(\cref{sec:program}). The remainder of this introduction assembles the
-quasiclassical machinery from which both routes start.
+a common, explicitly delimited sector (homogeneous material in the
+dirty limit, local BCS spectra, isotropic \(s\)-wave gap, nonmagnetic
+Born impurities, negligible charge imbalance), the two routes select the \emph{same}
+operator: the density-of-states factor enters as the weight of the
+conserved spectral density \(\DOS f\), while the spatial current
+\((-1)\DN\bnabla_{\br}f\) carries no coherence-factor dressing. The
+scalar construction makes the mechanism explicit: the conserved
+density \(\DOS f\) is transported by the weighted occupation-gradient
+current \((-1)\DOS\,\DE\,\bnabla_{\br}f\), and impurity coherence factors
+set the energy-resolved diffusivity to \(\DE=\DN/\DOS(E)\), so the
+product standing inside the divergence is the energy-independent
+constant \(\DOS\DE=\DN\). (Coherence-factor dressings of \(\DOS^{2}\)
+do arise in the Keldysh--Usadel reduction, but only in the transverse
+charge-imbalance channel.) Relative to
+Ref.~\onlinecite{vodolazov2017}, which states the same operator without
+deriving it, what is new here is the derivation by two independent routes
+within an explicitly delimited sector, the assignment of the \(\DOS^{2}\)
+dressing to the transverse channel, and the taxonomy of alternative
+placements and the drift they carry. 
 
+The paper proceeds as follows. \Cref{sec:quasiclassical} assembles
+the quasiclassical machinery from which both routes start, closing
+with the sector statement under which the operator selection holds;
+\cref{sec:scalar_diffusion,sec:usadel_route} carry out the
+scalar-Boltzmann and matrix-Usadel derivations, including the
+time-dependent spectral flow required when the gap varies in time
+(\cref{sec:tdep_spectral_flow}); and
+\cref{sec:conserved_currents} projects the Kupriyanov--Lukichev
+interface condition onto the scalar current.
+
+Finally, we define a compact taxonomy for candidate diffusion operators. 
+Let \(L_{p,q}[f]=\DOS^{-p}\bnabla_{\br}\cdot(\DN\DOS^{q}\bnabla_{\br}f)\) be the two-exponent family
+that organizes the candidate placements. The operator derived below is 
+\(L_{1,0}\), and any placement with \(q\neq0\) will be shown to carry
+a spurious drift term sourced by the spectral weight inside the divergence;
+the full taxonomy and the numerical benchmarks that exhibit this drift
+are collected in the Supplemental Material
+(SM~\cref{SM-sec:taxonomy,SM-sec:program}).
+
+\section{Quasiclassical kinetic framework}
+\label{sec:quasiclassical}
+\subsection{Quasiclassical Approximation for Superconductors}
 The Eilenberger equation for superconductors is derived from the
 Gor'kov (Nambu--Keldysh) Green-function equations of motion under the
 quasiclassical approximation
@@ -197,11 +261,11 @@ center-of-mass variables: the difference of the left- and
 right-acting equations is integrated over the normal-state
 quasiparticle energy \(\xi_{\bk}\), removing the fast momentum
 dependence. The result is a transport equation for the
-trajectory-resolved quasiclassical propagator
-\(\checkg(E,\hat{\bp},\br,t)\),
+quasiclassical propagator \(\checkg(E,\hat{\bp},\br,t)\), resolved in
+the Fermi-surface direction \(\hat{\bp}\) of the momentum,
 \begin{equation}
   \hbar\vF\,\hat{\bp}\cdot\widetilde{\bnabla}_{\br}\,\checkg
-  +
+  -
   \ii\bigl[\,E\tau_3-\hatD-\check{\Sigma}_{\mathrm{coll}},\;\checkg\,\bigr]_{\otimes}
   =
   0,
@@ -211,14 +275,36 @@ trajectory-resolved quasiclassical propagator
 \end{equation}
 where \(\widetilde{\bnabla}\) is the gauge-covariant gradient,
 \(\hatD=-\ii\Delta\tau_2\) is the gap matrix in the gauge of real
-\(\Delta\), and \(\otimes\) denotes the convolution over internal time
-(Wigner energy) arguments.
+\(\Delta\), and \(\otimes\) denotes the Moyal product over the internal
+time and Wigner-energy arguments,
+\(A\otimes B=A\,\exp\!\bigl[\tfrac{\ii\hbar}{2}
+(\overleftarrow{\partial}_{E}\overrightarrow{\partial}_{t}
+-\overleftarrow{\partial}_{t}\overrightarrow{\partial}_{E})\bigr]B\)
+with the retarded prescription \(E\to E+\ii0^{+}\)
+[SM~\cref{SM-eq:moyal_def}], which reduces to the ordinary product at
+leading gradient order. Because the \(\xi_{\bk}\) integration at fixed
+\(\hat{\bp}\) runs over both signs of \(\xi_{\bk}\), the label
+\(\hat{\bp}\) is branch-independent and the streaming velocity is the
+normal-state \(\vF\hat{\bp}\): the electron-like (upper Nambu) component
+of \(\checkg\) streams along \(+\vF\hat{\bp}\) and the hole-like (lower)
+component along \(-\vF\hat{\bp}\). The trajectory label
+\(\hat{\bp}=\sigma\hat{\bk}\) of the branch-projected occupation
+introduced in \cref{eq:intro_branch_traj} coincides with this
+Fermi-surface direction on the electron-like branch and is its antipode
+on the hole-like branch; full-sphere averages over the two labels
+coincide [SM~\cref{SM-eq:antipodal_average_identity}].
 In this gauge the coherent generator
 \(E\tau_3-\hatD=E\tau_3+\ii\Delta\tau_2\) squares to
 \((E^{2}-\Delta^{2})\openone\) and is proportional to the BCS retarded
 propagator on the spectral branch, fixing the gapped spectrum. The
-overall factor \(\ii\) multiplying the commutator balances the real
-streaming term.
+overall factor \(-\ii\) multiplying the commutator balances the real
+streaming term with the sign that makes the electron-like component
+stream along \(+\vF\hat{\bp}\); multiplied through by \(\ii\), the
+equation takes the Belzig--Kopnin form
+\(\ii\hbar\vF\,\hat{\bp}\cdot\widetilde{\bnabla}_{\br}\checkg
++[E\tau_3-\hatD-\check{\Sigma}_{\mathrm{coll}},\checkg]_{\otimes}=0\)
+used in the Supplemental Material
+[SM~\cref{SM-eq:keldysh_eilenberger}].
 The normalization \(\checkg\otimes\checkg=\openone\) closes the
 transport problem and selects the physical solution manifold.
 
@@ -235,42 +321,43 @@ can be solved separately.
 The validity of this relies on an adiabatic local-BCS
 spectral approximation, in which the retarded and advanced propagators are
 taken to have their equilibrium BCS form evaluated at the instantaneous
-local gap, and the gap-driven
-spectrum varies slowly enough to track quasi-statically
-(\(\hbar|\xi_{\bk}\dot\Delta|/E^3\ll1\)). The distribution still feeds back on the spectrum, but only
+local gap. Two distinct conditions enter, and they are not
+interchangeable. The branch projection behind the Boltzmann form
+(no interbranch transitions along a trajectory) requires
+\(\hbar|\xi_{\bk}\dot\Delta|/E^3\ll1\), a bounded parameter, at most
+\(2\hbar|\dot\Delta|/(3\sqrt3\,\Delta^2)\), that vanishes at the gap
+edge. Using the fixed-energy instantaneous-BCS spectral functions
+themselves requires the spectral angle to change slowly on the local
+scale \(W=\sqrt{E^2-\Delta^2}\), \(\hbar E|\dot\Delta|/W^3\ll1\)
+(SM~\cref{SM-app:nonadiabatic}), a pointwise condition that exceeds the
+branch parameter on shell by \(\DOS^4\) and fails inside an edge layer
+\((E-\Delta)/\Delta\lesssim\tfrac12(\hbar|\dot\Delta|/\Delta^2)^{2/3}\),
+where the moving-shell description of \cref{sec:tdep_spectral_flow},
+lifetime broadening, or self-consistency must take over. The distribution still feeds back on the spectrum, but only
 through the gap: the self-consistent \(\Delta\) responds to the
 occupation, and the spectrum follows. What the closure drops is the
 \emph{direct} channel, in which the nonequilibrium distribution would
 dress the retarded and advanced propagators through the collision
-self-energy---broadening, shifting, or damping the density of states
+self-energy: broadening, shifting, or damping the density of states
 and coherence factors independently of \(\Delta\). What remains to be determined then is the evolution of the nonequilibrium distribution at a fixed,
 gap-determined spectrum.
 \subsection{Quasiparticle Kinetic Equations}
-Throughout, we reserve \(f\)-type symbols for quasiparticle
-distribution functions (with \(f\) an occupation probability but
-\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations.
-One further distinction is worth posting in advance, because readers
-coming from branch-resolved treatments often elide it: Kopnin's
-transverse amplitude is the spectrally \emph{weighted} branch-odd
-combination \(\fT=\lambda_{\bk}\phi_T\)---an identity for the
-\emph{even} angular harmonics only; the odd harmonics swap sectors,
-\cref{eq:intro_parity_dictionary}---with \(\lambda_{\bk}\) the
-spectral weight of \cref{eq:beta_sigma_lambda}, not the bare branch
-difference \(\phi_T\); the two are kept carefully distinct from
-\cref{eq:intro_branch_traj} onward.
-
-The quasiparticle content is carried by two scalar modes, the
+Our primary reference for the kinetic theory of this section is
+Kopnin \cite{kopnin2001}, and so we will flag explicitly the major points where our conventions
+deviate from his.
+We start by defining the \(\fL\) and \(\fT\)\footnote{Kopnin's \(f^{(1)}=\fL\), \(f^{(2)}=\fT\), Eqs.~(10.33)--(10.34) of
+Ref.~\onlinecite{kopnin2001}; see also Ref.~\onlinecite{schmidschon1975}.} quasiparticle distribution amplitudes.
+Throughout, we reserve \(f\)-type symbols for quasiparticles (with \(f\) an occupation probability but
+\(\fL,\fT\) distribution amplitudes) and \(n\) for phonon occupations. The
 longitudinal (energy) mode \(\fL\) and the transverse (charge-imbalance)
-mode \(\fT\). In the electron--hole (Nambu) basis, with
-\(\tau_3=\operatorname{diag}(+1,-1)\), the diagonal distribution matrix is
+mode \(\fT\) are defined by the diagonal distribution matrix in the electron--hole (Nambu) basis, with
+\(\tau_3=\operatorname{diag}(+1,-1)\):
 \begin{equation}
   \hat h
   = \fL\,\openone + \fT\,\tau_3
   = \begin{pmatrix} \fL+\fT & 0\\[2pt] 0 & \fL-\fT \end{pmatrix}
-  \label{eq:intro_h_matrix}
+  \label{eq:intro_h_matrix}.
 \end{equation}
-[Kopnin's \(f^{(1)}=\fL\), \(f^{(2)}=\fT\), Eqs.~(10.33)--(10.34) of
-Ref.~\onlinecite{kopnin2001}; see also Ref.~\onlinecite{schmidschon1975}].
 Its diagonal entries \(\fL\pm\fT\) are the particle and hole amplitudes,
 so \(\fL\) is their symmetric part and \(\fT\) their antisymmetric part;
 inverting \cref{eq:intro_h_matrix},
@@ -282,17 +369,18 @@ inverting \cref{eq:intro_h_matrix},
   \label{eq:intro_fLfT_traces}
 \end{equation}
 which fixes the sign of \(\fT\) (even in \(E\)). A positive \(\fT\)
-counts an excess of hole-like over electron-like quasiparticles---the
-charge imbalance \cite{tinkham2004}---and enters the electron density
-through \(\delta N=-N_0\!\int_{-\infty}^{\infty}\!\langle\DOS\,\fT\rangle_{\hat\bp}\,\dd E\)
-[Kopnin's Eqs.~(10.69)--(10.71)], with
-\(N_0=m p_{\mathrm F}/2\pi^2\hbar^3\) the single-spin normal-state
-density of states at the Fermi level---Kopnin's \(\nu(0)\), whose
-definition fixes the same single-spin normalization (his own symbol
-\(N_0\) in those equations denotes instead the equilibrium electron
-density) \cite{kopnin2001}---used for this quantity throughout, fixing the sign
-independent of the branch labelling. When both branches share a common quasiparticle
-occupation \(f\), then \(\fT=0\) and \(\fL=1-2f\).
+counts an excess of hole-like over electron-like quasiparticles, the
+charge imbalance \cite{tinkham2004}. It enters the electron density
+through
+\(\delta N=-N_0\!\int_{-\infty}^{\infty}\!\langle\DOS\,\fT\rangle_{\hat\bp}\,\dd E\)
+[Kopnin's Eqs.~(10.69)--(10.71)], and this equation also fixes the sign
+convention of \(\fT\). Here
+\(N_0=m p_{\mathrm F}/2\pi^2\hbar^3\) is the single-spin normal-state
+density of states at the Fermi level. \footnote{It is equivalent to Kopnin's
+\(\nu(0)\) (in the equations just cited his own symbol \(N_0\)
+denotes instead the equilibrium electron density) \cite{kopnin2001}.}
+When both branches share a common quasiparticle occupation \(f\),
+then \(\fT=0\) and \(\fL=1-2f\).
 
 Kopnin has shown \cite[\S10.2]{kopnin2001} that, after parametrizing
 the Keldysh propagator with the two-mode distribution matrix
@@ -301,13 +389,11 @@ the Keldysh propagator with the two-mode distribution matrix
 \(\openone\)- and \(\tau_3\)-traces, the nonequilibrium (Eliashberg) block
 reduces to a coupled pair of \emph{two-mode} scalar kinetic equations
 for \(\fL\) and \(\fT\) [his Eqs.~(10.41) and~(10.44)]. Standard
-Eilenberger ordering drops the augmented \((k_F\xi_0)^{-1}\)
-momentum-derivative forces; because one of the questions below is how the
+Eilenberger ordering drops the so-called augmented forces,
+momentum-derivative terms of next order in \((k_F\xi_0)^{-1}\). But because one of the questions below is how the
 ballistic and dirty reductions compare when such gradient terms are
 retained, we keep the leading pair-potential-gradient contribution
-explicitly as \(\mathcal{R}[\fL]\). Specialized to the sector of interest
-here---real gap, no superflow, no electric field, continuum energies
-\(E>\Delta\), and before any angular averaging---this parent pair reads
+explicitly as \(\mathcal{R}[\fL]\). The two-mode scalar kinetic equations then read:
 \begin{align}
   \DOS\,\partial_t\fL
   + N_2\,\dot\Delta\,\partial_E\fL^{(0)}
@@ -319,449 +405,272 @@ here---real gap, no superflow, no electric field, continuum energies
   &= J_T,
   \label{eq:beta_twomode_T}
 \end{align}
-where the local BCS spectral functions are
+where \(\fL^{(0)}=\tanh(E/2k_{\mathrm B}T)\) is the local-equilibrium
+longitudinal amplitude, the local BCS spectral functions are
 \begin{equation}
   \DOS(E)=\frac{E}{\Omega},\qquad
   N_2(E)=\frac{\Delta}{\Omega},\qquad
-  \Omega(E,\br,t)=\sqrt{E^{2}-\Delta^{2}(\br,t)},
+  \Omega(E,\br,t)=\sqrt{E^{2}-\Delta^{2}(\br,t)}, 
   \label{eq:beta_spectral}
 \end{equation}
-\(\fL^{(0)}=\tanh(E/2k_{\mathrm B}T)\) is the equilibrium longitudinal
-amplitude, and \(J_L,J_T\) are the \(\openone\)- and
-\(\tau_3\)-projections of the Keldysh source terms---collision
-self-energies and, in the transverse sector, the coherent gap-mediated
+and \(J_L,J_T\) are the \(\openone\)- and
+\(\tau_3\)-projections of the full Keldysh source structure. They
+contain the scattering physics (elastic impurity, electron--phonon,
+and the rest) and, in the transverse sector, the coherent gap-mediated
 conversion terms where present. The term
 \(\mathcal{R}[\fL]\) collects the momentum-derivative forces of Kopnin's
 Eq.~(10.41): the Lorentz force, which is absent here as we carry no
 fields, and the pair-potential-gradient (refraction) force, which for an
 isotropic gap reduces to a single term \(\propto
 N_2\,(\widetilde{\bnabla}_{\br}\Delta)\) acting on the
-trajectory-angular derivative of \(\fL\).
+angular derivative of \(\fL\). These equations are applicable in the sector with a real gap, no superflow, no electric field, continuum energies
+\(E>\Delta\), and before any angular averaging. One further restriction attaches to
+\cref{eq:beta_twomode_T}: as printed it is quasistatic in \(\fT\), its
+time-derivative block having been dropped. Dropping it requires the
+transverse relaxation carried by \(J_T\) to be fast compared with every
+frequency carried by \(\fT\) or by \(\Delta\); in the dirty limit below
+this is the condition \(\omega\tautr\ll1\) under which
+\(\partial_t\mathbf{a}\) is dropped from \cref{eq:sc_first_moment}. Like
+that condition it is energy resolved, and it degrades at the gap edge,
+where \(\tautr=\DOS\,\tau_{\mathrm N}\) diverges
+(\cref{sec:sc_transport_closures}).
 
 The explicit \(N_2\,\dot\Delta\,\partial_E\fL^{(0)}\) source is Kopnin's
 linearization about local equilibrium; in the positive-energy Boltzmann
-rewriting below the same adiabatic spectral-flow physics is promoted to
-the convective derivative \(\tfrac{\Delta}{E}\dot\Delta\,\partial_E\)
-acting on the full distribution amplitude.
+rewriting below (\cref{eq:intro_branch}) the same adiabatic
+spectral-flow physics is promoted to the convective derivative
+\(\tfrac{\Delta}{E}\dot\Delta\,\partial_E\) acting on the full
+distribution, not just its equilibrium part.
 
-The source terms \(J_L,J_T\) are projections of the full Keldysh source
-structure, and so the scattering physics---elastic impurity,
-electron--phonon, and the rest---is contained in them. From this point one
-can specialize to either the clean or the dirty limit, and the fork turns
-on how the parent equations carry the spatial current: it flows through
-the transverse amplitude \(\fT\)---the \(\bnabla_{\br}(\DOS\,\fT)\) term,
-not \(\fL\) directly---with \cref{eq:beta_twomode_T} slaving the
-anisotropic part of \(\fT\) to \(\bnabla_{\br}\fL\), the structure the
-dirty route isotropizes into diffusion. The clean route may instead retain
-\(\mathcal{R}[\fL]\) at augmented-clean quasiclassical order---legitimate
-while \(|\Delta|\) and any supercurrent are nearly uniform---recombining
-the two modes without eliminating any harmonic before the refraction force
-is dropped at standard Eilenberger order (next subsection).
+From this point one can specialize to either the clean or the dirty
+limit. The distinction modifies the \(\vF\,\hat{\bp}\cdot\bnabla_{\br}(\DOS\,\fT)\) term of
+\cref{eq:beta_twomode_L}---the ``spatial current.'' The isotropic
+part (\(\ell=0\)) of \(\fL\) is the energy distribution in amplitude
+form. Meanwhile, the dipole (\(\ell=1\)) of \(\fT\)
+carries the spatial current. In \cref{eq:beta_twomode_T} the transverse amplitude enters only through
+the collision functional \(J_T\), so that equation fixes \(\fT\) at each
+instant rather than propagating it. That is a consequence of the
+quasistatic condition recorded above, not an independent fact about the
+display: whenever the transverse relaxation carried by \(J_T\) is fast
+compared with the frequencies carried by \(\fT\), i.e.\ \(\omega\tautr\ll1\),
+the transverse time-derivative block is negligible beside it. Under that
+inequality the anisotropic (dipole) part of \(\fT\) is ``slaved'' to
+\(\bnabla_{\br}\fL\), fixed by the balance of streaming against collisions
+rather than evolved; where the inequality fails---at the gap edge, in
+particular---the block must be retained and \(\fT\) is evolved. This is the
+same argument, and the same small parameter, that yields Fick's law from
+the normal-metal Boltzmann equation. 
+The parity of the harmonics under \(\hat{\bp}\to-\hat{\bp}\) (even
+vs.\ odd \(\ell\)) will play a larger role here than in the
+normal-metal reduction: the branch-to-trajectory relabelling below
+ties it to the branch parity, and the two must be tracked together.
+
 
 \subsection{Quasiparticle Boltzmann-Like Equations}
-We now record the branch-variable map underlying a single Boltzmann-like
-equation. The map is exact within the local positive-energy quasiparticle
-approximation. Its use below with the nonlinear collision law and convective
-spectral-flow drive is the adiabatic completion described above, not a literal
-algebraic recombination of the printed linearized Kopnin rows. We assume that the
-spectral problem is local enough that quasiparticles carry a positive
-semiclassical energy \cite[\S15.2]{kopnin2001}. The
-branch occupation is a momentum-space object, so we work in the momentum
-direction \(\hat{\bk}\); the trajectory-resolved amplitudes
-\(\fL,\fT\) of \cref{eq:beta_twomode_L,eq:beta_twomode_T} enter in their
-momentum-direction representation, related by the branch relabelling
-\(\hat{\bp}=\sigma\hat{\bk}\) below.
-
-With fields present it is the gauge-invariant transverse mode that
-appears,
+By an exact change of basis we can recast the coupled two-mode pair \cref{eq:beta_twomode_L,eq:beta_twomode_T} into Boltzmann-like equations for the occupation of
+positive-energy quasiparticles.
+Concretely, we change variables from the mode \textit{amplitudes} \(\fL,\fT\) to the positive-energy \textit{occupation} \(f_{\bk}\), or equivalently the amplitude \(h_{\bk}\equiv1-2f_{\bk}\) (\( \bk \) determines if the branch is electron-like \(\xi_{\bk}>0\) or hole-like \(\xi_{\bk}<0\)).
+We assume that the Fermi surface here is spherical, isotropic, and inversion-symmetric, so \(\bv_F=\vF\hat{\bk}\) and angular
+derivatives are those of the direction sphere. In the
+local-quasiparticle approximation, and in the sector of the two-mode
+pair above, the branch energy is the local BCS dispersion
 \begin{equation}
-  \fT' = \fT - e\Phi\,\partial_E\fL^{(0)},
-  \qquad
-  \Phi = \varphi + \frac{\hbar}{2e}\,\partial_t\chi,
-  \label{eq:beta_fT_shift}
-\end{equation}
-together with the gauge-invariant superfluid momentum
-\begin{equation}
-  \bps = \frac12\!\left(\hbar\bnabla\chi - \frac{2e}{c}\bA\right),
-  \label{eq:beta_ps_def}
-\end{equation}
-with \(\varphi\) the scalar potential, \(\chi\) the order-parameter
-phase, and \(\bA\) the vector potential.
-In the local-quasiparticle approximation the branch energy is
-\begin{equation}
-  \varepsilon_{\bk} = \widetilde E_{\bk} + \bps\cdot\vF\hat{\bk},
-  \qquad
-  \widetilde E_{\bk} = \sqrt{\widetilde\xi_{\bk}^{\,2}+|\Delta|^2},
-  \qquad
-  \widetilde\xi_{\bk} = \xi_{\bk} + e\Phi ,
+  E_{\bk}(\br,t) = \sqrt{\xi_{\bk}^{2}+\Delta^{2}(\br,t)}.
   \label{eq:beta_qp_energy}
 \end{equation}
-and, with the branch label and BCS velocity factor
+We define the branch sign \(\sigma_{\bk}\) and the BCS velocity factor
+\(\lambda_{\bk}\), so that the group velocity is
 \begin{equation}
-  \sigma \equiv \operatorname{sgn}\widetilde\xi_{\bk} = \pm1,
+  \sigma_{\bk} \equiv \operatorname{sgn}\xi_{\bk} = \pm1,
   \qquad
-  \lambda_{\bk} \equiv \frac{|\widetilde\xi_{\bk}|}{\widetilde E_{\bk}},
+  \lambda_{\bk} \equiv \frac{|\xi_{\bk}|}{E_{\bk}},
+  \qquad
+  \bvg \equiv \hbar^{-1}\partial_{\bk}E_{\bk}
+  = \sigma_{\bk}\lambda_{\bk}\,\vF\hat{\bk}.
   \label{eq:beta_sigma_lambda}
 \end{equation}
-the group velocity is
-\begin{equation}
-  \bvg \equiv \hbar^{-1}\partial_{\bk}\varepsilon_{\bk}
-  = \frac{\widetilde\xi_{\bk}}{\widetilde E_{\bk}}\,\vF\hat{\bk}
-  = \sigma\lambda_{\bk}\,\vF\hat{\bk}.
-  \label{eq:beta_group_velocity}
-\end{equation}
-
-The crucial step passes from the two amplitudes \(\fL,\fT'\) to the
-positive-energy occupation \(f_{\bk}\), equivalently
-\(h_{\bk}\equiv1-2f_{\bk}\). In the quasiparticle-occupation convention used throughout---both
-branches carrying \(f(E)\) in equilibrium---the branch distribution is
-[equivalent to Kopnin's Eq.~(15.4) with the hole branch's occupation
-conjugated]
+The same factor measures the quasiparticle effective charge, \(q_{\mathrm{eff}}=\sigma_{\bk}\lambda_{\bk}\,e\) \cite{tinkham2004}; this dual role is why the transverse amplitude will prove to be at once the charge mode and the current carrier.
+The explicit change of variables from the mode amplitudes to the occupation factors is given by
 \begin{equation}
   h_{\bk}
-  = \fL + \sigma\,\lambda_{\bk}^{-1}\,\fT',
+  = \fL + \sigma_{\bk}\,\lambda_{\bk}^{-1}\,\fT,
   \qquad\text{i.e.}\qquad
   f_{\bk}
   = \frac12\!\left[
     1 - \fL
-    - \sigma\,\frac{\widetilde E_{\bk}}{|\widetilde\xi_{\bk}|}\,\fT'
+    - \sigma_{\bk}\,\frac{E_{\bk}}{|\xi_{\bk}|}\,\fT
   \right],
   \label{eq:beta_f_from_modes}
 \end{equation}
-with \(\sigma=\operatorname{sgn}\widetilde\xi_{\bk}\) and all amplitudes
-evaluated at \((\varepsilon_{\bk},\hat{\bk},\br,t)\).
-Explicitly, if \(n_{\bk}^{\mathrm K}\) denotes Kopnin's occupation [his
-Eq.~(15.4)], whose equilibrium form is the Fermi function of
-\(\varepsilon_{\bk}\) only on the electron-like branch, the conjugation
-is the single line
-\begin{equation}
-  h_{\bk}
-  \equiv 1-2f_{\bk}
-  = \sigma\bigl(1-2n_{\bk}^{\mathrm K}\bigr)
-  = f^{(1)}+\sigma\,\lambda_{\bk}^{-1}f_2' ,
-  \label{eq:beta_conjugation_map}
-\end{equation}
-identifying \(\fL=f^{(1)}\) and \(\fT'=f_2'\): the branch sign
-\(\sigma\) multiplies the longitudinal amplitude in Kopnin's convention
-and the transverse one in ours, the two forms differing by the overall
-factor \(\sigma\).
-Writing \(h_\sigma\equiv1-2f_\sigma\) for the two signs of
-\(\widetilde\xi_{\bk}\) at fixed \(\widetilde E_{\bk}\), the inverse is
+with all amplitudes
+evaluated at \((E_{\bk},\hat{\bk},\br,t)\).\footnote{Equivalently, Eq.~(15.4) of
+Ref.~\onlinecite{kopnin2001} with the hole branch's occupation
+conjugated: if \(n_{\bk}^{\mathrm K}\) denotes Kopnin's occupation,
+whose equilibrium form is the Fermi function only on the electron-like
+branch, then
+\(h_{\bk}=\sigma_{\bk}\bigl(1-2n_{\bk}^{\mathrm K}\bigr)
+=f^{(1)}+\sigma_{\bk}\,\lambda_{\bk}^{-1}f^{(2)}\); \(\sigma_{\bk}\) multiplies
+the longitudinal amplitude in Kopnin's convention, the transverse in
+ours. With fields and superflow, one replaces
+\(\xi_{\bk}\to\xi_{\bk}+e\Phi\), adds the Doppler shift
+\(\bps\cdot\vF\hat{\bk}\), and uses Kopnin's gauge-invariant \(f_2'\)
+in place of \(\fT\) [Kopnin's \S15.1].}
+Writing \(h_\sigma\) for the value of \(h_{\bk}\) on the branch
+\(\sigma_{\bk}=\sigma\) at fixed \((E_{\bk},\hat{\bk})\), the inverse is
 \begin{align}
-  \fL &= \tfrac12\textstyle\sum_{\sigma=\pm1}h_\sigma
-       = \tfrac12(h_++h_-),
+  \fL &= \tfrac12\textstyle\sum_{\sigma=\pm1}h_{\sigma}
+       = \tfrac12(h_{+}+h_{-}),
   \label{eq:beta_fL_inverse}\\
-  \fT' &= \tfrac{\lambda_{\bk}}{2}\textstyle\sum_{\sigma=\pm1}\sigma\,h_\sigma
-       = \tfrac{\lambda_{\bk}}{2}(h_+-h_-).
+  \fT &= \tfrac{\lambda_{\bk}}{2}\textstyle\sum_{\sigma=\pm1}\sigma\,h_{\sigma}
+       = \tfrac{\lambda_{\bk}}{2}(h_{+}-h_{-}).
   \label{eq:beta_fT_inverse}
 \end{align}
-The longitudinal mode is thus the branch-even (symmetric) part of
-\(h_\sigma\)---nonzero in equilibrium, \(\fL^{(0)}=\tanh(E/2k_{\mathrm
-B}T)\)---and the (shifted) transverse mode the branch-odd part weighted
-by \(\lambda_{\bk}\); the occupation \(f_{\bk}\) has no definite parity in
-\(\widetilde\xi_{\bk}\), and the two-mode formulation is precisely its
-parity decomposition. The relabelling \(\hat{\bp}=\sigma\hat{\bk}\) is
-what carries the trajectory-resolved amplitudes of
-\cref{eq:beta_twomode_L,eq:beta_twomode_T} into these momentum-direction
-combinations.
+The longitudinal mode is thus the branch-even part of \(h_{\sigma}\), nonzero in equilibrium (\(\fL^{(0)}=\tanh(E/2k_{\mathrm B}T)\)); the transverse mode is the branch-odd part weighted by \(\lambda_{\bk}\), zero in equilibrium.
 
-The semiclassical motion is \(\dot\br=\bvg\) and
-\begin{equation}
-  \hbar\dot\bk = \bF_{\bk}
-  = -\bnabla_{\br}\varepsilon_{\bk} + \bF_L,
-  \qquad
-  \bF_L = \frac{e}{c}\,\vF\hat{\bk}\times\bH,
-  \label{eq:beta_pdot}
-\end{equation}
-with Liouville operator
-\begin{equation}
-  \mathcal L_{\bk}
-  = \partial_t + \bvg\cdot\bnabla_{\br}
-  + \frac{\bF_{\bk}}{\hbar}\cdot\partial_{\bk},
-  \label{eq:beta_liouville}
-\end{equation}
-or, in variables \((E,\hat{\bk})\),
-\begin{equation}
-  \mathcal L_{\bk}
-  = \partial_t + \dot E_{\bk}\,\partial_E
-  + \bvg\cdot\bnabla_{\br} + \dot{\hat{\bk}}\cdot\bnabla_{\hat{\bk}},
-  \qquad
-  \dot E_{\bk} = \partial_t\varepsilon_{\bk},
-  \quad
-  \dot{\hat{\bk}}
-  = \frac{(\openone-\hat{\bk}\hat{\bk})\cdot\bF_{\bk}}{\hbar k_F}.
-  \label{eq:beta_liouville_energy_variables}
-\end{equation}
-(In \(\dot{\hat{\bk}}\) the radial magnitude has been set
-\(k\to k_{\mathrm F}\), to quasiclassical accuracy; the error estimate
-appears below, and \cref{app:change_of_variables} keeps general \(k\).)
-The equality \(\dot E_{\bk}=\partial_t\varepsilon_{\bk}\) is the
-Hamiltonian structure of the motion: along a trajectory
-\(\dot\br\cdot\bnabla_\br\varepsilon_{\bk}
-+\dot\bk\cdot\partial_{\bk}\varepsilon_{\bk}=0\)
-(the Lorentz force is orthogonal to \(\bvg\)), so spatial forces
-redistribute momentum without sourcing energy beyond the explicit time
-dependence of the local spectrum. For zero superflow,
+Next we consider the equations of motion for the two branches. In the
+local-quasiparticle approximation each branch hosts long-lived
+excitations, and the local dispersion \(E_{\bk}(\br,t)\)
+acts as a classical Hamiltonian for quasiparticle wave packets that
+are narrow on the scale of variation of \(\Delta\). The
+two Hamilton's equations are \(\dot\br=\bvg\) and
+\(\hbar\dot\bk=\bF_{\bk}=-\bnabla_{\br}E_{\bk}\).
+The energy of a wave packet changes only through the explicit time
+dependence of the local spectrum,
+\(\dot E_{\bk}=\partial_tE_{\bk}\) at fixed \(\bk\): this is the
+Hamiltonian structure of the motion, the analogue of
+\(dH/dt=\partial H/\partial t\) for the wave-packet Hamiltonian
+\(E_{\bk}\). Explicitly,
 \begin{equation}
   \dot E_{\bk}
-  = \frac{|\Delta|\,\partial_t|\Delta| + \widetilde\xi_{\bk}\,e\dot\Phi}
-         {\widetilde E_{\bk}} .
+  = \frac{\Delta\,\partial_t\Delta}{E_{\bk}} .
   \label{eq:beta_Edot_simple}
 \end{equation}
 
-The Boltzmann-like equation is therefore
+A kinetic equation of Boltzmann form now follows from two properties
+of this motion. The flow is Hamiltonian, so it conserves phase-space
+volume (Liouville's theorem); and the adiabatic approximation
+suppresses branch-changing transitions, so quasiparticles are neither
+created nor destroyed along a trajectory except by collisions.
+So the occupation \(f_{\bk}\) obeys the single Boltzmann-like equation
 \begin{equation}
-  \mathcal L_{\bk} f_{\bk} = \Iqp[f,n],
-  \qquad\text{i.e.}\qquad
   \partial_t f_{\bk}
   + \bvg\cdot\bnabla_{\br}f_{\bk}
   + \frac{\bF_{\bk}}{\hbar}\cdot\partial_{\bk}f_{\bk}
   = \Iqp[f,n],
   \label{eq:beta_boltzmann_explicit}
 \end{equation}
-or, in the energy--angle representation,
+with \(\Iqp[f,n]\) the quasiparticle collision integral (impurity, phonon, and quasiparticle--quasiparticle).
+This is precisely the canonical Boltzmann equation for BCS quasiparticles,\footnote{Eqs.~(1.87)--(1.88) of Ref.~\onlinecite{kopnin2001}, whose notation \(I\{f_{\bk}\}\) for the collision integral we adopt when convenient; see also Ref.~\onlinecite{aronov1981}.} closely paralleling the usual Boltzmann equation: \(\Iqp\) is built from microscopic transition rates with the usual occupation and Pauli-blocking factors \cite{ziman1960,ashcroft1976}, but the collision kernels acquire BCS coherence factors \cite{bardeen1959,kaplan1976,changscalapino1977}.
+The streaming terms on the left define the Liouville operator of the flow,
 \begin{equation}
-  \partial_t f_{\bk}
-  + \dot E_{\bk}\,\partial_E f_{\bk}
-  + \bvg\cdot\bnabla_{\br}f_{\bk}
-  + \dot{\hat{\bk}}\cdot\bnabla_{\hat{\bk}}f_{\bk}
-  = \Iqp[f,n],
+  \mathcal L_{\bk}
+  = \partial_t + \bvg\cdot\bnabla_{\br}
+  + \frac{\bF_{\bk}}{\hbar}\cdot\partial_{\bk},
+  \label{eq:beta_liouville}
+\end{equation}
+so \cref{eq:beta_boltzmann_explicit} is compactly
+\(\mathcal L_{\bk}f_{\bk}=\Iqp[f,n]\). It is natural to trade
+\(\bk\) for the energy and the momentum direction: BCS quasiparticles
+are conventionally labeled by \(E\), and the diffusive reduction below
+eliminates the angular content, leaving an energy-resolved diffusion
+coefficient. The price is that a branch label becomes necessary: the
+quasiparticle energy is even in \(\xi_{\bk}\); the map \(\bk\to(E,\hat{\bk})\) is two-to-one.
+At fixed
+\(\hat{\bk}\) the two radii with
+\(\xi_{\bk}=\pm\sqrt{E_{\bk}^{2}-\Delta^2}\),
+one on each side of the Fermi surface, share the same \((E,\hat{\bk})\). In the
+energy--angle representation the same equation therefore reads
+\begin{equation}
+  \partial_t f_{\sigma}
+  + \dot E_{\bk}\,\partial_E f_{\sigma}
+  + \bvg\cdot\bnabla_{\br}f_{\sigma}
+  + \dot{\hat{\bk}}\cdot\bnabla_{\hat{\bk}}f_{\sigma}
+  = I_{\mathrm{qp},\sigma},
+  \qquad
+  \dot{\hat{\bk}}
+  = \frac{(\openone-\hat{\bk}\hat{\bk})\cdot\bF_{\bk}}{\hbar k_F},
   \label{eq:beta_boltzmann_energy_variables}
 \end{equation}
-with \(\Iqp[f,n]\) the quasiparticle collision integral---impurity,
-phonon (\(n\) the phonon occupations), and
-quasiparticle--quasiparticle---whose elastic (impurity) part is
-specified in \cref{eq:intro_impurity_collision} below.
-
-That this single equation encodes both scalar kinetic equations is seen
-by writing it for \(h_\sigma=1-2f_\sigma\),
+with \(I_{\mathrm{qp},\sigma}\) the branch-\(\sigma\) restriction of
+\(\Iqp\), and where the radial magnitude in \(\dot{\hat{\bk}}\) has
+been set \(k\to k_{\mathrm F}\), to quasiclassical accuracy
+(\cref{app:change_of_variables} keeps general \(k\)).
+The angular term \(\propto\dot{\hat{\bk}}\) is of next order in
+\((k_{\mathrm F}\xi_0)^{-1}\), beyond the standard Eilenberger equation
+\cref{eq:intro_eilenberger}, so we drop it\footnote{The comparison with the retained
+streaming is not uniform near the gap edge, where \(\vg\to0\); that
+locus is treated separately as a boundary,
+\cref{sec:scalar_diffusion}.}; writing \(\bv_{\mathrm{g}}=\sigma\,\vg(E)\,\hat{\bk}\), with \(\vg(E)=\vF\sqrt{1-(\Delta/E)^{2}}\) the group-velocity magnitude, the result is the pair
 \begin{equation}
-  \mathcal L_\sigma h_\sigma = -2\,I_{\mathrm{qp},\sigma},
-  \label{eq:beta_h_boltzmann}
+  \Bigl[\partial_t+\tfrac{\Delta}{E}\dot{\Delta}\,\partial_E
+  +\sigma\,\vg(E)\,\hat{\bk}\cdot\bnabla_{\br}\Bigr]f_\sigma
+  = I_\sigma .
+  \label{eq:intro_branch}
 \end{equation}
-and forming the two parity projections
+To see the equivalence with the two-mode pair, consider the amplitude form \(\mathcal L_\sigma h_{\sigma} = -2\,I_{\mathrm{qp},\sigma}\) and its two parity projections
 \begin{align}
   \mathcal K_L
   &\equiv \tfrac12\textstyle\sum_{\sigma=\pm1}
-    \left(\mathcal L_\sigma h_\sigma + 2\,I_{\mathrm{qp},\sigma}\right),
+    \left(\mathcal L_\sigma h_{\sigma} + 2\,I_{\mathrm{qp},\sigma}\right),
   \label{eq:beta_KL_projection}\\
   \mathcal K_T
   &\equiv \tfrac{\lambda_{\bk}}{2}\textstyle\sum_{\sigma=\pm1}\sigma
-    \left(\mathcal L_\sigma h_\sigma + 2\,I_{\mathrm{qp},\sigma}\right).
+    \left(\mathcal L_\sigma h_{\sigma} + 2\,I_{\mathrm{qp},\sigma}\right).
   \label{eq:beta_KT_projection}
 \end{align}
-By \cref{eq:beta_fL_inverse,eq:beta_fT_inverse} these are, within the
-local positive-energy quasiparticle approximation, the
-longitudinal and transverse scalar kinetic equations in the local
-quasiparticle basis, \(\mathcal K_L=0\) and \(\mathcal K_T=0\).
-Conversely,
-\begin{equation}
-  \mathcal L_\sigma h_\sigma + 2\,I_{\mathrm{qp},\sigma}
-  = \mathcal K_L + \sigma\,\lambda_{\bk}^{-1}\,\mathcal K_T,
-  \label{eq:beta_projection_inverse}
-\end{equation}
-so the vanishing of both scalar equations is equivalent to the single
-branch equation \cref{eq:beta_boltzmann_explicit} for \(f_{\bk}\).
-This inverse relation establishes equivalence for the projected equations
-just defined; it does not promote the printed linearized two-mode rows to a
-nonlinear theorem.
+These projections are the
+longitudinal and transverse two-mode equations
+\cref{eq:beta_twomode_L,eq:beta_twomode_T}.
 
-This reduction must be distinguished from the dirty-limit diffusion
-reduction: here \(\fT'\) is not an auxiliary harmonic to be eliminated
-but one of the two parity components of the same branch occupation, and
-the result is a scalar Boltzmann equation, not a diffusion equation. The
-price is the local-spectrum assumption---it is controlled only while
-\(|\Delta|\) and \(\bps\) vary slowly enough that
-\cref{eq:beta_qp_energy} is meaningful. Where spatial variations of
-\(|\Delta|\), \(\bps\), or vortex-core structure distort the spectrum,
-the two-mode equations must be kept.
-
-Specializing to the sector of this paper---real \(\Delta\), no
-superflow, no fields (\(\Phi\to0\), \(\bps\to0\))---the gauge shifts
-vanish, \(\varepsilon_{\bk}\to E_{\bk}\),
-\(\bvg\to(\xi_{\bk}/E_{\bk})\vF\hat{\bk}\), and the force reduces to
-\(\bF=-\bnabla_{\br}E_{\bk}\), so \cref{eq:beta_boltzmann_explicit} is the
-canonical Boltzmann equation [Eqs.~(1.87)--(1.88) of
-Ref.~\onlinecite{kopnin2001}; see also Ref.~\onlinecite{aronov1981}]
-\begin{equation}
-  \frac{\partial f_{\bk}}{\partial t}
-  +
-  \bv_{\mathrm{g}}\cdot\bnabla_{\br}f_{\bk}
-  +
-  \frac{\mathbf{F}}{\hbar}\cdot\frac{\partial f_{\bk}}{\partial\bk}
-  =
-  I\{f_{\bk}\},
-  \qquad
-  E_{\bk}(\br,t)=\sqrt{\xi_{\bk}^{2}+\Delta^{2}(\br,t)}.
-  \label{eq:intro_canonical_boltzmann}
-\end{equation}
-Here the group-velocity magnitude is the BCS value
-\(\vg(E)=\vF\sqrt{1-(\Delta/E)^{2}}\), with sign distinguishing the
-electron-like (\(\xi_{\bk}>0\)) from the hole-like (\(\xi_{\bk}<0\))
-branch. We take an isotropic, inversion-symmetric normal-state band with
-a spherical Fermi surface throughout, so that \(\bv_F=\vF\hat{\bk}\) and
-the angular derivatives below are those of the direction sphere.
-\cref{eq:intro_canonical_boltzmann} is quite comparable to the usual
-Boltzmann equation,
-\begin{equation}
-  \partial_t f
-  +
-  \bv\cdot\bnabla_{\br}f
-  +
-  \frac{\mathbf{F}}{\hbar}\cdot\frac{\partial f}{\partial\bk}
-  =
-  \Icoll[f],
-  \label{eq:intro_classical_boltzmann}
-\end{equation}
-and shares its quantum-Boltzmann structure: like the ordinary
-electron--phonon collision integral, \(I\{f_{\bk}\}\) is built from
-microscopic transition rates with the usual occupation and
-Pauli-blocking factors \cite{ziman1960,ashcroft1976}. What
-superconductivity changes is the quasiparticle content---the dispersion
-\(E_{\bk}(\br,t)\) is the BCS spectrum, varying in space and time
-through the self-consistent gap, and the collision kernels acquire BCS
-coherence factors \cite{bardeen1959,kaplan1976,changscalapino1977}.
-
-Concretely, the elastic part of \(I\{f_{\bk}\}\) is the
-nonmagnetic-impurity collision integral. It follows from the Born
-self-energy \(\check\Sigma_{\mathrm{imp}}=-(\ii\hbar/2\tau)\langle\check
-g\rangle_{\hat{\bp}}\) [Kopnin's \S10.4.1, where it appears as
-\(+(\ii/2\tau)\langle\check g\rangle\) in \(\hbar=1\) units because his
-collision integral stays on the right-hand side rather than inside the
-commutator of \cref{eq:intro_eilenberger}], with \(\tau\) the elastic
-scattering time; in single-mode form it reads [his Eq.~(15.7)]
-\begin{equation}
-  I_{\mathrm{imp}}\{f_{\bk}\}
-  =
-  -\frac{1}{N_0\tau}
-  \int\!\frac{\dd^3k'}{(2\pi)^3}\,
-  \bigl(u_{\bk}u_{\bk'}-v_{\bk}v_{\bk'}\bigr)^{2}
-  \bigl(f_{\bk}-f_{\bk'}\bigr)\,
-  \delta(E_{\bk}-E_{\bk'}),
-  \label{eq:intro_impurity_collision}
-\end{equation}
-with the Bogoliubov coherence factors
-\(u_{\bk}^{2},v_{\bk}^{2}=\tfrac12\!\left(1\pm\xi_{\bk}/E_{\bk}\right)\).
-Because it conserves energy, its Fermi-surface average vanishes and it
-does not relax the isotropic energy mode---it relaxes only the
-anisotropic, current-carrying harmonics. Projected back onto the
-two-mode amplitudes of \cref{eq:beta_twomode_L,eq:beta_twomode_T} in the
-present sector, the same self-energy gives the anisotropic relaxation
-rates
-\begin{equation}
-  J_L^{\mathrm{imp}}=-\frac{1}{\tau}\,\fL^{(a)},
-  \qquad
-  J_T^{\mathrm{imp}}=-\frac{\DOS^{2}}{\tau}\,\fT^{(a)},
-  \qquad
-  X^{(a)}\equiv X-\avg{X}_{\hat{\bp}},
-  \label{eq:intro_impurity_rates}
-\end{equation}
-the transverse rate carrying the coherence-factor weight
-\(\DOS^{2}\) (Kopnin's \(g_-^{2}\)) while the longitudinal one reduces to
-\(\DOS^{2}-N_2^{2}=1\).
-
-This collision integral is the common starting point for both diffusion
-routes. Kept as a weak scattering term, it leaves a Boltzmann equation
-on ballistic trajectories---the clean route, continued below; isotropized
-by strong scattering, it slaves the anisotropic harmonic and produces a
-diffusion equation---the dirty route. The two coincide at leading order
-in the homogeneous local-BCS sector but need not agree once the
-\(\mathcal{R}\)-type gradient corrections matter, which is the question
-this paper takes up.
-
-
-Specialized to our sector, the energy--angle form
-\cref{eq:beta_boltzmann_energy_variables} is explicit; the
-component-by-component substitution is recorded in
-\cref{app:change_of_variables}. The spectral-flow
-rate is \(\dot E_{\bk}=(\Delta/E)\dot\Delta\); the radial part of the
-spatial force \(\bF=-\bnabla_{\br}E_{\bk}=-(\Delta/E)\bnabla_{\br}\Delta\)
-has already cancelled the gap-gradient piece of the streaming in forming
-\(\dot E_{\bk}=\partial_t\varepsilon_{\bk}\)---measuring energies from the
-local, instantaneous gap absorbs the energy-changing part of the spatial
-gap force. The surviving angular force
-\(\dot{\hat{\bk}}\cdot\bnabla_{\hat{\bk}}f\) is the refraction
-(pair-potential-gradient) term; setting \(k\to k_{\mathrm F}\) in it---a
-quasiclassically negligible relative error \(O(|\xi_{\bk}|/E_{\mathrm F})\),
-at most \(O(\omega_D/E_{\mathrm F})\) across the pairing shell---and
-retaining it for now, the clean-limit Boltzmann-like equation in
-\((E,\hat{\bk})\) variables is
-\begin{equation}
-\Bigl(\frac{\partial f}{\partial t}\Bigr)_{\!E}
-+ \frac{\Delta}{E}\,\dot{\Delta}\,\frac{\partial f}{\partial E}
-+ \bv_{\mathrm{g}}\cdot\bigl(\bnabla_{\br}f\bigr)_{E}
-- \frac{\Delta}{\hbar\,E\,k_{\mathrm F}}\,
-  \bigl[\bigl(\openone-\hat{\bk}\hat{\bk}\bigr)\bnabla_{\br}\Delta\bigr]\cdot\bnabla_{\hat{\bk}}f
-= I\{f_{\bk}\}.
-\label{eq:intro_boltzmann_clean}
-\end{equation}
-Two reductions bring this to the description we will use. First, the
-angular (refraction) term is the pair-potential-gradient force; in the
-systematic quasiclassical expansion it is of next order in
-\((k_{\mathrm F}\xi_0)^{-1}\), beyond the standard Eilenberger equation
-\cref{eq:intro_eilenberger}. Working consistently at standard
-Eilenberger order we drop it, together with the other
-augmented-quasiclassical force terms. (The comparison with the retained
-streaming is not uniform near the gap edge, where \(\vg\to0\); that
-locus is treated separately as a boundary,
-\cref{sec:scalar_diffusion}.)
-
-Second, we resolve the occupation into its two scalar modes. The change
-of variables \(\bk\to(E,\hat{\bk})\) is two-to-one: at each \(E>\Delta\)
-and momentum direction \(\hat{\bk}\) the two branches
-\(s=\operatorname{sgn}\xi_{\bk}=\pm\) (the \(\Phi\to0\) limit of the
-branch sign \(\sigma\) of \cref{eq:beta_sigma_lambda}) stream oppositely, since
-\(\bv_{\mathrm{g}}=s\,\vg(E)\,\hat{\bk}\). With the refraction
-term gone, the branch occupations \(f_s(E,\hat{\bk},\br,t)\) obey
+The pair \cref{eq:intro_branch} can be made identical in structure by using the trajectory \(\hat{\bp}=\sigma\,\hat{\bk}\) instead;\footnote{At an interface or under directional injection one must remember that the trajectory label \(\hat{\bp}\) stands for the physical momentum direction \(\hat{\bk}=\sigma\hat{\bp}\), antipodal on the hole-like branch; on that branch it therefore differs from the Fermi-surface label \(\hat{\bp}\) of the matrix equations \cref{eq:intro_eilenberger,eq:intro_usadel_matrix}, which is branch-independent. Full-sphere averages over the two labels coincide [SM~\cref{SM-eq:antipodal_average_identity}].} absorbing the sign, \(\widetilde f_\sigma(E,\hat{\bp},\br,t)\equiv f_\sigma(E,\sigma\hat{\bp},\br,t)\),
 \begin{equation}
   \Bigl[\partial_t+\tfrac{\Delta}{E}\dot{\Delta}\,\partial_E
-  +s\,\vg(E)\,\hat{\bk}\cdot\bnabla_{\br}\Bigr]f_s
-  = I_s .
-  \label{eq:intro_branch}
-\end{equation}
-Relabelling each branch by its \emph{trajectory} (group-velocity)
-direction \(\hat{\bp}=s\,\hat{\bk}\)---that is, setting
-\(\widetilde f_s(E,\hat{\bp},\br,t)\equiv f_s(E,s\hat{\bp},\br,t)\) and
-likewise \(\widetilde I_s\)---absorbs the sign,
-\(s\,\vg\hat{\bk}=\vg\hat{\bp}\), so that each \(\widetilde f_s\)
-obeys the same diagonal drift,
-\begin{equation}
-  \Bigl[\partial_t+\tfrac{\Delta}{E}\dot{\Delta}\,\partial_E
-  +\vg(E)\,\hat{\bp}\cdot\bnabla_{\br}\Bigr]\widetilde f_s
-  = \widetilde I_s .
+  +\vg(E)\,\hat{\bp}\cdot\bnabla_{\br}\Bigr]\widetilde f_\sigma
+  = \widetilde I_\sigma .
   \label{eq:intro_branch_traj}
 \end{equation}
-The branch-symmetric combination and the \emph{unweighted}
-branch-antisymmetric combination---with
-\(\fL=1-\widetilde f_+-\widetilde f_-\) (the drift annihilates the
-constant) and \(\phi_T\equiv\widetilde f_--\widetilde f_+\)---therefore
-inherit it. For the even angular harmonics, Kopnin's transverse amplitude
-is not \(\phi_T\) itself but the \(\lambda_{\bk}\)-weighted combination
-\(\fT=\fT'=\lambda_{\bk}\,\phi_T\) of \cref{eq:beta_fT_inverse} (here the
-gauge shift vanishes, \(\Phi\to0\)); it inherits the diagonal drift only
-up to the spectral-weight derivative \(D\ln\lambda_{\bk}\) made explicit in
-\cref{eq:intro_fT_kopnin}. The odd harmonics instead obey the sector swap
-of \cref{eq:intro_parity_dictionary}. (Had
-the refraction force been retained, the same relabelling would have
-turned it branch-odd, coupling \(\fL\) and \(\phi_T\); dropping it first is
-what keeps the streaming diagonal.) The collision kernels and any
-boundary conditions are relabelled identically; this is invisible for
-isotropic kernels under Fermi-surface averaging, but at interfaces or
-under directional injection one must remember that the trajectory label
-\(\hat{\bp}\) stands for physical momentum direction \(\hat{\bk}=s\hat{\bp}\).
-From here \(\hat{\bp}\) is this trajectory (group-velocity)
-direction---distinct from the momentum direction \(\hat{\bk}\) of
-\cref{eq:intro_canonical_boltzmann}, to which it is antipodal on the
-hole-like branch---and the streaming speed is the branch-independent
-magnitude \(\vg(E)\). Because the relabelling \(\hat{\bp}=s\hat{\bk}\)
-acts on odd angular harmonics, angular structures defined before and
-after the branch projection should not be identified termwise. The
-dictionary is worth displaying. Writing
+The left-hand side (conventionally called the ``drift'' or
+``streaming'' operator) is now identical for both branches. 
+Momentarily, we rewrite \(\widetilde f_\sigma \to \widetilde f = \widetilde f_+ \oplus \widetilde f_-\).
+It is easy to see that the left-hand side is diagonal in the branch basis with equal entries, i.e.\ proportional to the identity in branch space; it is therefore diagonal in every basis and carries over unchanged to any linear combination of the \(\widetilde f_\sigma\) whose coefficients are constant in \((E,\br,t)\); the drift acts as a derivation, so a weight depending on \((E,\br,t)\) does not commute with it. The \(\lambda_{\bk}\)-weighted transverse amplitude \(\fT\) of \cref{eq:beta_fT_inverse} is precisely such a case: it inherits the diagonal drift only up to the spectral-weight derivative \(D\ln\lambda_{\bk}\) of \cref{eq:intro_fT_kopnin}. Even so, the equations still remain linked: the collision integrals and the self-consistent gap each involve both \(\widetilde f_+\) and \(\widetilde f_-\).
+
+The structure of these links is as follows: the self-consistent gap equation is
+\begin{equation}
+  \frac{1}{\lambda}
+  = \int_{\Delta(\br,t)}^{\omega_D}
+    \frac{1-\bigl\langle\widetilde f_{+}+\widetilde f_{-}\bigr\rangle_{\hat{\bp}}}{\sqrt{E^{2}-\Delta^{2}(\br,t)}}\,
+    \dd E,
+  \label{eq:intro_gap_branches}
+\end{equation}
+where \(\lambda\) is the dimensionless pairing constant, and the collision integrals have the generic form
+\begin{equation}
+  \widetilde I_{\sigma}[\widetilde f\,](E,\hat{\bp})
+  \propto
+  \sum_{\sigma'=\pm}\int\!\dd E'\,
+  \Bigl\langle
+  W_{\sigma\sigma'}(E,E',\hat{\bp}\cdot\hat{\bp}')\,
+  \mathcal F\bigl[\widetilde f_{\sigma},\widetilde f_{\sigma'},n\bigr]
+  \Bigr\rangle_{\hat{\bp}'},
+  \label{eq:intro_collision_structure}
+\end{equation}
+with \(W_{\sigma\sigma'}\) the microscopic rates (coherence factors included) and \(\mathcal F\) the usual gain-minus-loss occupation factors.
+These links are not diagonal in the branch basis, but they are in the parity basis: the gap equation involves only the branch-symmetric sum, and the collision kernels are even under branch exchange, \(W_{++}=W_{--}\) and \(W_{+-}=W_{-+}\), so they relax each parity sector without mixing the two; the charge imbalance and its relaxation live entirely in the branch-antisymmetric sector.
+The useful variables are therefore the parity combinations, the branch-symmetric \(\fL=1-\widetilde f_+-\widetilde f_-\) and the branch-antisymmetric \(\phi_T\equiv\widetilde f_--\widetilde f_+\). The streaming is kept diagonal but only because we have dropped the refraction force
+\(-\tfrac{\Delta}{\hbar E k_{\mathrm F}}
+\bigl[(\openone-\hat{\bk}\hat{\bk})\bnabla_{\br}\Delta\bigr]\cdot
+\bnabla_{\hat{\bk}}f_{\sigma}\).
+
+Even though we work in the charge-balanced limit \(\phi_T\to0\), we
+may not simply set \(\fT\to0\): \(\fT\) measures branch (charge)
+imbalance at fixed momentum direction, but it is also what carries
+the spatial current, and the two roles are separated by angular
+parity. Writing
 \(F\equiv\widetilde f_++\widetilde f_-\) for the branch-even
-combination, and splitting each amplitude into parts even and odd under
-inversion of its direction argument, the inverse relations
-\cref{eq:beta_fL_inverse,eq:beta_fT_inverse} combined with the
-relabelling give
+combination and splitting each amplitude into parts even and odd under
+inversion of its direction argument (the relabelling
+\(\widetilde f_-(\hat{\bp})=f_-(-\hat{\bp})\) is invisible to the even
+harmonics and a sign to the odd), the inverse relations
+\cref{eq:beta_fL_inverse,eq:beta_fT_inverse} give
 \begin{equation}
   \fL^{\mathrm{even}}=1-F^{\mathrm{even}},
   \qquad
@@ -769,38 +678,40 @@ relabelling give
   \qquad
   \fT^{\mathrm{even}}=\lambda_{\bk}\,\phi_T^{\mathrm{even}},
   \qquad
-  \fT^{\mathrm{odd}}=-\lambda_{\bk}\,F^{\mathrm{odd}}:
+  \fT^{\mathrm{odd}}=-\lambda_{\bk}\,F^{\mathrm{odd}}.
   \label{eq:intro_parity_dictionary}
 \end{equation}
-the odd harmonics swap sectors. The identification
-\(\fT=\lambda_{\bk}\phi_T\) is thus an identity for the even---in
-particular the isotropic, charge-imbalance---harmonics, while the odd
-harmonics of Kopnin's transverse amplitude are built from the
-branch-\emph{even} occupation; they are the current-carrying channel of
-the diffusive reduction (\cref{sec:sc_angular_averaging}).
+The limit \(\phi_T\to0\) therefore removes only the even harmonics of
+\(\fT\), the net charge-imbalance content. The odd, dipole harmonic
+survives, built from the branch-even \(F\): because
+\(\bvg=\sigma\vg(E)\hat{\bk}\) flips with the branch, a branch-even
+flow in trajectory space appears branch-odd at fixed momentum
+direction, a direction-resolved imbalance that nets zero charge but
+carries the current. In the diffusive reduction below this dipole is
+slaved to \(\bnabla_{\br}\fL\) and eliminated
+(\cref{sec:sc_angular_averaging}), which is the sense in which \(\fT\)
+drops out of the closed equations even though it is the current's
+carrier.
 
-We work in a gauge with real, positive \(\Delta\), no condensate
-momentum, and no electromagnetic drive except where one is deliberately
-reintroduced, and we project adiabatically onto the instantaneous
-positive-energy Bogoliubov band---valid when the gap is slow on the
-local scale, \(\hbar|\xi_{\bk}\dot{\Delta}|/E^{3}\ll1\) with a smooth
-spatial analogue, so that nonadiabatic particle--hole coherence and pair
-creation do not appear. In this gauge the ballistic streaming is diagonal
-in \((\fL,\phi_T)\): the two modes are not coupled by the drift in
-\cref{eq:intro_fL,eq:intro_fT}. For the even angular harmonics this is
-equivalently the Kopnin mode \(\fT=\lambda_{\bk}\phi_T\), up to the
-spectral-weight derivative \(D\ln\lambda_{\bk}\). Their only direct
-coupling is through the collision integrals and the
+In the sector of this paper the ballistic streaming is thus diagonal
+in \((\fL,\phi_T)\), since the shared drift of
+\cref{eq:intro_branch_traj} carries over to both combinations:
+their only direct coupling is through the collision integrals and the
 self-consistent gap \cite{kopnin2001,schmidschon1975}. Whether the
 diffusive (angular) reduction below reintroduces an effective
 longitudinal--transverse coupling at the same gradient order is a
-separate question, examined in \cref{sec:scalar_diffusion}. Because the applications below specialize to the \(\fT\to0\) sector we
+separate question, examined in \cref{sec:scalar_diffusion}. Because the applications below work in the charge-balanced
+\(\phi_T\to0\) sector, with no net charge imbalance, we
 omit the electrostatic closure; for calculations that retain a nonzero
-\(\fT\), the kinetic equations must be supplemented by a gauge-invariant
+\(\phi_T\), the kinetic equations must be supplemented by a gauge-invariant
 scalar-potential equation, usually fixed by local charge neutrality
 (which determines a generally nonzero electrochemical potential, rather
-than eliminating it). With that understood, the kinetic core at
-leading quasiclassical order comprises the four coupled equations---the
+than eliminating it). In these variables the charge-balanced
+reduction below becomes the single statement \(\phi_T\to0\), after
+which the two branches share one occupation and the set closes on a
+scalar \(f\). With that understood, the kinetic
+core at leading quasiclassical order comprises the four coupled
+equations, namely the
 two quasiparticle modes, a kinetic equation for the phonon occupation
 \(n(\Omega,\hat{\mathbf{q}},\br,t)\) (in this argument and in the
 collision kernels \(\Omega\) denotes the phonon energy, not the
@@ -831,9 +742,9 @@ equation \cite{eliashberg1972,kaplan1976,changscalapino1977}:
   \label{eq:intro_gap}
 \end{align}
 The transverse row is displayed for the \emph{unweighted} branch-odd mode
-\(\phi_T\). For the even, charge-imbalance harmonics of Kopnin's transverse
-amplitude, \(\fT=\lambda_{\bk}\phi_T\) [\(\lambda_{\bk}=|\widetilde\xi_{\bk}|/
-\widetilde E_{\bk}\) of \cref{eq:beta_sigma_lambda}] the same content reads
+\(\phi_T\). For the even, charge-imbalance harmonics of the transverse
+amplitude, \(\fT=\lambda_{\bk}\phi_T\) [\(\lambda_{\bk}=|\xi_{\bk}|/
+E_{\bk}\) of \cref{eq:beta_sigma_lambda}] the same content reads
 \begin{equation}
   D\fT-\fT\,D\ln\lambda_{\bk}=\lambda_{\bk}\,I_{T},
   \qquad
@@ -841,13 +752,13 @@ amplitude, \(\fT=\lambda_{\bk}\phi_T\) [\(\lambda_{\bk}=|\widetilde\xi_{\bk}|/
   +\vg(E)\,\hat{\bp}\cdot\bnabla_{\br},
   \label{eq:intro_fT_kopnin}
 \end{equation}
-the spectral-weight term vanishes when the branch-odd mode \(\phi_T\to0\).
-This does not remove the odd momentum-direction harmonic of \(\fT\), which
-remains the current-carrying harmonic in \cref{eq:sc_hidden_harmonic}.
+the spectral-weight term vanishes when the branch-odd mode
+\(\phi_T\to0\) (leaving the odd harmonics of \(\fT\) untouched,
+\cref{eq:intro_parity_dictionary}).
 
 Here \(\langle\cdot\rangle_{\hat{\bp}}\) is the Fermi-surface
-average---only the isotropic part of \(\fL\) sources the \(s\)-wave
-gap---while \(v_{\mathrm{ph}}\) is the sound velocity, \(\lambda\) the
+average (only the isotropic part of \(\fL\) sources the \(s\)-wave
+gap), while \(v_{\mathrm{ph}}\) is the sound velocity, \(\lambda\) the
 dimensionless pairing constant (distinct from the spectral weight
 \(\lambda_{\bk}\)), and \(\omega_D\) the Debye energy
 (after the change of variables the literal upper limit is
@@ -874,33 +785,26 @@ and \(\tau_{\mathrm{esc}}\) wavelength and/or spatial dependence,
 pair breaking, together with any pair-breaking photon drives
 \cite{kaplan1976,changscalapino1977,goldie2013}, and, where the elastic
 impurity term is retained, its anisotropic projections
-\cref{eq:intro_impurity_rates}; \(I_{T}\) also
+[\cref{eq:intro_impurity_rates} below]; \(I_{T}\) also
 contains the coherent gap-mediated conversion that relaxes branch
 imbalance \cite{tinkham2004,kopnin2001}. We write \(I_{n}[\fL,n]\)
 because the electron--phonon kernels are even under branch exchange, so
 the branch-odd charge-imbalance mode \(\phi_T\) drops out of the phonon
 collision integral to linear order; quadratic charge-imbalance corrections
-are neglected \cite{kaplan1976,changscalapino1977}. This statement does not
-discard the odd, current-carrying harmonic of \(\fT\), which is built from
-the branch-even occupation.
+are neglected \cite{kaplan1976,changscalapino1977}.
 
-In the common limit of negligible charge imbalance---no voltage or
+In the common limit of negligible charge imbalance (no voltage or
 branch-imbalance injection and a real order parameter with no
-supercurrent---nothing sources \(\phi_T\) in
+supercurrent), nothing sources \(\phi_T\) in
 \cref{eq:intro_fL,eq:intro_fT} and any residual imbalance is relaxed by
 \(I_{T}\) \cite{tinkham2004}, so one can set the branch-odd sector to
-zero, \(\phi_T\to0\): every angular harmonic of the branch-odd mode
-vanishes, and with it, by the parity dictionary
-\cref{eq:intro_parity_dictionary}, the \emph{even} harmonics of Kopnin's
-transverse amplitude \(\fT=\lambda_{\bk}\phi_T\). What this removes is
-the charge-imbalance content, not the current-carrying channel: the odd
-harmonics of \(\fT\) are built from the branch-even occupation and
-survive, slaved to \(\bnabla_{\br}\fL\) in the diffusive reduction
-(\cref{sec:sc_angular_averaging}). One can then redefine the remaining
+zero, \(\phi_T\to0\), which as discussed above removes the even
+harmonics of \(\fT\) while leaving the current-carrying odd harmonic
+intact [\cref{eq:intro_parity_dictionary}]. One can then redefine the remaining
 mode as the still angle-resolved occupation probability
 \(f(E,\hat{\bp},\br,t)\equiv\tfrac{1}{2}\bigl[1-\fL(E,\hat{\bp},\br,t)\bigr]\)
 [the trajectory-representation analogue of \cref{eq:beta_f_from_modes} at
-\(\phi_T=0\); the momentum-space \(\fT'\) retains the odd harmonic of
+\(\phi_T=0\); the momentum-space \(\fT\) retains the odd harmonic of
 \cref{eq:sc_hidden_harmonic}], the scalar collision integral
 \(\Icoll[f,n]\equiv-\tfrac12\,I_L[\,1-2f,0,n\,]\) carrying the sign and
 factor of two from \(\fL=1-2f\), and consider the three coupled
@@ -930,21 +834,72 @@ equations for \(f\), \(n\), and \(\Delta\)
   \dd E,
   \label{eq:intro_three_gap}
 \end{align}
-where \(\Icoll[f,n]\) is the scalar collision integral defined above, and
-the gap equation is \cref{eq:intro_gap} with \(\fL=1-2f\). In the gap
-equations \cref{eq:intro_gap,eq:intro_three_gap} only the angular
-average of the occupation enters, and \(\fT\) does not appear in the
-modulus self-consistency for a real order parameter at this order---it
-couples instead to the charge and phase sector, which we do not track
-\cite{tinkham2004,schmidschon1975}.
+The gap equation is \cref{eq:intro_gap} with \(\fL=1-2f\); only the
+angular average of the occupation enters it, and \(\fT\) does not
+appear in the modulus self-consistency for a real order parameter at
+this order, coupling instead to the charge and phase sector, which we
+do not track \cite{tinkham2004,schmidschon1975}.
+
+Finally, we give the elastic (nonmagnetic-impurity) part of the
+collision integrals explicitly. It follows from the Born
+self-energy \(\check\Sigma_{\mathrm{imp}}=-(\ii\hbar/2\tau)\langle\check
+g\rangle_{\hat{\bp}}\),\footnote{Kopnin's \S10.4.1, where it appears as
+\(+(\ii/2\tau)\langle\check g\rangle\) (\(\hbar=1\)) because his
+collision integral sits on the right-hand side rather than inside the
+commutator of \cref{eq:intro_eilenberger}.} with \(\tau\) the elastic
+scattering time; in single-mode form it reads [Kopnin's Eq.~(15.7)]
+\begin{equation}
+  I_{\mathrm{imp}}\{f_{\bk}\}
+  =
+  -\frac{1}{N_0\tau}
+  \int\!\frac{\dd^3k'}{(2\pi)^3}\,
+  \bigl(u_{\bk}u_{\bk'}-v_{\bk}v_{\bk'}\bigr)^{2}
+  \bigl(f_{\bk}-f_{\bk'}\bigr)\,
+  \delta(E_{\bk}-E_{\bk'}),
+  \label{eq:intro_impurity_collision}
+\end{equation}
+with the Bogoliubov coherence factors
+\(u_{\bk}^{2},v_{\bk}^{2}=\tfrac12\!\left(1\pm\xi_{\bk}/E_{\bk}\right)\).
+Because it conserves energy, its Fermi-surface average vanishes and it
+does not relax the isotropic energy mode; nor can it relax the net
+charge imbalance, whose decay would require a branch-crossing process
+of vanishing coherence factor. It does, however, relax the
+anisotropic, current-carrying harmonics: elastic impurity scattering
+randomizes the quasiparticle's direction of motion, turning ballistic
+streaming into diffusion once scattering is strong.
+
+The same Born self-energy that produced this occupation collision integral
+can also be projected back onto the two-mode amplitudes. Taking its
+\(\openone\)- and \(\tau_3\)-traces, the parity projections that define
+\(\fL\) and \(\fT\) in \cref{eq:intro_fLfT_traces}, gives the impurity
+collision terms \(J_L^{\mathrm{imp}}\) and \(J_T^{\mathrm{imp}}\) that enter equations \cref{eq:beta_twomode_L,eq:beta_twomode_T}:
+\begin{equation}
+  J_L^{\mathrm{imp}}=-\frac{1}{\tau}\,\fL^{(a)},
+  \qquad
+  J_T^{\mathrm{imp}}=-\frac{\DOS^{2}}{\tau}\,\fT^{(a)},
+  \label{eq:intro_impurity_rates}
+\end{equation}
+where we are using the notation \(X^{(a)}\equiv X-\avg{X}_{\hat{\bp}}\) for any \(X\) so that the superscript \((a)\) marks the anisotropic part, and
+\(\avg{\,\cdot\,}_{\hat{\bp}}\) is the average over Fermi-surface directions.
+The longitudinal weight collapses to \(\DOS^{2}-N_2^{2}=1\) while the
+transverse rate retains the full coherence-factor weight \(\DOS^{2}\)
+(Kopnin's \(g_-^{2}\)).
+
+This collision integral is the common starting point for both diffusion
+routes: kept as a weak scattering term, it leaves a Boltzmann equation
+on ballistic trajectories (the clean route, continued below);
+isotropized by strong scattering, it slaves the anisotropic harmonic
+and produces a diffusion equation (the dirty route of the next
+subsection).
 
 \subsection{Usadel Equation}
 
 On the other hand, in the dirty limit
-\(\ell_{\mathrm N}\equiv\vF\tau_{\mathrm N}\ll\xi_0\)---the normal-state
-mean free path, defined independently of the energy-resolved quasiparticle
-\(\elltr(E)=\vg(E)\tautr(E)\) of the scalar closure (the two in fact
-coincide for the Born kernel, \cref{eq:sc_mfp_identity})---one can show
+\(\ell_{\mathrm N}\equiv\vF\tau_{\mathrm N}\ll\xi_0\) (the normal-state
+mean free path, defined independently of the energy-resolved
+quasiparticle mean free path \(\elltr(E)=\vg(E)\tautr(E)\) obtained in
+the scalar route below [the two in fact
+coincide for the Born kernel, \cref{eq:sc_mfp_identity}]), one can show
 that the Eilenberger equation reduces to the Usadel equation
 \cite{usadel1970,kopnin2001}: impurity scattering isotropizes the
 propagator, so that
@@ -1012,12 +967,12 @@ spatial operator and showing if and when the different routes agree on
 its form. Concretely: the spectral weight \(1/\DOS(E)\) that sets the
 familiar uniform-gap rate \(\DN/\DOS(E)\) can stand outside the
 divergence, as the weight of a conserved density, or inside it, as a
-dressed mobility---placements indistinguishable for a uniform gap but
+dressed mobility, placements indistinguishable for a uniform gap but
 inequivalent once \(\Delta\) varies in space. The equation is posed on
 the local spectral domain \(E>\Delta(\br,t)\); the moving gap edge
 enters as a boundary condition, not through the bulk operator.
 
-\emph{Sector of this paper.}---For ease of reference, we collect here
+\emph{Sector of this paper.} For ease of reference, we collect here
 the assumptions under which the operator selection is claimed, each
 introduced above or delimited again where it is used. The material is a
 single homogeneous \(s\)-wave BCS superconductor with an isotropic,
@@ -1026,21 +981,25 @@ conditions, not the bulk operator); the gap is real and positive, with
 no condensate momentum, no supercurrent, and no electromagnetic drive
 except where one is deliberately reintroduced. The spectral functions
 are the local adiabatic BCS forms evaluated at the instantaneous local
-gap---valid when \(\Delta\) varies slowly on the coherence length and
-quasi-statically in time (\(\hbar|\xi_{\bk}\dot\Delta|/E^{3}\ll1\))---with
+gap (valid when \(\Delta\) varies slowly on the coherence length and, at
+fixed energy, slowly on the local spectral scale,
+\(\hbar E|\dot\Delta|/W^{3}\ll1\) with \(W=\sqrt{E^2-\Delta^2}\)
+[SM~\cref{SM-app:nonadiabatic}]; the weaker branch condition
+\(\hbar|\xi_{\bk}\dot\Delta|/E^{3}\ll1\) controls only the neglect of
+interbranch coherence), with
 no proximity structures, no subgap states, and gradient corrections to
 the spectra neglected. Elastic scattering is by nonmagnetic impurities
 in the Born limit. The kinetics are restricted to the charge-balanced
-sector \(\fT\to0\): the four-equation set
+sector \(\phi_T\to0\): the four-equation set
 \cref{eq:intro_fL,eq:intro_fT,eq:intro_phonon,eq:intro_gap} is a kinetic
 core, not a closed charge-imbalance theory, and calculations retaining a
-nonzero \(\fT\) require the electrostatic closure discussed above. The
+nonzero \(\phi_T\) require the electrostatic closure discussed above. The
 pair-potential-gradient (refraction) force is dropped at standard
 Eilenberger order, and the scalar equation
 \cref{eq:intro_scalar_kinetic} is posed on the continuum domain
 \(E>\Delta(\br,t)\) with the moving gap edge as a boundary condition.
-The equivalence of the two routes---and the operator A1 it
-selects---is claimed within this sector and no further.
+The equivalence of the two routes (and the operator A1 it
+selects) is claimed within this sector and no further.
 
 \section{Diffusion from the scalar quasiparticle Boltzmann route}
 \label{sec:scalar_diffusion}
@@ -1048,8 +1007,8 @@ selects---is claimed within this sector and no further.
 We derive the target equation \cref{eq:intro_scalar_kinetic} first by
 the route that starts from a positive-energy quasiparticle occupation
 and only then performs the angular reduction. The point of the
-derivation is not merely the uniform-gap rate coefficient---that much
-every placement of the spectral weight \(1/\DOS\) reproduces---but the
+derivation is not merely the uniform-gap rate coefficient (that much
+every placement of the spectral weight \(1/\DOS\) reproduces) but the
 operator ordering: which spectral
 factors multiply the conserved density, which multiply the current, and
 which are absorbed into the transport time.
@@ -1105,7 +1064,7 @@ will be useful in what follows.
 
 A scalar quasiparticle Boltzmann equation, analogous to the normal-metal Boltzmann equation, after projecting onto the
 positive-energy branch but before angular averaging, has the form shown
-in the introduction [\cref{eq:intro_three_f}]:
+in \cref{sec:quasiclassical} [\cref{eq:intro_three_f}]:
 \begin{equation}
   \partial_t f
   +
@@ -1119,9 +1078,9 @@ in the introduction [\cref{eq:intro_three_f}]:
 The second term is the energy-space spectral-flow term produced by a
 time-dependent gap; the third term is real-space streaming with the BCS group
 velocity. In \cref{eq:sc_clean_scalar_boltzmann}, \(\hat{\bp}\) labels
-the direction of the group velocity rather than of the momentum---for
-hole-like quasiparticles (\(\xi_{\bk}<0\)) the two are antiparallel,
-cf.~\cref{eq:intro_canonical_boltzmann}---so that both branches at
+the direction of the group velocity rather than of the momentum (for
+hole-like quasiparticles [\(\xi_{\bk}<0\)] the two are antiparallel,
+cf.~\cref{eq:beta_sigma_lambda}), so that both branches at
 energy \(E\) stream with the single positive speed \(\vg(E)\).
 \cref{eq:sc_clean_scalar_boltzmann} is the superconducting
 analogue, for the branch occupation, of the normal-metal Boltzmann
@@ -1135,20 +1094,20 @@ and reduce the result to a diffusion equation by the two-moment procedure
 through which the normal-metal diffusion equation is usually obtained
 \cite{ziman1960,ashcroft1976}, applied here in the variables \((E,\hat{\bp})\);
 this is the route of Refs.~\onlinecite{kopnin2001,aronov1981} announced in
-the introduction. Here the positive-energy branch is selected in the
+\cref{sec:quasiclassical}. Here the positive-energy branch is selected in the
 trajectory-resolved equation before its first angular harmonic is slaved.
 In the Usadel route of \cref{sec:usadel_route}, by contrast, the matrix first
 harmonic is slaved before the scalar Nambu trace is taken. The bookkeeping we
 keep explicit throughout is that
-every spectral coefficient in the reduction---\(\vg\), \(\DOS\), and the
-impurity rates introduced below---depends on position and time through
+every spectral coefficient in the reduction (\(\vg\), \(\DOS\), and the
+impurity rates introduced below) depends on position and time through
 \(\Delta(\br,t)\), so that which factors stand inside and which outside the
 spatial derivatives is not a matter of taste but an output of the
 derivation. One further point deserves emphasis, because the scalar
 starting point is easily misread as a truncation of the two-component
 system \cref{eq:intro_fL,eq:intro_fT}. The charge-balanced reduction
-sets \(\phi_T\equiv0\)---every angular harmonic of the branch-odd,
-trajectory-labelled mode---but by the parity dictionary
+sets \(\phi_T\equiv0\) (every angular harmonic of the branch-odd,
+trajectory-labelled mode), but by the parity dictionary
 \cref{eq:intro_parity_dictionary} this does \emph{not} set Kopnin's
 momentum-direction transverse amplitude to zero. Suppose the common
 occupation carries a first angular harmonic in the trajectory
@@ -1161,27 +1120,28 @@ direction,
   \hat{\bp}=\sigma\hat{\bk},
   \label{eq:sc_hidden_harmonic_ansatz}
 \end{equation}
-with \(\sigma=\operatorname{sgn}\xi_{\bk}\) (the gauge shifts vanish in
-this sector). The branch amplitudes at fixed momentum direction are
+with \(\sigma\) the branch index (\(\sigma_{\bk}=\sigma\) on the
+corresponding branch, \cref{eq:beta_sigma_lambda}). The branch amplitudes at fixed momentum direction are
 then
-\(h_\sigma(E,\hat{\bk})=1-2f_{0}-2\sigma\,\hat{\bk}\cdot\mathbf{a}\),
+\(h_{\sigma}=1-2f_{0}-2\sigma\,\hat{\bk}\cdot\mathbf{a}\),
 and comparison with \cref{eq:beta_f_from_modes} gives
 \begin{equation}
   \fL=1-2f_{0},
   \qquad
-  \fT'=-2\lambda_{\bk}\,\hat{\bk}\cdot\mathbf{a}.
+  \fT=-2\lambda_{\bk}\,\hat{\bk}\cdot\mathbf{a}.
   \label{eq:sc_hidden_harmonic}
 \end{equation}
 The first angular harmonic retained by the moment expansion below
 \emph{is} the anisotropic transverse amplitude of the two-mode
 description, expressed after the branch-to-trajectory relabelling: the
-scalar route does not discard the cross-gradient channel but carries it
+scalar route does not discard the cross-gradient coupling
+\(\bnabla_{\br}(\DOS\,\fT)\) of \cref{eq:beta_twomode_L} but carries it
 in relabelled variables. A gradient of the longitudinal mode sources
 this harmonic, and eliminating it is what produces the diffusive
 current below. In two-mode bookkeeping the sector retained here is
 \(\avg{\fT}_{\hat{\bk}}=0\) (no isotropic charge imbalance) and no
 anisotropic longitudinal component, with the anisotropic transverse
-component kept and slaved---precisely the sector of the dirty-limit
+component kept and slaved, precisely the sector of the dirty-limit
 angular-moment reduction of Kopnin's \S10.5
 \cite{kopnin2001}. What remains to be checked is then quantitative
 rather than structural: whether the closure for \(\tautr(E)\)
@@ -1230,8 +1190,8 @@ there. The direction variable is the group-velocity label
 \(\hat{\bp}\) of \cref{eq:sc_clean_scalar_boltzmann}; on the
 hole-like branch it is antiparallel to the momentum, but intra-branch
 scattering flips \(\hat{\bp}\) and \(\hat{\bp}'\) together under that
-relabeling, so \(\hat{\bp}\cdot\hat{\bp}'\)---and with it \(w\) and
-\(\tautr\)---coincides with its momentum-space form. Two structural facts make \cref{eq:sc_imp_kernel} simpler than
+relabeling, so \(\hat{\bp}\cdot\hat{\bp}'\) (and with it \(w\) and
+\(\tautr\)) coincides with its momentum-space form. Two structural facts make \cref{eq:sc_imp_kernel} simpler than
 a generic collision integral. First, the Pauli blocking factors of in- and
 out-scattering cancel identically for elastic processes,
 \(f'(1-f)-f(1-f')=f'-f\), so \cref{eq:sc_imp_kernel} is exact in \(f\)
@@ -1241,10 +1201,10 @@ local order parameter, the squared
 matrix element between Bogoliubov quasiparticles carries the coherence
 factor \((uu'-vv')^{2}\), which vanishes for scattering between the
 electron-like and hole-like branches at equal energy
-\cite{bardeen1959,tinkham2004}---the familiar statement that ordinary
-impurities do not relax charge imbalance---so under these assumptions
+\cite{bardeen1959,tinkham2004} (the familiar statement that ordinary
+impurities do not relax charge imbalance), so under these assumptions
 elastic impurity scattering is branch conserving and consistent with the
-branch-symmetric reduction \(\fT\to0\) already made; gap anisotropy or
+branch-symmetric reduction \(\phi_T\to0\) already made; gap anisotropy or
 magnetic scattering would reopen an elastic branch-relaxation channel
 \cite{tinkham2004}. The kernel \(w\ge0\) is symmetric under
 \(\hat{\bp}\leftrightarrow\hat{\bp}'\) by microreversibility, and it
@@ -1284,16 +1244,16 @@ the moments defined):
 where \(\avg{\,\cdot\,}_{\hat{\bp}}=\int(\dd\Omega_{\hat{\bp}}/4\pi)\,(\,\cdot\,)\)
 denotes the angular average. (We write \(\mathbf{a}\) rather than
 \(\mathbf{f}_1\) for this harmonic: by \cref{eq:sc_hidden_harmonic} it
-is the transverse-sector vector harmonic---Kopnin's
-\(\mathbf{f}_2\)---in branch-projected variables, whereas Kopnin's
+is the transverse-sector vector harmonic, Kopnin's
+\(\mathbf{f}_2\), in branch-projected variables, whereas Kopnin's
 \(\mathbf{f}_1\) denotes the longitudinal vector harmonic, which
 vanishes in this sector.) The truncation presumes \(1/\tautr(E)\) to be
 the largest rate in the problem: \(\omega\tautr\ll1\) for every frequency
 \(\omega\) carried by \(f\) or by \(\Delta\); inelastic rates small compared
 with \(1/\tautr\); and the mean free path \(\elltr(E)=\vg(E)\tautr(E)\)
 short compared with the scales on which \(f\) and \(\Delta\) vary. These
-conditions are energy resolved---they can hold at some energies and fail at
-others---and their status near the gap edge depends on the closure adopted
+conditions are energy resolved (they can hold at some energies and fail at
+others), and their status near the gap edge depends on the closure adopted
 for \(\tautr(E)\) (\cref{sec:sc_transport_closures}).
 
 Averaging \cref{eq:sc_boltzmann_imp} over \(\hat{\bp}\), and separately
@@ -1356,7 +1316,7 @@ Fick's law at fixed energy,
   \bnabla_{\br} f_{0},
   \label{eq:sc_fick}
 \end{equation}
-with the gradient taken at fixed \(E\) [cf.~\cref{eq:intro_boltzmann_clean}]
+with the gradient taken at fixed \(E\) [cf.~\cref{eq:intro_branch}]
 and both coefficients evaluated at the local, instantaneous gap:
 \(\vg=\vg(E,\Delta(\br,t))\), \(\tautr=\tautr(E;\br,t)\).
 
@@ -1396,8 +1356,8 @@ invisible, \(\LD[f]\to\DE\,\bnabla_{\br}^{2}f\) with
 \(\DE\equiv\tfrac{1}{3}\vg^{2}(E)\tautr(E)\). Once \(\Delta\) varies in
 space, however, \(\vg\) and \(\tautr\) vary with it at fixed \(E\), the
 factors no longer commute with \(\bnabla_{\br}\), and
-\cref{eq:sc_scalar_diffusion} differs from the divergence form
-\(\bnabla_{\br}\cdot(\DE\,\bnabla_{\br}f)\) by a drift term proportional to
+\cref{eq:sc_scalar_diffusion} differs from that Laplacian form
+\(\DE\,\bnabla_{\br}^{2}f\) by a drift term proportional to
 \(\bnabla_{\br}\Delta\). Whether such a drift actually survives for
 the physical nonmagnetic-impurity kernel is a property of the
 closure, settled in \cref{sec:sc_transport_closures}. Using the identity \cref{eq:rho_vg_identity} and
@@ -1414,7 +1374,7 @@ as
   \bigr),
   \label{eq:sc_LD_dos_form}
 \end{equation}
-the form we use from here on; which density---if any---obeys a local
+the form we use from here on; which density (if any) obeys a local
 continuity law under \cref{eq:sc_LD_dos_form} is the subject of
 \cref{sec:conserved_density_ambiguity}.
 
@@ -1422,7 +1382,7 @@ The constancy of \(\vF\) deserves a scope statement, because it fixes
 which physical situations \cref{eq:sc_LD_dos_form} covers. Holding
 \(\vF\) constant while \(\Delta(\br,t)\) varies describes a single
 homogeneous material whose gap moves through the self-consistency
-\cref{eq:intro_gap}---suppression by the local quasiparticle
+\cref{eq:intro_gap}: suppression by the local quasiparticle
 population, by temperature, or by a pair-breaking drive. It also
 covers same-material gap engineering such as thickness-graded films,
 where \(\Delta\) and \(\tautr\) vary smoothly but \(\vF\) does not (the
@@ -1430,24 +1390,24 @@ derivation already lets \(\tautr(E;\br,t)\) be local); an \emph{abrupt}
 thickness step is instead handled as a matching condition, as below. In
 reduced-dimensional models obtained by integrating over the film
 thickness, the local thickness additionally multiplies the conserved
-density as a geometry factor, which should not be folded into
-\(N(0)\). It does
+density as a geometry factor, which should not be folded into the
+local density-of-states factor \(N(0)\) introduced just below. It does
 \emph{not} cover compositionally different materials. If the
 normal-state band parameters vary smoothly, two distinct things fail:
 the step from \cref{eq:sc_scalar_diffusion} to
 \cref{eq:sc_LD_dos_form} no longer goes through, and, more
 fundamentally, \cref{eq:sc_boltzmann_imp} itself becomes incomplete,
 because spatial variation of \(\vF\) and \(k_{\mathrm F}\) exerts a
-band-structure (refraction) force that---unlike the angular gap force
-dropped after \cref{eq:intro_boltzmann_clean}---is not quasiclassically small.
+band-structure (refraction) force that (unlike the angular gap force
+dropped after \cref{eq:beta_boltzmann_energy_variables}) is not quasiclassically small.
 A conserving extension for smoothly varying material
-parameters---phenomenological, since the moment derivation above no
-longer constructs it---is obtained by requiring that the carried
+parameters (phenomenological, since the moment derivation above no
+longer constructs it) is obtained by requiring that the carried
 density be \(N(0)\DOS f\) with \(N(0)\) the \emph{local} normal-state
-density of states at the Fermi level---kept distinct from the constant
+density of states at the Fermi level (kept distinct from the constant
 \(N_0\) of the homogeneous formulas because only its spatial variation
-matters here (its spin normalization cancels between the two factors of
-\cref{eq:sc_LD_inhomogeneous})---that it obey a continuity law, and that
+matters here [its spin normalization cancels between the two factors of
+\cref{eq:sc_LD_inhomogeneous}]), that it obey a continuity law, and that
 the operator reduce to \cref{eq:sc_LD_dos_form} wherever the material
 is uniform:
 \begin{equation}
@@ -1464,9 +1424,9 @@ is uniform:
 with all coefficients local; any occupation of the form \(f(E)\) still
 carries zero current, and the full density-of-states weight is what
 makes the total quasiparticle number obey a continuity law. Abrupt
-junctions between materials---the usual experimental situation in
+junctions between materials (the usual experimental situation in
 normal-metal and gap-engineered traps
-\cite{riwar2016,hosseinkhani2018,riwar2019}---vary on scales below
+\cite{riwar2016,hosseinkhani2018,riwar2019}) vary on scales below
 \(\elltr\) and \(\xi_0\), where no bulk diffusion equation applies at
 all; there the material change enters as an interface boundary
 condition rather than through \(\LD\): the spectral current is
@@ -1510,20 +1470,20 @@ The quasiparticle equation \cref{eq:sc_three_f_diffusive} is posed, at each
 \((\br,t)\), on the local spectral domain \(E>\Delta(\br,t)\); at fixed
 \(E\) its spatial boundary is the locus \(\Delta(\br,t)=E\), which moves as
 the gap evolves and on which \(\vg\) vanishes. There the diffusive
-reduction itself degrades---the refraction term dropped after
-\cref{eq:intro_boltzmann_clean} is no longer subdominant, and trajectories turn
-rather than diffuse---so the gap edge must be treated as a boundary
+reduction itself degrades (the refraction term dropped after
+\cref{eq:beta_boltzmann_energy_variables} is no longer subdominant, and trajectories turn
+rather than diffuse), so the gap edge must be treated as a boundary
 condition on \cref{eq:sc_three_f_diffusive} rather than resolved by
 it; the appropriate condition (vanishing spectral current at a
 perfectly turning edge, or matching to an adjoining lower-gap region)
 depends on the configuration and is not fixed by the bulk reduction.
 All spectral
-coefficients---\(\DOS\), \(\vg\), \(\DE\)---are evaluated at the local
+coefficients (\(\DOS\), \(\vg\), \(\DE\)) are evaluated at the local
 instantaneous gap. The phonon equation and the gap equation are untouched by
 the angular reduction, which acts on the quasiparticle sector alone:
-\(n(\Omega,\hat{\mathbf{q}},\br,t)\) remains angle resolved---a short
+\(n(\Omega,\hat{\mathbf{q}},\br,t)\) remains angle resolved (a short
 phonon mean free path would permit an analogous reduction, which we do
-not need---the phonon source \(S\) may still be closed locally as in
+not need), the phonon source \(S\) may still be closed locally as in
 \cref{eq:intro_phonon_escape}, and the gap equation keeps its BCS form for
 nonmagnetic impurities by Anderson's theorem \cite{anderson1959},
 within the same local-BCS approximation already adopted for the
@@ -1536,7 +1496,8 @@ the single function \(\tautr(E)\). Choosing it is the next step.
 
 For the physical nonmagnetic Born kernel the closure is not a modeling
 choice: it is fixed by the collision integral
-\cref{eq:intro_impurity_collision} already adopted in the introduction.
+\cref{eq:intro_impurity_collision} already adopted in
+\cref{sec:quasiclassical}.
 At fixed \(E>\Delta\) the scattering is intra-branch, and the
 same-branch coherence factor is
 \begin{equation}
@@ -1626,7 +1587,8 @@ substitution \(\tautr=\tau_{\mathrm N}\) would instead give
 failing to match the dirty matrix route.
 
 Third, the closure closes the loop with the parent two-mode equations
-term by term. In \cref{eq:beta_twomode_T} the transverse impurity rate
+term by term in the sector it controls, the spatial current and the
+impurity closure. In \cref{eq:beta_twomode_T} the transverse impurity rate
 of \cref{eq:intro_impurity_rates}, dominant over all other rates in
 the dirty limit, slaves the anisotropic transverse amplitude,
 \(\fT^{(a)}=-(\tau_{\mathrm N}\vF/\DOS)\,\hat{\bp}\cdot\bnabla_{\br}\fL\),
@@ -1640,10 +1602,21 @@ so the longitudinal spectral current is
   \label{eq:sc_kopnin_constitutive}
 \end{equation}
 [Kopnin's Eq.~(10.106)], and the angular average of
-\cref{eq:beta_twomode_L} reproduces the diffusion equation
-\cref{eq:sc_three_f_diffusive} with the closed operator
-\cref{eq:sc_LD_closed}, via the hidden-harmonic map
-\cref{eq:sc_hidden_harmonic} and \(\fL=1-2f\). The identity
+\cref{eq:beta_twomode_L} reproduces the spatial and collision terms of
+the diffusion equation \cref{eq:sc_three_f_diffusive} with the closed
+operator \cref{eq:sc_LD_closed}, via the hidden-harmonic map
+\cref{eq:sc_hidden_harmonic} and \(\fL=1-2f\). The drive term, however,
+does not close term by term: angular averaging is isotropic, so the
+explicit \(N_2\,\dot\Delta\,\partial_E\fL^{(0)}\) source of
+\cref{eq:beta_twomode_L} survives it acting on the local-equilibrium
+amplitude alone, and it matches the convective spectral flow of
+\cref{eq:sc_three_f_diffusive} only at \(\fL\to\fL^{(0)}\), through
+\(\DOS\,(\Delta/E)\dot\Delta=N_2\dot\Delta\). What the transport-time
+closure validates is therefore the linearized drive; the nonlinear
+adiabatic spectral flow is the promotion announced below
+\cref{eq:beta_spectral}, established independently by
+\cref{eq:intro_branch} on the branch route and by
+\cref{eq:fixedE_conservative_flow} on the matrix route. The identity
 \(\DOS\,\vg=\vF\) of \cref{eq:rho_vg_identity} is what reconciles the
 two bookkeepings: the two-mode equations stream with \(\vF\) and carry
 the spectral weight \(\DOS\) explicitly, while the scalar route
@@ -1651,8 +1624,8 @@ streams with \(\vg\) and absorbs the weight into the amplitudes.
 
 One caution accompanies the closure. Near the gap edge
 \(\tautr=\DOS\,\tau_{\mathrm N}\) \emph{diverges}: the truncation
-conditions below \cref{eq:sc_p1_ansatz}---\(\omega\tautr\ll1\) and
-inelastic rates slow compared with \(1/\tautr\)---fail as
+conditions below \cref{eq:sc_p1_ansatz} (\(\omega\tautr\ll1\) and
+inelastic rates slow compared with \(1/\tautr\)) fail as
 \(E\to\Delta\) even though \(\elltr=\ell_{\mathrm N}\) remains short.
 The moment reduction thus degrades at the edge in time rather than in
 length, reinforcing the boundary treatment of the gap edge adopted
@@ -1718,9 +1691,20 @@ the spectral density \(\DOS f\) changes only by the spatial current
 \(-\DN\bnabla_{\br}f\), by the energy-space flux \(N_2\dot\Delta\,f\)
 of the moving spectral shell, and by collisions. Integrated over
 energy, \cref{eq:cons_form} yields a continuity law for the total
-quasiparticle density \(n_{\qp}\propto\int\DOS f\,\dd E\) in which the
-spectral-flow term enters only through the moving gap edge, handled by
-the boundary condition adopted below \cref{eq:sc_three_gap_diffusive}. This resolves
+quasiparticle density \(n_{\qp}\propto\int_\Delta^\infty\DOS f\,\dd E\) from
+which the spectral-flow term drops out identically, with no gap-edge
+boundary condition required: in the invariant normal-state label of
+\cref{eq:xi_energy_shell}, where \(\DOS\,\dd E=\dd\xi\), the integral has
+the \emph{fixed} lower limit \(\xi=0\) and the moving edge generates no
+boundary term at all. At fixed \(E\) this appears as a cancellation of the
+energy-space flux \(N_2\dot\Delta f\) at the moving lower limit against the
+Leibniz term from that same limit, the two individually divergent weights
+differing by \(\DOS-N_2\to0\) as \(E\to\Delta^{+}\); neither is finite
+separately, so no boundary condition could be imposed on the energy-space
+flux in any case. For a spatially inhomogeneous gap one edge term does
+survive, but it belongs to the \emph{spatial} flux at the turning locus
+\(E=\Delta(\br,t)\), where the boundary condition discussed below
+\cref{eq:sc_three_gap_diffusive} applies. This resolves
 the ambiguity announced below \cref{eq:sc_LD_dos_form}: the operator
 \((1/\DOS)\bnabla_{\br}\cdot(\DN\bnabla_{\br}f)\) is not diffusion of
 \(f\), nor of \(\DOS f\); it is the occupation-space form of a
@@ -1732,9 +1716,12 @@ linearized about local equilibrium and, as reprinted in his \S10.5,
 quasistatic [his Eq.~(10.98) omits the \(g_-\partial f_1/\partial t\)
 term retained in his Eq.~(10.55)]. The dirty reduction fixes the
 spatial operator; the nonlinear adiabatic spectral flow appearing in
-\cref{eq:cons_form} is the moving-shell completion already discussed
-below \cref{eq:beta_spectral}, restored from the unlinearized kinetic
-picture rather than from the linearized printed equations.
+\cref{eq:cons_form} is the moving-shell (convective spectral-flow)
+completion already discussed below \cref{eq:beta_spectral}, restored from the unlinearized kinetic
+picture rather than from the linearized printed equations. The same term
+is printed unlinearized, though without derivation, in the dirty-limit
+detector kinetic equation of Ref.~\onlinecite{vodolazov2017} [its
+Eq.~(1)].
 
 \section{Diffusion from the Usadel route}
 \label{sec:usadel_route}
@@ -1748,8 +1735,9 @@ harmonic is closed.
 \subsection{Matrix dirty limit}
 
 The Eilenberger equation \cref{eq:intro_eilenberger} is a
-trajectory-resolved quasiclassical transport equation for the matrix
-Green's function \(\checkg(E,\hat{\bp},\br,t)\)
+direction-resolved quasiclassical transport equation for the matrix
+Green's function \(\checkg(E,\hat{\bp},\br,t)\), with \(\hat{\bp}\) the
+Fermi-surface direction of the momentum,
 \cite{eilenberger1968,rammer1986,kopnin2001}. In the dirty limit, impurity
 scattering makes the propagator nearly isotropic. Angular averaging at the
 matrix level gives the Usadel equation \cite{usadel1970} for
@@ -1771,8 +1759,9 @@ matrix level gives the Usadel equation \cite{usadel1970} for
 \end{equation}
 written here in the adiabatic limit, where the \(\otimes\) products of
 \cref{eq:intro_usadel_matrix} are taken at zeroth order in the
-Wigner--Moyal gradient expansion---exact for a fully stationary problem,
-with the time-gradient corrections otherwise neglected---so reducing to
+Wigner--Moyal gradient expansion (exact for a fully stationary problem,
+with the time-gradient corrections otherwise neglected; the expansion
+parameter is \(\hbar E|\dot\Delta|/W^3\), SM~\cref{SM-app:nonadiabatic}), so reducing to
 ordinary products and the normalization to \(\checkg_0^2=1\), and with
 the covariant \(\widetilde{\bnabla}\) reduced to \(\bnabla\) in
 anticipation of the real-\(\Delta\), no-supercurrent sector adopted
@@ -1860,7 +1849,7 @@ applies verbatim to the antisymmetric off-diagonal Nambu structure of
 here for the kinetic-coefficient definitions
 \cref{eq:DL_definition}--\cref{eq:DT_definition} below; the advanced
 matrix printed in their Eq.~(49) carries the opposite anomalous sign and
-is not used---inserted into their own Eq.~(38) it would return
+is not used: inserted into their own Eq.~(38) it would return
 \(\mathcal{D}_L=\DOS^2\) on the bulk BCS background rather than the
 undressed energy-channel coefficient.) In the \((\tau_3,\ii\tau_2)\) basis the
 \(\tau_3\) sandwich flips the sign of \emph{both} components:
@@ -1886,7 +1875,7 @@ solve the same static spectral (commutator) equation as \(\hat{g}^R\), and
 the equilibrium Keldysh function
 \(\hat{g}^K_{\mathrm{eq}}=(\hat{g}^R-\hat{g}^A)\tanh(E/2k_{\mathrm B}T)\) must retain
 the anomalous (\(\tau_2\)) spectral weight \(2N_2\tanh(E/2k_{\mathrm B}T)\) that feeds
-the self-consistent gap equation---the opposite relative sign fails both
+the self-consistent gap equation; the opposite relative sign fails both
 requirements (SM~\cref{SM-app:branch}). Above the gap, where \(g^R\) and
 \(f^R\) are real (in the \(\ii0^{+}\) limit), the relation collapses to
 \(\hat{g}^A=-\hat{g}^R\). There, \(\Real g^R=\DOS\) is the BCS density of
@@ -1960,8 +1949,8 @@ longitudinal mode diffuses with the bare normal-state spectral coefficient
 dressed by the squared DOS, which diverges as \((E-\Delta)^{-1}\) near the
 gap edge and relaxes to unity for \(E\gg\Delta\). Below the gap the
 assignment matches the physics: \(\mathcal{D}_L=0\), so sub-gap energy
-transport is blocked---the sub-gap limit of
-\cref{eq:DL_definition}---while
+transport is blocked (the sub-gap limit of
+\cref{eq:DL_definition}), while
 \(\mathcal{D}_T=\Delta^2/(\Delta^2-E^2)\neq0\), so charge penetrates by
 Andreev processes. For non-BCS spectra with complex spectral angle
 \(\theta\) (proximity, depairing), the general forms are
@@ -1975,8 +1964,8 @@ real-BCS limit their charge-current coefficient reduces (up to overall
 normalization) to the \(\DOS^2\)-dressed transverse coefficient, and
 their energy-current coefficient to the undressed longitudinal one; their
 charge-conversion rate \(R_T=4\Delta\,\Real g_{01}\) vanishes on the
-ideal above-gap BCS background---where, in their \(\tau_1\)-anomalous
-convention, \(g_{01}\) is purely imaginary---and is activated only when
+ideal above-gap BCS background (where, in their \(\tau_1\)-anomalous
+convention, \(g_{01}\) is purely imaginary) and is activated only when
 depairing, proximity, or sub-gap conditions give the anomalous spectral
 component the corresponding real part, in agreement with the transverse
 trace statement of SM~\cref{SM-sec:transverse_projection}.
@@ -1989,8 +1978,9 @@ spectral angle, and the scalar mode it dresses. Finite
 \(\mathcal D_T=\DOS^2\), while the general identity
 \(\mathcal D_L\mathcal D_T=\DOS^2\) survives; SM~\cref{SM-app:dynes_remark}
 records the resulting leaky sub-gap transport. The table is the lookup
-that prevents the natural misreading---the \(\DOS^{2}\) dressing, the
-relaxation \(\mathcal R\), and the SIS density-of-states product all
+that prevents the natural misreading: the \(\DOS^{2}\) dressing, the
+coherent relaxation \(\mathcal R\) defined in the table, and the SIS
+density-of-states product of the interface boundary law below all
 belong to the charge sector, not to the energy mode.
 
 \begingroup
@@ -2085,15 +2075,16 @@ there \(\hat{g}^A=-\hat{g}^R\), so
 anomalous-drift bracket cancels as a matrix, not merely under the trace.
 Even for spatially varying \(\Delta(\br)\) there is therefore no
 \(\bnabla\Delta\) source and no \(\fL\)--\(\fT\) mixing in either scalar
-channel (symbolically verified identities I7/I8,
-SM~\cref{SM-sec:resolution}): the longitudinal spatial current is
+channel (verified symbolically in SM~\cref{SM-sec:resolution},
+identities I7/I8): the longitudinal spatial current is
 the undressed \(-\DN\bnabla\fL\) wherever \(E>\Delta(\br)\), and the
 spatial structure of the energy-channel flux is carried entirely by the
-on/off indicator \(\mathcal{D}_L(E,\br)\)---it switches off where
-\(E<\Delta(\br)\)---rather than by a smooth \(\DOS^2(E,\br)\) dressing.
+on/off indicator \(\mathcal{D}_L(E,\br)\) (it switches off where
+\(E<\Delta(\br)\)) rather than by a smooth \(\DOS^2(E,\br)\) dressing.
 (The \(\DOS^2\) dressing and its DOS-gradient drift belong to the
 transverse channel, \cref{eq:DL_DT_BCS_bulk}.) This fixes the flux
-dressing \(q=0\) in the operator family of \cref{sec:taxonomy}; the
+dressing \(q=0\) in the operator family \(L_{p,q}\)
+(SM~\cref{SM-sec:taxonomy}); the
 time-weight exponent \(p\) is fixed only after choosing the conserved
 energy-resolved scalar density, as discussed in the next subsection.
 
@@ -2103,13 +2094,13 @@ energy-resolved scalar density, as discussed in the next subsection.
 operator is to be read in its flux (weak) form: \(\mathcal D_L=0\) on
 the blocked side forces the energy-mode flux through the locus to
 vanish, and for that energy the edge acts as a zero-flux face for
-\(\fL\)---the diffusive image of Andreev retroreflection, with sub-gap
-charge transport continuing through \(\mathcal D_T\neq0\). The
+\(\fL\) (the diffusive image of Andreev retroreflection, with sub-gap
+charge transport continuing through \(\mathcal D_T\neq0\)). The
 diverging spectral weight simultaneously sends the local diffusivity
 \(\DE=\DN/\DOS\to0\), so occupation transported toward the edge accumulates
 rather than leaks. A discretization of the ideal spectrum should therefore
-impose the zero-flux face explicitly (as the interface benchmark of
-\cref{sec:program} does at a material boundary). Finite Dynes broadening is a
+impose the zero-flux face explicitly.
+Finite Dynes broadening is a
 distinct physical model: it gives \(\mathcal D_L=\DOS^2/\mathcal D_T>0\)
 below the ideal gap and hence a leaky face, with deep-subgap scale
 \(\mathcal D_L\sim\Gamma^2/\Delta^2\) and order-unity leakage within an
@@ -2129,11 +2120,12 @@ weight is not fixed by the spatial-current reduction alone; it comes from the
 Keldysh projection of the time-derivative side, which selects the
 quasiparticle-number density below for static spectra (the time-dependent
 completion is examined after the static result). A squared-DOS form is
-retained only as a deliberately nonstandard test operator: its \(\DOS^2\)
+kept in the candidate family (SM~\cref{SM-sec:taxonomy}) only as a
+deliberately nonstandard test operator: its \(\DOS^2\)
 flux dressing is the transverse-channel coefficient of
-\cref{eq:DL_DT_BCS_bulk}, not the energy-channel one, but it has been
-useful in numerical comparisons precisely because it isolates the
-consequence of misassigning that dressing.
+\cref{eq:DL_DT_BCS_bulk}, not the energy-channel one, but it is
+useful in the numerical comparisons of SM~\cref{SM-sec:program} precisely
+because it isolates the consequence of misassigning that dressing.
 
 \paragraph{Quasiparticle-number continuity ($p=1$).} The
 \(\tau_3\)-trace that identifies \(\fL\) through
@@ -2147,7 +2139,7 @@ For BCS bulk above the gap this trace evaluates to a single power of
 \(n_{\qp}(E,\br)\propto\DOS(E,\br)f(E,\br)\). For a time-dependent gap the
 full fixed-\(E\) projection of the kinetic commutator produces
 \(\partial_t(\DOS\fL)+\partial_E[(\Delta/E)\dot\Delta\,\DOS\fL]\)
-directly---the canonical conservative spectral-flow form; see
+directly, the canonical conservative spectral-flow form; see
 \cref{sec:tdep_spectral_flow}. The \(p=1\) identification below is
 carried out for static spectra; the time-dependent completion is
 summarized in its own paragraph below and derived in
@@ -2181,11 +2173,11 @@ which corresponds, wherever \(E>\Delta(\br)\), to the operator
   \nabla_{\br}^2 f ,
   \label{eq:usadel_LD_p1q0}
 \end{equation}
-the member \((p,q)=(1,0)\) of the family
-introduced in \cref{sec:taxonomy}. At spatially uniform \(\Delta\) this
+the member \((p,q)=(1,0)\) of the family \(L_{p,q}\)
+(SM~\cref{SM-sec:taxonomy}). At spatially uniform \(\Delta\) this
 is an energy-dependent rate \(\DN/\DOS(E)\) that vanishes at the gap edge
 as \(\DOS\to\infty\) and recovers the normal-state value far above the
-gap---the same spectral suppression as the clean
+gap, the same spectral suppression as the clean
 Bardeen--Rickayzen--Tewordt closure of \cref{sec:scalar_diffusion}.
 For static spectra this is the closure delivered by the dirty-limit
 Belzig--Kopnin projection~\cite{belzig1999,kopnin2001}: \(n_{\qp}(E,\br)\propto\DOS f\)
@@ -2243,15 +2235,20 @@ time-dependent gap, the fixed-\(E\) projection itself supplies the
 spectral-flow term, with the moving-shell lift of
 \cref{sec:tdep_spectral_flow} as its kinematic reading. The \(p=2\)
 operator is a nonstandard symmetric test closure, retained in
-\cref{sec:taxonomy} (\cref{tab:operator_taxonomy}) to keep the numerical
+SM~\cref{SM-sec:taxonomy} (SM~\cref{SM-tab:operator_taxonomy}) to keep the numerical
 comparison honest. For a spatially varying gap the energy-channel
-operator carries \emph{no} DOS-gradient drift---the inhomogeneity enters
+operator carries \emph{no} DOS-gradient drift (the inhomogeneity enters
 only through the local gap edge in \(\mathcal{D}_L(E,\br)\) and the
-\(1/\DOS(E,\br)\) rate prefactor---whereas any \(q\neq0\) member of the
-family develops the drift term of \cref{eq:Lpq_expanded}. Spatially
-inhomogeneous systems such as proximity structures, traps, or
-vortex-adjacent gap profiles therefore provide a sharper benchmark than a
-uniform-gap packet alone.
+\(1/\DOS(E,\br)\) rate prefactor), whereas any \(q\neq0\) member of the
+family develops the drift term of SM~\cref{SM-eq:Lpq_expanded}. Spatially
+inhomogeneous systems whose spectra remain local BCS across the gradient,
+such as gap-engineered traps and self-consistently generated gap wells,
+therefore provide a sharper benchmark than a uniform-gap packet alone.
+Proximity structures and vortex-adjacent gap profiles fall outside this
+sector: there \(\mathcal{D}_L\) varies smoothly in space instead of
+switching only at the local gap edge, so the energy-channel operator
+acquires a drift of its own (SM~\cref{SM-app:proximity}) and the
+benchmark no longer contrasts a vanishing drift with a nonvanishing one.
 
 \subsection{Time-dependent spectral flow in the matrix-Usadel reduction}
 \label{sec:tdep_spectral_flow}
@@ -2360,11 +2357,12 @@ The positive-branch projected distribution satisfies
 \(F_+(\xi,t)=\fL(E_\xi(t),t)\) the fixed-\(\xi\) lift of \(\fL\).
 At second Wigner order, \(O(\hbar^2)\), the instantaneous BCS spectral
 propagator requires a normalized correction and the density of states changes
-(SM~\cref{SM-app:nonadiabatic}). Once that correction is included, the
-off-diagonal coherence-channel residual is sourced by the energy mode alone
-for a generic independently driven \(\fL(E,t)\), with no \(\fT\) source, but
-cancels exactly for every shell-slaved distribution \(\fL=G(W)\), including
-\(\fL=1\). This collisionless residual is not itself a coherence amplitude;
+(SM~\cref{SM-app:nonadiabatic}). Once that correction is included, an
+off-diagonal coherence-channel residual appears, sourced by the energy mode
+alone for a generic independently driven \(\fL(E,t)\), with no \(\fT\)
+source, but it cancels exactly for every shell-slaved distribution
+\(\fL=G(W)\) (\(W\) the invariant shell label of
+SM~\cref{SM-app:nonadiabatic}), including \(\fL=1\). This collisionless residual is not itself a coherence amplitude;
 its amplitude and relaxation require a collision or dephasing closure. The
 scalar energy and charge projections remain unmixed at this order. Away from
 \(\xi=0\), the moving-\(\xi\) scalar law is fixed by exact
@@ -2377,15 +2375,19 @@ bracket vanishes identically above the gap, where
 \(\hat g^A=-\hat g^R\)) together with the time-dependent spectral flow,
 \cref{eq:fixedE_conservative_flow}, with the moving-shell identity
 \cref{eq:moving_bin_identity} as its kinematic reading. Content
-beyond A1 enters only beyond the present assumptions---a phase gradient or supercurrent, non-BCS
-proximity spectra, or nonadiabatic spectral dynamics---and the leading content
+beyond A1 enters only beyond the present assumptions (a phase gradient or supercurrent, non-BCS
+proximity spectra, or nonadiabatic spectral dynamics), and the leading content
 of each of those extensions is established in
 SM~\cref{SM-app:supercurrent,SM-app:proximity,SM-app:nonadiabatic}.
 A time-dependent gap need not be externally driven: the self-consistency
-of \cref{sec:self_consistent_feedback} makes \(\Delta(\br,t)\) track the
-occupation, and the identities above hold verbatim for that combined
-space- and time-dependence---verified symbolically, with no new terms in
-either scalar channel.
+of SM~\cref{SM-sec:self_consistent_feedback} makes \(\Delta(\br,t)\) track the
+occupation, and the identities above hold verbatim through first Moyal
+order for that combined space- and time-dependence, verified
+symbolically, with no new terms in either scalar channel. The
+\(O(\hbar^2)\) coherence-channel cancellation stated above was
+established only for a spatially uniform \(\Delta(t)\), with no spatial
+current; the Moyal-corrected spatial current at that order remains open
+(SM~\cref{SM-sec:resolution}).
 
 \subsection{Agreement with the scalar route}
 
@@ -2399,9 +2401,9 @@ and the time-dependent spectral flow
 equation is therefore \cref{eq:usadel_A1_tdep_fL}, which is the dirty
 two-mode elimination of \cref{sec:sc_transport_closures} in Kopnin's
 variables~\cite{kopnin2001}: his Eq.~(10.106) is the constitutive relation and his
-Eq.~(10.107)---supplemented by the \(g_-\partial f_1/\partial t\) term
+Eq.~(10.107) (supplemented by the \(g_-\partial f_1/\partial t\) term
 of his Eq.~(10.55) and the spectral-flow completion of
-\cref{sec:conserved_density_ambiguity}---the transport equation, the
+\cref{sec:conserved_density_ambiguity}) the transport equation, the
 linearized drive being recovered through
 \(\DOS\,(\Delta/E)\dot\Delta=N_2\dot\Delta\) at \(\fL\to\fL^{(0)}\).
 With \(\fL=1-2f\), \cref{eq:usadel_A1_tdep_fL} is
@@ -2414,9 +2416,9 @@ nonmagnetic-Born, charge-balanced dirty limit, the branch-projected
 scalar route and the matrix (Usadel/Kopnin) route give the \emph{same}
 diffusion equation, \cref{eq:sc_three_f_diffusive} in conservation
 form \cref{eq:cons_form}, provided the current-carrying harmonic is
-retained [\cref{eq:sc_hidden_harmonic}]---it is the anisotropic
+retained [\cref{eq:sc_hidden_harmonic}] (it is the anisotropic
 transverse amplitude in branch-projected variables, not a discarded
-channel---and the impurity kernel carries its coherence-factor
+channel) and the impurity kernel carries its coherence-factor
 dressing [\cref{eq:sc_tau_closure}]; the closure is forced by the
 kernel, not fitted. The scalar presentation of
 \cref{sec:sc_angular_averaging} is thus best read as a
@@ -2428,231 +2430,11 @@ spectra, order-parameter gradients strong on the coherence length,
 supercurrent, charge imbalance, subgap spectral weight, magnetic or
 pair-breaking scattering, anisotropic pairing, Dynes broadening, or
 nonadiabatic drives. There the two-mode (or full matrix) equations
-must be kept, and a scalar operator---if one exists---must be
+must be kept, and a scalar operator (if one exists) must be
 re-derived rather than assumed.
 
-\section{Taxonomy of candidate diffusion operators}
-\label{sec:taxonomy}
-
-The reductions of the two routes can now be compared without changing
-notation by
-writing a two-exponent family of operators:
-\begin{equation}
-  L_{p,q}[f]
-  =
-  \DOS^{-p}
-  \bnabla_{\br}\cdot
-  \left[
-    \DN \DOS^q \bnabla_{\br}f
-  \right].
-  \label{eq:Lpq_family}
-\end{equation}
-The exponent \(p\) records the spectral weight that multiplies the time
-derivative before the equation is divided into \(\partial_t f=\cdots\). The
-exponent \(q\) records the spectral weight carried by the diffusive flux. Thus
-the same uniform-\(\Delta\) diffusion rate does not by itself determine the
-spatial-drift term in an inhomogeneous gap. All members are understood
-on the local spectral domain \(E>\Delta(\br)\): the exponents do not
-encode the subgap blocking, which the physical operator carries
-separately through \(\mathcal D_L\) (\(1\) above the local gap edge,
-\(0\) below).
-For a uniform gap this reduces to
-\begin{equation}
-  L_{p,q}[f]
-  =
-  \DN \DOS^{q-p}\nabla_{\br}^2 f.
-  \label{eq:Lpq_uniform}
-\end{equation}
-For a spatially varying gap,
-\begin{equation}
-  L_{p,q}[f]
-  =
-  \DN \DOS^{q-p}\nabla_{\br}^2f
-  +
-  q\DN \DOS^{q-p}
-  \left(\bnabla_{\br}\ln\DOS\right)\cdot\bnabla_{\br}f.
-  \label{eq:Lpq_expanded}
-\end{equation}
-
-The family also organizes conservation-law bookkeeping. If the conserved
-shell density is \(\mathcal W(E,\br)\,f\), transported by the weighted
-occupation-gradient current
-\(\mathbf j=-\mathcal W\,\DE\,\bnabla_{\br}f\) [the structure of
-\cref{eq:generic_energy_current}], the occupation obeys
-\(\partial_tf=\mathcal W^{-1}\bnabla_{\br}\cdot[\mathcal W\,\DE\,\bnabla_{\br}f]+\cdots\);
-with \(\mathcal W=\DOS\) and a mobility \(\DE=\DN\DOS^{\,r}\) this is the
-member \((p,q)=(1,r+1)\). The continuity-skeleton row of
-\cref{tab:operator_taxonomy} records the skeleton; the mobility choice
-assigns the label, and \(r=-1\) is A1.
-
-\Cref{fig:routes_roadmap} summarizes how the candidate operators descend
-from the common quasiclassical parent. The antipodal branch relabelling
-commutes with the bare angular average
-(\cref{sec:projection_vs_averaging}); the two routes instead differ in how
-they retain and eliminate the current-carrying first harmonic. Their scalar
-end points coincide on A1, and \cref{tab:operator_taxonomy} collects that
-operator together with the legacy and diagnostic placements.
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.84\textwidth]{figures/routes_roadmap}
-  \caption{Reduction routes from the quasiclassical matrix theory to the
-  candidate diffusion operators of \cref{tab:operator_taxonomy}. The bare
-  angular average is invariant under the antipodal branch relabelling
-  (\cref{sec:projection_vs_averaging}), which shuffles odd angular harmonics
-  between the longitudinal and transverse representations. What differs is
-  whether the current-carrying first harmonic is closed as a scalar branch
-  moment or as a matrix moment before the Nambu trace. The scalar end points
-  nevertheless coincide: the
-  matrix (dirty) route and the branch route with the
-  Bardeen--Rickayzen--Tewordt-dressed kernel both fix the longitudinal
-  operator A1, \((p,q)=(1,0)\): conserved spectral density \(\DOS f\),
-  undressed flux (\(\mathcal{D}_L=1\) above the local gap edge, \(0\)
-  below), no DOS-gradient drift, with the squared-DOS dressing
-  \(\mathcal{D}_T=\DOS^2\) residing in the transverse (charge-imbalance)
-  channel. The legacy placement C, \((0,-1)\), shares the uniform-gap
-  rate \(\DN/\DOS(E)\) but is a Fick ansatz for the occupation itself,
-  not the end point of either route; its DOS-gradient drift is the
-  artifact the benchmarks quantify.}
-  \label{fig:routes_roadmap}
-\end{figure*}
-
-\begingroup
-\squeezetable
-\begin{table*}[!tbp]
-\caption{\label{tab:operator_taxonomy}Candidate diffusion operators collected
-for the manuscript. Here \(\DOS=\DOS(E,\Delta)\). Both microscopic routes
-select A1: the dirty-limit Keldysh--Usadel projection (\(q=0\): the matrix
-flux is undressed above the local gap edge and blocked below it, \(p=1\)
-from quasiparticle-number continuity, with the time-dependent
-spectral-flow term produced directly by the fixed-\(E\) projection,
-\cref{sec:tdep_spectral_flow}), and equally the branch-projected moment
-reduction with the BRT-dressed kernel
-[\cref{eq:sc_scalar_diffusion,eq:sc_tau_closure}]. The \((0,\cdot)\)
-rows B and C are \emph{legacy placements}---Fick ans\"atze for the
-occupation \(f\) itself, with the whole coefficient inside the
-divergence; they are retained as labeled diagnostics of the naive
-operator ordering, not as route end points. The \((1,2)\) row attaches
-the \emph{transverse} (charge-imbalance) flux dressing
-\(\mathcal{D}_T=\DOS^2\) of \cref{eq:DL_DT_BCS_bulk} to the occupation
-mode; it is not selected by the Keldysh projection and is kept
-only as a labeled diagnostic. A2 is a nonstandard symmetric test operator.}
-\begin{ruledtabular}
-\begin{tabular}{p{0.16\textwidth}p{0.09\textwidth}p{0.22\textwidth}p{0.28\textwidth}p{0.11\textwidth}}
-Name & Label & Route & Operator & Uniform-\(\Delta\) rate \\
-\hline
-Usadel, QP-number closure & A1: \((1,0)\) &
-Matrix angular average, scalar projection, conserved density \(\DOS f\),
-undressed flux (\(\mathcal{D}_L\)) &
-\(\DN\DOS^{-1}\bnabla\cdot(\mathcal{D}_L\bnabla f)\) &
-\(\DN\mathcal{D}_L/\DOS\) \\
-Transverse-flux dressing (charge channel) & A1\('\): \((1,2)\) &
-Diagnostic: attaches the transverse coefficient
-\(\mathcal{D}_T=\DOS^2\) to the occupation mode &
-\(\DN\DOS^{-1}\bnabla\cdot(\DOS^2\bnabla f)\) &
-\(\DN\DOS\) \\
-Usadel-flux symmetric test & A2: \((2,2)\) &
-Transverse-dressed flux, nonstandard conserved density \(\DOS^2 f\) &
-\(\DN\DOS^{-2}\bnabla\cdot(\DOS^2\bnabla f)\) &
-\(\DN\) \\
-Legacy placement, constant \(\tau\) & B: \((0,-2)\) &
-Naive ordering: constant-\(\tau\) coefficient inside the divergence
-(Fick ansatz for \(f\)); the ordered branch reduction instead gives
-\((1,-1)\), the continuity-skeleton member with \(\DE=\DN/\DOS^{2}\),
-not benchmarked separately &
-\(\bnabla\cdot[(\DN/\DOS^2)\bnabla f]\) &
-\(\DN/\DOS^2\) \\
-Legacy placement, BRT / constant \(\ell\) & C: \((0,-1)\) &
-Naive ordering: BRT coefficient inside the divergence (Fick ansatz for
-\(f\)); the ordered branch reduction gives A1 &
-\(\bnabla\cdot[(\DN/\DOS)\bnabla f]\) &
-\(\DN/\DOS\) \\
-Continuity skeleton & \(p=1\) &
-Conserved density \(\DOS f\), mobility unspecified &
-\(\DOS^{-1}\bnabla\cdot[\DOS\DE\bnabla f]\) &
-\(\DE\) if \(\DOS\) uniform \\
-\end{tabular}
-\end{ruledtabular}
-\end{table*}
-\endgroup
-
-The table separates microscopic limits from diagnostic closures.
-A1 is the end point of \emph{both} microscopic routes: the dirty-limit
-Keldysh--Usadel scalar projection, and equally the branch-projected
-moment reduction once its operator ordering
-[\cref{eq:sc_scalar_diffusion}] and the BRT-dressed kernel
-[\cref{eq:sc_tau_closure}] are kept---conserved density \(\DOS f\), undressed flux, uniform-gap rate
-\(\DN/\DOS(E)\), with the time-dependent spectral-flow term produced
-directly by the fixed-\(E\) projection (\cref{sec:tdep_spectral_flow}).
-C is the legacy placement of the same BRT coefficient inside the
-divergence---a Fick ansatz for the occupation \(f\), widely used in
-device modeling (e.g., it is the energy-resolved starting point,
-Appendix~A, of the gap-engineered-trap analysis of
-Ref.~\onlinecite{riwar2019}); it shares the uniform-gap rate of A1, which is why the
-misplacement goes unnoticed until the gap is inhomogeneous, where it
-adds the \(q=-1\) DOS-gradient drift of \cref{eq:Lpq_expanded}. B is the
-same placement with the undressed constant-\(\tau\) coefficient, which
-additionally misses the coherence-factor cancellation. The \((1,2)\)
-entry is retained only to label the transverse-channel flux
-dressing---the Keldysh projection does not attach it to the occupation
-mode (\cref{eq:DL_DT_BCS_bulk})---and A2 further replaces the time
-weight by the nonstandard \(\DOS^2 f\); both are diagnostics, not Usadel
-derivations. If the continuity skeleton's mobility is later chosen as
-\(\DE=\DN\DOS^r\), its \((p,q)\) label is \((1,r+1)\); in particular,
-\(r=-1\) recovers A1, now reached from three directions: the
-Usadel--continuity closure, the dirty matrix projection, and the ordered
-branch reduction.
-
-\section{Consistency checks and benchmark tests}
-\label{sec:program}
-
-The comparison above reduces the problem to a small set of explicit
-checks and benchmarks. Two pieces are fixed by standard theory: the
-dirty-limit projection selects A1 (\cref{sec:usadel_route}), and the BRT
-coherence-factor cancellation fixes the branch-route kernel, whose
-ordered reduction [\cref{eq:sc_scalar_diffusion,eq:sc_tau_closure}] lands on the same A1.
-This section states the regime boundaries of the shared reduction,
-derives the interface reduction of the matrix boundary condition,
-exhibits the gap-feedback response that separates the candidate
-operators, and then benchmarks the resulting operators numerically.
-
-\subsection{Projection versus angular averaging}
-\label{sec:projection_vs_averaging}
-
-The Usadel route averages over trajectory (Fermi-surface) directions before
-extracting a scalar quasiparticle occupation. The scalar Boltzmann route extracts the
-branch occupation first and closes its angular moments afterward. The
-antipodal relabelling involved in the branch projection does \emph{not}
-obstruct the bare average. For any integrable angular function \(X\), define
-\begin{equation}
-  R_sX(\hat{\bp})\equiv X(s\hat{\bp}),
-  \qquad
-  \avg{R_sX}_{\hat{\bp}}=\avg{X}_{\hat{\bk}},
-  \qquad
-  \hat{\bk}=s\hat{\bp},\quad s=\pm1 .
-  \label{eq:antipodal_average_identity}
-\end{equation}
-The equality is just the measure-preserving change of variable
-\(\hat{\bk}=s\hat{\bp}\). The representation dependence instead resides
-in retaining, solving, and eliminating the current-carrying first harmonic.
-The branch-to-trajectory map flips its odd angular harmonics
-[\cref{eq:intro_parity_dictionary}], so the branch route's
-current-carrying first harmonic is the anisotropic
-\emph{transverse} amplitude of the two-mode description in
-disguise---while the isotropic charge-imbalance mode is the component
-that vanishes in the charge-balanced sector. Eliminating that slaved
-harmonic reproduces the same longitudinal operator as the matrix route,
-as the hidden-harmonic map \cref{eq:sc_hidden_harmonic} and the
-closed operator \cref{eq:sc_LD_closed} show explicitly: the scalar end points coincide on A1
-(\cref{fig:routes_roadmap}). Thus the relabelling changes the
-longitudinal/transverse representation of the first harmonic, not the full
-angular average or the resulting diffusion law. Genuinely different kinetics
-appears only outside the shared assumptions---ballistic
-transport with mean free paths comparable to device scales,
-proximity-modified spectra, charge imbalance, and the extensions bounded
-in the SM.
-
-\subsection{Conserved currents and boundary conditions}
+\section{Conserved currents and boundary conditions}
+\label{sec:conserved_currents}
 
 Spatial diffusion in devices is also a boundary-value problem. Matrix Usadel
 theory has current-conserving boundary conditions at interfaces, including the
@@ -2684,10 +2466,10 @@ currents.
 
 \paragraph{Result of the projection.} Carrying this out for a low-transparency
 (Kupriyanov--Lukichev) tunnel interface between rigid BCS electrodes \(1,2\),
-at a common condensate phase and \(E>\max(\Delta_1,\Delta_2)\) --- taking
+at a common condensate phase and \(E>\max(\Delta_1,\Delta_2)\) (taking
 the plain-trace longitudinal component of the matrix interface current
 \((2\mathcal R_b)^{-1}[\check{g}_1,\check{g}_2]^{K}\), with trace normalization
-and orientation fixed by continuity with the bulk matrix current --- gives
+and orientation fixed by continuity with the bulk matrix current) gives
 \begin{equation}
   \mathcal J_L=G_N\!\left[\DOS^{(1)}\DOS^{(2)}
   -N_2^{(1)}N_2^{(2)}\right]\!
@@ -2699,7 +2481,8 @@ and orientation fixed by continuity with the bulk matrix current --- gives
 the coherence-factor (Maki--Griffin heat-current) weight~\cite{maki1965};
 here \(R_b\) is the measured normal resistance of a patch of area \(A\), so
 \(G_N\) is the spin-degenerate conductance per area. Superscripts label the
-two electrodes (not the Kopnin mode indices of Sec.~I). The interface
+two electrodes (not the Kopnin mode indices of
+\cref{sec:quasiclassical}). The interface
 objects are therefore the spectral weight
 \(\mathcal{W}=\DOS^{(1)}\DOS^{(2)}-N_2^{(1)}N_2^{(2)}\), the
 conductance density \(G_N\), and the jump variable \(\fL\).
@@ -2782,278 +2565,10 @@ relative to the outer spectral resistance throughout the near-edge
 energy window used in Ref.~\onlinecite{riwar2019}, we do not revise that
 work's integrated matching or trap-length estimates.
 
-\subsection{Self-consistent gap feedback}
-\label{sec:self_consistent_feedback}
-
-The first three benchmarks below treat \(\Delta(\br)\) as prescribed. In a device the
-gap is not free: the occupation enters the BCS gap equation, and any
-population suppresses the local order parameter
-\cite{owen1972,parker1975}. Dividing the local weak-coupling gap
-equation [cf.~\cref{eq:intro_three_gap}],
-\(1=\lambda\int_0^{\omega_D}\dd\xi\,[1-2f(E)]/E\), by its
-zero-temperature counterpart (\(f=0\); \(\Delta_0\) the zero-temperature
-equilibrium gap) cancels the cutoff (\(\omega_D\gg\Delta\)) and
-gives the closed local form
-\begin{equation}
-  \Delta(\br)
-  =
-  \Delta_0\,
-  \exp\!\left[
-    -2\int_{\Delta}^{\infty}\frac{\dd E}{E}\,\DOS(E,\br)\,f(E,\br)
-  \right],
-  \label{eq:gap_feedback_closure}
-\end{equation}
-with \(\DOS\) evaluated at the self-consistent local gap. No
-linearization is involved: a thermal occupation in
-\cref{eq:gap_feedback_closure} reproduces the equilibrium \(\Delta(T)\),
-and a nonequilibrium population suppresses the gap beyond it. For a
-small exponent the familiar linear response
-\(\delta\Delta/\Delta_0=-2\int(\dd E/E)\,\DOS f\) follows, reducing for
-a population concentrated near the gap edge to \(-x_{\qp}(\br)\), where
-\(x_{\qp}=n_{\qp}/(2N_0\Delta_0)\) and
-\(n_{\qp}=4N_0\int\DOS f\,\dd E\), \(N_0\) being the single-spin
-normal-state density of states at the Fermi level. The amplitude is small in devices
-(\(x_{\qp}\sim10^{-9}\)--\(10^{-5}\) in qubits, larger under drive), but
-the drift \emph{response} of the transport operators to it is governed
-by the density-of-states gradient, which is singular at the gap
-edge: at fixed energy,
-\begin{equation}
-  \bnabla\ln\DOS(E,\br)
-  =
-  \frac{\Delta\,\bnabla\Delta(\br)}{E^2-\Delta^2},
-  \label{eq:dos_gradient_response}
-\end{equation}
-which diverges as \(E\to\Delta\)---precisely where thermal and
-nonequilibrium populations concentrate. Every \(q\neq0\) member of
-\cref{eq:Lpq_expanded} converts this into the drift
-\(v=\DN\,q\,\DOS^{\,q-p-1}\partial_x\DOS\), with the sign of \(q\)---divergent
-at the edge for \(q-p>-2\) and finite precisely at the marginal exponent
-\(q-p=-2\) of the legacy placement B; the
-dirty-limit operator A1 (\(q=0\)) has no drift response at any amplitude.
-
-For the legacy placement C, \((p,q)=(0,-1)\), the first moment of its
-conserved variable \(f\) has a fixed-energy drift. A compact local
-diagnostic compares that drift with diffusion over a length
-\(L_{\Delta}\), where
-\(|\delta\Delta|\simeq L_{\Delta}|\partial_x\Delta|\):
-\begin{align}
-  |v_C|
-  &=\frac{\DN\Delta|\partial_x\Delta|}
-          {E\sqrt{E^2-\Delta^2}},\\
-  \mathrm{Pe}_E
-  &\equiv\frac{|v_C|L_{\Delta}}{\DE}
-   =\frac{\Delta|\delta\Delta|}{E^2-\Delta^2},
-  \qquad \DE=\frac{\DN}{\DOS}.
-  \label{eq:legacy_local_peclet}
-\end{align}
-At \(E/\Delta=(1.05,1.10,1.30)\), the corresponding triples are
-\begin{align*}
-  \mathrm{Pe}_E&=(9.76,4.76,1.45)\times10^{-5}
-    &&\bigl(|\delta\Delta|/\Delta=10^{-5}\bigr),\\
-  \mathrm{Pe}_E&=(9.76,4.76,1.45)\times10^{-3}
-    &&\bigl(|\delta\Delta|/\Delta=10^{-3}\bigr),\\
-  \mathrm{Pe}_E&=(1.95,0.952,0.290)
-    &&\bigl(|\delta\Delta|/\Delta=0.2\bigr).
-\end{align*}
-This P\'eclet number is a local fixed-energy operator diagnostic, not a
-device observable or a predicted device error. It is nonuniform at the
-ideal BCS gap edge; translating it into an error in a density, lifetime,
-or readout requires a broadened spectrum, an energy distribution, a
-collision kernel, and the full boundary-value problem.
-
-Two statements keep the feedback from threatening the A1 reduction
-itself. First, the combined background \(\Delta(\br,t)\) that
-self-consistency generically produces adds no new terms to the
-longitudinal projection: the fixed-\(E\) trace yields the spectral flow
-with local coefficients, the spatial current remains undressed with no
-\(\bnabla\Delta\) source, the drive does not mix the scalar channels, and
-the first Moyal correction to \(g_0^K\) is sourced only by \(\fT\), so
-the leading candidate \(\hbar\,\dot\Delta\,\partial_x\Delta\) cross term
-traces to zero in the energy mode (verified symbolically for generic
-\(\Delta(x,t)\) alongside the identities of \cref{sec:tdep_spectral_flow};
-script \texttt{verify\_tdep\_inhomogeneous.py} in the verification
-repository). Self-consistency changes
-the \emph{background} A1 runs on, not the operator. Second, feedback
-makes the inhomogeneous-gap regime self-generating: a localized
-population suppresses the gap, so the structure that separates the
-candidate operators can be engaged without an externally imposed
-profile. The fourth benchmark below uses a distinct passive probe to
-read out transport on this population-generated landscape.
-
-\subsection{Benchmark problems}
-
-Four benchmark problems separate the models cleanly:
-\begin{enumerate}
-  \item a uniform-gap relaxation-rate test, where the microscopic operator A1
-  \((p,q)=(1,0)\) and the legacy constant-\(\ell\) placement C share the
-  near-gap-suppressed rate \(\DN/\DOS(E)\), while the diagnostic closures
-  separate from them: the \((1,2)\) operator gives a rate
-  \(\DN\DOS(E)\) that diverges at the gap edge, A2 \((p,q)=(2,2)\) gives
-  the energy-independent rate \(\DN\), and the constant-\(\tau\) placement
-  suppresses the rate more strongly as \(\DN/\DOS^2\);
-  \item a spatially varying gap with no collisions, where A1
-  carries \emph{no} DOS-gradient drift (the inhomogeneity enters only
-  through \(\mathcal{D}_L\) and the outside spectral factor), the legacy
-  placement C carries the spurious drift of its \(q=-1\) flux, and the \(q=2\)
-  diagnostics drift with the opposite sign and, asymptotically
-  (\(E\gg\Delta\)), twice the magnitude;
-  \item an interface or trap geometry---the configuration of engineered
-  quasiparticle traps \cite{riwar2016,hosseinkhani2018,riwar2019}---where conservation of the integrated
-  quasiparticle number can be tested against boundary conditions, and where
-  A1 (which conserves \(\DOS f\) by construction) and A2 (which conserves
-  \(\DOS^2 f\)) can be distinguished by the equilibrium they relax to;
-  \item a self-consistent feedback problem, in which a maintained
-  quasiparticle population generates a gap well through the gap closure
-  \cref{eq:gap_feedback_closure}, and a separate probe packet, excluded
-  from the gap closure and therefore passive, reads out each operator's
-  response on the well's flank.
-\end{enumerate}
-The first benchmark tests the rate spectrum: the agreeing pair
-A1/constant-\(\elltr\), the diagnostic \((1,2)\) and A2 operators, and
-constant-\(\tau\) make different predictions even before boundaries or gap
-gradients are introduced. The second
-tests the DOS-gradient drift dressing, which \emph{distinguishes} the
-microscopic operator from the legacy placement that shares its
-uniform-gap rate. The third tests whether the scalar
-current is the correct reduction of the matrix spectral current and which scalar
-density it conserves. The fourth closes the loop of
-\cref{sec:self_consistent_feedback}: it asks how each operator transports
-a passive probe on a gap landscape generated by a distinct quasiparticle
-population.
-
-\Cref{fig:bench_uniform,fig:bench_drift,fig:bench_interface} realize the
-first three tests numerically, treating every operator with the same
-one-dimensional Crank--Nicolson discretization---time evolution for the
-drift and interface tests, a single exact inversion of the amplification
-factor for the uniform-gap rates (aluminum-strip
-parameters, \(\DN=6~\mu\mathrm{m}^2/\mathrm{ns}\),
-\(L=100~\mu\mathrm{m}\), reflective ends; the \((1,2)\) diagnostic
-A1\('\) is labeled A1P in the legends). The measured points sit on the analytic
-spectra in all three problems: the uniform-gap rates trace
-\(\DOS^{\,q-p}\), with A1 and C coincident on \(\DN/\DOS\)
-(\cref{fig:bench_uniform}); the ramp drift velocities---measured on the center of mass of each
-operator's conserved density \(\DOS^{p}f\)---trace
-\(\DN\,q\,\DOS^{\,q-p-1}\partial_x\DOS\), with A1 driftless and the
-\(q=2\) diagnostics moving opposite to the legacy placements
-(\cref{fig:bench_drift}); and the interface problem separates the
-conserved densities, A1 and A2 relaxing to distinct closed-box equilibria
-while both carry a continuous current through the Kupriyanov--Lukichev
-face (\cref{fig:bench_interface}).
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.62\textwidth]{figures/uniform_gap_packet}
-  \caption{Uniform-gap benchmark: energy-resolved effective diffusivity
-  \(D_{\mathrm{eff}}(E)/\DN\) for the five scalar operators. Lines are
-  the analytic spectra \(\DOS^{\,q-p}\); markers are measured from a
-  single exact inversion of the Crank--Nicolson amplification of the
-  fundamental reflective spatial mode. The microscopic operator
-  A1, \((p,q)=(1,0)\) (wide line), and the legacy constant-\(\elltr\)
-  placement C, \((0,-1)\) (dashed), coincide on the near-gap-suppressed
-  rate \(\DN/\DOS(E)\); the transverse-dressed \((1,2)\) diagnostic
-  rises as \(\DOS\), A2 \((2,2)\) is energy independent, and the
-  constant-\(\tau\) placement B \((0,-2)\) is suppressed as
-  \(\DOS^{-2}\). The integrated quasiparticle number is conserved to
-  round-off (\(\lesssim10^{-15}\) relative) by every operator.}
-  \label{fig:bench_uniform}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.62\textwidth]{figures/gap_gradient_drift}
-  \caption{Gap-gradient benchmark: center-of-mass drift velocity,
-  energy by energy, of a Gaussian packet
-  \(\exp[-(x-x_0)^2/\sigma^2]\) (\(\sigma=8~\mu\mathrm{m}\)) on
-  a static linear ramp \(\Delta(x)\) rising from \(\Delta_0\) to
-  \(1.6\,\Delta_0\) across the strip, with no collisions. Lines are the
-  analytic drift \(v=\DN\,q\,\DOS^{\,q-p-1}\,\partial_x\DOS\); markers
-  are measured. The tracked moment is the center of mass of each
-  operator's conserved density \(\DOS^{p}f\), which isolates the drift
-  content of the flux; the first moment of \(f\) itself would
-  additionally respond to the spatially varying rate prefactor
-  \(\DOS^{\,q-p}(x)\). A1 (\(q=0\)) shows no DOS-gradient drift; the \(q=2\)
-  diagnostics drift up the gap gradient; the legacy placements C
-  (\(q=-1\)) and B (\(q=-2\)) drift down, with magnitudes set
-  asymptotically by \(q\). The prescribed 60\% ramp is deliberately
-  large to discriminate the operators; it is not intended as a typical
-  self-consistent gap suppression.}
-  \label{fig:bench_drift}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{figures/interface_trap}
-  \caption{Interface benchmark: a same-material two-gap Al strip
-  (\(1.6\,\Delta_0\) for
-  \(x<50~\mu\mathrm{m}\), \(\Delta_0\) beyond) joined by a
-  Kupriyanov--Lukichev face carrying the coherence-factor weight of
-  \cref{eq:scalar_BC_energy} (interface conductance in diffusion units,
-  \(g_N=G_N/2e^2N_0=0.1~\mu\mathrm{m}/\mathrm{ns}\); no side label is needed
-  because \(N_0\) is the same on both sides), shown at a fixed energy
-  above both gap edges. (a)~Driven steady state with a fixed-\(f\)
-  source at the left edge and an absorbing (\(f=0\)) right edge: each
-  operator shown carries equal currents on the
-  faces left of, at, and right of the interface (continuity to solver
-  tolerance), with an operator-dependent \(f\)-discontinuity at the
-  face. (b)~Closed-box relaxation from a common initial condition: A1
-  and A2 relax to \emph{distinct} flat equilibria---they conserve
-  \(\DOS f\) and \(\DOS^{2}f\), respectively---differing by
-  \(\sim2\times10^{-3}\) at the drive energy. This idealized K-L face
-  tests scalar current matching; it is not a transfer law for the
-  coherence-scale proximity crossover of Ref.~\onlinecite{riwar2019}.}
-  \label{fig:bench_interface}
-\end{figure}
-
-\Cref{fig:bench_feedback} realizes the fourth test with the same
-discretization (well depth \(\delta\Delta/\Delta_0=0.05\) dug by a
-maintained near-edge population of width \(10~\mu\mathrm{m}\); probe read
-out at \(E=1.08\,\Delta_0\)). In the quasi-static well the probe's
-conserved-density center of mass reproduces the analytic drift spectrum
-evaluated on the self-generated profile: the legacy placements
-drive the passive probe \emph{into} the population-generated well (C and
-B within a few percent of the prediction), the \(q=2\) diagnostics expel
-it, and A1 produces no fixed-energy DOS-gradient motion---zero to
-round-off in the quasi-static calculation, since its undressed face flux
-telescopes across the well. With fully dynamic feedback (the gap tracking
-the well-generating population every step) the same sign pattern survives; the
-bookkeeping drift from the neglected energy-space spectral-flow
-advection is measured rather than hidden, at the percent level for the
-\(p\geq1\) operators over the \(20\)-ns run and zero for \(p=0\)
-(A1's residual center-of-mass motion under dynamic feedback is this
-bookkeeping effect---about a factor of \(3\) below the legacy drift at
-this well depth---not a DOS-gradient response).
-An inward passive-tracer response to a population-generated gap well is
-therefore a structural artifact of the \(q<0\) legacy placements; the
-microscopic operator---by either route---has no such fixed-energy
-DOS-gradient drift.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{figures/self_consistent_feedback}
-  \caption{Self-consistent feedback benchmark. (a)~The gap well dug by a
-  localized quasiparticle population through the gap closure
-  \cref{eq:gap_feedback_closure} (solid; target depth
-  \(\delta\Delta/\Delta_0=0.05\)), and the same well after \(20\)~ns of
-  fully dynamic feedback under A1 (dashed); the dotted line marks the
-  probe packet on the flank. Only the well-generating population enters
-  the gap closure; the separate probe is excluded and is therefore
-  passive. (b)~Probe center-of-mass drift at
-  \(E=1.08\,\Delta_0\) in the quasi-static well: the legacy placements C
-  and B fall toward the well, the \(q=2\) diagnostics A1\('\) (legend:
-  A1P) and A2 are
-  expelled, and the microscopic A1 stays exactly put. (c)~Measured
-  (markers) versus analytic (lines) drift velocity at the probe versus
-  well depth: the response scales with the feedback strength with the
-  sign of \(q\), and A1's vanishing drift is parameter-free. The 5\%
-  well is deliberately exaggerated for discrimination, and inward probe
-  drift is not net compression of the well-generating population.}
-  \label{fig:bench_feedback}
-\end{figure}
-
 \section{Conclusion}
 
-Within its assumptions---local BCS spectra, nonmagnetic Born disorder,
-negligible charge imbalance---the bulk energy-resolved scalar diffusion
+Within its assumptions (local BCS spectra, nonmagnetic Born disorder,
+negligible charge imbalance), the bulk energy-resolved scalar diffusion
 operator is not a free modeling choice: it has a single
 microscopically selected form, and both reduction routes deliver it.
 The matrix Usadel route gives a
@@ -3071,7 +2586,7 @@ fixed-\(E\) scalar projection of the matrix equation; lifting the conserved
 scalar to the moving quasiparticle energy shell reproduces it and supplies
 its kinematic interpretation
 (\cref{sec:tdep_spectral_flow}). New content
-beyond A1 requires leaving the present assumptions---a supercurrent,
+beyond A1 requires leaving the present assumptions: a supercurrent,
 proximity-modified spectra, or nonadiabatic dynamics;
 SM~\cref{SM-app:supercurrent,SM-app:proximity,SM-app:nonadiabatic}
 derive, estimate, or bound the leading correction in each case. The symmetric A2
@@ -3115,23 +2630,24 @@ D_{\mathrm{eff}}
 \]
 The first expression is therefore not a generic local-equilibrium formula.
 Near-gap quasiparticles, which dominate the thermal population
-at \(T\ll\Delta\) where \(\DOS\) is largest, carry a \emph{suppressed}
-diffusive weight in both microscopic routes---a statement about the bulk
+at \(k_{\mathrm B}T\ll\Delta\) where \(\DOS\) is largest, carry a \emph{suppressed}
+diffusive weight in both microscopic routes (a statement about the bulk
 operator away from the gap-edge boundary layer, where the moment
-reduction itself degrades (\cref{sec:sc_transport_closures}). What the operator placement
+reduction itself degrades [\cref{sec:sc_transport_closures}]). What the operator placement
 changes in spatially
 resolved Rothwarf--Taylor models~\cite{rothwarf1967} is the
-inhomogeneous-gap structure of the flux---sub-gap blocking and the absence
+inhomogeneous-gap structure of the flux: sub-gap blocking and the absence
 of a DOS-gradient drift in the microscopic operator. Because the local gap is
 itself suppressed by the quasiparticle population
 \cite{owen1972,parker1975}, a spatially resolved simulation generates gap
 inhomogeneity dynamically wherever the density is nonuniform: the
-inhomogeneous-gap structure of the operator is engaged---at some
-amplitude---in any self-consistent device model, not only in deliberately
+inhomogeneous-gap structure of the operator is engaged (at some
+amplitude) in any self-consistent device model, not only in deliberately
 gap-engineered geometries. The feedback benchmark of
-\cref{sec:self_consistent_feedback} makes the distinction concrete: for
+SM~\cref{SM-sec:self_consistent_feedback} makes the distinction concrete: for
 a gap well generated by one population, the legacy \(q=-1\) placement
-drives a separate passive probe inward, whereas the microscopic operator
+drives the quasiparticle density of a separate passive probe out of the
+well, at \(\DN\DOS^{-2}\bnabla\DOS\), whereas the microscopic operator
 has no fixed-energy DOS-gradient probe drift.
 
 Finally, the local-BCS scalar operators above are not expected to hold
@@ -3147,6 +2663,7 @@ SM~\cref{SM-app:proximity}.
 
 
 \begin{acknowledgments}
+We thank Thomas Stevenson for helpful discussions.
 This work was supported by the NASA Astrophysics Research and Analysis
 (APRA) program under solicitation NNH21ZDA001N (``Modeling and Testing
 KIDs for Astrophysics,'' PI: P.~Timbie).
@@ -3166,9 +2683,9 @@ module of the open-source \texttt{qpsim} simulation package,
 \label{app:change_of_variables}
 
 This appendix records, component by component, the change of variables
-behind the energy--angle form of \cref{eq:intro_boltzmann_clean}; the
+behind the energy--angle form \cref{eq:beta_boltzmann_energy_variables}; the
 substitution is elementary but rarely written out.
-The map is two-to-one (the branch label---the sign of \(\xi_{\bk}\)---is
+The map is two-to-one (the branch label, the sign of \(\xi_{\bk}\), is
 suppressed); all identities below hold on each branch separately, with
 the branch sign carried by
 \(\bv_{\mathrm g}=(\xi_{\bk}/E_{\bk})\,\vF\hat{\bk}\).
@@ -3194,7 +2711,7 @@ And for a gradient, resolved into radial and angular parts,
 \end{equation}
 with \(\bnabla_{\hat{\br}}\) the gradient on the direction sphere.
 Applied individually to the three derivatives of \(f_{\bk}\) that
-appear in \cref{eq:intro_canonical_boltzmann}, this gives
+appear in \cref{eq:beta_boltzmann_explicit}, this gives
 \begin{align}
   \Bigl(\frac{\partial f}{\partial t}\Bigr)_{\!\bk}
   &=
@@ -3254,11 +2771,11 @@ along the Fermi sphere. \Cref{eq:intro_p_basic} thus becomes
   \bnabla_{\hat{\bk}} f .
   \label{eq:intro_p_derivative}
 \end{equation}
-Substituting these into \cref{eq:intro_canonical_boltzmann}---and
+Substituting these into \cref{eq:beta_boltzmann_explicit} (and
 setting \(k\to k_{\mathrm F}\) in the angular term, a relative error
-\(O(|\xi_{\bk}|/E_{\mathrm F})\) (i.e.\ \(O(\Delta/E_{\mathrm F})\) for
+\(O(|\xi_{\bk}|/E_{\mathrm F})\) [i.e.\ \(O(\Delta/E_{\mathrm F})\) for
 near-gap quasiparticles, at most \(O(\omega_D/E_{\mathrm F})\) across the
-pairing shell) that is quasiclassically negligible---gives the
+pairing shell] that is quasiclassically negligible) gives the
 Boltzmann-like equation with ballistic (clean-limit) streaming, now in
 the \((E,\hat{\bk})\) variables,
 \begin{equation}
@@ -3275,12 +2792,15 @@ the \((E,\hat{\bk})\) variables,
 \label{eq:intro_boltzmann_substituted}
 \end{equation}
 The gap-gradient piece of the streaming term and the radial part of the
-force---the fourth and fifth terms of
-\cref{eq:intro_boltzmann_substituted}---are equal and opposite and
+force (the fourth and fifth terms of
+\cref{eq:intro_boltzmann_substituted}) are equal and opposite and
 cancel: measuring energies from the local, instantaneous gap absorbs the
 energy-changing part of the spatial gap force.
-Retaining the angular (refraction) force at this stage, what remains is
-precisely \cref{eq:intro_boltzmann_clean} of the main text.
+What remains is the energy--angle form
+\cref{eq:beta_boltzmann_energy_variables} of the main text with
+\(\dot E_{\bk}\) and \(\dot{\hat{\bk}}\) written out; dropping the
+angular (refraction) force then yields the branch pair
+\cref{eq:intro_branch}.
 
 \bibliographystyle{apsrev4-2}
 \bibliography{refs}
