@@ -97,10 +97,23 @@ hosseinkhani2018, and goldie2013.
   - The single-particle / canonical-Boltzmann derivation
     (`eq:intro_canonical_boltzmann` … `eq:intro_boltzmann_clean`) is written
     in the **momentum** direction \(\hat{\mathbf k}\). From the
-    branch→trajectory relabelling onward — and throughout the **entire
-    body** — the **trajectory** direction \(\hat{\mathbf p}\) is used. The
-    Eilenberger equation is trajectory-resolved (\(\hat{\mathbf p}\)). This
-    switch is intentional and is stated in the text.
+    branch→trajectory relabelling onward, the **branch-projected scalar
+    occupation** uses the **trajectory** direction
+    \(\hat{\mathbf p}=\sigma\hat{\mathbf k}\). **RE-SETTLED 2026-09-02
+    (audit id 62; Soren: "go"):** the quasiclassical MATRIX objects — the
+    Eilenberger equation (1), the Usadel matrix equation, the two-mode pair
+    `eq:beta_twomode_L/T`, `eq:intro_impurity_rates`,
+    `eq:sc_kopnin_constitutive` — are resolved in the **Fermi-surface
+    (momentum) direction**, also written \(\hat{\mathbf p}\), which is
+    branch-independent because the \(\xi\) integration at fixed direction
+    spans both branches; the electron-like Nambu component streams along
+    \(+v_F\hat{\mathbf p}\), the hole-like along \(-v_F\hat{\mathbf p}\).
+    The two labels coincide on the electron-like branch and are antipodes
+    on the hole-like branch; full-sphere averages agree
+    (`eq:antipodal_average_identity`), so no number moves. The symbol is
+    shared; the text states the meaning at Eq. (1), in the relabelling
+    footnote, and in the SM Conventions. Do not call the Eilenberger
+    equation "trajectory-resolved".
 
 - **\(\mathbf k\) is a wave vector and \(\hbar\) is kept explicit.**
   Consequences (all dimensionally checked; every kinetic term is
@@ -121,8 +134,20 @@ hosseinkhani2018, and goldie2013.
 
 - **Gap-gauge \(\hat\Delta=-\mathrm i\Delta\tau_2\): the \(\mathrm i\) is
   OUTSIDE the commutator by design — don't "distribute" it.**
-  \(\hbar(\cdots)+\mathrm i[E\tau_3-\hat\Delta-\check\Sigma,\check g]=0\) is
-  correct (real streaming/diffusion). Putting the \(\mathrm i\) on the
+  \(\hbar(\cdots)-\mathrm i[E\tau_3-\hat\Delta-\check\Sigma,\check g]=0\),
+  equivalently the SM's \(\mathrm i\hbar(\cdots)+[\dots,\check g]=0\), is
+  correct (real streaming/diffusion). **SIGN RE-SETTLED 2026-09-02 (audit
+  ids 2/10/34; Soren: "go"):** the main-text Eq. (1) formerly carried
+  \(+\mathrm i\), which with the declared Moyal kernel streams the
+  electron-like Nambu component along \(-v_F\hat p\) and is the antipode of
+  the SM's boxed display; the SM's former antipodal-relabelling
+  reconciliation was removed because it flips \(\check{\mathbf g}_1\).
+  Verified in sympy (`verify_eilenberger_sign_2026-09-02.py` beside the
+  handoff): normal-state streaming direction; the printed
+  `eq:beta_twomode_L` (with \(+v_F\hat p\cdot\nabla N_1 f_T\)) is the
+  1-trace of the SM-sign display only; the boxed `eq:slaving`
+  \(\check{\mathbf g}_1=-\ell\check g_0\widetilde\nabla\check g_0\) solves
+  the first-harmonic balance of the SM-sign display only. Putting the \(\mathrm i\) on the
   energy term, \([\mathrm iE\tau_3-\hat\Delta-\dots]\), is **wrong**: it
   co-phases \(E\) and \(\Delta\), giving a gapless \(\sqrt{E^2+\Delta^2}\)
   spectrum instead of BCS \(\sqrt{E^2-\Delta^2}\).
@@ -505,8 +530,9 @@ hosseinkhani2018, and goldie2013.
   restriction, stated at SM Conventions, eq:moyal_def, and app:branch
   setup. The Moyal commutator is
   \([A,B]_\star=[A,B]+i\hbar\{A,B\}_{\rm PB}+\cdots\) (no factor of
-  \(1/2\)); the antipodal trajectory relabeling \(\hat p\to-\hat p\) is the
-  displayed map between the starting-equation conventions.
+  \(1/2\)). The two starting displays carry the SAME relative sign since
+  2026-09-02; the former antipodal relabeling \(\hat p\to-\hat p\) is no
+  longer used as a bridge between them (see the gap-gauge bullet).
 - \(\mathcal D_L,\mathcal D_T\) calligraphic everywhere; taxonomy
   conserved-density weight is \(\mathcal W\) (kernel rate \(w\) unchanged);
   branch-Boltzmann route uses \(\tau\) (= main-text \(\tau_N\)) and bold

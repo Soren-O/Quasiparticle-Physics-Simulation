@@ -154,8 +154,12 @@ the Fermi surface,
   \tau_3\,\mathcal{G}^{R/A/K}\!\bigl(\bp,E,\br,t\bigr),
 \]
 are \(2\times 2\) matrices in Nambu space depending on energy \(E\), the
-Fermi-surface direction \(\hat\bp\) (a unit vector; the main text's
-trajectory/group-velocity direction), spatial
+Fermi-surface direction \(\hat\bp\) of the momentum (a unit vector along
+the normal-state Fermi velocity; the \(\xi_\bp\) integration at fixed
+\(\hat\bp\) spans both branches, so \(\hat\bp\) is branch-independent and
+is not the trajectory label \(\hat\bp=\sigma\hat\bk\) of the main text's
+branch-projected occupation, main-text~\cref{M-eq:intro_branch_traj},
+which coincides with it only on the electron-like branch), spatial
 coordinate \(\br\) and time \(t\). The \(\tau_3\) fold in the definition is
 the standard quasiclassical convention: it places the BCS density of states
 on the \(\tau_3\) component of \(\hatg^{R}\) rather than on the identity,
@@ -247,23 +251,20 @@ is~\cite{kopnin2001,larkin1986,rammer1986,belzig1999}
 The factor of \(\ii\) on the streaming term is the standard Belzig--Kopnin
 real-frequency convention; with it, the impurity self-energy below is purely
 imaginary and the algebraic identities used in the slaving step
-(\cref{sec:slaving}) produce a real coefficient. Its relation to the
-main-text starting display is exact and does not require reversing or
-conjugating the Wigner kernel. Define the antipodally relabelled functions
-\[
-  \bar{\check g}(E,\hat{\bp})\equiv\check g(E,-\hat{\bp}),
-  \qquad
-  \bar{\check\Sigma}(E,\hat{\bp})
-  \equiv\check\Sigma(E,-\hat{\bp}).
-\]
-Writing the main-text equation as \(V+\ii C=0\), evaluation at
-\(-\hat{\bp}\) gives \(-V[\bar{\check g}]+\ii C[\bar{\check g}]=0\).
-Multiplication by \(-\ii\) therefore gives
-\(\ii V[\bar{\check g}]+C[\bar{\check g}]=0\), which is
-\cref{eq:keldysh_eilenberger}. The Wigner product and energy variable are
-unchanged. The angularly averaged Born self-energy retains its form under
-this relabelling, and the resulting matrix Keldysh--Usadel equation
-\cref{eq:matrix_keldysh_usadel} is invariant.
+(\cref{sec:slaving}) produce a real coefficient. It is the main-text
+starting display [main-text~\cref{M-eq:intro_eilenberger}] multiplied by
+\(\ii\): both documents describe one and the same
+\(\checkg(E,\hat\bp,\br,t)\), with \(\hat\bp\) the Fermi-surface direction
+defined above, and therefore share every angular harmonic, in particular
+the slaved first harmonic of \cref{eq:slaving}. (An antipodal relabelling
+\(\hat\bp\to-\hat\bp\) would map either display onto the one with the
+opposite relative sign between streaming and commutator, but it is odd on
+the first harmonic, \(\check{\mathbf g}_1\to-\check{\mathbf g}_1\), and
+would reverse the matrix current; it is not used.) In the normal-state
+limit the equation propagates the electron-like Nambu component along
+\(+\vF\hat\bp\) and the hole-like component along \(-\vF\hat\bp\), which
+fixes the relative sign of streaming and commutator for the declared
+Wigner kernel \cref{eq:moyal_def}.
 
 Here \(\checkg\) is the upper-triangular \(2\times 2\) matrix in Keldysh space
 \[
@@ -3869,7 +3870,7 @@ condition is derived in main-text~\cref{M-sec:conserved_currents}.
 \subsection{Projection versus angular averaging}
 \label{sec:projection_vs_averaging}
 
-The Usadel route averages over trajectory (Fermi-surface) directions before
+The Usadel route averages over Fermi-surface (momentum) directions before
 extracting a scalar quasiparticle occupation. The scalar Boltzmann route extracts the
 branch occupation first and closes its angular moments afterward. The
 antipodal relabelling involved in the branch projection does \emph{not}

@@ -261,11 +261,11 @@ center-of-mass variables: the difference of the left- and
 right-acting equations is integrated over the normal-state
 quasiparticle energy \(\xi_{\bk}\), removing the fast momentum
 dependence. The result is a transport equation for the
-trajectory-resolved quasiclassical propagator
-\(\checkg(E,\hat{\bp},\br,t)\),
+quasiclassical propagator \(\checkg(E,\hat{\bp},\br,t)\), resolved in
+the Fermi-surface direction \(\hat{\bp}\) of the momentum,
 \begin{equation}
   \hbar\vF\,\hat{\bp}\cdot\widetilde{\bnabla}_{\br}\,\checkg
-  +
+  -
   \ii\bigl[\,E\tau_3-\hatD-\check{\Sigma}_{\mathrm{coll}},\;\checkg\,\bigr]_{\otimes}
   =
   0,
@@ -275,14 +275,36 @@ trajectory-resolved quasiclassical propagator
 \end{equation}
 where \(\widetilde{\bnabla}\) is the gauge-covariant gradient,
 \(\hatD=-\ii\Delta\tau_2\) is the gap matrix in the gauge of real
-\(\Delta\), and \(\otimes\) denotes the convolution over internal time
-(Wigner energy) arguments.
+\(\Delta\), and \(\otimes\) denotes the Moyal product over the internal
+time and Wigner-energy arguments,
+\(A\otimes B=A\,\exp\!\bigl[\tfrac{\ii\hbar}{2}
+(\overleftarrow{\partial}_{E}\overrightarrow{\partial}_{t}
+-\overleftarrow{\partial}_{t}\overrightarrow{\partial}_{E})\bigr]B\)
+with the retarded prescription \(E\to E+\ii0^{+}\)
+[SM~\cref{SM-eq:moyal_def}], which reduces to the ordinary product at
+leading gradient order. Because the \(\xi_{\bk}\) integration at fixed
+\(\hat{\bp}\) runs over both signs of \(\xi_{\bk}\), the label
+\(\hat{\bp}\) is branch-independent and the streaming velocity is the
+normal-state \(\vF\hat{\bp}\): the electron-like (upper Nambu) component
+of \(\checkg\) streams along \(+\vF\hat{\bp}\) and the hole-like (lower)
+component along \(-\vF\hat{\bp}\). The trajectory label
+\(\hat{\bp}=\sigma\hat{\bk}\) of the branch-projected occupation
+introduced in \cref{eq:intro_branch_traj} coincides with this
+Fermi-surface direction on the electron-like branch and is its antipode
+on the hole-like branch; full-sphere averages over the two labels
+coincide [SM~\cref{SM-eq:antipodal_average_identity}].
 In this gauge the coherent generator
 \(E\tau_3-\hatD=E\tau_3+\ii\Delta\tau_2\) squares to
 \((E^{2}-\Delta^{2})\openone\) and is proportional to the BCS retarded
 propagator on the spectral branch, fixing the gapped spectrum. The
-overall factor \(\ii\) multiplying the commutator balances the real
-streaming term.
+overall factor \(-\ii\) multiplying the commutator balances the real
+streaming term with the sign that makes the electron-like component
+stream along \(+\vF\hat{\bp}\); multiplied through by \(\ii\), the
+equation takes the Belzig--Kopnin form
+\(\ii\hbar\vF\,\hat{\bp}\cdot\widetilde{\bnabla}_{\br}\checkg
++[E\tau_3-\hatD-\check{\Sigma}_{\mathrm{coll}},\checkg]_{\otimes}=0\)
+used in the Supplemental Material
+[SM~\cref{SM-eq:keldysh_eilenberger}].
 The normalization \(\checkg\otimes\checkg=\openone\) closes the
 transport problem and selects the physical solution manifold.
 
@@ -401,7 +423,7 @@ Eq.~(10.41): the Lorentz force, which is absent here as we carry no
 fields, and the pair-potential-gradient (refraction) force, which for an
 isotropic gap reduces to a single term \(\propto
 N_2\,(\widetilde{\bnabla}_{\br}\Delta)\) acting on the
-trajectory-angular derivative of \(\fL\). These equations are applicable in the sector with a real gap, no superflow, no electric field, continuum energies
+angular derivative of \(\fL\). These equations are applicable in the sector with a real gap, no superflow, no electric field, continuum energies
 \(E>\Delta\), and before any angular averaging. One further restriction attaches to
 \cref{eq:beta_twomode_T}: as printed it is quasistatic in \(\fT\), its
 time-derivative block having been dropped. Dropping it requires the
@@ -600,7 +622,7 @@ These projections are the
 longitudinal and transverse two-mode equations
 \cref{eq:beta_twomode_L,eq:beta_twomode_T}.
 
-The pair \cref{eq:intro_branch} can be made identical in structure by using the trajectory \(\hat{\bp}=\sigma\,\hat{\bk}\) instead;\footnote{At an interface or under directional injection one must remember that the trajectory label \(\hat{\bp}\) stands for the physical momentum direction \(\hat{\bk}=\sigma\hat{\bp}\), antipodal on the hole-like branch.} absorbing the sign, \(\widetilde f_\sigma(E,\hat{\bp},\br,t)\equiv f_\sigma(E,\sigma\hat{\bp},\br,t)\),
+The pair \cref{eq:intro_branch} can be made identical in structure by using the trajectory \(\hat{\bp}=\sigma\,\hat{\bk}\) instead;\footnote{At an interface or under directional injection one must remember that the trajectory label \(\hat{\bp}\) stands for the physical momentum direction \(\hat{\bk}=\sigma\hat{\bp}\), antipodal on the hole-like branch; on that branch it therefore differs from the Fermi-surface label \(\hat{\bp}\) of the matrix equations \cref{eq:intro_eilenberger,eq:intro_usadel_matrix}, which is branch-independent. Full-sphere averages over the two labels coincide [SM~\cref{SM-eq:antipodal_average_identity}].} absorbing the sign, \(\widetilde f_\sigma(E,\hat{\bp},\br,t)\equiv f_\sigma(E,\sigma\hat{\bp},\br,t)\),
 \begin{equation}
   \Bigl[\partial_t+\tfrac{\Delta}{E}\dot{\Delta}\,\partial_E
   +\vg(E)\,\hat{\bp}\cdot\bnabla_{\br}\Bigr]\widetilde f_\sigma
@@ -858,7 +880,7 @@ collision terms \(J_L^{\mathrm{imp}}\) and \(J_T^{\mathrm{imp}}\) that enter equ
   \label{eq:intro_impurity_rates}
 \end{equation}
 where we are using the notation \(X^{(a)}\equiv X-\avg{X}_{\hat{\bp}}\) for any \(X\) so that the superscript \((a)\) marks the anisotropic part, and
-\(\avg{\,\cdot\,}_{\hat{\bp}}\) is the average over trajectory directions.
+\(\avg{\,\cdot\,}_{\hat{\bp}}\) is the average over Fermi-surface directions.
 The longitudinal weight collapses to \(\DOS^{2}-N_2^{2}=1\) while the
 transverse rate retains the full coherence-factor weight \(\DOS^{2}\)
 (Kopnin's \(g_-^{2}\)).
@@ -1713,8 +1735,9 @@ harmonic is closed.
 \subsection{Matrix dirty limit}
 
 The Eilenberger equation \cref{eq:intro_eilenberger} is a
-trajectory-resolved quasiclassical transport equation for the matrix
-Green's function \(\checkg(E,\hat{\bp},\br,t)\)
+direction-resolved quasiclassical transport equation for the matrix
+Green's function \(\checkg(E,\hat{\bp},\br,t)\), with \(\hat{\bp}\) the
+Fermi-surface direction of the momentum,
 \cite{eilenberger1968,rammer1986,kopnin2001}. In the dirty limit, impurity
 scattering makes the propagator nearly isotropic. Angular averaging at the
 matrix level gives the Usadel equation \cite{usadel1970} for
