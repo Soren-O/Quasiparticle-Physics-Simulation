@@ -445,6 +445,6 @@ implied by a green default or hosted slow gate.
 
 ## See also
 
-- `STATUS.md` — running gate tracker, current test count.
+- `STATUS.md` — running status tracker, current test count.
 - `Part_II_Physics.md`, `Part_III_Numerics.md` — what's being
   validated.

@@ -1,5 +1,8 @@
 # Adjudication of the held-back review set — 2026-08-11
 
+> **Reading the line numbers below.** Citations of the form `qpsim/backends/t3_spatial_1d.py:N` and `tests/backends/test_t3_spatial_1d.py:N` are against those files as they stood at `0e4b7ed^`; the module was deleted at `0e4b7ed` and its content redistributed across `qpsim/backends/spatial.py`, `qpsim/transport/spatial_transport.py`, `qpsim/transport/spatial_operator.py` and `tests/backends/strip/`. Recover the cited text with `git show 0e4b7ed^:qpsim/backends/t3_spatial_1d.py`. Where a current location is known it is given in brackets after the citation.
+
+
 Every item in `REVIEW-2026-08-03-HELD-BACK.md` was held back pending a physics
 decision. All of them, plus one item that was never filed there
 (`qpsim/services/transient.py:327`), were adjudicated on 2026-08-11 and are
@@ -331,7 +334,7 @@ costs more than it buys. Check here before filing any of them again.
 These advance the whole-tree source digest. Landing them separately would pay
 the recertification cost once per commit, so they are one changeset.
 
-### P05 KL series half-cell (spatial.py:600)
+### P05 KL series half-cell (t3_spatial_1d.py:600)
 
 - **Verdict:** APPLY (high confidence)
 - **Held-back doc line:** 20
@@ -342,11 +345,11 @@ the recertification cost once per commit, so they are one changeset.
 
 **Measured.** My reconciliation checks: doc header at line 20 confirmed; interface_trap.py named as mandatory companion in the doc itself (line 54); gap_gradient_drift benchmark is untouched by this face (item-57 adjudicator measured s_L==s_R bitwise at every spatial face), so the P10/P13 commit is order-independent of this one. Adjudicator's numbers (machine-precision series reference, substeps 18->9, interface_trap RuntimeError 5.6e-2 vs 1e-8 without the companion) accepted; internally consistent.
 
-**Risk.** Shares Bundle R's single digest advance (see item 588 note for the bundle definition). MANDATORY same-change companions or the tree goes red: re-pin tests/backends/strip/test_strip_kl_weights.py:978; fix validation/diffusion_operators/interface_trap.py:135-156 (fires RuntimeError otherwise, loud not silent); docs/Diffusion_Operators.md L112-118 + docstring/limitation-comment reverts.
+**Risk.** Shares Bundle R's single digest advance (see item 588 note for the bundle definition). MANDATORY same-change companions or the tree goes red: re-pin tests/backends/test_t3_spatial_1d.py:978; fix validation/diffusion_operators/interface_trap.py:135-156 (fires RuntimeError otherwise, loud not silent); docs/Diffusion_Operators.md L112-118 + docstring/limitation-comment reverts.
 
-**Note.** BUNDLE R member. One commit with doc-line-57 (same function; patches compose in either order; together the series bulk term at a cut interface bin becomes min-based). CAUTION: spatial.py is also edited by doc-line-468's mirror hunk (lines 122-125) — coordinate the three edits to this file in one merge.
+**Note.** BUNDLE R member. One commit with doc-line-57 (same function; patches compose in either order; together the series bulk term at a cut interface bin becomes min-based). CAUTION: t3_spatial_1d.py is also edited by doc-line-468's mirror hunk (lines 122-125) — coordinate the three edits to this file in one merge.
 
-### P05 q==0 stepped face min(s_L,s_R) (spatial.py:594)
+### P05 q==0 stepped face min(s_L,s_R) (t3_spatial_1d.py:594) — RESOLVED BY THE REWRITE, pending physicist confirmation (`qpsim/backends/spatial.py:463`)
 
 - **Verdict:** APPLY (high confidence)
 - **Held-back doc line:** 57
@@ -575,13 +578,13 @@ the recertification cost once per commit, so they are one changeset.
 - **Touches `qpsim/`:** yes — recert: ride_along
 - **Prepared patch correct as written:** yes
 
-**Rationale.** Mathematically exact identity that removes a real reachable gap-edge cancellation (2.2e-3-class at hi-gap=1e-12) and converges spectral.py, spatial.py, and the C3 mirror script on one convention. The adjudicator's enlarged blast radius (not bit-neutral even on on-face grids; every BCS-context root moves O(1e-12)) made it conditional on a planned full-Fischer regeneration window. RECONCILIATION: that condition is now STRUCTURALLY SATISFIED — I verified fig3/fig5/fig7 are all dynamic-phonon producers, so item 101 already forces genuine re-baselining of fig3/5/6/7, and 436 forces figs_9_13; 468 adds no regeneration this bundle does not already perform and no bitwise anchor survives 101 for it to destroy. Confidence raised from the adjudicator's medium accordingly (the medium reflected only the scheduling contingency, which is resolved; the measurements were solid).
+**Rationale.** Mathematically exact identity that removes a real reachable gap-edge cancellation (2.2e-3-class at hi-gap=1e-12) and converges spectral.py, t3_spatial_1d.py, and the C3 mirror script on one convention. The adjudicator's enlarged blast radius (not bit-neutral even on on-face grids; every BCS-context root moves O(1e-12)) made it conditional on a planned full-Fischer regeneration window. RECONCILIATION: that condition is now STRUCTURALLY SATISFIED — I verified fig3/fig5/fig7 are all dynamic-phonon producers, so item 101 already forces genuine re-baselining of fig3/5/6/7, and 436 forces figs_9_13; 468 adds no regeneration this bundle does not already perform and no bitwise anchor survives 101 for it to destroy. Confidence raised from the adjudicator's medium accordingly (the medium reflected only the scheduling contingency, which is resolved; the measurements were solid).
 
 **Measured.** My checks: fig3_solve.py/fig5_solve.py/fig7_solve.py dynamic-phonon path confirmed by grep (the load-bearing fact for resolving the condition). Bitwise blast-radius counts (509/1620 fig3, 590/1701 fig7, 137/405 figs_9_13, 55% of K_plus at the fig6 anchor) inherited; accepted.
 
 **Risk.** All root shifts O(1e-12), pass every scientific gate; risk is purely certification churn, which Bundle R already pays. Applied incompletely it breaks the C3 mirror property and the fig6 frozen-state test — hence atomicity below.
 
-**Note.** BUNDLE R member, ONE atomic three-site edit: spectral.py:435-438 + spatial.py:122-125 + validation/fischer_2023/fig6_author_c3_score.py:626-628, with tests/validation/test_fig6_author_frozen_state.py re-pinned in the same change. Same commit as 436. spatial.py is also edited by items 20/57 — one coordinated file edit. The fig6_author_c3_score edit is covered by window W2's C-ladder regeneration.
+**Note.** BUNDLE R member, ONE atomic three-site edit: spectral.py:448-458 [was :435-438] + t3_spatial_1d.py:122-125 [mirror gone; two-site edit now] + validation/fischer_2023/fig6_author_c3_score.py:626-628, with tests/validation/test_fig6_author_frozen_state.py re-pinned in the same change. Same commit as 436. t3_spatial_1d.py is also edited by items 20/57 — one coordinated file edit. The fig6_author_c3_score edit is covered by window W2's C-ladder regeneration.
 
 ### P04 remove 1e-14 Hz absolute floor (rate_equation.py:584)
 

@@ -33,9 +33,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ExternalFlux:
     """A positivity-preserving boundary source/sink for a Region's ``f(E)``.
+
+    Constructed by keyword only; the field order is not part of the contract.
 
     Parameters
     ----------

@@ -16,7 +16,7 @@ Architecture:
   ``evaluate`` calls reuse both caches while their value-based input
   fingerprints match. Replacing any physics or branch-selection input
   automatically rebuilds the affected cache.
-* Per-region ``ExternalFlux(gain, loss_rate)`` is built from the
+* Per-region ``ExternalFlux(gain=..., loss_rate=...)`` is built from the
   *cached* moment-solver values, NOT from integrating ``state.f``
   or reading ``qubit_state.p``. This sidesteps the cross-electrode
   tunneling bootstrap problem at Δ_L ≈ Δ_R, where the inner
@@ -47,9 +47,8 @@ collision kernel that would otherwise crush f(E) to thermal.
 Caveats:
 
 * The Stage A coefficient evaluators internally assume the Fermi-
-  Dirac per-sub-band ansatz, so this remains a moment-closure
-  Junction. A ``KineticJunction`` operating directly on f(E)
-  would drop that assumption.
+  Dirac per-sub-band ansatz, so this is a moment-closure Junction,
+  not a kinetic one operating directly on f(E).
 * ``qubit_state`` is accepted for API parity with other Junctions
   but ignored. The M25 master equation owns ``p_1`` self-
   consistently with the QP densities, so external qubit-state

@@ -1,5 +1,9 @@
 # Part II — Physics
 
+Physics half of the software-paper skeleton (§2 of
+`papers/qpsim/ARCHITECTURE.md`); §1 is the paper's introduction and has no
+in-tree index, so there is no Part I.
+
 Index of the in-tree physics surfaces. This document points at the
 authoritative implementations and committed decisions in this repo.
 

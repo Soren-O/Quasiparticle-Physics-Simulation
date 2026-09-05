@@ -76,10 +76,6 @@ DEV_C5_BUNDLE_V6 = (
 DEV_C5_BUNDLE = (
     REPOSITORY_ROOT / "tmp" / "author-runs" / "fig6-T020-sweep049-C5-qp-phonon-producer-dev-v5"
 )
-DEV_SCORE_V6 = REPOSITORY_ROOT / "tmp" / "c5-dev-score-v6-final.json"
-DEV_RECEIPT_V6 = REPOSITORY_ROOT / "tmp" / "c5-dev-receipt-v6-final.json"
-DEV_SCORE = REPOSITORY_ROOT / "tmp" / "c5-dev-score-v5.json"
-DEV_RECEIPT = REPOSITORY_ROOT / "tmp" / "c5-dev-receipt-v5.json"
 SECONDS_PER_NS = 1.0e-9
 N_QP = 1640
 
@@ -98,14 +94,6 @@ def _c5_bundle() -> Path:
     )
 
 
-def _checked_paths() -> tuple[Path, Path]:
-    if DEFAULT_SCORE.is_file() and DEFAULT_RECEIPT.is_file():
-        return DEFAULT_SCORE, DEFAULT_RECEIPT
-    if DEV_SCORE_V6.is_file() and DEV_RECEIPT_V6.is_file():
-        return DEV_SCORE_V6, DEV_RECEIPT_V6
-    return DEV_SCORE, DEV_RECEIPT
-
-
 def _require_external_c5() -> None:
     required = (
         _c5_bundle() / "manifest.json",
@@ -118,10 +106,13 @@ def _require_external_c5() -> None:
 
 
 def _require_checked_c5() -> tuple[Path, Path]:
-    score_path, receipt_path = _checked_paths()
-    if not score_path.is_file() or not receipt_path.is_file():
-        pytest.skip("Checked C5 score/receipt are still being generated.")
-    return score_path, receipt_path
+    # Deliberately no skip: the checked C5 score and receipt are committed
+    # under validation/paper_data, so their absence is a hard repository
+    # failure -- the same rule test_fig6_author_c3_evidence.py applies to C3.
+    for path in (DEFAULT_SCORE, DEFAULT_RECEIPT):
+        if not path.is_file():
+            pytest.fail(f"Committed C5 artifact is missing: {path}")
+    return DEFAULT_SCORE, DEFAULT_RECEIPT
 
 
 @pytest.fixture(scope="module")

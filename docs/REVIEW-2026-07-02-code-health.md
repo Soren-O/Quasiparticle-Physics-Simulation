@@ -26,7 +26,7 @@ reproduced the confirmed bugs before fixing.
   the 2D machinery in `qpsim/grid/spatial_grid.py` (~330 lines),
   `qpsim/solvers/picard.py`'s generic `picard_iterate`,
   `transport/diffusion/base.py::from_name` + legacy aliases,
-  `JunctionQubitCoupling` (unwired), `external_flux.target_cells`,
+  `JunctionQubitCoupling` (unwired),
   `Material.tau_s/tau_r` + `Substrate.density/sound_velocity` (AMM
   inputs), `physics/kernels.py` with-phonon kernel variants
   (production path uses the collisions/phonon equivalents),

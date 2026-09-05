@@ -29,8 +29,9 @@
         <div class="home-head">
           <p class="eyebrow">Kinetics workbench</p>
           <h1>Quasiparticle and phonon kinetics in a driven superconductor.</h1>
-          <p class="lede">Solve the coupled quasiparticle, phonon and gap equations in zero or
-            one spatial dimension. Start from a saved setup, open one of the bundled test cases,
+          <p class="lede">Solve the coupled quasiparticle, phonon and gap equations on a
+            geometry: a single cell, a strip, or a full 2-D mask built from a rectangle, a GDS
+            layer or polygons. Start from a saved setup, open one of the bundled test cases,
             or build a new one from a material and a drive.</p>
         </div>
 
@@ -135,19 +136,21 @@
           <li data-step="conditions"><span class="n">3</span> Conditions</li>
         </ol>
 
-        <!-- Geometry comes first because it DECIDES part of the model: a mask
-             one cell across has no faces, so there is no transport operator to
-             switch. Asking for the terms first would offer a choice the
-             geometry then overrules. -->
+        <!-- Geometry comes first because it DECIDES part of the model: a single
+             cell inside a reflective rim has no transport operator to switch.
+             Asking for the terms first would offer a choice the geometry then
+             overrules. -->
         <div class="step-panel" id="step-geometry">
           <div class="home-head">
             <p class="eyebrow">Step 1</p>
             <h1>Import the device, or state its extent.</h1>
-            <p class="lede">The mask decides the dimensionality: a rectangle one cell wide is a 1-D
-              strip and a single cell is 0-D, both solved by the same core. It also decides which
-              terms exist &mdash; a single cell has no neighbours to diffuse to, so the next step
-              will show the transport term greyed. Import the geometry to see it on the right,
-              then click any edge to assign its boundary condition.</p>
+            <p class="lede">The mask decides the dimensionality: a single cell is 0-D, a rectangle
+              one cell wide is a 1-D strip, and anything wider is 2-D; all three are solved by the
+              same core. It also decides which terms exist &mdash; a single cell inside a
+              reflective rim has nothing to transport between, so the next step will show the
+              transport term greyed; a rim that lets density out brings the term back even on one
+              cell. Import the geometry to see it on the right, then click any edge to assign its
+              boundary condition.</p>
           </div>
           <div class="geometry-layout">
             <div class="geometry-left">

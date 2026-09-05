@@ -34,9 +34,11 @@ class PhononBranchSpec:
     omega_debye: float | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PhononState:
     """Phonon distribution, frequency grid, and bath escape-time.
+
+    Constructed by keyword only; the field order is not part of the contract.
 
     Shape conventions:
 
@@ -51,8 +53,9 @@ class PhononState:
     so that multi-branch and spatially-resolved states share one shape.
 
     Note that the ban on mixing a dynamic ``n_ph`` with a
-    Rothwarf–Taylor ζ-renormalized τ₀ is *not* enforced here, contrary to
-    Phonon_Escape_Time.md §6 and Phonon_Model_Decisions.md: ζ exists
+    Rothwarf–Taylor ζ-renormalized τ₀ is *not* enforced here, and is not
+    meant to be: Phonon_Escape_Time.md §6 and Phonon_Model_Decisions.md
+    place the guard at the device level. ζ exists
     nowhere in the package, and the τ₀ it would renormalize lives on the
     material (``tau_0_pb_ns``), so the forbidden configuration is global
     and not even representable in this state. Should ζ ever be

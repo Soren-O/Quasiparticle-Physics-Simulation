@@ -587,6 +587,18 @@ def test_canonical_publication_lock_rejects_concurrent_writer(
                 reader()
 
 
+# The messages `read_baseline` raises when the committed artifact is not bound
+# to the current source (the validation-record check in fig3_paper.py). That is
+# the known-stale case the slow regeneration lane owns; every other RuntimeError
+# is a reader or artifact defect and fails here.
+_STALE_ARTIFACT_MESSAGES = (
+    "has stale schema/status",
+    "is not bound to current source",
+    "has a stale producer/validated solve contract",
+    "has stale readback evidence",
+)
+
+
 def test_baseline_curves_are_nonvacuous() -> None:
     """Fast data sanity gate: every pinned legend curve carries signal."""
     path = baseline_path()
@@ -595,6 +607,8 @@ def test_baseline_curves_are_nonvacuous() -> None:
     try:
         baseline = read_baseline(path)
     except RuntimeError as exc:
+        if not any(message in str(exc) for message in _STALE_ARTIFACT_MESSAGES):
+            raise
         pytest.xfail(f"Canonical Fig. 3 artifact is stale/quarantined: {exc}")
     _assert_baseline_curves_are_nonvacuous(baseline)
 

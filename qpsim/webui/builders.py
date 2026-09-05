@@ -506,6 +506,25 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                     "the geometry and switch to 'time_march', which reaches a "
                     "steady state by advancing to stop_tol."
                 )
+            elif setup.strategy == "steady_state":
+                # The root find carries f(E) on one cell with no rim at all,
+                # so a rim condition that acts -- anything but reflective --
+                # is a setting it would read, store and drop. Same rule as
+                # `terms._transport`, deliberately: one cell inside a
+                # reflective rim is 0-D, one cell inside any other rim is not.
+                try:
+                    acting = acting_rim_kinds_2d(setup, build_geometry_2d(setup))
+                except ValueError as exc:
+                    report.errors.append(f"Kinetics: {exc}")
+                else:
+                    if acting:
+                        report.errors.append(
+                            "Kinetics: strategy 'steady_state' is a root find on "
+                            "one cell with no rim, so it would silently discard "
+                            f"the {' and '.join(acting)} boundary condition. "
+                            "Keep the rim and switch to 'time_march', or make "
+                            "the rim reflective."
+                        )
         if setup.boundary.kind in ("dirichlet", "neumann") and (
             not np.isfinite(setup.boundary.value)
         ):
@@ -651,15 +670,9 @@ def steady_state_solver_kwargs(
     """Backend ``steady_state`` kwargs for the chosen phonon sector + method."""
     s = setup.solver
     # ONE authority for the gap switch: the top-level field, which is what the
-    # term panel's `gapeq` switch and the time-march path also read. Taking it
-    # off `solver` here instead would leave the displayed switch inert on this
-    # route while still reading as though it worked.
-    self_consistent_gap = (
-        setup.self_consistent_gap if isinstance(setup, KineticsSetup)
-        else s.self_consistent_gap
-    )
+    # term panel's `gapeq` switch and the time-march path also read.
     kwargs: dict[str, object] = {
-        "self_consistent_gap": self_consistent_gap,
+        "self_consistent_gap": setup.self_consistent_gap,
         "use_phonon_side_kernel": setup.phonons.use_phonon_side_kernel,
         "enable_scattering": setup.collisions.scattering,
         "enable_recombination": setup.collisions.recombination,
@@ -896,6 +909,23 @@ def boundary_sources_2d(
         if key in sources and key not in _DIRECTIONS:
             sources[key] = "id"
     return sources
+
+
+def acting_rim_kinds_2d(setup: KineticsSetup, geometry: Geometry) -> list[str]:
+    """Kinds of the rim conditions that act, sorted; empty for an all-reflective rim.
+
+    ``reflective`` contributes nothing to the transport operator, so a rim
+    made entirely of it is the same as no rim at all; every other kind is a
+    term in the equation even on a single cell. This is the predicate
+    ``SpatialTransport.has_acting_device_faces`` evaluates on these same
+    conditions once the state is built, stated on the setup so the term
+    panel, the setup validation and the engine answer from one rule.
+    """
+    return sorted({
+        condition.normalized_kind()
+        for condition in build_boundary_conditions_2d(setup, geometry).values()
+        if condition.normalized_kind() != "reflective"
+    })
 
 
 def build_gap_per_cell_2d(setup: KineticsSetup, geometry: Geometry) -> np.ndarray | None:

@@ -158,7 +158,9 @@ Canonical parameter set (Fischer & Catelani 2023 Table II + Ref. 26):
 - $\eta \approx 0.2$ (Al/Al$_2$O$_3$, angle-averaged AMM).
 - $s \approx 5000$ m/s (effective sound velocity; between
   $s_T = 3040$ m/s transverse and $s_L = 6420$ m/s longitudinal;
-  the Debye average is $s_D \approx 3200$ m/s).
+  the Debye average of the two branches, $3/s_D^3 = 1/s_L^3 + 2/s_T^3$,
+  is $s_D \approx 3420$ m/s — what `Material.sound_velocity_debye`
+  computes).
 
 Evaluating $\tau_l = 4d/(\eta s)$:
 $$
@@ -175,10 +177,16 @@ Question 1) and pinning $s$ to a specific mode or the Debye average.
 > **Note on `qpsim/materials/data/Al.yaml`.** The shipped Al material
 > has `film_thickness: 90.0` nm (a generic starter value), not the
 > Fischer-Table-II 63 nm used in the example above. With that 90 nm
-> thickness, `acoustic_escape_tau_l(material=Al)` returns
-> `4 × 90 / (0.2 × s_D)` — about 360 ps if you pick `s_D ≈ 5000` m/s.
-> Edit the YAML (or pass an overridden `Material(replace=...)`) before
-> reproducing Fischer-style parity sweeps.
+> thickness and $\eta = 0.2$, `acoustic_escape_tau_l(material=Al)`
+> returns $4 \times 90\,\mathrm{nm} / (0.2 \times 3420\,\mathrm{m/s})
+> \approx 526$ ps: the function reads the Debye branch
+> (`Material.sound_velocity_debye`, 3420 m/s for the shipped $s_L$, $s_T$)
+> by default, so the 5000 m/s effective velocity of the example above does
+> not enter. At Fischer's 63 nm the same call gives $\approx 368$ ps, the
+> comparison figure quoted in `validation/fischer_2023/fig6_solve.py`.
+> Edit the YAML (or build a variant with
+> `dataclasses.replace(Al, film_thickness=63.0)`) before reproducing
+> Fischer-style parity sweeps.
 
 For arbitrary $(d, \eta, s)$, apply the formula directly. Representative
 values:
@@ -186,7 +194,7 @@ values:
 | Film                               | $\tau_l$ (ps) |
 |------------------------------------|---------------|
 | Al/Al$_2$O$_3$, $d=63$ nm, $s=5000$ m/s   | 252           |
-| Al/Al$_2$O$_3$, $d=100$ nm, $s_D=3200$ m/s | 625           |
+| Al/Al$_2$O$_3$, $d=100$ nm, $s_D=3420$ m/s | 585           |
 | Nb/Si, $d=100$ nm, $\eta=0.25$, $s=5200$ m/s | 308           |
 
 Sanity check of the *formula*: these canonical $(d, \eta, s)$ inputs
@@ -255,9 +263,11 @@ The practical rule is simple:
 | Backend | Use $\zeta$? | Use dynamic $n_{ph}$? |
 |---|---|---|
 | PDE backends (diffusion, spatial) | **No** (forbidden) | **Yes** |
-| Rate-equation service (M25-style) | **Yes** | **No** |
+| Rate-equation service (M25-style) | **Yes**, in principle — not implemented here | **No** |
 
-$\zeta$ appears nowhere in the package, and the $\tau_0$ it would
+The shipped M25 service carries no $\zeta$; the row states which closure
+class may legitimately carry one, so a future closure is written the
+consistent way. $\zeta$ appears nowhere in the package, and the $\tau_0$ it would
 renormalize lives on the material (`tau_0_pb_ns`), so the forbidden
 combination is a device-level configuration: a guard against it belongs in
 `qpsim.devices.device`, where both sectors are visible.

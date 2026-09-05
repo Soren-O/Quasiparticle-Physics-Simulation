@@ -56,7 +56,7 @@ python scripts/score_fischer_2023_fig6_paper_parity.py --verify
 ```
 
 The current canonical score is `score.json` SHA-256
-`6b59ab57e1019a95c98b48681a67d89c1dc7716793d582468ace2e2ccd25c8ae`.
+`ff0e12b5037f08ab7fc48cec42e5d81b42acaaa2c2e66e3e7f03583ec6c450bc`.
 This digest changed when the shared paper-parity validator was generalized
 for the Figure 8 trace-mask schema; every Figure 6 curve score and the
 `diagnostic_mismatch` result stayed unchanged.

@@ -2,7 +2,8 @@
 
 Drives the per-energy operators from :mod:`qpsim.transport.spatial_operator`
 through a monotonicity-subcycled CN step. Dimension-agnostic: a one-cell-wide
-geometry is the 1-D chain, and a single cell has no transport at all.
+geometry is the 1-D chain, and a single cell inside a reflective rim has no
+transport at all -- a rim face of any other kind is a term even on one cell.
 
 Two properties of the operator cache are deliberate.
 

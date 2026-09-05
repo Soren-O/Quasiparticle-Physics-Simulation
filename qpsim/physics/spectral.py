@@ -210,8 +210,9 @@ class SpectralContext:
     ``maybe_rebuild(new_gap)`` recomputes only when the gap has moved
     beyond ``rebuild_tolerance``.
 
-    Scalar-Δ. Multi-material / spatially-varying-Δ runs hold one
-    ``SpectralContext`` per distinct-Δ slot (see ``GapState``).
+    Scalar-Δ. A run with a spatially varying Δ holds one ``SpectralContext``
+    per distinct local gap, built from the reference context by
+    ``qpsim.collisions.spatial.SpatialCollisions._local_spectral``.
 
     Note on diffusion closures: this class uses the LEGACY form for
     backward compatibility with the reference implementation. The

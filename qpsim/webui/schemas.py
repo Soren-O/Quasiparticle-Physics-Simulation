@@ -727,12 +727,13 @@ class KineticsSetup(StrictModel):
     def one_authority_for_the_gap_switch(self) -> KineticsSetup:
         """``self_consistent_gap`` is the top-level field, and only that one.
 
-        SolverOptions carries a field of the same name for the 0-D mode this
-        one is replacing. Two settable fields meaning the same thing is the
+        SolverOptions carries a field of the same name, which a saved setup
+        may still set. Two settable fields meaning the same thing is the
         two-authorities defect that keeps producing an interface which claims
         one thing while the engine does another, so the duplicate is refused
-        out loud rather than silently losing to whichever is read last.
-        Transitional: it disappears with the 0-D mode.
+        out loud rather than silently losing to whichever is read last. The
+        field is kept so that this message can be raised instead of a bare
+        unknown-field error.
         """
         if self.solver.self_consistent_gap:
             raise ValueError(

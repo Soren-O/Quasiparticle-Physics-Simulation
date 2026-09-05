@@ -26,11 +26,10 @@ covered by unit and integration tests under `tests/`. See
 
 | Capability                                        | Status |
 |---------------------------------------------------|--------|
-| Phonon-model decisions (D1–D5)                    | ✅ `docs/Phonon_Model_Decisions.md` |
 | Energy- and space-resolved kinetics               | ✅ diffusion and spatial backends |
-| Local phonon bath with acoustic escape            | ✅ |
+| Local phonon bath with acoustic escape            | ✅ model decisions D1–D5: `docs/Phonon_Model_Decisions.md` |
 | Fischer paper-topology numerical regressions      | ⚠️ Round-8 current-source Figs. 3/5/6/7 complete; Fig. 6 has a provenance-bound paper-data diagnostic mismatch; Figs. 9–13 remain quarantined |
-| Audit chain (1e-12 / 1e-6 / 1e-4)                 | ✅ current-tree default and bounded non-manual slow gates green locally; hosted CI is separate post-push evidence |
+| Audit chain                                       | ✅ current-tree default and bounded non-manual slow gates green locally; hosted CI is separate post-push evidence |
 | Kaplan phonon-bath characterization               | ✅ |
 | M25 junction engine (rate eq + PDE)               | ✅ engine and UI covered by unit tests |
 

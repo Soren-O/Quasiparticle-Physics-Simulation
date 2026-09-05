@@ -107,10 +107,10 @@ def advect_spectral_flow(
             "E_bins and dE_bins must have the same shape; got "
             f"{E.shape} and {dE.shape}."
         )
-    if u_arr.shape[-1] != E.size:
+    if u_arr.size != E.size:
         raise ValueError(
-            "u's energy dimension must match E_bins; got "
-            f"{u_arr.shape[-1]} and {E.size}."
+            "u must have one entry per energy bin; got "
+            f"{u_arr.size} and {E.size}."
         )
     if np.any(~np.isfinite(u_arr)):
         raise ValueError("u must contain only finite values.")
@@ -157,7 +157,13 @@ def advect_spectral_flow(
             )
 
     if abs(gap_dot_value) < 1e-30 or dt_value == 0.0:
-        return u_arr.copy()
+        # No advection, but the mask still defines the spectral support: a
+        # caller reading support from the result gets the same answer
+        # whether or not the gap moved this step.
+        u_new = u_arr.copy()
+        if mask is not None:
+            u_new[~mask] = 0.0
+        return u_new
 
     # The stability parameter is the *gap displacement* |gap_dot| dt, not
     # gap_dot or dt separately.  apply_gap_update obtains gap_dot from a root

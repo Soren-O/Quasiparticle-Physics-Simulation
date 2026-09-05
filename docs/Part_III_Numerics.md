@@ -1,5 +1,9 @@
 # Part III — Numerics
 
+Numerics half of the software-paper skeleton (§3 of
+`papers/qpsim/ARCHITECTURE.md`); §1 is the paper's introduction and has no
+in-tree index, so there is no Part I.
+
 Index of the discretizations and solvers in `qpsim.solvers` and the
 companion driver services. This document points at the live code.
 
@@ -119,7 +123,7 @@ companion driver services. This document points at the live code.
   state rather than silently restarting the phonons at the bath on every row.
   The backend also requires `state.gap == state.spectral.gap` before
   building any phonon operator.
-- `DiffusionBackend.solve_steady_state(self_consistent_gap=True)` — the outer
+- `DiffusionBackend.steady_state(self_consistent_gap=True)` — the outer
   loop completes a fixed-gap kinetic solve, evaluates a branch-anchored raw gap
   map on that exact occupation, and returns that same state only if the
   unrelaxed relative map residual passes `gap_tol`. Under-relaxation changes the

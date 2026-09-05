@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.geometries import rectangle, strip
+from qpsim.geometries import rectangle
 from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.transport.diffusion.base import (
-    DiffusionModel,
     density_weight,
     flux_weight,
 )
@@ -23,22 +22,8 @@ from qpsim.transport.spatial_operator import (
     face_condition_lookup,
     spatial_diffusion_operator,
 )
-from scipy import sparse
 
 D0 = 3.0
-
-
-def _shipped_1d_operator(n1: np.ndarray, model: DiffusionModel, dx: float):
-    """The operator exactly as the spatial backend builds it."""
-    rho_p = density_weight(n1, model.p)
-    w_cell = flux_weight(D0, n1, model.q)
-    inv_dx2 = 1.0 / (dx * dx)
-    laplacian = _flux_laplacian_from_conductances(
-        _harmonic_face_weights(w_cell) * inv_dx2, n1.size,
-    )
-    return (laplacian @ sparse.diags(1.0 / rho_p)).tocsr(), rho_p, w_cell
-
-
 
 
 class TestGeneralGeometry:

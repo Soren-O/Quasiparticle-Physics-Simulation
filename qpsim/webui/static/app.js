@@ -2075,7 +2075,7 @@ const GEOMETRY_SECTIONS = geometrySections("kinetics");
 const CONDITION_SECTIONS = conditionSections("kinetics");
 
 /* Geometry first, because it decides part of the model rather than merely
-   parameterising it: a single-cell mask has no faces, so there is no transport
+   parameterising it: a single cell inside a reflective rim has no transport
    operator to switch on or off. Asking for the terms first offered a choice
    the geometry then overruled, and the panel had no way to say so. */
 const WIZARD_STEPS = ["geometry", "equations", "conditions"];
@@ -2087,8 +2087,9 @@ const wizard = { index: 0, offD0: null, readOnly: false, title: "", from: "runs"
    engine branches on. Three states, and the difference between the last two
    is the point: `on` means the model contains the term and it is acting,
    `off` means it contains it and it is switched off, `absent` means it is not
-   in the model at all -- a single cell has no transport, a pinned phonon bath
-   has no phonon equation, and a drive at zero photon number applies nothing.
+   in the model at all -- a single cell inside a reflective rim has no
+   transport, a pinned phonon bath has no phonon equation, and a drive at zero
+   photon number applies nothing.
    Before this, the panel worked all that out for itself and got three of them
    wrong while the numbers were right. */
 
@@ -2387,7 +2388,7 @@ const PHYSICS = {
       A separate operator is built for every energy bin, because the diffusion
       weight depends on E.`,
     gotchas: [
-      "A single-cell device has no faces, so this term is ABSENT rather than off — there is nothing to transport between, whatever D₀ is.",
+      "A single cell inside a reflective rim has nothing to transport between, so this term is ABSENT rather than off, whatever D₀ is. A rim that lets density out — absorbing, Dirichlet, Neumann or Robin — is a term in the equation even on one cell, and D₀ scales it.",
       "D₀ = 0 is the off switch: the flux coefficient is D₀·N₁^q, so zero gives an identically zero operator.",
       "The shipped D₀ for Al, Nb and TiN sit outside their own sourced bands; the material record says so on load.",
     ],

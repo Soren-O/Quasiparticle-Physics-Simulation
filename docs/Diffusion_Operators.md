@@ -113,7 +113,8 @@ is non-negative. This preserves positivity and damping without changing the
 second-order CN method; the final occupation clip is normally a round-off
 no-op and remains only as a fail-loud backstop.
 
-A spatially-varying gap is supplied via `gap_profile` (shape `(NX,)`); the DOS
+A spatially-varying gap is supplied via `gap_per_cell` (shape `(Ncells,)`;
+`None` means the spectral context's scalar gap everywhere); the DOS
 `N_1(E, x)` is then evaluated per cell. A finite `interface_conductance`
 `G_N` turns every face where the gap steps into a
 **Kupriyanov–Lukichev interface** carrying the energy-channel current
@@ -126,7 +127,7 @@ channel. Local collisions use the matching gap and spectral support in each
 region. Because an exact local-gap collision operator retains three dense
 `NE x NE` matrices, a two-entry LRU bounds retained kernels. One- and two-gap
 profiles advance in one batched ETD2 call; profiles with more distinct values
-stream one exact gap group at a time. Smooth `gap_profile` collisions therefore
+stream one exact gap group at a time. Smooth `gap_per_cell` collisions therefore
 retain `O(NE**2)` resident kernel memory rather than `O(NX * NE**2)`, at the
 cost of building one operator per distinct gap.
 

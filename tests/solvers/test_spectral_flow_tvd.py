@@ -42,7 +42,7 @@ class TestAdvectSpectralFlow:
         E = np.linspace(1.1, 2.0, 8)
         dE = integration_widths_from_centers(E)
 
-        with pytest.raises(ValueError, match="energy dimension must match"):
+        with pytest.raises(ValueError, match="one entry per energy bin"):
             advect_spectral_flow(
                 np.ones(E.size - 1), E, dE, gap=1.0, gap_dot=0.0, dt=0.0
             )
@@ -130,6 +130,25 @@ class TestAdvectSpectralFlow:
         mask[5:15] = True
         u_new = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=0.01, dt=0.001, active_mask=mask)
         np.testing.assert_array_equal(u_new[~mask], 0.0)
+
+    @pytest.mark.parametrize("gap_dot, dt", [(0.0, 0.001), (1e-31, 0.001), (0.01, 0.0)])
+    def test_active_mask_zeros_outside_when_nothing_moves(
+        self, gap_dot: float, dt: float
+    ) -> None:
+        """The mask defines spectral support on the no-advection return too.
+
+        Below the motion threshold, or at dt = 0, the step advects nothing;
+        the bins outside the mask are still zeroed, so a caller reading
+        support from the result gets the same answer as on a moving step.
+        """
+        E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)
+        dE = integration_widths_from_centers(E)
+        u = np.ones(E.size)
+        mask = np.zeros(E.size, dtype=bool)
+        mask[5:15] = True
+        u_new = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=gap_dot, dt=dt, active_mask=mask)
+        np.testing.assert_array_equal(u_new[~mask], 0.0)
+        np.testing.assert_array_equal(u_new[mask], 1.0)
 
     @pytest.mark.parametrize(
         "mask",

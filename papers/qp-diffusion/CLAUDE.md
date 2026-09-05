@@ -478,7 +478,7 @@ single-spin DOS definition) is in the book PDF.
 - **gpt_review.txt disposition**: paper items all fixed (P1 figure
   packaging; P2 τΔ/ℏ; P3 benchmark-1 wording, Dynes pointer word,
   log warnings addressed by rebuild). ENGINE items deliberately deferred
-  to a qpsim code session: solve_gap near-T_c bracketing, t3_spatial_1d
+  to a qpsim code session: solve_gap near-T_c bracketing, spatial-backend
   geometry/conductance validation, webui path containment, CI ruff red,
   CI slow-coverage gap, picard mixing=0 false convergence, sympy in dev
   deps + Makefile PY default (the last one IS fixed here). On gpt P3 "log

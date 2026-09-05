@@ -12,6 +12,8 @@ Regenerate **C1 → C2 → C3 → C4 → C5 → C6 → C7**, in that order, atom
 
 The chain is stale for two independent reasons: (a) source-closure digests moved under commits `c51a21c`, `da5aa74`, `6c78454`, `0e4b7ed`, `734ae50`, `90ccad3`; (b) the `c51a21c` factored-radicand / `arccosh`→`arcsinh` change genuinely moves kernel numbers from C3 downward. Re-binding digests is **structurally impossible** — every raw manifest embeds its own producer source closure that `build_cX_score` re-derives and bit-compares.
 
+**Scope, measured at `c2470a0` (the parent of `b851add`):** every baseline source fingerprint in the tree was already invalid there — of the recorded source files, **3 are absent** from the tree (among them `qpsim/backends/t3_spatial_1d.py`), **38 files present in the tree are unrecorded**, and **32 recorded digests have drifted**. The recertification scope is therefore *every fingerprint*, not this chain alone. Two consequences for reading test results: (a) the slow-lane failures raise inside the baseline readers — each producer's `read_baseline` (`read_artifact` underneath the Fischer 2024 family) compares the recorded source fingerprint against the live one before any numeric assertion runs — so the reproduction gates are currently asserting provenance only, and a red there says nothing about the numbers; (b) with that provenance gate bypassed, the Fischer 2024 Fig. 8 producer (`validation/fischer_2024/fig8_paper.py`) output is digit-for-digit identical at `c2470a0` and `b851add`, and its worst column drift against the frozen CSV is **5.689e-12**, against the test's `rtol=1e-6`.
+
 ---
 
 ## 1. PRECONDITIONS

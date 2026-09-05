@@ -36,7 +36,8 @@ import pytest
 pytest.importorskip("pydantic", reason="term tests need the qpsim[ui] extra")
 
 from qpsim.webui import execute
-from qpsim.webui.schemas import KineticsSetup
+from qpsim.webui.builders import validate_setup
+from qpsim.webui.schemas import EdgeCondition, KineticsSetup
 from qpsim.webui.terms import ABSENT, OFF, ON, term_status
 
 # One grid on which every flip below is a LEGAL setup, so the test measures
@@ -206,16 +207,62 @@ class TestTheThreeDisagreementsThatPromptedThis:
             assert status[term].state == ABSENT, term
             assert "pinned" in status[term].reason, term
 
-    def test_a_single_cell_has_no_transport(self) -> None:
+    def test_a_single_cell_inside_a_reflective_rim_has_no_transport(self) -> None:
         setup = _base(rows=1, cols=1)
         setup.material.D_0 = 60.0
+        assert setup.boundary.kind == "reflective" and not setup.boundary.per_edge
         status = term_status(setup)["diff"]
         assert status.state == ABSENT, "absence here is structural, not D_0 = 0"
-        assert "no faces" in status.reason
+        assert "reflective rim" in status.reason
         # And the engine agrees: a large D_0 changes nothing on one cell.
         before = _observable(setup)
         setup.material.D_0 = 0.0
         assert _change(before, _observable(setup)) <= _TOLERANCE
+
+    @pytest.mark.parametrize("kind", ["absorbing", "dirichlet"])
+    @pytest.mark.parametrize("where", ["rim", "per_edge"])
+    def test_a_single_cell_transports_through_a_rim_that_acts(
+        self, kind: str, where: str
+    ) -> None:
+        """One cell is 0-D only inside a reflective rim.
+
+        The engine's gate (``SpatialBackend.apply_transport`` and ``rates``)
+        is ``f.shape[1] == 1`` AND no acting device face, not the cell count
+        alone: an absorbing or Dirichlet rim on a single cell is a transport
+        term that D_0 scales. Asserted on both the rim default and a per-edge
+        override, because the two reach the conditions by different paths,
+        and asserted by measurement: the reflective case above would pass
+        whatever rule the panel used for the rim.
+        """
+        setup = _base(rows=1, cols=1)
+        setup.material.D_0 = 60.0
+        if where == "rim":
+            setup.boundary.kind = kind
+        else:
+            setup.boundary.per_edge = {"left": EdgeCondition(kind=kind)}
+        status = term_status(setup)["diff"]
+        assert status.state == ON, status.reason
+        assert kind in status.reason
+        # And the engine agrees: D_0 moves the answer through the rim.
+        before = _observable(setup)
+        setup.material.D_0 = 0.0
+        assert term_status(setup)["diff"].state == OFF
+        assert _change(before, _observable(setup)) > _TOLERANCE
+
+    def test_the_steady_state_root_find_has_no_rim(self) -> None:
+        """A rim that acts is not part of the steady-state model: refused, not dropped."""
+        setup = KineticsSetup(strategy="steady_state")
+        setup.geometry.rows = setup.geometry.cols = 1
+        setup.material.D_0 = 60.0
+        setup.boundary.kind = "absorbing"
+        status = term_status(setup)["diff"]
+        assert status.state == ABSENT
+        assert "absorbing" in status.reason
+        report = validate_setup(setup)
+        assert not report.ok
+        assert any("absorbing" in error for error in report.errors), report.errors
+        setup.boundary.kind = "reflective"
+        assert validate_setup(setup).ok, validate_setup(setup).errors
 
     def test_a_drive_with_no_photons_is_still_on(self) -> None:
         """n_bar = 0 is NOT an off-switch, and this test used to say it was.

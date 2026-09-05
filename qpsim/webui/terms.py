@@ -5,10 +5,10 @@ reading a setup and deciding what to draw, and the engine had the gates it
 actually branches on. Two implementations of the same question drift, and
 these had: the panel showed the phonon-source terms as present while the
 phonons were pinned (so the phonon equation was never advanced), showed
-diffusion as present on a single-cell mask (which has no faces, so the
-transport operator is never built), and showed a photon drive as present with
-``n_bar = 0`` (which applies nothing). In all three the numbers were right and
-the statement about them was false.
+diffusion as present on a single cell inside a reflective rim (which has
+nothing to transport between, so the transport operator is never built), and
+showed a photon drive as present with ``n_bar = 0`` (which applies nothing).
+In all three the numbers were right and the statement about them was false.
 
 So the statement is computed here, next to the engine, from the same
 conditions the engine branches on, and the interface renders what it is told.
@@ -22,14 +22,16 @@ Three states, and the difference between the last two is the whole point:
 ``on``      the model contains this term and it is acting.
 ``off``     the model contains it and it is switched off.
 ``absent``  the model does not contain it at all, so it can be neither
-            switched on nor off -- a 0-D device has no transport, and a
-            pinned phonon bath has no phonon equation.
+            switched on nor off -- a single cell inside a reflective rim has
+            no transport, and a pinned phonon bath has no phonon equation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+from qpsim.webui.builders import acting_rim_kinds_2d, build_geometry_2d
 
 ON = "on"
 OFF = "off"
@@ -104,9 +106,32 @@ def _flag(setup: Any, path: str) -> TermStatus:
     return TermStatus(ON if bool(_get(setup, path, False)) else OFF)
 
 
+def _acting_rim(setup: Any) -> list[str] | None:
+    """Kinds of the rim conditions that act, or None when they cannot be read.
+
+    The engine's own rule, evaluated on the conditions it will build
+    (:func:`qpsim.webui.builders.acting_rim_kinds_2d`): a reflective face
+    contributes nothing, and every other kind is a term in the equation. A
+    setup with no rim declared is a reflective device, which is what
+    ``SpatialState.boundary`` defaults to.
+    """
+    if getattr(setup, "geometry", None) is None or getattr(setup, "boundary", None) is None:
+        return []
+    try:
+        return acting_rim_kinds_2d(setup, build_geometry_2d(setup))
+    except ValueError:
+        # A rim override naming an edge this geometry does not have. The run
+        # refuses it with the same message; the panel does not guess.
+        return None
+
+
 def _transport(setup: Any) -> TermStatus:
-    # Gate: SpatialBackend.rates builds the transport operator only under
-    # `if state.f.shape[1] > 1`, and the flux weight carries D_0.
+    # Gate: SpatialBackend.apply_transport (spatial.py:496-498) returns the
+    # state untouched, and SpatialBackend.rates (spatial.py:624-626) builds no
+    # operator, only when `state.f.shape[1] == 1` AND
+    # `SpatialTransport.has_acting_device_faces()` is false. A rim of any kind
+    # but reflective is a term in the equation even on one cell, and the flux
+    # weight carries D_0.
     cells = _cell_count(setup)
     if cells is None:
         return TermStatus(
@@ -116,10 +141,41 @@ def _transport(setup: Any) -> TermStatus:
             "-- is not known yet",
         )
     if cells <= 1:
+        rim = _acting_rim(setup)
+        if _steady_state(setup):
+            # DiffusionBackend.steady_state carries f(E) with no cell axis and
+            # no rim; `validate_setup` refuses a rim that acts on this route.
+            declared = (
+                f"; the declared {' and '.join(rim)} rim is not part of that "
+                "solver, and the run refuses it"
+                if rim else ""
+            )
+            return TermStatus(
+                ABSENT,
+                "the steady-state strategy is a root find for f(E) on one cell "
+                "with no rim, so there is nothing to transport" + declared,
+            )
+        if rim is None:
+            return TermStatus(
+                UNKNOWN,
+                "a rim override names an edge this geometry does not have, so "
+                "whether the rim acts -- and therefore whether this one cell "
+                "transports at all -- cannot be read; the run refuses it too",
+            )
+        if not rim:
+            return TermStatus(
+                ABSENT,
+                "a single cell inside a reflective rim has no neighbour to "
+                "exchange with and no face that lets density out, so there is "
+                "nothing to transport",
+            )
+        if float(_get(setup, "material.D_0", 0.0)) <= 0.0:
+            return TermStatus(OFF, "D_0 = 0 makes the flux coefficient vanish")
         return TermStatus(
-            ABSENT,
-            "a single-cell device has no faces, so there is nothing to "
-            "transport between",
+            ON,
+            f"one cell, but its rim is {' and '.join(rim)}: those faces "
+            "exchange density with the outside, so the transport operator is "
+            "built and D_0 scales it",
         )
     if float(_get(setup, "material.D_0", 0.0)) <= 0.0:
         return TermStatus(OFF, "D_0 = 0 makes the flux coefficient vanish")

@@ -201,14 +201,16 @@ and is not available on the coupled-Newton path.
 
 #### 2.2.3 Contract tests
 
-The contract tests (`tests/devices/test_external_flux.py`) run with
-``enable_recombination=False, enable_scattering=False,
-enable_photon_scattering=False`` so only the ExternalFlux term plus the
+The contract tests (`tests/devices/test_external_flux.py`) run with the
+collision kernels absent — their ``SpectralContext`` carries no ``K_s0`` /
+``K_r0`` / photon kernels — so only the ExternalFlux term plus the
 spectral-flow term is live, keeping the assertions clear of the (nonlinear in
 f, via cross-bin partners) collision kernels:
 
-* **Zero flux identity**: ``ExternalFlux=None`` reproduces the no-flux path
-  bit for bit across the Fischer validations.
+* **Zero flux identity**: ``external_flux=None`` reproduces the no-kwarg path
+  through ``newton_solve_f`` to ``atol=1e-14``
+  (``test_external_flux_None_path_unchanged``). The Fischer validations pass
+  no ``ExternalFlux``, so they are outside this contract.
 * **Linear ODE closed form**: collision kernels disabled,
   ``ExternalFlux(gain=g(E), loss_rate=r(E))`` with constant ``g, r``.
   Steady state is ``f(E) = g(E) / r(E)`` by direct construction of
@@ -377,11 +379,16 @@ distribution choice is an *approximation* introduced by the moment-closure
 wrapper; a Junction consuming f_L(E), f_R(E′) at paired energies computes
 ``gain(E)`` directly instead.
 
-**Conservation invariants** (pinned by `tests/devices/test_device.py`):
+**Conservation invariants** (invariant 1 pinned by
+`tests/devices/test_m25_junction.py` and `tests/devices/test_external_flux.py`;
+invariants 2–3 by `tests/devices/test_device.py`):
 
-1. **Per-region total injection matches the junction current**:
-   ``4 ρ_F V_region Σ_i ρ_i gain_i dE_i[eV] = I_J^{total}`` — the
-   device-level junction diagnostic — to float64.
+1. **Moment-preserving injection**: for the moment-closure junction,
+   ``(2/Δ_α) ∫ ρ gain dE = gain_moment_Hz`` exactly — pinned to
+   ``rtol=1e-12`` by ``test_L_spread_uses_band_mask_under_dynes_dos`` in
+   `tests/devices/test_m25_junction.py`. The observable-level form
+   ``∂_t n_qp = 4 ρ_F ∫ ρ (gain − loss_rate·f) dE`` is pinned by
+   `tests/devices/test_external_flux.py::TestConservationUnderInjection`.
 2. **Cross-region balance at detailed balance**: summing over
    every region of ``∂_t N_qp = 4 ρ_F V_region Σ_i ρ_i (gain_i −
    loss_rate_i f_i) dE_i[eV]`` equals zero when the Device is at thermal
@@ -799,14 +806,14 @@ general reduction of Layer 2 — **not the primary object**.
 
 ### 6.1 Where photon drive lives
 
-`PhotonDrive` and `PhotonState` sit in different places for different drive
-mechanisms (pair-breaking vs sub-gap vs photon-assisted tunneling). For
-Devices, pair-breaking drive is a per-Region property (absorbed in the film),
-while photon-assisted tunneling (M25 Γ_ν) is a per-Junction property.
-
-A `Region` owns its phonon state AND its pair-breaking photon bath. A
-`Junction` owns the photon-assisted-tunneling drive (Γ_ν × n̄). No field has
-two homes.
+Photon-assisted tunneling (M25 Γ_ν × n̄) lives on the Junction:
+`M25GapAsymmetricJJ.m25_drive: M25PhotonDrive`. Pair-breaking drive is not a
+Region property — `Region` carries `name` and `state` only. It is the
+per-call `pb_photon_params` argument of the single-region solve
+(`DiffusionBackend.steady_state`), and `solve_device_steady_state` does not
+forward it, so a Device cannot drive a region with pair-breaking photons;
+wiring that is open work. A `Region` owns its phonon state through
+`DiffusionState.phonon`. No field has two homes.
 
 ### 6.2 Region, not electrode
 
@@ -816,10 +823,12 @@ works for all of them. `Region` is therefore the primitive, and
 `Junction.region_a` / `region_b` hold the names. A JJ built on this layer will
 use names `"L"` / `"R"` by convention; the framework does not care.
 
-### 6.3 Qubit steady state and time evolution
+### 6.3 Qubit steady state
 
-For steady-state solves, the qubit master equation is another algebraic
-equation: `solve_qubit_master_equation_steady_state` solves `ṗ = 0` jointly
-with the region states inside the outer Picard loop. The same rate matrix,
-assembled by `build_rate_matrix` from the pooled channel list, is what a
-time-marched qubit integrates. Same underlying physics, different solver loop.
+The qubit master equation is another algebraic equation:
+`solve_qubit_master_equation_steady_state` solves `ṗ = 0` jointly with the
+region states inside the outer Picard loop. The same rate matrix, assembled by
+`build_rate_matrix` from the pooled channel list, would be what a time-marched
+qubit integrates — same physics, different solver loop — but no Device or
+qubit time-evolution driver ships: `qpsim.devices.qubit` exposes the
+steady-state entry point only.

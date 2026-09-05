@@ -78,7 +78,6 @@ class SpatialState:
     conditions: dict[str, BoundaryCondition] | None = None
     diffusion_model: DiffusionModel = DiffusionModel.A1
     interface_conductance: float | None = None
-    _: dict[str, float] = field(default_factory=dict, repr=False)
 
     @property
     def gap(self) -> float:

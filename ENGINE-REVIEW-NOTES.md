@@ -1,9 +1,8 @@
 # Engine review — integration notes
 
-This file began as historical integration context for branch
-`fix/gpt-review-engine`. Current code-audit work is on
-`codex/qpsim-deep-audit-fixes`; the dated counts below remain historical and
-must not be read as results for later follow-up edits.
+Integration notes for the engine review. Every count, timing and pass/fail
+result recorded below is historical — measured on the tree of its date, not
+on the current tree.
 
 ## 2026-07-18 numerical-audit correction
 
@@ -101,12 +100,12 @@ arguments, so programmatic use is as no-clobber-safe as the CLI.
 
 ```
 pip install -e ".[dev,ui]"        # Python 3.13 or 3.14
-ruff check .                       # All checks passed
-mypy qpsim                         # Success
+ruff check .
+mypy qpsim
 pytest tests/solvers/test_picard.py tests/backends/test_spatial.py \
-       tests/webui/test_server.py qpsim/physics/gap_equation.py -q   # 50 passed
-pytest -q                                                         # 802 passed
-pytest -m "slow and not manual_slow"                               # 14 passed; fig6 excluded
+       tests/webui/test_server.py qpsim/physics/gap_equation.py -q
+pytest -q
+pytest -m "slow and not manual_slow"                               # fig6 (manual_slow) excluded
 ```
 
 The slow surface was executed in visible shards on macOS/Python 3.14: the Fig. 5
