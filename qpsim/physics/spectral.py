@@ -4,9 +4,8 @@ Pure-physics module — no state mutation beyond ``SpectralContext``'s
 own Δ cache. Inputs are energy grids and a gap value; outputs are
 DOS arrays, coherence-factor matrices, and thermal weights.
 
-Ported from the old ``qpsim/numerics/spectral.py`` at Gate 2, with
-``thermal_qp_weights`` moved here from the old ``kernels.py`` (it is
-a spectral × Fermi–Dirac combination, not a phonon kernel).
+``thermal_qp_weights`` lives here rather than with the phonon kernels:
+it is a spectral × Fermi–Dirac combination, not a phonon kernel.
 """
 
 from __future__ import annotations
@@ -375,9 +374,9 @@ class SpectralContext:
 
     @property
     def active_margin_factor(self) -> float:
-        """Legacy configuration value, retained for API compatibility.
+        """Configuration value retained for API compatibility.
 
-        The value no longer removes positive-capacity states from
+        It does not remove positive-capacity states from
         :attr:`active_mask`.
         """
         return self._active_margin_factor
@@ -450,11 +449,9 @@ class SpectralContext:
             # quantity xi = sqrt((E-D)(E+D)) explicitly, and E - gap is exact
             # in floating point over gap/2 <= E <= 2*gap by Sterbenz's lemma --
             # precisely the gap-edge region where this cell measure matters.
-            # The same operation sequence is mirrored in
-            # the C3 author-score script;
-            # sequence identity there is load-bearing, because the C3 mirror is
-            # compared bit-exact and the 1-D backend is the bit reference for
-            # the unified 2-D core.
+            # The same operation sequence is mirrored in the C3 author-score
+            # script and compared bit-exact, so the sequence itself is
+            # load-bearing: reordering it here breaks that comparison.
             xi_lo = np.sqrt(np.maximum((lo - gap) * (lo + gap), 0.0))
             xi_hi = np.sqrt(np.maximum((hi - gap) * (hi + gap), 0.0))
             anomalous_weight = gap * (

@@ -56,9 +56,7 @@ def acoustic_escape_tau_l(
     r"""Compute ``τ_l ≈ 4 d / (η s)`` from a :class:`Material`.
 
     The AMM closed-form is frequency-independent in ``η``; the returned
-    array tiles the same scalar across the phonon grid. Frequency
-    dependence in ``η(ω)`` can be added later without changing this
-    signature.
+    array tiles the same scalar across the phonon grid.
 
     Parameters
     ----------
@@ -70,7 +68,7 @@ def acoustic_escape_tau_l(
         ``branch``.
     branch
         Which sound velocity to use: ``"debye"`` (Debye average,
-        v1 default), ``"longitudinal"``, or ``"transverse"``.
+        the default), ``"longitudinal"``, or ``"transverse"``.
 
     Returns
     -------

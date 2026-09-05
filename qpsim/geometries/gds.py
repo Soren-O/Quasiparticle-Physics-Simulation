@@ -3,9 +3,6 @@
 ``gdstk`` is an optional dependency. This module imports without it; only the
 functions that actually read a file raise, and :func:`gds_support_available`
 lets a caller check first rather than catching.
-
-Ported from the archived 2D simulator's ``qpsim/geometry.py``. Copied rather
-than imported: this tree does not depend on that one.
 """
 
 from __future__ import annotations

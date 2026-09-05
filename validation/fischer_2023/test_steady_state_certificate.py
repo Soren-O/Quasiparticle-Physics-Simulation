@@ -6,12 +6,12 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import integration_widths_from_centers
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -40,7 +40,7 @@ def test_weighted_number_backward_error_fails_closed_without_pair_turnover() -> 
 
 
 @pytest.fixture(scope="module")
-def certified_equilibrium() -> T3DiffusionState:
+def certified_equilibrium() -> DiffusionState:
     # Commensurate grid: omega_0 / dE = 4.  Zero photon coupling leaves the
     # exact thermal state, which gives a clean reference for perturbation tests.
     E = _GAP + 5.5 * np.arange(32, dtype=float)
@@ -59,7 +59,7 @@ def certified_equilibrium() -> T3DiffusionState:
         tau_0=63.0,
         tau_0_pb_ns=0.040,
     )
-    state = T3DiffusionState(
+    state = DiffusionState(
         f=f,
         gap=_GAP,
         spectral=spectral,
@@ -67,13 +67,12 @@ def certified_equilibrium() -> T3DiffusionState:
             n_ph=n_ph.reshape(1, -1, 1),
             omega_bins=omega.reshape(1, -1),
             tau_l=np.full((1, omega.size), _TAU_L),
-            model=PhononModel.PH0_LOCAL,
             branches=[PhononBranchSpec(name="debye_average")],
         ),
         material=material,
         T_bath=_T_BATH,
     )
-    return T3DiffusionBackend().steady_state(
+    return DiffusionBackend().steady_state(
         state,
         photon_params=_PHOTON_PARAMS,
         use_phonon_side_kernel=True,
@@ -86,7 +85,7 @@ def certified_equilibrium() -> T3DiffusionState:
 
 
 def test_certificate_detects_phonon_residual_perturbation(
-    certified_equilibrium: T3DiffusionState,
+    certified_equilibrium: DiffusionState,
 ) -> None:
     reference = steady_state_certificate(
         certified_equilibrium,
@@ -120,7 +119,7 @@ def test_certificate_detects_phonon_residual_perturbation(
 
 
 def test_certificate_detects_qp_residual_perturbation(
-    certified_equilibrium: T3DiffusionState,
+    certified_equilibrium: DiffusionState,
 ) -> None:
     f = certified_equilibrium.f.copy()
     f[4] += 1e-6
@@ -138,7 +137,7 @@ def test_certificate_detects_qp_residual_perturbation(
 
 @pytest.mark.parametrize("scale", [0.5, 2.0])
 def test_certificate_detects_wrong_number_on_correct_thermal_shape(
-    certified_equilibrium: T3DiffusionState,
+    certified_equilibrium: DiffusionState,
     scale: float,
 ) -> None:
     """Number-conserving turnover must not certify a scaled cold solution."""
@@ -158,7 +157,7 @@ def test_certificate_detects_wrong_number_on_correct_thermal_shape(
 
 
 def test_certificate_rejects_unassembled_channel_scope(
-    certified_equilibrium: T3DiffusionState,
+    certified_equilibrium: DiffusionState,
 ) -> None:
     unsupported = dict(_PHOTON_PARAMS, omega_PB=400.0)
     with pytest.raises(ValueError, match="supports exactly one sub-gap photon"):

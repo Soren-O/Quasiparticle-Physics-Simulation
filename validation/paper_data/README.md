@@ -199,7 +199,7 @@ It holds the accepted C5 state, grid, projected phonon occupation, and every
 public QP channel fixed and replaces only the phonon-side balance: qpsim's
 public phonon-side kernels `2K-/(pi Delta tau_0^PB)` and
 `K+/(pi Delta tau_0^PB)`, the public frequency map, the
-`compute_phonon_source_sink` contraction, and the `ph0_local` bath-escape
+`compute_phonon_source_sink` contraction, and the `local` bath-escape
 form on the full 3600-bin native omega lattice. The scattering net matches
 the inherited author channel to `1.279582321835755e-15` symmetric relative
 L1, the same-kernel correction-off pair control to

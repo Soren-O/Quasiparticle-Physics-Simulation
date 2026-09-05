@@ -9,12 +9,11 @@ One model per run mode, discriminated on ``mode``. There are two:
 * ``m25_junction`` — M25 gap-asymmetric junction moment layer over a
   temperature sweep.
 
-Three earlier modes — ``steady_state_0d``, ``transient_0d`` and
-``spatial_1d`` — were geometries of the first one all along and were retired
-into it. Setups saved under those names still load: see
-``RETIRED_MODE_UPGRADES`` below, which translates each rather than merely
-renaming it, because a merge has to supply fields the survivor requires and
-drop ones it does not have.
+A saved setup may name its mode ``steady_state_0d``, ``transient_0d`` or
+``spatial_1d``. Each of those is a geometry of ``kinetics`` and loads as one:
+see ``SAVED_SETUP_UPGRADES`` below, which translates each rather than merely
+renaming it, because the translation has to supply fields ``kinetics``
+requires and drop ones it does not have.
 
 These models validate *shape and static bounds* only. Cross-field
 physics checks (drive frequencies vs 2Δ, Dynes × spatial transport,
@@ -60,7 +59,7 @@ _AL = load_material("Al")
 # engine ValueError, in the one place the message could not be acted on. Two
 # numbers for one rule also means tuning either silently moves where setups
 # are rejected.
-from qpsim.backends.t3_spatial import _SNAPSHOT_HARD_CAP as _MAX_SNAPSHOTS
+from qpsim.backends.spatial import _SNAPSHOT_HARD_CAP as _MAX_SNAPSHOTS
 
 
 def _reject_dense_snapshots(snapshot_interval: float | None, run_time: float) -> None:
@@ -159,7 +158,7 @@ class PhononInitialCondition(StrictModel):
 
 
 class PhononSector(StrictModel):
-    """Ph0 phonon-sector choice.
+    """Phonon-sector choice.
 
     * ``thermal_bath`` — n_ph pinned at the Bose–Einstein bath
       (Fischer τ_l → 0 limit; Newton steady-state path).
@@ -704,7 +703,7 @@ class KineticsSetup(StrictModel):
     # knob groups is live (dt/max_time/stop_tol, or solver.*), so it sits
     # above both rather than inside one of them.
     #
-    # "steady_state" routes to T3DiffusionBackend.steady_state, whose state is
+    # "steady_state" routes to DiffusionBackend.steady_state, whose state is
     # f:(NE,) with a SCALAR gap -- it has no cell axis, so it requires a
     # one-cell mask. That is a property of the solver, not of the geometry:
     # multi-cell devices reach a steady state perfectly well by time-marching
@@ -739,9 +738,8 @@ class KineticsSetup(StrictModel):
             raise ValueError(
                 "Set self_consistent_gap at the top level of the setup, not on "
                 "solver. The top-level field is what the term panel's 'gapeq' "
-                "switch and the time-march path both read; solver."
-                "self_consistent_gap belongs to the 0-D mode this one replaces "
-                "and is ignored here."
+                "switch and the time-march path both read; "
+                "solver.self_consistent_gap is ignored here."
             )
         return self
 
@@ -757,8 +755,8 @@ def _upgrade_steady_state_0d(data: dict[str, object]) -> dict[str, object]:
     """0-D steady state is a one-cell mask asking for the steady-state solver."""
     out = dict(data)
     solver = dict(out.get("solver") or {})
-    # The top level is the single authority on the merged mode; carrying both
-    # would trip KineticsSetup's own duplicate check.
+    # The top level is the single authority on this switch; carrying both would
+    # trip KineticsSetup's own duplicate check.
     out["self_consistent_gap"] = bool(solver.pop("self_consistent_gap", False))
     out["solver"] = solver
     out["strategy"] = "steady_state"
@@ -771,13 +769,13 @@ def _upgrade_transient_0d(data: dict[str, object]) -> dict[str, object]:
     out = dict(data)
     total = float(out.pop("total_time", 120.0))
     out["max_time"] = total
-    # The retired model typed stop_tol as optional, where None meant "never
-    # stop early". The merged one types it as a float, and 0.0 says that.
+    # A saved setup may carry stop_tol as None, meaning "never stop early".
+    # KineticsSetup types it as a float, and 0.0 says that.
     if out.get("stop_tol") is None:
         out["stop_tol"] = 0.0
-    # Both retired backends recorded at max_time/50 when the interval was
-    # None; the spatial one records nothing, so silence here would drop the
-    # whole time series rather than preserve a default.
+    # An older saved setup recorded at max_time/50 when the interval was None.
+    # The time march records nothing on silence, so leaving it unset here would
+    # drop the whole time series rather than preserve a default.
     if out.get("snapshot_interval") is None:
         out["snapshot_interval"] = total / 50.0
     out["strategy"] = "time_march"
@@ -827,14 +825,14 @@ def _upgrade_spatial_1d(data: dict[str, object]) -> dict[str, object]:
     return out
 
 
-# Retired MODES, and the function that rewrites a setup saved under each one.
-# A rename could be a string swap; a merge cannot -- these carry fields the
-# merged model does not have (total_time, num_cells, gap_profile) and lack
-# fields it requires. Refusing instead would be honest but would still make
-# saved work unloadable, and the translation is known exactly: it is the same
-# one the catalogue cases were migrated by, and those were verified against
-# their recorded fingerprints.
-RETIRED_MODE_UPGRADES: dict[
+# Mode names a saved setup may carry, and the function that rewrites a setup
+# saved under each one. A rename could be a string swap; these cannot be --
+# they carry fields KineticsSetup does not have (total_time, num_cells,
+# gap_profile) and lack fields it requires. Refusing instead would be honest
+# but would still make saved work unloadable, and the translation is known
+# exactly: it is the same one the catalogue cases were migrated by, and those
+# were verified against their recorded fingerprints.
+SAVED_SETUP_UPGRADES: dict[
     str, Callable[[dict[str, object]], dict[str, object]]
 ] = {
     "steady_state_0d": _upgrade_steady_state_0d,
@@ -843,15 +841,16 @@ RETIRED_MODE_UPGRADES: dict[
 }
 
 
-# Retired mode names, and what each is now. A stored setup and a run manifest
-# both name their mode as a plain string, so every one already on disk still
-# says the old name -- without this map, renaming a mode does not date saved
-# work, it makes it UNLOADABLE. Entries are permanent: the cost of keeping one
-# is a dict line, and the cost of dropping one is somebody's saved device.
+# Mode names a saved setup may carry, and the current name for each. A stored
+# setup and a run manifest both name their mode as a plain string, so what is
+# on disk is the name that was current when it was written -- without this map,
+# renaming a mode does not date saved work, it makes it UNLOADABLE. Entries are
+# permanent: the cost of keeping one is a dict line, and the cost of dropping
+# one is somebody's saved device.
 LEGACY_MODE_ALIASES: dict[str, str] = {
     "spatial_2d": "kinetics",
-    # The three retired modes all resolve to the same one; what distinguishes
-    # them is geometry and strategy, which RETIRED_MODE_UPGRADES supplies.
+    # The older mode names all resolve to the same one; what distinguishes them
+    # is geometry and strategy, which SAVED_SETUP_UPGRADES supplies.
     "steady_state_0d": "kinetics",
     "transient_0d": "kinetics",
     "spatial_1d": "kinetics",
@@ -859,7 +858,7 @@ LEGACY_MODE_ALIASES: dict[str, str] = {
 
 
 def canonical_mode(mode: str) -> str:
-    """The current name for a possibly-retired mode string.
+    """The current name for a mode string, whatever name it was saved under.
 
     Used everywhere a BARE mode string arrives rather than a whole setup --
     ``/api/defaults/{mode}``, manifest listings — because those never pass
@@ -877,8 +876,8 @@ class SetupEnvelope(StrictModel):
 
     @field_validator("setup", mode="before")
     @classmethod
-    def _upgrade_retired_mode(cls, value: object) -> object:
-        """Rewrite a retired mode name before the discriminator sees it.
+    def _upgrade_saved_mode_name(cls, value: object) -> object:
+        """Rewrite a saved setup's mode name before the discriminator sees it.
 
         Has to be ``mode="before"``: the union is discriminated ON ``mode``, so
         by the time a validator could run on the parsed model the parse has
@@ -890,9 +889,9 @@ class SetupEnvelope(StrictModel):
         if isinstance(value, dict):
             mode = value.get("mode")
             if isinstance(mode, str) and mode in LEGACY_MODE_ALIASES:
-                upgrade = RETIRED_MODE_UPGRADES.get(mode)
-                # A rename is a string swap; a MERGE has to translate fields
-                # the merged model does not have and supply ones it requires.
+                upgrade = SAVED_SETUP_UPGRADES.get(mode)
+                # A rename is a string swap; the rest have to translate fields
+                # KineticsSetup does not have and supply ones it requires.
                 value = upgrade(value) if upgrade else dict(value)
                 value["mode"] = LEGACY_MODE_ALIASES[mode]
                 return value

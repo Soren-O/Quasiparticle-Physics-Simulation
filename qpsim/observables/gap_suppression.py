@@ -85,15 +85,15 @@ def compute_gap_suppression(
     to the normal state therefore needs support down to zero; missing low-edge
     occupation data is rejected rather than extrapolated.
 
-    Both gaps now come through :func:`solve_gap` on the caller's own cells.
-    The reference used to come from :func:`calibrate_gap` — an ``E = Δ cosh(u)``
-    trapezoid, essentially exact — while ``Δ_final`` came from the cell-constant
-    finite volume, so the two discretizations did not cancel and an exactly
-    thermal ``f`` returned a spurious non-zero suppression whose sign was set by
-    where ``Δ_eq`` happened to fall inside its cell.  Measured for Al at
+    Both gaps come through :func:`solve_gap` on the caller's own cells.
+    Taking the reference from :func:`calibrate_gap` — an ``E = Δ cosh(u)``
+    trapezoid, essentially exact — while ``Δ_final`` comes from the cell-constant
+    finite volume leaves the two discretizations uncancelled, and an exactly
+    thermal ``f`` then returns a spurious non-zero suppression whose sign is set
+    by where ``Δ_eq`` happens to fall inside its cell.  Measured for Al at
     ``energy_min_factor=0.9``, as a fraction of the thermal suppression: below
     1% on a 400-bin grid but 5–50% on a 64-bin grid.  An exactly thermal ``f``
-    now returns exactly ``0.0``.
+    returns exactly ``0.0``.
 
     This does NOT mean the discretizations cancel identically.  What cancels is
     the common thermal part; the surviving error is proportional to the DRIVE
@@ -193,8 +193,8 @@ def edge_samples_from_centers(f: np.ndarray, E_bins: np.ndarray) -> np.ndarray:
     them.  The first node is the linear extrapolation ``1.5*f[0] - 0.5*f[1]``,
     which can leave ``[0, 1]`` for a sharply structured, strongly occupied
     ``f`` even though the input itself is physical.  The result is projected
-    onto ``[0, 1]`` by :func:`_project_onto_pauli_bound` — both ends, where it
-    used to be clamped only from below — which is the SAME projection the
+    onto ``[0, 1]`` by :func:`_project_onto_pauli_bound` — both ends, not
+    only from below — which is the SAME projection the
     ``samples="centers"`` branch of :func:`gap_integral_from_distribution_direct`
     applies, so the two reconstructions cannot disagree about the saturated
     gap edge.
@@ -298,11 +298,11 @@ def gap_integral_from_distribution_direct(
         # square-root endpoint weight in the most singular cell.
         #
         # Projected onto the Pauli bound through the SAME helper as
-        # edge_samples_from_centers, not rejected. This branch used to raise
-        # while that one clipped, which made the two reconstructions of one
-        # quantity disagree on exactly the class of f where it matters -- and
-        # the raise pointed the caller at samples='edges', which by then
-        # answered with a clipped and therefore different number.
+        # edge_samples_from_centers, not rejected. Raising here while that
+        # one clips would make the two reconstructions of one quantity
+        # disagree on exactly the class of f where it matters -- and the raise
+        # would point the caller at samples='edges', which answers with a
+        # clipped and therefore different number.
         first_active = int(np.flatnonzero(active)[0])
         vals = _project_onto_pauli_bound(vals, first_active)
     elif mode in {"edge", "edges", "authors"}:

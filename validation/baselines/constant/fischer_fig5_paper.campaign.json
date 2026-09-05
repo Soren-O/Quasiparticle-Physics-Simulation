@@ -5,19 +5,19 @@
     "aggregate_worker_s": 35471.7155438005,
     "artifacts": {
       "csv": {
-        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper.csv",
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\constant\\fischer_fig5_paper.csv",
         "sha256": "4e187e3286e45cb45e0a0b580789559fb8989044e7c80e9b5c10090b80af80df"
       },
       "pdf_a": {
-        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper_a.pdf",
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\constant\\fischer_fig5_paper_a.pdf",
         "sha256": "d12bb18591102a7a833edde026cb0581b50bd225f0846004a6d6534b4400895c"
       },
       "pdf_b": {
-        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper_b.pdf",
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\constant\\fischer_fig5_paper_b.pdf",
         "sha256": "e630769039c2853c4209dd33bbcac74493bc9a5048b9e95788df341191ce6bd5"
       },
       "record": {
-        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\ph0_constant\\fischer_fig5_paper.promotion.json",
+        "path": "C:\\tmp\\qpsim-round7-fixes\\validation\\baselines\\constant\\fischer_fig5_paper.promotion.json",
         "sha256": "a48cbc150aec9952b5175e25416c5e7a656318442d27dd64950ab8b044ef391a"
       }
     },

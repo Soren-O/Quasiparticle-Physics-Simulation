@@ -26,7 +26,7 @@ from qpsim.webui.schemas import (
 
 
 def _steady_state_0d() -> KineticsSetup:
-    """What the retired 0-D steady-state mode is now: a one-cell root find."""
+    """A one-cell mask solved by the steady-state root find, probe on."""
     setup = KineticsSetup(strategy="steady_state")
     setup.geometry.rows = setup.geometry.cols = 1
     setup.grid.max_factor, setup.grid.num_bins = 10.0, 405
@@ -35,7 +35,7 @@ def _steady_state_0d() -> KineticsSetup:
 
 
 def _transient_0d() -> KineticsSetup:
-    """What the retired 0-D transient is now: a one-cell time march."""
+    """A one-cell mask time-marched, probe on."""
     setup = KineticsSetup(strategy="time_march")
     setup.geometry.rows = setup.geometry.cols = 1
     setup.grid.max_factor, setup.grid.num_bins = 10.0, 405
@@ -45,7 +45,7 @@ def _transient_0d() -> KineticsSetup:
 
 
 def _strip_1d(cells: int = 31, length_um: float = 100.0) -> KineticsSetup:
-    """What the retired 1-D strip is now: a one-row mask."""
+    """A one-row mask of ``cells`` columns spanning ``length_um``, injection on."""
     setup = KineticsSetup(strategy="time_march")
     setup.geometry.rows, setup.geometry.cols = 1, cells
     setup.geometry.mesh_size_um = length_um / cells
@@ -72,7 +72,7 @@ class TestSchemas:
         envelope = SetupEnvelope.model_validate(
             {"name": "t", "setup": {"mode": "steady_state_0d", "grid": {"num_bins": 48}}}
         )
-        # A retired mode name upgrades to the mode that replaced it; the
+        # A mode name a saved setup may carry resolves to ``kinetics``; the
         # partial dict still fills its defaults on the way through.
         assert isinstance(envelope.setup, KineticsSetup)
         assert envelope.setup.strategy == "steady_state"
@@ -290,8 +290,8 @@ class TestValidateSetup:
         setup.gap_regions.kind = "column_step"
         setup.gap_regions.gap_left = 0.9 * setup.material.Delta_0
         report = validate_setup(setup)
-        # The merged mode words this as the gap map vs the grid floor; what
-        # matters is that the guard survived the retirement, not its phrasing.
+        # The message is worded as the gap map against the grid floor; what is
+        # pinned is that the guard fires, not its exact phrasing.
         assert any(
             "smallest local gap" in error and "energy grid starts at" in error
             for error in report.errors
@@ -373,7 +373,7 @@ class TestBuilders:
         backend dropped the keyword on the floor -- which is exactly the class
         of defect this repo keeps finding. Capture it at the solver boundary.
         """
-        import qpsim.backends.t3_diffusion as t3
+        import qpsim.backends.diffusion as diffusion_mod
 
         captured: dict[str, object] = {}
 
@@ -381,7 +381,7 @@ class TestBuilders:
             captured.update(kwargs)
             raise _StopForCapture
 
-        monkeypatch.setattr(t3, "coupled_newton_solve", _capture)
+        monkeypatch.setattr(diffusion_mod, "coupled_newton_solve", _capture)
 
         setup = _steady_state_0d()
         setup.phonons.mode = "dynamic_escape"
@@ -391,7 +391,7 @@ class TestBuilders:
             setup.solver.coupled_newton_analytic_cross = requested
             state = build_state_0d(setup)
             with pytest.raises(_StopForCapture):
-                t3.T3DiffusionBackend().steady_state(
+                diffusion_mod.DiffusionBackend().steady_state(
                     state, **steady_state_solver_kwargs(setup),
                 )
             assert captured.get("analytic_cross") is requested, (
@@ -431,9 +431,8 @@ class TestBuilders:
     ) -> None:
         """Centres at (i + 1/2)h, and h*cells is the length exactly.
 
-        Kept from the retired 1-D mode because this convention is load-bearing
-        and easy to get wrong by half a cell: the reported x_um was i*h for a
-        while, which is invisible in a plot and wrong in a fit.
+        The half-cell offset is load-bearing and easy to get wrong: reporting
+        x_um as i*h instead is invisible in a plot and wrong in a fit.
         """
         from qpsim.webui.execute import execute_setup
 

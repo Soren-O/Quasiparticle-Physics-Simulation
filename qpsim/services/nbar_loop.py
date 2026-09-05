@@ -16,15 +16,10 @@ in ns — the photon-energy-per-second ``P_read`` has units μeV/ns, so
 ``P_read/ω_0`` gives photons/ns and an extra ``ℏ/ω_0`` gives
 photons.)
 
-This service is tier-agnostic: it calls user-supplied ``solve_f`` and
-``compute_Q_i`` callables, so the same loop serves T3, T2, T1 and any
-phonon model. The Fischer Fig 7-with-drive + Figs 9-13 Q_i(P_read)
-reproductions are the two primary callers.
-
-Ported from the legacy ``SimulationService.run_steady_state_nbar_loop``
-at Gate 3; the legacy entry-point was bundled with the whole
-``SetupData`` orchestration and is not appropriate for direct reuse
-in the greenfield services layer.
+The loop takes user-supplied ``solve_f`` and ``compute_Q_i`` callables, so
+it is independent of how ``f`` is solved and of the phonon model. The
+Fischer Fig 7-with-drive + Figs 9-13 Q_i(P_read) reproductions are the two
+primary callers.
 """
 
 from __future__ import annotations

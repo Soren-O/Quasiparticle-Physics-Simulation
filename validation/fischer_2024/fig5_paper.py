@@ -89,13 +89,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -288,18 +288,17 @@ def _assert_unit_audit() -> None:
         )
 
 
-def _build_state(material: Material, spectral: SpectralContext) -> T3DiffusionState:
-    """Build a T3 state at T_BATH with thermal-phonon n_ph and τ_ℓ = 0."""
+def _build_state(material: Material, spectral: SpectralContext) -> DiffusionState:
+    """Build a diffusion state at T_BATH with thermal-phonon n_ph and τ_ℓ = 0."""
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
     phonon = PhononState(
         n_ph=thermal_phonon_occupation(omega, T_BATH).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f_FD = fermi_dirac_occupation(spectral.E, T_BATH)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_FD,
         gap=DELTA_0,
         spectral=spectral,
@@ -416,7 +415,7 @@ def run() -> Fig5PaperResult:
     _, _, spectral = _build_grid_and_spectral()
     state = _build_state(material, spectral)
 
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     f_thermal = state.f.copy()
 
     f_by_drive: dict[float, np.ndarray] = {}
@@ -491,7 +490,7 @@ def baseline_path() -> Path:
     Rename to ``fischer2024_fig5_paper.csv`` once both gaps close.
     """
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "fischer2024_fig5_qpsim_native.csv"
+    return root / "validation" / "baselines" / "constant" / "fischer2024_fig5_qpsim_native.csv"
 
 
 def plot_path() -> Path:

@@ -4,9 +4,6 @@ Single-mode photon scattering under the photon coherence convention
 (``K⁺`` instead of ``K⁻``). The photon frequency must be grid-
 commensurate with the QP energy grid to avoid silent interpolation
 errors; mismatches above 1% are rejected.
-
-Ported from ``photon_collision_rates`` in the old
-``qpsim/numerics/collision_phonon.py``.
 """
 
 from __future__ import annotations

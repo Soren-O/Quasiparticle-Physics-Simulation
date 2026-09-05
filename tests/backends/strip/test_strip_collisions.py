@@ -1,24 +1,21 @@
 """Local collisions on the 1-D strip, solved by the unified spatial backend.
 
-Translated from ``TestT3Spatial1DCollisions`` in
-``tests/backends/test_t3_spatial_1d.py``, which tested the retired
-``T3Spatial1DBackend``. Every state here is a ``T3SpatialState`` on a
-``strip(N, mesh_size=dx)`` geometry -- a ``(1, N)`` mask -- so the unified
-backend solves the same strip as a degenerate case of the 2-D core.
+Every state here is a ``SpatialState`` on a ``strip(N, mesh_size=dx)``
+geometry -- a ``(1, N)`` mask -- so the unified backend solves the strip as a
+degenerate case of the 2-D core.
 
-The retired backend owned its collision half directly (``_collision_cache``,
-``_local_spectral_context``, ``_collision_rate``). The unified backend
-delegates to :class:`qpsim.collisions.spatial.SpatialCollisions`, reachable as
-``backend._collisions_for(state)``, which carries the same exact-gap grouping,
-the same two-entry LRU over dense kernels and the same streamed path past two
-distinct gaps. The properties below are asserted against that layer.
+The collision half lives in
+:class:`qpsim.collisions.spatial.SpatialCollisions`, reachable as
+``backend._collisions_for(state)``, which carries the exact-gap grouping, a
+two-entry LRU over dense kernels and a streamed path past two distinct gaps.
+The properties below are asserted against that layer.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.collisions.phonon import (
     apply_phonon_collision,
     build_recombination_kernel_base,
@@ -44,13 +41,13 @@ def _build_state(
     T_bath: float = 0.1,
     NE: int = 28,
     NX: int = 11,
-) -> T3SpatialState:
+) -> SpatialState:
     """The 1-D fixture, on a one-cell-wide geometry.
 
-    The retired fixture used ``x = np.linspace(0.0, 100.0, NX)``, so the mesh
+    The fixture meshes with ``x = np.linspace(0.0, 100.0, NX)``, so the mesh
     spacing is ``100/(NX-1)``, not ``100/NX``; it is taken from the coordinate
     array itself to keep that exact. A single cell has no spacing to infer, so
-    it keeps the retired state's unit-width convention.
+    it uses a unit-width convention.
     """
     material = load_material("Al")
     gap = material.Delta_0
@@ -69,7 +66,7 @@ def _build_state(
     x = np.linspace(0.0, 100.0, NX)
     dx = float(x[1] - x[0]) if NX > 1 else 1.0
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(NX, mesh_size=dx),
         spectral=spectral,
@@ -79,17 +76,17 @@ def _build_state(
 
 
 def _collision_rate(
-    backend: T3SpatialBackend,
-    state: T3SpatialState,
+    backend: SpatialBackend,
+    state: SpatialState,
     *,
     external_gain: np.ndarray | None = None,
     external_loss: np.ndarray | None = None,
 ) -> np.ndarray:
-    """The collision half of ``T3SpatialBackend.rates``, on its own.
+    """The collision half of ``SpatialBackend.rates``, on its own.
 
-    The retired backend exposed this as ``_collision_rate``. The unified
-    backend has no such entry point -- ``rates`` returns transport and
-    collisions summed -- so the collision residual is harvested here through
+    The backend exposes no collision-only entry point -- ``rates`` returns
+    transport and collisions summed -- so the collision residual is harvested
+    here through
     exactly the production objects ``rates`` itself walks (``_collisions_for``,
     ``_groups``, ``local_operator``, ``combined_group_rates``). Nothing is
     reimplemented; the grouping and streaming under test are all inside those.
@@ -108,16 +105,11 @@ def _collision_rate(
 
 
 class TestStripCollisions:
-    """The 1-D reduction of the unified backend's collision half.
-
-    Translated from ``TestT3Spatial1DCollisions``
-    (``tests/backends/test_t3_spatial_1d.py``), which tested the retired
-    ``T3Spatial1DBackend`` / ``T3Spatial1DState`` / ``T3SpatialFlux1D``.
-    """
+    """The 1-D reduction of the unified backend's collision half."""
 
     def test_thermal_equilibrium_stays_stationary_without_flux(self) -> None:
         state = _build_state(T_bath=0.1)
-        out = T3SpatialBackend().apply_collisions(state, dt=1.0)
+        out = SpatialBackend().apply_collisions(state, dt=1.0)
         np.testing.assert_allclose(out.f, state.f, atol=1e-9)
 
     def test_one_end_flux_changes_source_cell_first(self) -> None:
@@ -126,7 +118,7 @@ class TestStripCollisions:
         target = int(np.argmin(np.abs(state.spectral.E - 2.0 * state.gap)))
         gain[target, 0] = 1e-4
 
-        out = T3SpatialBackend().apply_collisions(
+        out = SpatialBackend().apply_collisions(
             state,
             dt=1.0,
             external_gain=gain,
@@ -146,7 +138,7 @@ class TestStripCollisions:
         f_column = 0.1 * np.exp(-((E - 2.0 * gap_left) / 20.0) ** 2)
         f = np.repeat(f_column[:, None], 2, axis=1)
         f[gap_right >= E, 1] = 0.0
-        state = T3SpatialState(
+        state = SpatialState(
             f=f,
             geometry=strip(2, mesh_size=1.0),
             spectral=spectral_left,
@@ -156,7 +148,7 @@ class TestStripCollisions:
         )
 
         dt = 0.1
-        out = T3SpatialBackend().apply_collisions(state, dt)
+        out = SpatialBackend().apply_collisions(state, dt)
 
         expected = []
         for column, ctx in enumerate((spectral_left, spectral_right)):
@@ -185,7 +177,7 @@ class TestStripCollisions:
     ) -> None:
         state = _build_state(T_bath=0.0, NE=14, NX=2)
         state.gap_per_cell = np.array([state.gap, 1.2 * state.gap])
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
         first = backend.apply_collisions(state, 0.05)
         collisions = backend._collisions_for(state)
@@ -203,24 +195,23 @@ class TestStripCollisions:
     def test_collision_cache_is_lru_bounded_across_many_gaps(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # The retired backend held ONE cross-state LRU; the unified backend's
-        # LRU lives on the SpatialCollisions layer, so the sequence of local
-        # gaps is driven through that layer rather than through five separate
-        # single-cell states (each of which would build its own layer and make
-        # the eviction order untestable). The property is unchanged: at most
+        # The LRU lives on the SpatialCollisions layer, so the sequence of
+        # local gaps is driven through that layer rather than through five
+        # separate single-cell states (each of which would build its own layer
+        # and make the eviction order untestable). The property: at most
         # two dense operator sets resident, evicted in TRUE LRU order, and
         # evicted BEFORE the replacement context/matrices are built.
         material = load_material("Al")
         E = np.linspace(150.0, 400.0, 10)
         dE = integration_widths_from_centers(E)
-        state = T3SpatialState(
+        state = SpatialState(
             f=np.zeros((E.size, 1)),
             geometry=strip(1),
             spectral=SpectralContext(E, dE, 120.0),
             material=material,
             T_bath=0.0,
         )
-        collisions = T3SpatialBackend()._collisions_for(state)
+        collisions = SpatialBackend()._collisions_for(state)
 
         for gap in (120.0, 125.0, 130.0, 135.0, 140.0):
             collisions.local_operator(gap)
@@ -246,14 +237,13 @@ class TestStripCollisions:
         assert [key[0] for key in collisions._cache] == [135.0, 145.0]
 
     def test_collision_cache_invalidates_physics_inputs(self) -> None:
-        # The retired backend counted misses on its own operator cache. The
-        # unified backend's kernel cache is the SpatialCollisions layer itself,
-        # which _collisions_for rebuilds on a value signature, so "a miss" is
+        # The kernel cache is the SpatialCollisions layer itself, which
+        # _collisions_for rebuilds on a value signature, so "a miss" is
         # "a new layer object". Each of these inputs feeds the dense kernels
         # and must invalidate them. The fourth -- the spectral cell widths --
         # is split out below because it does NOT.
         state = _build_state(T_bath=0.0, NE=10, NX=1)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
         backend.apply_collisions(state, 0.01)
         first = backend._collisions
@@ -280,7 +270,7 @@ class TestStripCollisions:
 
     def test_collision_cache_invalidates_changed_cell_widths(self) -> None:
         state = _build_state(T_bath=0.0, NE=10, NX=1)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         backend.apply_collisions(state, 0.01)
         before = backend._collisions
 
@@ -311,7 +301,7 @@ class TestStripCollisions:
                 0.0,
             )
 
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         collisions = backend._collisions_for(state)
 
         def unexpected_batched_path(*_args: object, **_kwargs: object) -> None:
@@ -366,7 +356,7 @@ class TestStripCollisions:
         state = _build_state(T_bath=0.12, NE=12, NX=4)
         gaps = state.gap * np.array([1.0, 1.03, 1.07, 1.11])
         state.gap_per_cell = gaps
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
         rate = _collision_rate(backend, state)
         expected = np.empty_like(rate)
@@ -374,7 +364,7 @@ class TestStripCollisions:
             one = _build_state(T_bath=state.T_bath, NE=12, NX=1)
             one.gap_per_cell = np.array([gap])
             one.f[:, 0] = state.f[:, column]
-            expected[:, column] = _collision_rate(T3SpatialBackend(), one)[:, 0]
+            expected[:, column] = _collision_rate(SpatialBackend(), one)[:, 0]
 
         np.testing.assert_allclose(rate, expected, rtol=2e-13, atol=1e-15)
         assert len(backend._collisions_for(state)._cache) == 2
@@ -385,7 +375,7 @@ class TestStripCollisions:
         state = _build_state(T_bath=0.12, NE=12, NX=4)
         gaps = state.gap * np.array([1.0, 1.03, 1.07, 1.11])
         state.gap_per_cell = gaps
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         collisions = backend._collisions_for(state)
 
         first = _collision_rate(backend, state)
@@ -397,15 +387,15 @@ class TestStripCollisions:
 
     @pytest.mark.xfail(
         reason=(
-            "OPEN REGRESSION (performance, not correctness). The retired "
-            "backend's _streaming_group_order visited the gaps already "
-            "resident in its two-entry LRU first, so a repeated streamed "
-            "evaluation over four gaps rebuilt only the two missing kernels. "
+            "OPEN REGRESSION (performance, not correctness). A traversal "
+            "that visited the gaps already resident in the two-entry LRU "
+            "first would rebuild only the two missing kernels on a repeated "
+            "streamed evaluation over four gaps. "
             "SpatialCollisions._groups() always traverses in sorted gap order, "
             "so with a working set larger than the cache the first miss evicts "
             "a gap needed later in the same traversal and every gap misses on "
             "every call. The rebuilt kernels are identical -- the answer is "
-            "unaffected -- but a smooth gap profile now rebuilds every dense "
+            "unaffected -- but a smooth gap profile rebuilds every dense "
             "(NE, NE) kernel on every step. Un-xfail when the traversal is "
             "ordered against the resident set."
         ),
@@ -416,7 +406,7 @@ class TestStripCollisions:
         state = _build_state(T_bath=0.12, NE=12, NX=4)
         gaps = state.gap * np.array([1.0, 1.03, 1.07, 1.11])
         state.gap_per_cell = gaps
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         collisions = backend._collisions_for(state)
 
         _collision_rate(backend, state)
@@ -450,14 +440,13 @@ class TestStripCollisions:
         gain = np.zeros_like(state.f)
         gain[target, -1] = 1e-4
 
-        # The unified message names the offending ENERGY BINS and the local
-        # gap rather than the (energy, cell) pair the retired backend printed;
-        # the cell is identified by its gap group instead.
+        # The message names the offending ENERGY BINS and the local gap;
+        # the cell is identified by its gap group.
         with pytest.raises(
             ValueError,
             match=rf"zero-spectral-capacity states \(energy bins {target},",
         ):
-            T3SpatialBackend().apply_collisions(
+            SpatialBackend().apply_collisions(
                 state, 0.01, external_gain=gain, external_loss=None,
             )
 
@@ -473,14 +462,14 @@ class TestStripCollisions:
         gain[target, 1] = 1e-4
 
         with pytest.raises(ValueError, match="zero-spectral-capacity"):
-            T3SpatialBackend().apply_collisions(
+            SpatialBackend().apply_collisions(
                 state, 0.01, external_gain=gain, external_loss=None,
             )
 
         state.f[target, 1] = 0.7
         loss_rate = np.zeros_like(state.f)
         loss_rate[target, 1] = 3.0
-        updated = T3SpatialBackend().apply_collisions(
+        updated = SpatialBackend().apply_collisions(
             state, 0.01, external_gain=None, external_loss=loss_rate,
         )
         assert updated.f[target, 1] == state.f[target, 1]
@@ -500,7 +489,7 @@ class TestStripCollisions:
         state.f[target, 1] = 0.0
         gain = np.zeros_like(state.f)
         gain[target, 1] = 1e-4
-        updated = T3SpatialBackend().apply_collisions(
+        updated = SpatialBackend().apply_collisions(
             state, 0.01, external_gain=gain, external_loss=None,
         )
 

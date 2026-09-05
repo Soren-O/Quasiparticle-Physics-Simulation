@@ -1,9 +1,8 @@
 """Tests for Qubit, QubitState, QubitTransitionChannel, JunctionQubitCoupling,
 and the qubit master-equation evolver.
 
-Phase 4 of the Device Architecture: a discrete two-level (or more)
-system optionally coupled to junction tunneling events. The contract
-tests below pin:
+A ``Qubit`` is a discrete two-level (or more) system optionally coupled
+to junction tunneling events. The contract tests below pin:
 
 * Dataclass validation (Qubit, QubitState, QubitTransitionChannel,
   JunctionQubitCoupling).
@@ -24,7 +23,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import (
@@ -44,7 +43,7 @@ from qpsim.devices import (
 )
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.spectral import SpectralContext
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -206,7 +205,7 @@ class TestBuildRateMatrix:
 
 
 class TestQubitDetailedBalance:
-    """The headline Phase 4 contract: with channel rates obeying
+    """The headline contract: with channel rates obeying
     detailed balance ``Γ_↑/Γ_↓ = exp(-ω_10/T)``, the qubit reaches
     the Boltzmann distribution ``p_1/p_0 = exp(-ω_10/T)``.
     """
@@ -321,8 +320,8 @@ class TestQubitDetailedBalance:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _build_state(*, T_bath: float, num_energy: int = 30) -> T3DiffusionState:
-    """Al-like T3 state at thermal equilibrium (matches Phase 3 fixture)."""
+def _build_state(*, T_bath: float, num_energy: int = 30) -> DiffusionState:
+    """Al-like diffusion state at thermal equilibrium (matches the Device fixture)."""
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -336,12 +335,11 @@ def _build_state(*, T_bath: float, num_energy: int = 30) -> T3DiffusionState:
         n_ph=np.zeros((1, omega_bins.size, 1)),
         omega_bins=omega_bins.reshape(1, -1),
         tau_l=np.full((1, omega_bins.size), 0.25),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     kT = KB_UEV_PER_K * T_bath
     f_init = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init, gap=gap, spectral=spectral, phonon=phonon,
         material=material, T_bath=T_bath,
     )
@@ -363,7 +361,7 @@ class _QubitBathJunction(Junction):
     gamma_down_per_ns: float
 
     def evaluate(
-        self, state_a: T3DiffusionState, state_b: T3DiffusionState,
+        self, state_a: DiffusionState, state_b: DiffusionState,
         qubit_state: QubitState | None = None,
     ) -> JunctionResult:
         del qubit_state

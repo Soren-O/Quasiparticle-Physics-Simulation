@@ -1,6 +1,6 @@
 """Quarantine/development tests for Fischer Sec. V Q_i(P_read).
 
-The nominal post-promotion tolerance would be 1e-4 per NFP §6.4.1
+The nominal post-promotion tolerance would be 1e-4
 (nbar-loop tolerance × MB sub-gap quadrature). No current artifact is accepted
 at that tolerance. The slow comparison is retained so it becomes active only
 after an independently refined artifact is deliberately promoted.

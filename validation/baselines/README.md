@@ -10,20 +10,16 @@ Fischer 2023 Fig. 7 uses
 evidence must be staged, validated, and promoted as one matched set; never
 overwrite a canonical CSV or PDF independently. Commit any co-located
 validation record or promotion attestation with its CSV/PDF pair.
-Subdirectories map to phonon model / paper:
+The `constant/` and `kaplan/` subdirectories are named for the τ_l
+convention their baselines use; `transient/` holds the photon-kick demo:
 
-- `ph0_constant/` — Fischer 2023/2024 paper-topology qpsim regressions
-  (Ph0, constant τ_l), plus explicitly labeled historical/quarantined files;
+- `constant/` — Fischer 2023/2024 paper-topology qpsim regressions at
+  constant τ_l, plus explicitly labeled historical/quarantined files;
   see its own README for the per-figure tolerance table.
-- `ph0_kaplan/` — Ph0-Kaplan characterization baselines (Fig 6 gap
-  suppression).
+- `kaplan/` — characterization baselines at the Kaplan
+  frequency-resolved τ_l (Fig 6 gap suppression).
 - `transient/` — photon-kick demo output with four slow regression tests.
 Fischer 2023 Fig. 3 also carries `# pinned_on: win32`, but its regression runs
 on every platform. The stamp scopes only the ratio-10 Windows/Linux OS-family
 envelope; ratios through one, same-OS-token ratio 10, and unmeasured OS pairs
 keep the strict gate.
-
-Historical note: the original Gate-3.5 parity baselines were produced by
-the legacy `Active Code/qpsim/` repository; everything currently tracked
-here has since been regenerated in-repo (the legacy-era text of this
-README predates that).

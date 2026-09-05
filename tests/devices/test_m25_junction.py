@@ -1,8 +1,8 @@
 """Tests for M25GapAsymmetricJJ — Layer-2 wrap of Stage A M25 physics.
 
-Phases 5-5c of the Device Architecture: the M25 gap-asymmetric
-Josephson junction is a first-class Device-level Junction subclass
-that wraps the Stage A coefficient evaluators inside the Layer-2
+The M25 gap-asymmetric Josephson junction is a first-class
+Device-level Junction subclass that wraps the Stage A coefficient
+evaluators inside the Layer-2
 ``Junction.evaluate(state_a, state_b, qubit_state) -> JunctionResult``
 contract.
 
@@ -13,20 +13,17 @@ Coverage:
   TestM25JunctionInDevice)
 * Defensive validation: gap mismatches, missing R sub-bands,
   missing L band (TestM25JunctionEvaluateValidation)
-* Phase 5b architectural pin: M25 owns dissipation, Device routes
+* Architectural pin: M25 owns dissipation, Device routes
   external_dissipation_only, multiple-owner rejection
   (TestM25NoDoubleCounting)
-* Phase 5c quantitative pin: M25 Fig 3a x_L / x_R< / x_R> / p_1
+* Quantitative pin: M25 Fig 3a x_L / x_R< / x_R> / p_1
   match the correctly-normalized qpsim root to ≤10% rtol via the
   cached moment-solver fixed point (test_fig3a_quantitative_match);
   the reference values are qpsim roots consistent with the paper's
   figure-reading precision, not digitized paper data
 
-Per the design doc §6.1 caveat the underlying Stage A evaluators
-remain a moment closure (Fermi-Dirac per-sub-band ansatz). A
-``KineticJunction`` operating directly on f(E) would drop that
-assumption; deferred unless / until M25 Fig 4/5 reproduction
-requires it.
+Per the design doc §1 the underlying Stage A evaluators remain a
+moment closure (Fermi-Dirac per-sub-band ansatz).
 """
 
 from __future__ import annotations
@@ -35,7 +32,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import (
@@ -47,7 +44,7 @@ from qpsim.devices import (
 )
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.rate_equation_coefficients import (
     M25PhotonDrive,
@@ -68,7 +65,7 @@ def _build_region_state(
     num_energy: int = 30, energy_max_factor: float = 6.0,
     energy_min_factor: float = 1.0,
     second_gap_kelvin: float | None = None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Build a Fermi-Dirac thermal state on an energy grid above ``gap_kelvin``.
 
     If ``second_gap_kelvin`` is given (and exceeds ``gap_kelvin``),
@@ -111,7 +108,6 @@ def _build_region_state(
         n_ph=np.zeros((1, omega_bins.size, 1)),
         omega_bins=omega_bins.reshape(1, -1),
         tau_l=np.full((1, omega_bins.size), 0.25),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     # Cheap thermal Fermi-Dirac initial guess.
@@ -121,7 +117,7 @@ def _build_region_state(
     mat = load_material("Al")
     # Override the gap on a copy of the material to match this region.
     custom_mat = replace(mat, Delta_0=gap_uev)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init, gap=gap_uev, spectral=spectral, phonon=phonon,
         material=custom_mat, T_bath=T_bath,
     )
@@ -329,7 +325,7 @@ class TestM25JunctionEvaluateValidation:
             j.evaluate(state_L, state_R, qstate)
 
     def test_rejects_state_gap_vs_spectral_gap_drift(self) -> None:
-        # T3DiffusionState carries `gap` and `spectral.gap` separately
+        # DiffusionState carries `gap` and `spectral.gap` separately
         # and they must stay in sync. If only `spectral.gap` matches
         # m25_params, the per-bin DOS / kinetic kernels (which read
         # state.gap) silently disagree with the moment normalization.
@@ -800,9 +796,9 @@ class TestM25JunctionInDevice:
     def test_device_solve_converges_with_finite_outputs(self) -> None:
         # Smoke test that the M25 junction actually drives the
         # composed Device → Qubit solve to convergence with finite
-        # f(E) and a populated qubit_state. This pins the transcript
-        # claim that Phase 5 v1 composes end-to-end; quantitative Fig
-        # 3 reproduction is Phase 5c (see module docstring).
+        # f(E) and a populated qubit_state. This pins end-to-end
+        # composition only; quantitative Fig 3 reproduction is pinned by
+        # test_fig3a_quantitative_match (see module docstring).
         params, drive = _fig3a_setup()
         Delta_L_K = params.Delta_L_kelvin
         Delta_R_K = params.Delta_R_kelvin
@@ -845,7 +841,7 @@ class TestM25JunctionInDevice:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Phase 5b: no-double-counting between e-ph kernel and M25's r_α/g^{pn}_α
+#  No double-counting between the e-ph kernel and M25's r_α/g^{pn}_α
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -861,14 +857,17 @@ class TestM25NoDoubleCounting:
         assert j.owns_region_dissipation is True
 
     def test_device_drives_x_L_well_above_thermal(self) -> None:
-        # Before Phase 5b, the inner T3 e-ph kernel forced f(E) to the
-        # bath Fermi-Dirac, so x_L collapsed to ~exp(-Δ_L/T_bath) ≈
-        # 1e-52 at Δ_L ≈ 2.4 K, T_bath = 20 mK regardless of the M25
-        # photon drive. With the no-double-counting wiring, the M25
-        # ExternalFlux owns dissipation and x_L sits at the M25 fixed
-        # point — orders of magnitude above the thermal floor.
-        # This is the architectural pin, not a quantitative Fig 3
-        # match (that's Phase 5c, blocked on moment-coupled Picard).
+        # An inner e-ph kernel running alongside the M25 flux would
+        # force f(E) to the bath Fermi-Dirac, collapsing x_L to
+        # ~exp(-Δ_L/T_bath) ≈ 1e-52 at Δ_L ≈ 2.4 K, T_bath = 20 mK
+        # regardless of the M25 photon drive. The no-double-counting
+        # wiring gives the M25 ExternalFlux ownership of dissipation, so
+        # x_L sits at the M25 fixed point — orders of magnitude above
+        # the thermal floor. This is the architectural pin, not a
+        # quantitative Fig 3 match; the quantitative pin is
+        # test_fig3a_quantitative_match, which reaches Fig 3a through a
+        # cached moment-solver fixed point rather than a
+        # moment-coupled Picard.
         params, drive = _fig3a_setup()
         state_L = _build_region_state(
             T_bath=0.020, gap_kelvin=params.Delta_L_kelvin,
@@ -903,26 +902,27 @@ class TestM25NoDoubleCounting:
         x_L = _moment_x_M25(
             f_L, spec_L, gap_alpha_uev=spec_L.gap,
         )
-        # Thermal floor exp(-Δ_L/T) ≈ 1e-52. Phase 5b lifts x_L to
-        # the photon-driven M25 fixed point, ~5.3e-08 at Fig 3a inputs
-        # (the value test_fig3a_quantitative_match pins as 5.313e-08;
-        # cross-tunneling cycle quiescent). 1e-30 is deliberately loose
-        # — comfortably above thermal and far below the M25 fixed point
-        # — so it survives the multi-decade moves the fixed point makes
-        # under legitimate re-normalizations while still proving the
-        # e-ph kernel is not crushing x_L back to thermal. The tight
-        # pin is test_fig3a_quantitative_match, not this sentinel.
+        # Thermal floor exp(-Δ_L/T) ≈ 1e-52. Dissipation ownership lifts
+        # x_L to the photon-driven M25 fixed point, ~5.3e-08 at Fig 3a
+        # inputs (the value test_fig3a_quantitative_match pins as
+        # 5.313e-08; cross-tunneling cycle quiescent). 1e-30 is
+        # deliberately loose — comfortably above thermal and far below
+        # the M25 fixed point — so it survives the multi-decade moves the
+        # fixed point makes under legitimate re-normalizations while
+        # still proving the e-ph kernel is not crushing x_L back to
+        # thermal. The tight pin is test_fig3a_quantitative_match, not
+        # this sentinel.
         assert x_L > 1e-30, (
             f"x_L = {x_L:.3e} is at or below the thermal floor — "
             "e-ph kernel may be running inside the inner solve."
         )
 
     def test_fig3a_quantitative_match(self) -> None:
-        # Phase 5c: end-to-end M25 Fig 3a reproduction. The Junction
-        # caches a moment-solver fixed point on first evaluate and
-        # uses it (instead of state-derived moments) to build the
+        # The quantitative pin: end-to-end M25 Fig 3a reproduction. The
+        # Junction caches a moment-solver fixed point on first evaluate
+        # and uses it (instead of state-derived moments) to build the
         # per-bin (gain, loss_rate) — sidestepping the cross-tunneling
-        # bootstrap problem that stalled the Phase 5b Picard.
+        # bootstrap that a state-driven Picard cannot resolve.
         #
         # Reference values come from running the M25 4-unknown moment
         # solver at Fig 3a parameters (Δ_L = 49.5 GHz, Δ_R = 49.0 GHz,

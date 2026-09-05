@@ -8,12 +8,9 @@ it cannot independently anchor the same weak-coupling model.
 The runtime solver then takes an occupation ``f`` and returns the
 current Δ via Brent's method on the reference-subtracted residual.
 
-Note on naming: the old repo called the runtime occupation parameter
-``f_L`` even though the function body computes ``1 − 2 f`` from it
-(i.e. it actually expects the Fermi-Dirac occupation ``f``, not the
-longitudinal combination ``f_L = 1 − 2f``). Renamed to ``f`` here.
-
-Ported from the old ``qpsim/numerics/gap_equation.py`` at Gate 2.
+Note on naming: the runtime occupation parameter ``f`` is the Fermi-Dirac
+occupation, not the longitudinal combination ``f_L = 1 − 2f``; the function
+body computes ``1 − 2 f`` from it.
 """
 
 from __future__ import annotations

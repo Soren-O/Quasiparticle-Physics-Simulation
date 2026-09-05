@@ -6,8 +6,8 @@ Provides ``etd1_step`` (first-order exponential Euler) and
 linear relaxation in ``loss_rate`` is handled exactly, and the
 nonlinear ``gain`` is discretized to first- or second-order.
 
-ETD2 is the committed port-time upgrade from the Build Handoff —
-``apply_phonon_collision`` in :mod:`qpsim.collisions.phonon` uses it.
+``apply_phonon_collision`` in :mod:`qpsim.collisions.phonon` steps
+with ETD2.
 """
 
 from __future__ import annotations

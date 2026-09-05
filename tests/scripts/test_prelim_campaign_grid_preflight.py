@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.spatial import SpatialState
 from qpsim.geometries import strip
 from scripts.run_prelim_spatial_overnight import strip_coordinates
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
@@ -24,7 +24,7 @@ from scripts import run_prelim_readout_heating_probe as readout_probe
 from scripts import run_prelim_spatial_100um as spatial_100um
 
 
-def _assert_observable_ready(state: T3SpatialState) -> None:
+def _assert_observable_ready(state: SpatialState) -> None:
     """Exercise the late campaign observable before an expensive solve."""
     expected_x, expected_dx = _cell_centered_strip_grid(state.f.shape[1])
     np.testing.assert_array_equal(strip_coordinates(state), expected_x)
@@ -69,7 +69,7 @@ def _assert_observable_ready(state: T3SpatialState) -> None:
     ],
 )
 def test_campaign_builder_is_observable_ready(
-    builder: Callable[[], T3SpatialState],
+    builder: Callable[[], SpatialState],
 ) -> None:
     _assert_observable_ready(builder())
 
@@ -84,7 +84,7 @@ def test_low_d0_wrapper_inherits_observable_ready_base_grid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The low-D0 wrapper must exercise the corrected base builder."""
-    captured: list[T3SpatialState] = []
+    captured: list[SpatialState] = []
 
     # Register globals mutated by the wrapper for restoration at teardown.
     monkeypatch.setattr(sweep_7mk, "CONFIG", sweep_7mk.CONFIG)

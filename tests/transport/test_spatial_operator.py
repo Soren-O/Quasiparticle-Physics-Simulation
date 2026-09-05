@@ -1,9 +1,10 @@
 """Tests for qpsim.transport.spatial_operator.
 
-The headline test is the reproduction gate: on a one-cell-wide geometry the
-2-D core must produce the shipped 1-D backend's operator bit for bit, for
-every member of the diffusion family. That is a far sharper check than an
-analytic benchmark, because the 1-D path is already validated.
+Three properties, none of which an analytic benchmark reaches: the stencil an
+arbitrary mask produces (including a non-contiguous active region and an
+interior hole), how a device's boundary conditions are inherited by the faces
+an active region actually exposes, and that the min-versus-harmonic choice at
+an unequal face changes the number it produces.
 """
 
 from __future__ import annotations
@@ -55,10 +56,9 @@ class TestGeneralGeometry:
         assert np.count_nonzero(operator.toarray()[4]) - 1 == 4
 
     def test_a_non_contiguous_active_region_is_supported(self):
-        """The case the 1-D operator raises NotImplementedError on.
+        """Two pockets of above-gap cells separated by a sub-gap region.
 
-        Two pockets of above-gap cells separated by a sub-gap gap: each solves
-        on its own, with no transport between them.
+        Each solves on its own, with no transport between them.
         """
         active = np.array([[True, True, False, True, True]])
         n_active = int(active.sum())
@@ -152,9 +152,9 @@ class TestBoundaryInheritance:
 class TestFaceComposition:
     """min vs harmonic at an unequal face, and that the choice is not inert.
 
-    The parity gate against the 1-D backend cannot catch this on its own: if
-    both engines composed the face the same WRONG way they would still agree
-    with each other. These assert the value itself.
+    These assert the composed value itself, not merely that two code paths
+    agree: agreeing on the same wrong composition would satisfy any
+    consistency check while still producing the wrong flux.
     """
 
     @staticmethod

@@ -1,10 +1,10 @@
 # Spatial diffusion operators (A1 / A1P / A2 / B / C)
 
-The spatial T3 backend (`qpsim.backends.t3_spatial`) diffuses the
+The spatial backend (`qpsim.backends.spatial`) diffuses the
 quasiparticle occupation `f(E, cell)` under a selectable energy-dependent
-operator. The geometry is a mask, so a one-row mask is the 1-D strip this
-document was originally written against and everything below still reads that
-way; a general mask is the same operator on more neighbours. The operators are one family in the dressing exponents
+operator. The geometry is a mask, so a one-row mask is the 1-D strip that
+everything below is written in terms of; a general mask is the same operator
+on more neighbours. The operators are one family in the dressing exponents
 `(p, q)`, defined in `qpsim.transport.diffusion.base`:
 
 ```
@@ -84,11 +84,11 @@ onto the family as:
 ## Using the operators
 
 ```python
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.spatial import SpatialState
 from qpsim.geometries import strip
 from qpsim.transport.diffusion import DiffusionModel
 
-state = T3SpatialState(
+state = SpatialState(
     ...,
     geometry=strip(num_cells, mesh_size=dx_um),
     diffusion_model=DiffusionModel.A1,   # default
@@ -185,11 +185,8 @@ not establish agreement with a paper or experiment.
 
 ## Scope
 
-This targets the `t3_spatial` backend, which is now the only one. (It was
-written for `t3_spatial_1d`, retired 2026-08-19; the operator family and the
-face weighting carried over unchanged.) Prelim experiment scripts
-were written before the family existed; their committed outputs are historical
-`C`-closure runs. The default is now `A1`, so re-running them uses `A1` unless
-they are pinned to `C` explicitly — at a uniform gap the two coincide. The
-homogeneous `t3_diffusion` Gate-5 spatial path is separate and out of scope
-here.
+This targets the `spatial` backend. Prelim experiment scripts predate the
+operator family; their committed outputs are `C`-closure runs. The default is
+`A1`, so re-running them uses `A1` unless they are pinned to `C` explicitly —
+at a uniform gap the two coincide. The homogeneous `diffusion` backend is
+separate and out of scope here.

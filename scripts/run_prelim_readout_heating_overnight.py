@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.geometries import strip
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.spatial import SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.experiments.prelim_resonators import PRELIM_RESONATORS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -227,7 +227,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3SpatialState:
+def _build_state(config: ReadoutOvernightConfig, D0: float) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -244,7 +244,7 @@ def _build_state(config: ReadoutOvernightConfig, D0: float) -> T3SpatialState:
     )
     x, dx_um = _cell_centered_strip_grid(config.NX)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], config.NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(
             int(np.asarray(x).size),
@@ -408,7 +408,7 @@ def _completed_run_ids(
 
 
 def _trace_row(
-    state: T3SpatialState,
+    state: SpatialState,
     runner: FinitePhononSpatialRunner,
     *,
     t_ns: float,
@@ -428,7 +428,7 @@ def _trace_row(
     }
 
 
-def _write_profile(path: Path, state: T3SpatialState) -> None:
+def _write_profile(path: Path, state: SpatialState) -> None:
     xqp = _xqp_profile(state)
     rows = [
         {"x_um": float(x_um), "xqp": float(xqp_value)}

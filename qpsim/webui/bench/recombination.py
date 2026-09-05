@@ -74,7 +74,7 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #
 #   geometry 1x1 is the 0-D reduction of the 2-D mode. A single cell has no
 #     faces, so the transport half of the split step is structurally absent
-#     rather than merely small -- T3SpatialBackend.apply_transport returns the
+#     rather than merely small -- SpatialBackend.apply_transport returns the
 #     state untouched. That is a stronger statement than D_0 = 0, which would
 #     still be a claim about an operator that got built.
 #   grid.min_factor = 1.0 puts the first cell edge exactly at E = Delta, so the

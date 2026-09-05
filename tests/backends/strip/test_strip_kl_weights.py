@@ -1,17 +1,14 @@
 """Kupriyanov-Lukichev interface weight on the unified backend's 1-D strip.
 
-The 1-D reduction of :class:`qpsim.backends.t3_spatial.T3SpatialBackend`:
-translated from ``TestKupriyanovLukichevWeightFixtures`` in the retired
-``tests/backends/test_t3_spatial_1d.py`` (which drove
-``T3Spatial1DBackend`` / ``T3Spatial1DState``). The strip is a
-``(1, N)`` mask, so the gap step lives on the single face between cells
-``face`` and ``face + 1``.
+The 1-D reduction of :class:`qpsim.backends.spatial.SpatialBackend`: the
+strip is a ``(1, N)`` mask, so the gap step lives on the single face between
+cells ``face`` and ``face + 1``.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -93,9 +90,7 @@ class TestStripKupriyanovLukichevWeight:
     singularity carried by the charge-channel product N₁N₁′) and reduce
     to N₁ against a normal contact.
 
-    1-D reduction of the unified backend, translated from
-    ``TestKupriyanovLukichevWeightFixtures`` of the retired
-    ``T3Spatial1DBackend`` suite.
+    1-D reduction of the unified backend.
     """
 
     def test_matched_gap_weight_is_one(self) -> None:
@@ -129,13 +124,13 @@ class TestStripKupriyanovLukichevWeight:
         NE, NX = spectral.E.size, x.size
         G_N, dt = 2.0, 0.5
         dx = float(x[1] - x[0])
-        state = T3SpatialState(
+        state = SpatialState(
             f=np.zeros((NE, NX)), geometry=strip(NX, mesh_size=dx),
             spectral=spectral, material=material, T_bath=0.1,
             diffusion_model=DiffusionModel.A1,
             gap_per_cell=profile, interface_conductance=G_N,
         )
-        _transport, ops = T3SpatialBackend()._transport_ops(state, dt)
+        _transport, ops = SpatialBackend()._transport_ops(state, dt)
         face = NX // 2 - 1  # the gap steps between cells face, face+1
         gap_L, gap_R = float(profile[face]), float(profile[face + 1])
         checked = 0

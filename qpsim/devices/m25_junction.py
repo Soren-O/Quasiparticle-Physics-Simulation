@@ -1,13 +1,13 @@
 r"""M25GapAsymmetricJJ — Layer-2 wrap of the Stage A M25 physics.
 
-Phase 5 of the Device Architecture: a Junction subclass that
+A Junction subclass in the Device Architecture that
 implements the Marchegiani-Catelani 2025 gap-asymmetric Josephson-
 junction physics (with parity-tracked transmon qubit and pair-
 breaking-photon drive). Wraps the Stage A coefficient evaluators
 plus the 4-unknown moment solver to deliver quantitative M25 Fig 3
 reproduction inside the Device contract.
 
-Architecture (Phase 5c):
+Architecture:
 
 * On the first ``evaluate`` call the Junction caches both
   ``M25Coefficients`` (state-independent) and the moment-solver
@@ -39,19 +39,17 @@ Architecture (Phase 5c):
 E-ph double-counting: the moment-solver ``g_α`` and ``r_α x_α²``
 already include the moment-integrated e-ph generation /
 recombination. The class sets ``owns_region_dissipation = True``,
-which the Device solver routes to the T3 backend's
+which the Device solver routes to the backend's
 ``external_dissipation_only=True`` path so the inner Newton sees
 only the M25-supplied (gain, loss_rate) — not also the e-ph
 collision kernel that would otherwise crush f(E) to thermal.
-Phase 5b plumbing.
 
 Caveats:
 
 * The Stage A coefficient evaluators internally assume the Fermi-
   Dirac per-sub-band ansatz, so this remains a moment-closure
   Junction. A ``KineticJunction`` operating directly on f(E)
-  would drop that assumption; deferred unless / until M25 Fig
-  4/5 quantitative work requires it.
+  would drop that assumption.
 * ``qubit_state`` is accepted for API parity with other Junctions
   but ignored. The M25 master equation owns ``p_1`` self-
   consistently with the QP densities, so external qubit-state
@@ -87,7 +85,7 @@ from qpsim.services.rate_equation_coefficients import (
 )
 
 if TYPE_CHECKING:
-    from qpsim.backends.t3_diffusion import T3DiffusionState
+    from qpsim.backends.diffusion import DiffusionState
     from qpsim.devices.qubit import QubitState
 
 
@@ -299,7 +297,7 @@ class M25GapAsymmetricJJ(Junction):
     Notes
     -----
     See module docstring for the moment-closure approximations and
-    the deferred items.
+    the caveats.
     """
 
     name: str
@@ -312,7 +310,7 @@ class M25GapAsymmetricJJ(Junction):
     # M25's external_flux already aggregates the moment-integrated
     # e-ph dissipation (g_α generation by thermal phonons + r_α x_α²
     # recombination), so the Device solver must run the inner
-    # T3 backend with external_dissipation_only=True to avoid
+    # backend with external_dissipation_only=True to avoid
     # double-counting against the e-ph collision kernel.
     owns_region_dissipation: bool = field(default=True, init=False, repr=False)
     # The cached fixed point is an isolated two-electrode closure: evaluate()
@@ -404,14 +402,14 @@ class M25GapAsymmetricJJ(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state: QubitState | None = None,
     ) -> JunctionResult:
         r"""Compute per-region (gain, loss_rate) + qubit channels.
 
-        Phase 5c: the M25 fixed point ``(p_1, x_L, x_{R>}, x_{R<})``
-        is solved analytically (cached) by the moment solver and
+        The M25 fixed point ``(p_1, x_L, x_{R>}, x_{R<})`` is solved
+        analytically (cached) by the moment solver and
         used to build the moment-level rates here. The input
         ``state_a.f``, ``state_b.f``, and ``qubit_state.p`` are
         only consulted for grid metadata (gap, energy bins) — their
@@ -433,7 +431,7 @@ class M25GapAsymmetricJJ(Junction):
         # Region-state gaps must agree with the m25_params bundle the
         # cached coefficients were built from; otherwise we'd be
         # mixing rates for one junction with moments from another.
-        # T3DiffusionState carries both `gap` and `spectral.gap` and
+        # DiffusionState carries both `gap` and `spectral.gap` and
         # documents them to be in sync — check both, since downstream
         # physics (DOS, kinetic kernels) reads `state.gap` while the
         # M25 moment normalization reads `spectral.gap`.
@@ -483,7 +481,7 @@ class M25GapAsymmetricJJ(Junction):
                     f"{state_gap_uev / KB_UEV_PER_K:.6g} K disagrees with "
                     f"state.spectral.gap "
                     f"{spectral_gap_uev / KB_UEV_PER_K:.6g} K — "
-                    "T3DiffusionState invariants violated."
+                    "DiffusionState invariants violated."
                 )
             if not np.isclose(
                 spectral_gap_uev, param_gap_uev, rtol=1e-9, atol=0.0,
@@ -654,7 +652,7 @@ class M25GapAsymmetricJJ(Junction):
 
     @staticmethod
     def _build_per_region_flux(
-        state: T3DiffusionState,
+        state: DiffusionState,
         gain_moment: float,
         loss_rate_moment: float,
         *,
@@ -705,7 +703,7 @@ class M25GapAsymmetricJJ(Junction):
 
     @staticmethod
     def _build_per_region_flux_two_band(
-        state: T3DiffusionState,
+        state: DiffusionState,
         *,
         gain_Rlt: float, loss_rate_Rlt: float,
         gain_Rgt: float, loss_rate_Rgt: float,

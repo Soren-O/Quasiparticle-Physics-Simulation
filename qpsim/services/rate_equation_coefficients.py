@@ -1249,7 +1249,7 @@ def coefficients_from_physical_parameters(
         dtype=float,
     )
 
-    # ── Photon-assisted tunneling (primitive inputs; Note V deferred) ─
+    # ── Photon-assisted tunneling (primitive inputs, not from Note V) ─
     gamma_ph = np.array(
         [
             [params.Gamma_ph_00_Hz, params.Gamma_ph_01_Hz],

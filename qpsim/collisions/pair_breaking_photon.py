@@ -8,9 +8,6 @@ Three-term integral per [F24] Eqs. 2–5:
    ``E_j = ω_PB − E_i``. Creates a QP pair from the photon.
 3. **Recombination** (``K⁻``, pair annihilation): same reflection
    partner. Annihilates a QP pair, emitting a photon.
-
-Ported from ``pair_breaking_photon_collision_rates`` in the old
-``qpsim/numerics/collision_phonon.py``.
 """
 
 from __future__ import annotations

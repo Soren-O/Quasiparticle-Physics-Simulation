@@ -1,7 +1,7 @@
 """Rasterize qpsim baseline PDFs into output/ as PNGs.
 
 The figN_*.py modules in this package write PDFs under
-``validation/baselines/{ph0_constant,ph0_kaplan}/``. This helper
+``validation/baselines/{constant,kaplan}/``. This helper
 rasterizes them via ``pdftoppm`` so make_comparison.py (which expects
 PNGs in output/) has fresh inputs.
 
@@ -23,12 +23,12 @@ OUT_DIR = HERE / "output"
 
 # baseline PDF (relative to BASELINES) -> output PNG name (in output/)
 PDFS: dict[str, str] = {
-    "ph0_constant/fischer_fig3_paper.pdf": "fig3_paper.png",
-    "ph0_constant/fischer_fig5_paper_a.pdf": "fig5_paper_a.png",
-    "ph0_constant/fischer_fig5_paper_b.pdf": "fig5_paper_b.png",
-    "ph0_kaplan/fischer_fig6_paper.pdf": "fig6_paper.png",
-    "ph0_constant/fischer_fig7_paper.pdf": "fig7_paper.png",
-    "ph0_constant/fischer_figs_9_13_qi_vs_pread.pdf": "figs_9_13_qi_vs_pread.png",
+    "constant/fischer_fig3_paper.pdf": "fig3_paper.png",
+    "constant/fischer_fig5_paper_a.pdf": "fig5_paper_a.png",
+    "constant/fischer_fig5_paper_b.pdf": "fig5_paper_b.png",
+    "kaplan/fischer_fig6_paper.pdf": "fig6_paper.png",
+    "constant/fischer_fig7_paper.pdf": "fig7_paper.png",
+    "constant/fischer_figs_9_13_qi_vs_pread.pdf": "figs_9_13_qi_vs_pread.png",
 }
 
 

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.geometries import strip
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.spatial import SpatialState
 from qpsim.experiments.prelim_resonators import (
     EXPERIMENT_BATH_TEMPERATURE_K,
 )
@@ -112,7 +112,7 @@ def _source_rate_for_target_qps(case: ConvergenceCase) -> tuple[float, dict[str,
     return source_rate, _source_calibration(config, source_rate)
 
 
-def _build_state(case: ConvergenceCase) -> T3SpatialState:
+def _build_state(case: ConvergenceCase) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -133,7 +133,7 @@ def _build_state(case: ConvergenceCase) -> T3SpatialState:
         case.NX,
         axis=1,
     )
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(
             int(np.asarray(x).size),
@@ -151,7 +151,7 @@ def _relative_delta(value: float, reference: float) -> float:
     return abs((value - reference) / reference)
 
 
-def _write_profile(path: Path, state: T3SpatialState) -> None:
+def _write_profile(path: Path, state: SpatialState) -> None:
     xqp = _xqp_profile(state)
     with path.open("w", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=["x_um", "xqp"])
@@ -269,7 +269,7 @@ def main() -> None:
                 "cases": [asdict(case) for case in CASES],
                 "acceptance_rel_tol": ACCEPTANCE_REL_TOL,
                 "model_note": (
-                    "Dynamic local Ph0 phonons with finite escape to bath; "
+                    "Dynamic local phonons with finite escape to bath; "
                     "total injected QP/s held fixed as dx changes."
                 ),
             },

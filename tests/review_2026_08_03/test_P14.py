@@ -20,18 +20,18 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import Device, Region, SymmetricGapTunnelingJunction
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.spectral import SpectralContext
 
 
-def _thermal_state(T_bath: float) -> T3DiffusionState:
-    """Minimal Al-like T3 state at thermal equilibrium (self-contained)."""
+def _thermal_state(T_bath: float) -> DiffusionState:
+    """Minimal Al-like diffusion state at thermal equilibrium (self-contained)."""
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -45,11 +45,10 @@ def _thermal_state(T_bath: float) -> T3DiffusionState:
         n_ph=np.zeros((1, omega_bins.size, 1)),
         omega_bins=omega_bins.reshape(1, -1),
         tau_l=np.full((1, omega_bins.size), 0.25),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     kT = KB_UEV_PER_K * T_bath
-    return T3DiffusionState(
+    return DiffusionState(
         f=1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0),
         gap=gap,
         spectral=spectral,

@@ -56,7 +56,7 @@ ends at Fig. 8 and contains no Figs. 9-13. Its Sec. V readout-power results
 are Fig. 7 and Table III.
 
 Grid: 405 bins (ω_0/dE = 5 integer). If an independently refined artifact is
-eventually promoted, its nominal tolerance tier per NFP §6.4.1 is 1e-4
+eventually promoted, its nominal tolerance is 1e-4
 (nbar-loop tol × MB sub-gap quadrature). There is currently no active accepted
 pin.
 
@@ -90,7 +90,7 @@ from pathlib import Path
 from typing import TextIO
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -102,7 +102,7 @@ from qpsim.constants import HBAR_UEV_NS, KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.observables.quality_factor import compute_quality_factor
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.nbar_loop import dbm_to_uev_per_ns, solve_nbar_loop
@@ -122,7 +122,7 @@ C_PHOT = 1e-9
 
 E_MIN_FACTOR = 1.0
 E_MAX_FACTOR = 10.0
-NUM_BINS = 405  # Q_i tolerance tier 1e-4; dE=4 μeV, ω₀/dE=5 (int)
+NUM_BINS = 405  # Q_i tolerance 1e-4; dE=4 μeV, ω₀/dE=5 (int)
 
 
 ARTIFACT_SCHEMA_VERSION = 2
@@ -135,7 +135,7 @@ NBAR_FIXED_POINT_RESIDUAL_LIMIT = 1.0e-4
 _SOURCE_FINGERPRINT_FILES: tuple[str, ...] = (
     "validation/fischer_2023/figs_9_13_qi_vs_pread.py",
     "validation/source_provenance.py",
-    "qpsim/backends/t3_diffusion.py",
+    "qpsim/backends/diffusion.py",
     "qpsim/collisions/_uniform_grid.py",
     "qpsim/collisions/_validation.py",
     "qpsim/collisions/phonon.py",
@@ -180,7 +180,7 @@ def _fischer_material() -> Material:
     )
 
 
-def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
+def _build_state(material: Material, T_bath: float) -> DiffusionState:
     E, _ = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
@@ -194,11 +194,10 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f_FD = fermi_dirac_occupation(E, T_bath)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_FD,
         gap=DELTA_0,
         spectral=spectral,
@@ -267,7 +266,7 @@ def _atomic_text_file(path: Path) -> Iterator[TextIO]:
 
 def _qp_balance_certificate(
     f: np.ndarray,
-    state: T3DiffusionState,
+    state: DiffusionState,
     K_s0: np.ndarray,
     K_r0: np.ndarray,
     n_bar: float,
@@ -346,7 +345,7 @@ class Figs913Result:
 
 def run() -> Figs913Result:
     material = _fischer_material()
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     state = _build_state(material, T_BATH)
     K_s0 = build_scattering_kernel_base(
         state.spectral,
@@ -452,7 +451,7 @@ def run() -> Figs913Result:
 
 def baseline_path() -> Path:
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "fischer_figs_9_13_qi_vs_pread.csv"
+    return root / "validation" / "baselines" / "constant" / "fischer_figs_9_13_qi_vs_pread.csv"
 
 
 def plot_path() -> Path:

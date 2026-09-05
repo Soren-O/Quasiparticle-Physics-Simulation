@@ -10,17 +10,17 @@ whose coherence-factor (Maki-Griffin) weight equals
 ``(E^2 - D_L D_R) / (Omega_L Omega_R)``: positive above both gaps, regular at
 matched gaps, and automatically closed where one side is sub-gap.
 
-Two things change from the 1-D treatment this generalises.
+Two properties follow from the geometry being a mask.
 
-*An interface is a set of faces, not a face index.* In 1-D it was a single
-index ``k`` between cells ``k`` and ``k+1``, validated to be one step. On a
-2-D mask a gap step is a curve, so it is found by comparing each pair of
-adjacent cells.
+*An interface is a set of faces, not a face index.* On a 2-D mask a gap step
+is a curve, so the faces are found by comparing each pair of adjacent cells;
+on a one-cell-wide mask that curve is the single face between cells ``k`` and
+``k+1``.
 
 *The weight is cached per GAP PAIR, not per face.* It depends only on
 ``(E, dE, gap_L, gap_R)``, and every face along one boundary between two
-regions shares that. The 1-D code recomputed a quadrature per face; along a
-curve of hundreds of faces that is the dominant cost for no benefit.
+regions shares that. Recomputing the quadrature per face would be the dominant
+cost along a curve of hundreds of faces, for no benefit.
 """
 
 from __future__ import annotations
@@ -51,9 +51,6 @@ def kl_energy_weight(
     energy cell. A xi substitution for the larger gap removes the integrable
     endpoint singularity. Matched gaps are handled analytically, preserving the
     exact cancellation to the above-gap support fraction.
-
-    Copied from the 1-D backend so this package stands alone; the algebra is
-    unchanged, which is what lets the two agree bit for bit.
     """
     edges = cell_edges_from_widths(E, dE)
     high = max(float(gap_left), float(gap_right))

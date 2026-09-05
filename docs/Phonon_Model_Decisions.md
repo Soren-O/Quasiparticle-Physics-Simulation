@@ -1,7 +1,7 @@
 ---
-title: Phonon Model Decisions (Gate 0, Committed)
-description: Committed decisions D1–D5 fixing the v1 phonon-sector model for the qpsim greenfield rewrite.
-sourced_from: Phonon Analysis.md (Gate 0 working draft, 2026-04-12)
+title: Phonon Model Decisions
+description: Committed decisions D1–D5 fixing the phonon-sector model.
+sourced_from: Phonon Analysis.md (working draft, 2026-04-12)
 ---
 
 # Phonon Model Decisions
@@ -23,37 +23,17 @@ different observables:
 Confusing these two timescales, or double-counting them via a
 Rothwarf–Taylor trapping factor applied on top of a dynamic $n_{ph}(\omega,t)$
 solve, produces qualitatively wrong steady states and incorrect transient
-kinetics. The decisions below fix each choice unambiguously for v1.
+kinetics.
 
----
-
-## Phonon hierarchy (tiering)
-
-The framework reserves three phonon tiers, matching the QP tier hierarchy
-(T1/T2/T3):
-
-- **Ph0 — local phonon field with escape.** Single scalar equation per
-  spatial point per frequency:
-  $$
-  \partial_t n_{ph}(\omega,\mathbf{r},t)
-  = I_{qp\to ph}[f,n_{ph}](\omega,\mathbf{r})
-  - \frac{n_{ph}(\omega,\mathbf{r},t) - n_{BE}(\omega,T_B)}{\tau_l(\omega)}.
-  $$
-  No lateral transport; through-thickness uniformity is assumed
-  ($d/s \ll \tau_0$). **This is the v1 target.**
-- **Ph1 — lateral transport.** Adds an in-plane transport operator
-  (diffusion $D_{ph}\nabla^2 n_{ph}$ with $D_{ph} = sd/3$ as the tentative
-  default, or ballistic streaming $s\hat{\mathbf q}\cdot\nabla n_{ph}$).
-  Deferred to v2. The Ph1 transport operator is specified to degrade to
-  a no-op for v1 backends, so switching Ph0 → Ph1 is forward-compatible
-  once real transport lands.
-- **Ph2 — explicit substrate kinetics.** Couples film and substrate
-  phonons at the interface; required for phonon-detector simulations.
-  Deferred to v3.
-
-v1 scope targets Ph0. Ph1 and Ph2 are specified here so the state
-representation can carry them without restructuring later, but neither
-is implemented in v1.
+The sector is a local phonon field with acoustic escape — one scalar
+equation per spatial point per frequency:
+$$
+\partial_t n_{ph}(\omega,\mathbf{r},t)
+= I_{qp\to ph}[f,n_{ph}](\omega,\mathbf{r})
+- \frac{n_{ph}(\omega,\mathbf{r},t) - n_{BE}(\omega,T_B)}{\tau_l(\omega)}.
+$$
+Through-thickness uniformity is assumed ($d/s \ll \tau_0$). The decisions
+below fix each choice in that equation unambiguously.
 
 ---
 
@@ -88,10 +68,9 @@ helper that enumerates the pair-sum and pair-difference frequency mesh
 $\{E_i+E_j,\ |E_i-E_j|\}$ from the QP energy grid and precomputes the
 phonon-occupation lookup for $I_{qp\to ph}$.
 
-Justification: this is a solved numerical problem in the current `qpsim`
-and the implementation is pure-physics; no upgrade is planned. The
-spectral-density convention vs occupation convention is handled at the
-kernel level ($K_0^s$, $K_0^r$).
+Justification: this is a solved numerical problem in `qpsim` and the
+implementation is pure-physics. The spectral-density convention vs
+occupation convention is handled at the kernel level ($K_0^s$, $K_0^r$).
 
 ### D3 — Frequency grid
 
@@ -107,23 +86,27 @@ balance at equilibrium on the discrete grid and is a prerequisite for
 Validation Check 1 (equilibrium detailed balance) and Check 2 (energy
 conservation of e-ph exchange).
 
-### D4 — Ph1 transport operator (tentative, deferred)
+### D4 — Phonon transport closure
 
-**Specified for v1:** the Ph1 transport operator shall degrade to a
-no-op so that backends can advertise "Ph1-compatible" without depending
-on a real implementation. When Ph1 is implemented (v2), the planned
-default closure is isotropic diffusion with
-$$
-D_{ph} = \frac{s\, d}{3},
-$$
-appropriate for polycrystalline films with diffuse boundary scattering.
-Ballistic streaming remains under consideration for epitaxial/specular
-films.
+**Committed:** the phonon field is local. At each spatial point it evolves
+under emission, absorption and escape, exactly as the governing equation
+above states — $n_{ph}$ carries no $\nabla$, so the closure holds no
+in-plane phonon transport term and the frequency sector is a per-point
+scalar equation.
 
-Justification: v1 deliverables (Fischer-style MKID reproductions) do not
-require lateral phonon transport, so the operator is specified as
-trivial in v1. The diffusion closure is the pragmatic engineering
-default; the ballistic option is revisited when Ph1 lands.
+Justification: Fischer-style MKID reproductions are set by emission,
+reabsorption and escape at each point, which is what locality captures.
+Locality is a claim about lengths, so it has to be checkable: where a
+phonon diffusion *length* is quoted as a scale estimate (see the
+$\tau_{\mathrm{transport}}$ pitfall below), the isotropic-diffusion
+closure
+$$
+D_{ph} = \frac{s\, d}{3}
+$$
+is the pragmatic engineering value for polycrystalline films with diffuse
+boundary scattering. It is an estimator used to confirm that a phonon
+travels a short distance compared with the features of interest, not a
+coefficient in the equation above: no $D_{ph}$ appears in the package.
 
 ### D5 — Sound velocity in the `Material` dataclass
 
@@ -132,14 +115,14 @@ velocities ($s_L$, $s_T$, $s_D$). The Debye average
 $$
 s_D^{-3} = \tfrac{1}{3}\big(s_L^{-3} + 2 s_T^{-3}\big)
 $$
-is the v1 default for scalar-$s$ evaluations (single-branch Debye,
-$N_\text{branch}=1$). The $s_L$ and $s_T$ fields are reserved for
-multi-branch v3 work.
+is the default for scalar-$s$ evaluations (single-branch Debye,
+$N_\text{branch}=1$); $s_L$ and $s_T$ are the mode velocities it is
+assembled from.
 
-Justification: single-branch Debye with $s_D$ is consistent with the
-Ph0 / v1 scope and matches the Kaplan 1976 evaluation of $\tau_0^{PB}$.
-Storing $s_L$ and $s_T$ at the material level costs nothing and makes
-the v3 multi-branch extension a pure-additive change.
+Justification: single-branch Debye with $s_D$ matches the Kaplan 1976
+evaluation of $\tau_0^{PB}$. Storing $s_L$ and $s_T$ at the material
+level costs nothing and keeps the average auditable against the mode
+velocities it came from.
 
 ---
 
@@ -157,10 +140,13 @@ reabsorption is already contained in the $(1-f(E))(1-f(\omega-E))\,n(\omega)$
 absorption term of $I_{qp\to ph}$; multiplying the recombination rate by
 $\zeta$ on top of a dynamic $n_{ph}$ solve double-counts this physics.
 
-Specified behavior: the `PhononState` constructor (Gate 2) shall reject
-mixed configurations (dynamic $n_{ph}$ + $\zeta$-renormalized $\tau_0$).
-The $\zeta$ route remains available in the separate rate-equation
-service (M25 module) where $n_{ph}$ is not tracked dynamically.
+The two are never composed: the $\zeta$ route belongs to the rate-equation
+service (M25 module), where $n_{ph}$ is not tracked dynamically, while the
+PDE backends evolve $n_{ph}$ with $\tau_0$ left unrenormalized. $\zeta$
+appears nowhere in the package, and the $\tau_0$ it would renormalize lives
+on the material (`tau_0_pb_ns`), so the forbidden combination could only
+be assembled at the device level, where both sectors are visible at
+once.
 
 ### Kaplan 1976 fixes $\tau_{PB}$, not $\tau_l$
 
@@ -367,7 +353,7 @@ wired without redesigning the phonon unknown and proving positivity.
 | Symbol | Name | Physics | Where it enters |
 |---|---|---|---|
 | $\tau_{\mathrm{esc}}$ | Phonon escape time | Mean time before a phonon in the film crosses into the substrate. Pure thin-film acoustics (AMM/Kapitza). Independent of superconductivity. | Transport (relaxation) term of phonon kinetic equation. |
-| $\tau_l$ | "Local" phonon lifetime (Fischer convention) | Identified with $\tau_{\mathrm{esc}}$ in v1: $\tau_l = \tau_{\mathrm{esc}}$. The "lifetime" of the local phonon population against loss to the substrate bath. | Bath-relaxation term: $-(n_{ph} - n_{BE}(T_B))/\tau_l$. |
+| $\tau_l$ | "Local" phonon lifetime (Fischer convention) | Identified with $\tau_{\mathrm{esc}}$: $\tau_l = \tau_{\mathrm{esc}}$. The "lifetime" of the local phonon population against loss to the substrate bath. | Bath-relaxation term: $-(n_{ph} - n_{BE}(T_B))/\tau_l$. |
 | $\tau_{\mathrm{PB}}$ | Pair-breaking lifetime | Mean time before a phonon of energy $\omega \ge 2\Delta$ breaks a Cooper pair. Bulk BCS quantity, Kaplan 1976 via $S_+(\omega/\Delta)$. | Collision integral $I_{qp\to ph}$ (specifically the $K^+$ recombination/pair-breaking term), and the QP-side $\Gamma_{e\text{-}ph}(E)$. |
 
 **Common pitfalls:**
@@ -399,4 +385,4 @@ wired without redesigning the phonon unknown and proving positivity.
   $S_+(\omega/\Delta)$.
 - Fischer & Catelani 2023 — MKID synthesis; Appendix A ties $\tau_{PB}$
   (Eq. A2) and $\tau_l$ (Eq. A5) together; Table I parameter set is the
-  v1 acceptance-test baseline.
+  acceptance-test baseline.

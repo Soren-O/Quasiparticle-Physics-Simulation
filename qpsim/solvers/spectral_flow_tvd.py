@@ -7,20 +7,17 @@ reconstruction on a possibly non-uniform energy grid, upwind
 numerical fluxes at cell interfaces, and an SSPRK(2,2) time step
 (from :mod:`qpsim.solvers.ssprk`).
 
-Ported from ``qpsim/numerics/advection.py`` at Gate 2; the SSPRK
-stepper was split out as a generic primitive.
-
-SUPERSEDED for the production moving-gap update, which is
-``_remap_bcs_frozen_xi_cell_mass`` (``qpsim/backends/t3_diffusion.py``,
+This is NOT the production moving-gap update, which is
+``_remap_bcs_frozen_xi_cell_mass`` (``qpsim/backends/diffusion.py``,
 called from ``_remap_gap_state_once``); this module and
-:mod:`qpsim.solvers.ssprk` have had no engine callers since that
-replacement.  The reason is the choice of variable, not the limiter: this
-operator advances the point sample ``u = ρ(E_i)·f_i``, whereas the
-conserved finite-volume variable is the *cell integral* of ``ρ f``.  Near
+:mod:`qpsim.solvers.ssprk` have no engine callers.  The reason is the choice
+of variable, not the limiter: this operator advances the point sample
+``u = ρ(E_i)·f_i``, whereas the conserved finite-volume variable is the
+*cell integral* of ``ρ f``.  Near
 the divergent BCS edge the point sample carries an O(1),
 grid-alignment-dependent midpoint error that no limiter can remove, so the
-frozen-ξ cell-mass remap — exact along ideal-BCS characteristics — replaced
-it there.  Away from the gap edge this scheme is second-order accurate and
+frozen-ξ cell-mass remap — exact along ideal-BCS characteristics — is used
+there instead.  Away from the gap edge this scheme is second-order accurate and
 in fact more accurate than that first-order projection, so it remains the
 right starting point for a spectral flow with no closed-form characteristic
 (e.g. a Dynes DOS, which the frozen-ξ remap rejects).  Note that the
@@ -73,8 +70,7 @@ def advect_spectral_flow(
     Parameters
     ----------
     u
-        Conserved profile, shape ``(NE,)`` or ``(2, NE)``. The latter
-        supports T1's ``(f_L, f_T)`` two-component layout.
+        Conserved profile, shape ``(NE,)``.
     E_bins
         Energy bin centers (μeV).
     dE_bins
@@ -100,8 +96,8 @@ def advect_spectral_flow(
     E = np.asarray(E_bins, dtype=float)
     dE = np.asarray(dE_bins, dtype=float)
 
-    if u_arr.ndim not in (1, 2) or (u_arr.ndim == 2 and u_arr.shape[0] != 2):
-        raise ValueError(f"u must be shape (NE,) or (2, NE), got {u_arr.shape}")
+    if u_arr.ndim != 1:
+        raise ValueError(f"u must be shape (NE,), got {u_arr.shape}")
     if E.ndim != 1 or dE.ndim != 1:
         raise ValueError("E_bins and dE_bins must be one-dimensional.")
     if E.size == 0:
@@ -211,19 +207,10 @@ def advect_spectral_flow(
         v = (gap_mid / E) * gap_dot_value
         rhs = _rhs_for_velocity(v)
 
-        if u_new.ndim == 1:
-            u_new = ssprk22_step(u_new, rhs, dt_sub)
-        else:
-            advanced = np.empty_like(u_new)
-            advanced[0] = ssprk22_step(u_new[0], rhs, dt_sub)
-            advanced[1] = ssprk22_step(u_new[1], rhs, dt_sub)
-            u_new = advanced
+        u_new = ssprk22_step(u_new, rhs, dt_sub)
 
     if mask is not None:
-        if u_new.ndim == 1:
-            u_new[~mask] = 0.0
-        else:
-            u_new[:, ~mask] = 0.0
+        u_new[~mask] = 0.0
 
     return u_new
 

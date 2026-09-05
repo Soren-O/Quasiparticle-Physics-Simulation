@@ -83,8 +83,8 @@ class TestEffectivePhononTemperatureIsShapeOnly:
         assert hot == pytest.approx(T_bath, rel=1e-12)
 
 
-def _undriven_ph0_setup(T_c: float = 1.2, T_bath: float = 0.2, NE: int = 40):
-    """Undriven Ph0 problem whose root is the unforced thermal fixed point."""
+def _undriven_phonon_setup(T_c: float = 1.2, T_bath: float = 0.2, NE: int = 40):
+    """Undriven phonon problem whose root is the unforced thermal fixed point."""
     gap = 1.764 * KB_UEV_PER_K * T_c
     dE = gap / 8.0
     E = gap + dE * (np.arange(NE) + 0.5)
@@ -110,7 +110,7 @@ def _undriven_ph0_setup(T_c: float = 1.2, T_bath: float = 0.2, NE: int = 40):
 # 30 perturbed cold seeds, 14/30 solves became 25/30, and no returned answer
 # changed.
 def test_flat_hot_seed_reaches_the_unforced_thermal_root() -> None:
-    ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, n_th = _undriven_ph0_setup()
+    ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, n_th = _undriven_phonon_setup()
     root = float(np.max(fermi_dirac_occupation(ctx.E, 0.2)))
     f, _ = coupled_newton_solve(
         ctx,
@@ -134,7 +134,7 @@ def test_flat_hot_seed_reaches_the_unforced_thermal_root() -> None:
 
 def test_shaped_seeds_still_reach_the_unforced_thermal_root() -> None:
     """Guardrail for the held-back repair: these seeds must stay converging."""
-    ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, n_th = _undriven_ph0_setup()
+    ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, n_th = _undriven_phonon_setup()
     root = float(np.max(fermi_dirac_occupation(ctx.E, 0.2)))
     for scale in (1e-1, 1e-4, 1e-5):
         f, _ = coupled_newton_solve(

@@ -1,12 +1,8 @@
 """The 1-D reduction of the unified spatial backend: operator-cache keying.
 
-Translated from ``TestTransportCacheKeying`` in
-``tests/backends/test_t3_spatial_1d.py``, which covered the retired
-``T3Spatial1DBackend`` / ``T3Spatial1DState``. The unified
-:class:`~qpsim.backends.t3_spatial.T3SpatialBackend` solves the same strip as a
-``(1, N)`` mask, so the property is unchanged -- only the place the cache lives
-has moved (from the backend itself onto the per-geometry
-:class:`~qpsim.transport.spatial_transport.SpatialTransport`).
+The unified :class:`~qpsim.backends.spatial.SpatialBackend` solves a strip as
+a ``(1, N)`` mask, and the operator cache lives on the per-geometry
+:class:`~qpsim.transport.spatial_transport.SpatialTransport`.
 """
 
 from __future__ import annotations
@@ -14,7 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import Geometry, strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -30,7 +26,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
 
 
 def _strip_geometry(NX: int = 11) -> Geometry:
-    """The retired tests' grid: ``x = linspace(0, 100, NX)``, so ``dx`` is
+    """The strip grid: ``x = linspace(0, 100, NX)``, so ``dx`` is
     ``100/(NX-1)`` -- taken off the array rather than assumed."""
     x = np.linspace(0.0, 100.0, NX)
     return strip(NX, mesh_size=float(x[1] - x[0]))
@@ -42,7 +38,7 @@ def _build_state(
     D0: float = 6.0,
     T_bath: float = 0.1,
     NE: int = 28,
-) -> T3SpatialState:
+) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -59,7 +55,7 @@ def _build_state(
     )
     ncells = geometry.cell_count
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], ncells, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=geometry,
         spectral=spectral,
@@ -71,15 +67,14 @@ def _build_state(
 class TestStripTransportCacheKeying:
     """Regression: the operator/kernel caches must key on the spectral
     CONTENT, not on grid shape or object identity -- a backend reused
-    across states with different energy grids previously crashed
-    (smaller NE) or silently froze the extra rows (larger NE).
+    across states with different energy grids would otherwise crash
+    (smaller NE) or silently freeze the extra rows (larger NE).
 
-    This is the 1-D reduction of the unified backend, translated from
-    ``TestTransportCacheKeying`` of the retired ``T3Spatial1DBackend``.
+    This is the 1-D reduction of the unified backend.
     """
 
     def test_backend_reused_across_different_energy_grids(self) -> None:
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         # ONE geometry object for the whole loop, deliberately. The unified
         # backend caches its SpatialTransport -- and it is that object that
         # owns the operator cache -- on a signature containing the geometry's

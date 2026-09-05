@@ -14,7 +14,8 @@ with:
 
 * ``J_ff = ∂R_f/∂f`` — analytical, reuses the per-channel assembly
   from :mod:`qpsim.solvers.newton_steady_state`.
-* ``J_nn = ∂R_ph/∂n_ph`` — diagonal in Ph0: ``b_ph − 1/τ_l``.
+* ``J_nn = ∂R_ph/∂n_ph`` — diagonal for the local phonon bath:
+  ``b_ph − 1/τ_l``.
 * ``J_fn = ∂R_f/∂n_ph`` and ``J_nf = ∂R_ph/∂f`` — analytical when
   ``analytic_cross=True`` (closed form, O(NE²), exact), else forward
   finite differences (default; O(NE³) and unreliable at strong drive
@@ -199,7 +200,7 @@ def coupled_newton_solve(
         Optional :class:`qpsim.devices.ExternalFlux` boundary
         source/sink contract on the f-equation. Affects only the
         f-block; the phonon-block residual is unchanged. ``None``
-        is bit-for-bit identical to pre-Phase-2 behavior.
+        contributes no boundary term to either block.
     tol
         Absolute infinity-norm tolerance on the combined residual
         ``max(|R_f|, |R_ph|)``. Used as the early-exit test only when
@@ -679,7 +680,7 @@ def coupled_newton_solve(
             for j in np.flatnonzero(active_f):
                 f_pert = f.copy()
                 # Keep the finite-difference probe inside the public
-                # occupation domain.  A forward probe at f[j] == 1 used to
+                # occupation domain.  A forward probe at f[j] == 1 would
                 # step above one and trip residual()'s physical-state guard
                 # before Newton could start.  Prefer the requested forward
                 # step, switch to a signed backward step near the upper

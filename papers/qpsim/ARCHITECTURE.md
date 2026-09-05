@@ -81,7 +81,8 @@ Source material for prose is deliberately reused from in-repo docs (paths given)
 
 ### §1 Introduction
 - QP problem statement for qubits + detectors; reproducibility gap; hand-rolled solvers.
-- What qpsim is: scope tiers (T1/T2/T3 hierarchy declared, T3+Ph0 shipped), design goals
+- What qpsim is: an energy- and space-resolved solver for f(E,x,t) in the isotropic dirty
+  limit, coupled to a local phonon bath with acoustic escape to the substrate; design goals
   (validated, minimal deps, typed/strict, guarded conventions).
 - Relationship to Paper 1. Contributions list.
 - Sources: `README.md`, `docs/STATUS.md`, round-3 deck slides 1–3, 10.
@@ -94,7 +95,7 @@ Source material for prose is deliberately reused from in-repo docs (paths given)
   e-ph scattering + recombination (Kaplan kernels, `physics/kernels.py`,
   `collisions/phonon.py`); sub-gap photon (`collisions/sub_gap_photon.py`); pair-breaking
   photon (`collisions/pair_breaking_photon.py`, Fischer 2024 Eqs. 2–5).
-- Phonon axis: Ph0 local balance with escape time τ_l(ω) (`phonon_models/ph0_local.py`,
+- Phonon sector: local balance with escape time τ_l(ω) (`phonon_models/local.py`,
   `physics/phonon_escape.py` — constant and acoustic-mismatch builders), pair-breaking
   lifetime τ_PB(Ω) (`physics/kaplan_pair_breaking.py`, closed elliptic form). Why the
   Rothwarf–Taylor ζ factor is *not* double-counted in PDE backends
@@ -170,7 +171,7 @@ Never reprint published figure panels (avoids permissions entirely).
 The showcase that no other section provides: the preliminary-exam experiment forecast,
 rebuilt as a worked example. 100 µm × 0.1 µm Al strip at the current antinode of six
 quarter-wave resonators (~5–6 GHz, α_KI = 0.08), JJ injection source (Gaussian at E = 2Δ,
-σ = 0.08Δ), reflective 1D diffusion, Ph0 phonon bottleneck.
+σ = 0.08Δ), reflective 1D diffusion, local phonon bottleneck.
 - Sweep 1: δf_r vs τ_l at three injection rates (phonon bottleneck is the dominant knob).
 - Sweep 2: δf_r vs D₀ (0.6–60 µm²/ns) — transport-limited → saturated regimes.
 - Sweep 3: Q_i,total vs τ_l for lowest/highest-frequency mode.
@@ -192,11 +193,12 @@ quarter-wave resonators (~5–6 GHz, α_KI = 0.08), JJ injection source (Gaussia
   (all validation figures reproducible on a laptop/desktop in stated wall-clock).
 
 ### §8 Limitations and roadmap
-Straight from `docs/STATUS.md` + round-3 caveats slide: T2/T1 tiers and Ph1/Ph2 phonon
-transport declared but not implemented; 2D geometry reserved; S21/telegrapher readout layer
-absent; f_T charge mode not commissioned; Dynes-consistent transport guarded but
-unimplemented; strong-drive fold bifurcation awaits arclength continuation; TVD spectral-flow
-solver not yet wired into the spatial path (verify current status at drafting time).
+Straight from `docs/STATUS.md` + round-3 caveats slide: phonons are a local bath with
+acoustic escape to the substrate rather than a spatially transported population;
+S21/telegrapher readout layer absent; f_T charge mode not commissioned; Dynes-consistent
+transport guarded but unimplemented; strong-drive fold bifurcation awaits arclength
+continuation; TVD spectral-flow solver not yet wired into the spatial path (verify current
+status at drafting time).
 
 ### §9 Conclusion + availability statement
 
@@ -231,7 +233,7 @@ Blocking for their figures (from `qpsim_validation_plan` status tags + 2026-07-0
    figure's dashed overlay.
 4. F24 Figs. 5/8: source/runtime artifact hardening is complete; the paper
    analytic overlays remain an explicit separate gap.
-5. ~~M25 Figs. 3/4~~ done 2026-07-04, and bigger than planned: the "multi-stability" was a
+5. ~~M25 Figs. 3/4~~ done 2026-07-04, and bigger than expected: the "multi-stability" was a
    Γ̄ = Γ̃/N_CP(R) normalization bug in the density equations (M25 text below Eq. 6); with
    the fix the root is unique. `solve_rate_equation_branch` (continuation driver) shipped,
    real global-QE + renormalized comparison models implemented, all baselines regenerated,

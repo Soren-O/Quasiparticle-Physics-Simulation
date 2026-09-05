@@ -18,7 +18,7 @@ from qpsim.collisions.phonon import (
     build_scattering_kernel_phonon_side,
     compute_phonon_source_sink,
 )
-from qpsim.phonon_models.ph0_local import phonon_balance_diagnostics
+from qpsim.phonon_models.local import phonon_balance_diagnostics
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from validation.fischer_2023 import fig6_author_c6_bundle as c6_bundle
@@ -373,7 +373,7 @@ def test_kaplan_correction_is_the_only_pair_difference(
     assert public_relative > 1.0e-3
 
 
-def test_escape_channel_follows_ph0_local_balance_form(
+def test_escape_channel_follows_local_balance_form(
     formal_c6: FormalC6,
 ) -> None:
     arrays = formal_c6.arrays

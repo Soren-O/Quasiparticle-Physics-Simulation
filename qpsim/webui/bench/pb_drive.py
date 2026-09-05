@@ -19,15 +19,13 @@ closed form itself.
 
 The mode
 --------
-The case runs on the unified spatial core (``kinetics``) with a 1×1 mask.
+The case runs on the spatial core (``kinetics``) with a 1×1 mask.
 Dimensionality is read off the mask extent rather than set by a flag, so one
 cell *is* the 0-D reduction — the run's summary reports ``dimensionality = 0``
 — and the single-cell transport operator is identically zero, which is why
 ``material.D_0`` is set to 0 for intent rather than for effect. The closed form
 is spatially uniform, so ``build`` scores every cell the mask carries; on the
-shipped mask that is the one cell, and the curve is the same four time series
-this case scored while it was expressed in the retired 0-D mode — to the same
-float, as ``convergence`` records.
+shipped mask that is the one cell.
 
 What is checked
 ---------------
@@ -87,10 +85,9 @@ from qpsim.webui.benchmarks import Benchmark, Curve, register
 #   snapshot_interval = 0.2.  Without it `kinetics` records no frames at all
 #     and there is no slope to measure — only the endpoint, which cannot
 #     distinguish "linear in t" from "arrived at the right place along a curve".
-#   initial.kind = "thermal".  The 0-D expression of this case had no initial
-#     block and always started from Fermi-Dirac; this states the same start
-#     explicitly. `build` subtracts f(0), so the start is not an ingredient of
-#     the prediction either way.
+#   initial.kind = "thermal".  States the Fermi-Dirac start explicitly.
+#     `build` subtracts f(0), so the start is not an ingredient of the
+#     prediction either way.
 CASE_OVERRIDES: dict[str, Any] = {
     "mode": "kinetics",
     "material.D_0": 0.0,
@@ -241,11 +238,9 @@ def _source_spectrum(
 def _refuse_unless_reduced(setup: Any) -> None:
     """Raise unless the run is the reduction this closed form describes.
 
-    Only the knobs that ``KineticsSetup`` adds over the 0-D setup this case
-    used to be written against are checked here, because those are the ones
-    that can silently invalidate the closed form: a second source makes S_i no
-    longer the whole f-independent right-hand side, and a gap that is not Δ₀
-    everywhere makes the cell measures wrong.
+    Only the knobs that can silently invalidate the closed form are checked
+    here: a second source means S_i is not the whole f-independent right-hand
+    side, and a gap that is not Δ₀ everywhere makes the cell measures wrong.
 
     Note the deliberate omissions. ``pb_drive.enabled = False`` is NOT refused:
     the closed form still applies and is violated, and that null run is this
@@ -328,8 +323,8 @@ def _build(
     # is, the gap is, and the thermal start is — so every cell is predicted to
     # carry the same S_i, and on a mask wider than one cell that equality is
     # part of what is being checked rather than an assumption. With the shipped
-    # 1×1 mask this collapses to the four series the 0-D expression of this case
-    # scored, at this run's own snapshot times.
+    # 1×1 mask this collapses to four series, one per read-off frame, at this
+    # run's own snapshot times.
     y_sim = np.array([
         (f[k, :, c] - f[0, :, c]) / (t[k] - t[0])
         for k in idx
@@ -443,22 +438,14 @@ register(
             "at second order in δE — 2.101e-07, 5.142e-08, 1.272e-08, 3.162e-09 at "
             "δE = 4/2/1/0.5 μeV, mid-band at E = 600 μeV. The cell weights really "
             "are the BCS DOS and not a re-coding of engine internals.\n"
-            "Mode migration (2026-08-14): this case previously ran as "
-            "``transient_0d``. Re-expressed as a 1×1 ``kinetics`` mask it scores "
-            "6.5276867346370295e-06 against the 0-D case's "
-            "6.5276867346370295e-06 — the same float, not merely the same to the "
-            "quoted digits — and x_qp(12 ns) agrees to 1 ulp "
-            "(8.599905148325067e-06 vs 8.599905148325065e-06), with the two f(E) "
-            "fields differing by at most 2.0e-28 in absolute occupation at 12 ns "
-            "against a peak of 1.18e-05. What is NOT identical is the snapshot "
-            "CADENCE: the 0-D driver interpolates onto the requested times, while "
-            "the spatial core records the step boundary actually reached and its "
-            "cadence counter drifts by a ulp, so two of the four read-off frames "
-            "land at 6.1 and 9.1 ns instead of 6.0 and 9.0. Those two series are "
-            "read 1.7% later, so their residual — which is O(f) and therefore "
-            "proportional to t — is 1.7% larger, and the rms moves 1.4352e-06 → "
-            "1.4432e-06. The scored maximum does not move at all, because it is "
-            "the 12 ns series and the two cadences agree exactly there."
+            "Snapshot cadence: the spatial core records the step boundary it "
+            "actually reached, and its cadence counter drifts by a ulp, so two "
+            "of the four read-off frames land at 6.1 and 9.1 ns instead of 6.0 "
+            "and 9.0. Those two series are read 1.7% later, and their residual "
+            "— which is O(f) and therefore proportional to t — is 1.7% larger, "
+            "which puts the rms at 1.4432e-06. The scored maximum is the 12 ns "
+            "series, which is read at exactly its requested time, so the score "
+            "itself carries no cadence offset."
         ),
         modes=("kinetics",),
         build=_build,
@@ -498,7 +485,7 @@ register(
             "material (Al, Δ₀ = 180 μeV), one bath temperature, one photon energy, "
             "pure BCS only — the term rejects dynes_gamma > 0 outright.\n"
             "SPATIAL SCOPE. The shipped mask is one cell, so the case is the 0-D "
-            "reduction of the unified core: the transport operator is identically "
+            "reduction of the spatial core: the transport operator is identically "
             "zero and nothing here exercises the Laplacian, a boundary condition, "
             "an interface or a gap step. ``build`` scores whatever cells the mask "
             "carries, which was checked rather than left as an intention — on a "

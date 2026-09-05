@@ -956,7 +956,7 @@ def _required(requires: str | tuple[str, ...] | None) -> tuple[str, ...]:
 
 
 def _plot_occupation_either_shape(arrays, summary):
-    """`occupation` for either strategy of the merged mode.
+    """`occupation` for either strategy of the `kinetics` mode.
 
     steady_state carries f:(NE,) from the 0-D solver; time_march carries
     f_final:(NE, Ncells). Dispatch on the array present rather than on the
@@ -1286,7 +1286,7 @@ def _csv_kinetics_phonons(
     phonon array -- so the endpoint table is the LAST recorded frame, and the
     ``t_ns`` column says which time that is rather than implying max_time.
     The frequency column is the lattice the run recorded, never one rebuilt
-    from the setup (see T3SpatialBackend.phonon_frequency_axis).
+    from the setup (see SpatialBackend.phonon_frequency_axis).
     """
     k = _frame_index(arrays, frame)
     if k is None:

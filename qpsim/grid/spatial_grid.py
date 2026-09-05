@@ -1,10 +1,9 @@
 """Spatial-grid helpers: boundary-condition dataclasses and Laplacian assembly.
 
-Ported from ``qpsim/numerics/operators.py`` plus the
-``BoundaryCondition`` / ``BoundaryFace`` / ``EdgeSegment`` definitions
-from the old ``qpsim/models.py``. Those three dataclasses describe the
-2D masked-grid topology and its boundary conditions; the Laplacian
-builders are co-located here because they are tightly coupled to them.
+The ``BoundaryCondition`` / ``BoundaryFace`` / ``EdgeSegment`` dataclasses
+describe the 2D masked-grid topology and its boundary conditions; the
+Laplacian builders are co-located here because they are tightly coupled to
+them.
 
 The Crank-Nicolson stepper in :mod:`qpsim.solvers.crank_nicolson`
 takes an assembled Laplacian matrix as an input, not the raw mask.
@@ -372,9 +371,7 @@ def build_laplacian_with_boundaries(
     dx_value = float(dx)
     with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
         inv_dx = 1.0 / dx_value
-        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two, and it
-        # matches the 1-D backend exactly so a one-cell-wide grid
-        # reproduces it bit for bit.
+        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two.
         inv_dx2 = 1.0 / (dx * dx)
     if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
         raise ValueError("dx is too small to assemble a finite Laplacian.")
@@ -475,9 +472,7 @@ def build_variable_diffusion_laplacian(
     dx_value = float(dx)
     with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
         inv_dx = 1.0 / dx_value
-        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two, and it
-        # matches the 1-D backend exactly so a one-cell-wide grid
-        # reproduces it bit for bit.
+        # 1/(dx*dx), not (1/dx)**2: one rounding instead of two.
         inv_dx2 = 1.0 / (dx * dx)
     if not np.isfinite(inv_dx) or not np.isfinite(inv_dx2):
         raise ValueError("dx is too small to assemble a finite diffusion operator.")

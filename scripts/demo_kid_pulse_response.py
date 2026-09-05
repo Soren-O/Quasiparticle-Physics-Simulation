@@ -35,7 +35,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -43,7 +43,7 @@ from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
 from qpsim.observables.frequency_shift import compute_frequency_shift
 from qpsim.observables.quality_factor import compute_quality_factor
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.transient import run_time_dependent
@@ -87,7 +87,7 @@ def _fermi_dirac(E: np.ndarray) -> np.ndarray:
     return fermi_dirac_occupation(E, T_BATH)
 
 
-def _build_state(f_init: np.ndarray | None = None) -> T3DiffusionState:
+def _build_state(f_init: np.ndarray | None = None) -> DiffusionState:
     E, _ = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=1.0,
@@ -102,10 +102,9 @@ def _build_state(f_init: np.ndarray | None = None) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_BATH).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    return T3DiffusionState(
+    return DiffusionState(
         f=_fermi_dirac(E) if f_init is None else f_init,
         gap=DELTA_0,
         spectral=spectral,
@@ -117,7 +116,7 @@ def _build_state(f_init: np.ndarray | None = None) -> T3DiffusionState:
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     state = _build_state()
     f_ref = state.f.copy()  # thermal reference for df_r/f_r
 

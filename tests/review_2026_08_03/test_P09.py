@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import _remap_bcs_frozen_xi_cell_mass
+from qpsim.backends.diffusion import _remap_bcs_frozen_xi_cell_mass
 from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 
 

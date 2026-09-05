@@ -1962,7 +1962,7 @@ def _default_seed_grid() -> list[np.ndarray]:
       at ``p_1 ≈ 3e-4`` for Fig 3a low-T points).
     * ``x_L ∈ ~8 decades [1e-11, 1e-4]`` — wide enough to bracket the
       photon-driven branch under the full Fig 3 parameter sweep
-      without overlapping the unphysical near-zero-x noise tier.
+      without overlapping the unphysical near-zero-x noise band.
     * ``x_{R>}/x_L = 0.4`` — matches the M25 tunneling-balance ratio
       ``T_L/T_{R>}`` at typical Fig 3a coefficients (replaces the
       legacy 0.5 ratio that biased seeds away from the paper branch).

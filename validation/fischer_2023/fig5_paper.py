@@ -10,7 +10,7 @@ escape ratio.
   $A = (105/64)\\,(k_B T_c)^3\\, c_{\\rm phot}\\, \\tau_0\\, \\omega_0^2\\, \\Delta$.
 * **Lower panel.** Sweep $T_B$ at three fixed $T_*/\\Delta$ values.
 
-Solid: numerical kinetic-equation solutions (T3 backend, finite-$\\tau_\\ell$
+Solid: numerical kinetic-equation solutions (diffusion backend, finite-$\\tau_\\ell$
 damped Picard at mixing 0.30 with acceleration off, ``anderson_depth=0``;
 the knobs live in :data:`fig5_solve.SOLVER_KWARGS` and are stamped into the
 artifact config). Dashed: analytical density balance from
@@ -411,7 +411,7 @@ def baseline_path() -> Path:
     curves and the Eq. 47 + Appendix-E analytical overlay.
     """
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "fischer_fig5_paper.csv"
+    return root / "validation" / "baselines" / "constant" / "fischer_fig5_paper.csv"
 
 
 def plot_path_a() -> Path:
@@ -698,11 +698,11 @@ _CERTIFIED_BACKWARD_ERROR_FIELDS = (
     "phonon_backward_error",
 )
 PHONON_REASSEMBLY_BACKWARD_ERROR_LIMIT = 1.0e-8
-"""Cross-runtime limit for a freshly rebuilt Ph0 balance certificate.
+"""Cross-runtime limit for a freshly rebuilt phonon balance certificate.
 
 The producer still has to satisfy :data:`TARGET_BACKWARD_ERROR_LIMIT`
 (``1e-9``).  Reassembling the exact Windows-produced states on hosted Linux
-with the same NumPy/SciPy versions measured a maximum Ph0 certified backward
+with the same NumPy/SciPy versions measured a maximum phonon certified backward
 error of ``7.41369469811521e-9``.  The diagnostic is sensitive to binary64
 reduction/FMA rounding at the representability allowance boundary, so the
 reader uses this separate rounded envelope without weakening either QP gate.

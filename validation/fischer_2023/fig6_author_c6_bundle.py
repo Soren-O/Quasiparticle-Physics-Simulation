@@ -7,7 +7,7 @@ balance: the author phonon scattering, pair, and escape channels become
 qpsim's public phonon-side kernels (``build_scattering_kernel_phonon_side``
 and ``build_recombination_kernel_phonon_side``), the public frequency map,
 the ``compute_phonon_source_sink`` source/sink contraction, and the
-``ph0_local`` bath-escape form ``(n_th - n_ph) / tau_l`` with the public
+``local`` bath-escape form ``(n_th - n_ph) / tau_l`` with the public
 ``thermal_phonon_occupation``.
 
 Two deliberate endpoint-policy differences from the inherited author
@@ -48,7 +48,7 @@ from qpsim.collisions.phonon import (
     compute_phonon_source_sink,
 )
 from qpsim.constants import KB_UEV_PER_K
-from qpsim.phonon_models.ph0_local import phonon_balance_diagnostics
+from qpsim.phonon_models.local import phonon_balance_diagnostics
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -1119,7 +1119,7 @@ def build_c6_bundle(
             "escape_form": (
                 "escape gain = n_th/tau_l, loss = n_ph/tau_l, net = "
                 "(n_th - n_ph)/tau_l with the public thermal phonon "
-                "occupation, following the ph0_local balance form"
+                "occupation, following the local balance form"
             ),
             "kaplan_pair_correction": (
                 "the public pair path scales each omega bin by qpsim's "

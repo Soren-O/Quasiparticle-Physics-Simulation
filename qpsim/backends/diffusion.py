@@ -1,15 +1,16 @@
-"""T3 backend: isotropic dirty-limit diffusion (scalar occupation).
+"""Homogeneous backend: isotropic dirty-limit diffusion (scalar occupation).
 
-Composes the pieces from earlier Gate 2 commits into a working
-backend with both steady-state and transient time-evolution paths.
+Solves the quasiparticle kinetics on a single spatial cell, with both
+steady-state and transient time-evolution paths.
 
-Scope for Gate 2: spatially-homogeneous runs (``N_spatial = 1``), a
-scalar gap, the e-phonon integral, and optional sub-gap / PB photon
-channels via ``photon_params`` / ``pb_photon_params``. Moving-gap ``step()``
-uses a stage-constrained ETD2 reduction on persistent BCS material
-coordinates. The standalone ``apply_gap_update`` remains an algebraic
-projection, not a time-parameterized flow. ``apply_transport`` remains a
-no-op for ``N_spatial = 1`` (real spatial diffusion lands at Gate 5).
+Scope: ``N_spatial = 1``, a scalar gap, the e-phonon integral, and optional
+sub-gap / pair-breaking photon channels via ``photon_params`` /
+``pb_photon_params``. Moving-gap ``step()`` uses a stage-constrained ETD2
+reduction on persistent BCS material coordinates. The standalone
+``apply_gap_update`` is an algebraic projection, not a time-parameterized
+flow. Spatially-resolved runs belong to
+:class:`qpsim.backends.spatial.SpatialBackend`, which composes transport with
+these same collision kernels.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from qpsim.backends.base import Tier
 from qpsim.collisions.pair_breaking_photon import pair_breaking_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
@@ -34,7 +34,7 @@ from qpsim.collisions.phonon import (
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononModel, PhononState
+from qpsim.phonon_models.state import PhononState
 from qpsim.physics.bcs_quadrature import (
     bcs_dos_cell_weights,
     cell_edges_from_widths,
@@ -482,13 +482,12 @@ def _material_overlap(
 
 
 @dataclass
-class T3DiffusionState:
-    """State carried by the T3 diffusion backend.
+class DiffusionState:
+    """State carried by the homogeneous diffusion backend.
 
-    For v1 (Gate 2) the gap is a scalar and ``f`` is 1D over energy
-    only. Multi-material / spatially-varying gaps add a ``GapState``
-    (NFP §4.1) with per-cell ``SpectralContext`` slots; that's a
-    future-gate extension.
+    The gap is a scalar and ``f`` is 1D over energy. Spatially-varying
+    gaps live on :class:`qpsim.backends.spatial.SpatialState`, which
+    carries a ``SpectralContext`` per cell.
 
     Attributes
     ----------
@@ -499,17 +498,14 @@ class T3DiffusionState:
     spectral
         Gap-dependent cache (DOS, K±, ``D(E)``). Must match ``gap``.
     phonon
-        Phonon state (n_ph, τ_l, model, branches). For v1 single-branch
-        Ph0 the first entry of ``phonon.tau_l`` is used as the scalar
-        bath escape time passed into the Picard path.
+        Phonon state (n_ph, τ_l, branches). For a single branch the
+        first entry of ``phonon.tau_l`` is used as the scalar bath
+        escape time passed into the Picard path.
     material
         Source of ``T_c``, ``τ_0``, and other material parameters used
         by the kernel builders.
     T_bath
         Substrate bath temperature in K.
-    tier
-        Always :attr:`Tier.T3_DIFFUSION`; included for downstream code
-        that branches on the tier enum.
 
     Notes
     -----
@@ -524,7 +520,6 @@ class T3DiffusionState:
     phonon: PhononState
     material: Material
     T_bath: float
-    tier: Tier = Tier.T3_DIFFUSION
     _moving_gap_coordinates: _PersistentGapCoordinates | None = field(
         default=None,
         repr=False,
@@ -532,16 +527,16 @@ class T3DiffusionState:
     )
 
 
-class T3DiffusionBackend:
-    """Homogeneous steady-state and transient solver for the T3 tier.
+class DiffusionBackend:
+    """Homogeneous steady-state and transient kinetics solver.
 
     Backend instances are stateless and reusable. Accepted moving-gap material
-    coordinates belong to :class:`T3DiffusionState`, not to this object.
+    coordinates belong to :class:`DiffusionState`, not to this object.
     """
 
     def steady_state(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         *,
         method: str = "picard",
         self_consistent_gap: bool = False,
@@ -575,7 +570,7 @@ class T3DiffusionBackend:
         gap_max_iter: int = 20,
         gap_under_relaxation: float = 0.5,
         gap_solve_xtol: float | None = None,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         """Solve for the steady-state ``f(E)`` and return an updated state.
 
         Rebuilds the e-ph kernels from the current
@@ -584,15 +579,15 @@ class T3DiffusionBackend:
         ``phonon`` updated; ``phonon`` is rebuilt on the physics ``ω``
         grid.
 
-        Gate 2 scope requires the input ``state.phonon`` to have
-        ``n_branch = 1``, ``n_spatial = 1``, and constant
-        ``τ_l`` (all entries equal). Violations raise ``ValueError``
-        rather than silently mis-solving.
+        The input ``state.phonon`` must have ``n_branch = 1``,
+        ``n_spatial = 1``, and constant ``τ_l`` (all entries equal).
+        Violations raise ``ValueError`` rather than silently
+        mis-solving.
 
         Parameters
         ----------
         state
-            Initial T3 state; ``state.f`` is the Newton/Picard initial
+            Initial state; ``state.f`` is the Newton/Picard initial
             guess.
         method
             ``"picard"`` (default) — the Newton + Picard orchestrator
@@ -623,7 +618,7 @@ class T3DiffusionBackend:
             Caution: this flag is the ONLY spelling of the bath-pinned
             limit. Setting ``state.phonon.tau_l`` to ``0.0`` does NOT
             mean the same thing — the Picard/coupled paths forward that
-            scalar to :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`,
+            scalar to :func:`qpsim.phonon_models.local.phonon_steady_state`,
             where ``0.0`` is the no-substrate-coupling sentinel (the
             opposite, ``τ_l → ∞``, limit of the escape term).
         external_dissipation_only
@@ -647,7 +642,7 @@ class T3DiffusionBackend:
             and
             :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`)
             and forwards it through to
-            :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+            :func:`qpsim.phonon_models.local.phonon_steady_state`
             (Picard path) and :func:`coupled_newton_solve`. The
             QP-equation residual continues to use the QP-side ``K_r0``
             with its ``(E_sum/k_BT_c)²/(τ₀ k_BT_c)`` prefactor — the
@@ -999,7 +994,7 @@ class T3DiffusionBackend:
 
     def _steady_state_fixed_gap(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         *,
         method: str,
         use_thermal_phonons: bool,
@@ -1028,9 +1023,9 @@ class T3DiffusionBackend:
         coupled_newton_max_iter: int,
         coupled_newton_fd_step: float,
         coupled_newton_analytic_cross: bool,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         """Inner steady-state solve at fixed ``Δ``."""
-        self._validate_gate2_scope(state.phonon)
+        self._validate_phonon_scope(state.phonon)
 
         K_s0: np.ndarray | None
         K_r0: np.ndarray | None
@@ -1073,7 +1068,7 @@ class T3DiffusionBackend:
                 tau_0_pb_ns = state.material.tau_0_pb_ns
                 if tau_0_pb_ns is None or not np.isfinite(tau_0_pb_ns) or tau_0_pb_ns <= 0.0:
                     raise ValueError(
-                        "Dynamic Ph0 with use_phonon_side_kernel=True requires "
+                        "Dynamic phonons with use_phonon_side_kernel=True require "
                         "state.material.tau_0_pb_ns to be finite and positive; "
                         f"got {tau_0_pb_ns!r}. "
                         "Set τ_0^PB on the Material (e.g. via the YAML "
@@ -1227,7 +1222,7 @@ class T3DiffusionBackend:
 
     def apply_collisions(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         dt: float,
         *,
         photon_params: dict[str, float] | None = None,
@@ -1240,17 +1235,16 @@ class T3DiffusionBackend:
         phonon_escape_time: float | None = None,
         use_phonon_side_kernel: bool = True,
         _diagnostics: dict[str, object] | None = None,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         """One ETD2 collision substep on ``f`` with ``n_ph`` frozen.
 
         Builds the e-ph kernels + the phonon occupation matrices from
         ``state.phonon.n_ph``, wraps optional photon channels into the
         ``rhs`` closure, and runs
         :func:`qpsim.solvers.etd.etd2_step`. Returns a new state with
-        updated ``f``; the phonon field is unchanged (transient phonon
-        dynamics are out of Gate 2 scope — for coupled ``(f, n_ph)``
-        steady state use :func:`steady_state` or
-        :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`).
+        updated ``f``; the phonon field is unchanged. For a coupled
+        ``(f, n_ph)`` steady state use :func:`steady_state` or
+        :func:`qpsim.solvers.coupled_newton.coupled_newton_solve`.
         """
         if state.spectral.dynes_gamma > 0.0:
             raise ValueError(
@@ -1260,7 +1254,7 @@ class T3DiffusionBackend:
                 "dynes_gamma=0 until consistent broadened kernels are implemented."
             )
 
-        self._validate_gate2_scope(state.phonon)
+        self._validate_phonon_scope(state.phonon)
         self._validate_phonon_on_physics_grid(state)
 
         # Fail-loud input guards, matching apply_gap_update and the spatial
@@ -1492,7 +1486,7 @@ class T3DiffusionBackend:
 
     def apply_collisions_with_diagnostics(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         dt: float,
         *,
         photon_params: dict[str, float] | None = None,
@@ -1505,7 +1499,7 @@ class T3DiffusionBackend:
         phonon_escape_time: float | None = None,
         use_phonon_side_kernel: bool = True,
         evaluate_residual: bool = False,
-    ) -> tuple[T3DiffusionState, np.ndarray | None, int]:
+    ) -> tuple[DiffusionState, np.ndarray | None, int]:
         """Advance once and report raw residual plus internal ETD substeps.
 
         ``evaluate_residual=False`` records rate-limited ETD2 work without an
@@ -1541,27 +1535,28 @@ class T3DiffusionBackend:
 
     def apply_transport(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         dt: float,
-    ) -> T3DiffusionState:
-        """QP spatial transport substep — a no-op for v1 homogeneous.
+    ) -> DiffusionState:
+        """QP spatial transport substep — a no-op on a single cell.
 
-        Gate 2 treats the film as spatially homogeneous (``N_spatial = 1``,
-        ``state.f`` is 1D over energy only). The real T3 diffusion operator
-        — Crank-Nicolson on the Laplacian with an energy-dependent ``D(E)``
-        — lands at Gate 5 when the spatial grid is wired up.
+        This backend holds the film at one spatial cell, so ``state.f`` is
+        1D over energy and there is nowhere for quasiparticles to flow.
+        Spatially-resolved transport — Crank-Nicolson on the Laplacian with
+        an energy-dependent ``D(E)`` — is
+        :meth:`qpsim.backends.spatial.SpatialBackend.run`.
         """
         if state.f.ndim != 1:
-            raise NotImplementedError(
-                "T3 spatial transport is not implemented yet; "
-                "state.f must be 1D (homogeneous) in Gate 2. "
-                "Full Usadel / LEGACY diffusion lands at Gate 5."
+            raise ValueError(
+                "state.f must be 1D over energy for the homogeneous backend; "
+                f"got shape {state.f.shape}. Use SpatialBackend for a "
+                "geometry with more than one cell."
             )
         return state
 
     @staticmethod
     def _persistent_coordinates_for_state(
-        state: T3DiffusionState,
+        state: DiffusionState,
     ) -> _PersistentGapCoordinates:
         """Reuse synchronized material data or initialize it from public ``f``."""
         cached = state._moving_gap_coordinates
@@ -1629,7 +1624,7 @@ class T3DiffusionBackend:
 
     def _materialize_persistent_occupation(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         coordinates: _PersistentGapCoordinates,
         gap: float,
         *,
@@ -1742,7 +1737,7 @@ class T3DiffusionBackend:
 
     def _constrain_persistent_occupation(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         coordinates: _PersistentGapCoordinates,
         occupation: np.ndarray,
         calibration: GapCalibration,
@@ -1792,7 +1787,7 @@ class T3DiffusionBackend:
 
     def _moving_gap_energy_collision_rates(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         spectral: SpectralContext,
         f: np.ndarray,
         *,
@@ -1925,9 +1920,9 @@ class T3DiffusionBackend:
 
     def _remap_gap_state_once(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         new_gap: float,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         """Conservatively remap one state from its current gap to ``new_gap``."""
         E = state.spectral.E
         dE = state.spectral.dE
@@ -2033,9 +2028,9 @@ class T3DiffusionBackend:
 
     def apply_gap_update(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         dt: float,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         r"""Advance ``Delta`` and remap BCS cell mass at frozen ``xi``.
 
         Solve the reference-subtracted BCS gap equation and, when the gap
@@ -2141,13 +2136,13 @@ class T3DiffusionBackend:
 
     def step(
         self,
-        state: T3DiffusionState,
+        state: DiffusionState,
         dt: float,
         *,
         photon_params: dict[str, float] | None = None,
         pb_photon_params: dict[str, float] | None = None,
         external_flux: ExternalFlux | None = None,
-    ) -> T3DiffusionState:
+    ) -> DiffusionState:
         r"""Advance collisions and a self-consistent gap to second order.
 
         The authoritative unknown is a cell-average occupation ``g(xi)`` on a
@@ -2192,7 +2187,7 @@ class T3DiffusionBackend:
                 "Second-order moving-gap dynamics require an ideal BCS spectrum (dynes_gamma == 0)."
             )
 
-        self._validate_gate2_scope(state.phonon)
+        self._validate_phonon_scope(state.phonon)
         self._validate_phonon_on_physics_grid(state)
         if external_flux is not None:
             external_flux._validate_for_NE(int(state.spectral.E.size))
@@ -2276,42 +2271,33 @@ class T3DiffusionBackend:
         )
 
     @staticmethod
-    def _validate_gate2_scope(phonon: PhononState) -> None:
-        """Reject PhononState shapes the Gate 2 T3 backend can't handle.
+    def _validate_phonon_scope(phonon: PhononState) -> None:
+        """Reject PhononState shapes this backend does not solve.
 
-        Gate 2 supports the single-branch, spatially-homogeneous,
-        constant-``τ_l`` case. Multi-branch (v3), spatially-resolved
-        (Ph1/Ph2), and ω-dependent ``τ_l`` land in later gates.
+        The homogeneous backend takes a single phonon branch on one
+        spatial cell with a constant ``τ_l``.
         """
-        if phonon.model is not PhononModel.PH0_LOCAL:
-            raise ValueError(
-                "T3DiffusionBackend implements only the PH0_LOCAL phonon "
-                f"model; got {phonon.model.value!r}. PH1/PH2 transport must "
-                "use a backend that evolves those models explicitly."
-            )
         if phonon.n_branch != 1:
             raise ValueError(
-                "T3DiffusionBackend (Gate 2) supports single-branch phonons only; "
-                f"got n_branch = {phonon.n_branch}. Multi-branch support arrives "
-                "with v3 per D5."
+                "DiffusionBackend supports single-branch phonons only; "
+                f"got n_branch = {phonon.n_branch}."
             )
         if phonon.n_spatial != 1:
             raise ValueError(
-                "T3DiffusionBackend (Gate 2) supports spatially-homogeneous "
-                f"phonons only; got n_spatial = {phonon.n_spatial}. Ph1 lateral "
-                "transport lands at Gate 5."
+                "DiffusionBackend supports spatially-homogeneous phonons "
+                f"only; got n_spatial = {phonon.n_spatial}. Use "
+                "SpatialBackend for a geometry with more than one cell."
             )
         tau0 = float(phonon.tau_l[0, 0])
         if not np.allclose(phonon.tau_l, tau0, rtol=_TAU_L_UNIFORMITY_RTOL):
             raise ValueError(
-                "T3DiffusionBackend (Gate 2) supports constant-τ_l only; "
-                "every entry of state.phonon.tau_l must be equal. "
-                "Frequency-dependent τ_l(ω) needs solve_steady_state to "
-                "accept an array, which is a post-Gate-4 upgrade."
+                "DiffusionBackend supports constant-τ_l only; every entry "
+                "of state.phonon.tau_l must be equal. Frequency-dependent "
+                "τ_l(ω) would need solve_steady_state to accept an array."
             )
 
     @staticmethod
-    def _validate_phonon_on_physics_grid(state: T3DiffusionState) -> None:
+    def _validate_phonon_on_physics_grid(state: DiffusionState) -> None:
         """Ensure ``state.phonon.omega_bins`` matches the QP-derived ω grid.
 
         ``apply_collisions`` consumes ``state.phonon.n_ph`` directly, so

@@ -4,15 +4,15 @@ Collisional relaxation at frozen ``Δ``. Repeated ETD2 collision substeps
 produce a time series of ``f(E)`` snapshots the caller can post-process.
 
 ``phonon_escape_time`` decides whether the phonon population is frozen
-(``None``, the default and the historical behaviour) or solved in time
-alongside ``f``. When it is solved, each step is Strang splitting: half a
+(``None``, the default) or solved in time alongside ``f``. When it is
+solved, each step is Strang splitting: half a
 phonon step, the full ``f`` step, then the second half phonon step, each
 phonon half taken under the exact solution of its affine ODE. The
 symmetric composition is second order in ``dt``, matching the ETD2
 treatment of ``f``; advancing the phonons once per step would be first
 order. Measured on a driven escape sector, the observed order is 2.003
 against 1.013 for the one-sided arrangement. The coefficients are
-assembled exactly as :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+assembled exactly as :func:`qpsim.phonon_models.local.phonon_steady_state`
 assembles them, so the transient relaxes onto the same fixed point the
 steady-state solver finds, to within that solver's own tolerance.
 
@@ -23,11 +23,14 @@ What's *not* here
   together. For a converged coupled steady state use
   :func:`qpsim.services.steady_state.solve_steady_state` or the
   backend's ``steady_state(method="coupled_newton")``.
-* No transport — ``apply_transport`` is a no-op in the v1
-  homogeneous backend (real Crank-Nicolson diffusion lands at Gate 5).
+* No transport — this driver runs the homogeneous
+  :class:`~qpsim.backends.diffusion.DiffusionBackend`, which holds the film
+  at one spatial cell, so ``apply_transport`` has nowhere to move
+  quasiparticles. Crank-Nicolson diffusion across a geometry is
+  :meth:`qpsim.backends.spatial.SpatialBackend.run`.
 * No gap update — ``Δ`` is held fixed. A self-consistent-gap transient
   would need the spectral-flow advection wired into the time loop
-  (``apply_gap_update``); v1 transient leaves that off for simplicity.
+  (``apply_gap_update``); this transient leaves that off for simplicity.
 
 Use cases
 ---------
@@ -47,7 +50,7 @@ from typing import Any
 
 import numpy as np
 
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.devices.external_flux import ExternalFlux
 
 # Hard backstop on emitted snapshots. The webui schema rejects dense cadences
@@ -80,11 +83,11 @@ class TransientResult:
     converged: bool             # True iff stop_tol was met mid-run
     # End-of-run state. Carries the evolved phonon field, which the snapshot
     # list alone cannot express while dense output interpolates f only.
-    final_state: T3DiffusionState | None = None
+    final_state: DiffusionState | None = None
 
 
 def run_time_dependent(
-    state: T3DiffusionState,
+    state: DiffusionState,
     *,
     dt: float,
     total_time: float,
@@ -92,7 +95,7 @@ def run_time_dependent(
     pb_photon_params: dict[str, float] | None = None,
     external_flux: ExternalFlux | Callable[[float], ExternalFlux] | None = None,
     snapshot_interval: float | None = None,
-    observables: dict[str, Callable[[T3DiffusionState], float]] | None = None,
+    observables: dict[str, Callable[[DiffusionState], float]] | None = None,
     stop_tol: float | None = None,
     enable_scattering: bool = True,
     enable_recombination: bool = True,
@@ -100,7 +103,7 @@ def run_time_dependent(
     enable_phonon_recombination_source: bool = True,
     phonon_escape_time: float | None = None,
     use_phonon_side_kernel: bool = True,
-    backend: T3DiffusionBackend | None = None,
+    backend: DiffusionBackend | None = None,
     progress_hook: Callable[[float, float], bool] | None = None,
 ) -> TransientResult:
     r"""Evolve ``f(E)`` under repeated collision substeps.
@@ -108,7 +111,7 @@ def run_time_dependent(
     Parameters
     ----------
     state
-        Initial T3 state — ``state.phonon.n_ph`` must already be on
+        Initial backend state — ``state.phonon.n_ph`` must already be on
         the physics ω-grid (``backend.steady_state`` enforces this by
         construction; if you hand-built a state, call
         :func:`qpsim.collisions.phonon.build_phonon_frequency_map`
@@ -164,8 +167,8 @@ def run_time_dependent(
         legitimately tiny occupation.
         ``None`` disables early stopping.
     backend
-        T3 backend instance. Defaults to a fresh
-        :class:`T3DiffusionBackend`.
+        Backend instance. Defaults to a fresh
+        :class:`DiffusionBackend`.
     progress_hook
         Optional physics-neutral driver hook, called after every
         driver-level step with ``(t, total_time)``. Return ``True`` to continue;
@@ -208,7 +211,7 @@ def run_time_dependent(
         )
 
     if backend is None:
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
     if snapshot_interval is None:
         snapshot_interval = total_time / 50.0
     if snapshot_interval < dt:
@@ -228,7 +231,7 @@ def run_time_dependent(
             stacklevel=2,
         )
 
-    def _snapshot(t: float, s: T3DiffusionState) -> TransientSnapshot:
+    def _snapshot(t: float, s: DiffusionState) -> TransientSnapshot:
         obs = (
             {name: float(fn(s)) for name, fn in observables.items()}
             if observables
@@ -307,8 +310,8 @@ def run_time_dependent(
             type(backend), "apply_collisions_with_diagnostics", None,
         )
         has_trustworthy_diagnostics = callable(diagnostics_method) and (
-            type(backend) is T3DiffusionBackend
-            or method_owner is not T3DiffusionBackend.apply_collisions_with_diagnostics
+            type(backend) is DiffusionBackend
+            or method_owner is not DiffusionBackend.apply_collisions_with_diagnostics
         )
         if has_trustworthy_diagnostics:
             assert callable(diagnostics_method)

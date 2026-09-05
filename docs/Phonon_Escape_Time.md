@@ -1,7 +1,7 @@
 ---
 title: Phonon Escape Time (Acoustic-Mismatch Derivation)
 description: Derivation of the thin-film phonon escape time τ_l ≈ 4d/(ηs), reference chain, numerical examples, and the double-counting argument.
-sourced_from: Phonon Analysis.md (Gate 0 working draft, 2026-04-12), §6
+sourced_from: Phonon Analysis.md (working draft, 2026-04-12), §6
 ---
 
 # Phonon Escape Time
@@ -9,10 +9,10 @@ sourced_from: Phonon Analysis.md (Gate 0 working draft, 2026-04-12), §6
 ## Scope
 
 This document fixes the acoustic-escape model for $\tau_l$ used in the
-Ph0 phonon tier of the greenfield framework (see `Phonon_Model_Decisions.md`
-for the committed decisions D1–D5). The escape time is a **thin-film
-acoustics** problem — it is set by the film geometry and the acoustic
-impedance contrast between film and substrate. It is **not** a
+phonon sector (see `Phonon_Model_Decisions.md` for the committed
+decisions D1–D5). The escape time is a **thin-film acoustics**
+problem — it is set by the film geometry and the acoustic impedance
+contrast between film and substrate. It is **not** a
 superconducting-kinetics quantity; the electron–phonon coupling enters
 nowhere in the derivation.
 
@@ -22,7 +22,7 @@ nowhere in the derivation.
 
 Consider a superconducting film of thickness $d$ deposited on a
 semi-infinite substrate. A phonon in the film has sound velocity $s$
-(Debye average for a single-branch Ph0 model) and propagates
+(the Debye average for the single-branch model) and propagates
 isotropically. The film has two surfaces:
 
 - **Substrate-side surface.** On impact, a phonon transmits into the
@@ -192,10 +192,10 @@ values:
 Sanity check of the *formula*: these canonical $(d, \eta, s)$ inputs
 reproduce Fischer's published $\tau_l \approx 170$ ps to within ~1.5×,
 confirming the acoustic-escape derivation lands in the right numerical
-neighborhood. This is independent of the Gate 4 parity chain, which
-uses the Ph0-constant-$\tau_l$ mode (with Fischer's numerical
-$\tau_l$ supplied directly as a scalar) to reproduce the reference
-implementation's output bit-for-bit — see
+neighborhood. This is independent of the parity chain, which uses the
+constant-$\tau_l$ mode (with Fischer's numerical $\tau_l$ supplied
+directly as a scalar) to reproduce the reference implementation's
+output bit-for-bit — see
 `validation/baselines/README.md`.
 
 ---
@@ -217,8 +217,8 @@ $\zeta = 1 + \tau_l/\tau_{\mathrm{PB}}$ encodes?
    elimination has not been performed — $n_{ph}$ is a live dynamical
    variable. Committing to evolve $n_{ph}$ explicitly **and** to
    renormalize $\tau_0 \to \tau_0\,\zeta$ on the QP side would indeed
-   double-count. The Gate 0 decision forbids this mixed configuration;
-   the `PhononState` constructor (Gate 2 deliverable) shall reject it.
+   double-count. The committed decisions forbid this mixed
+   configuration.
 
 2. **$\tau_l$ and $\tau_{\mathrm{PB}}$ act on different physics.**
    These two timescales appear in different terms of different
@@ -250,15 +250,17 @@ $n_{ph}$ adiabatically from the full coupled system should reproduce the
 $\zeta$-renormalized QP rate equation; a constructive algebraic proof
 of this equivalence is an open derivation gap (Phonon Analysis §13).
 
-For v1 code, the practical rule is simple:
+The practical rule is simple:
 
 | Backend | Use $\zeta$? | Use dynamic $n_{ph}$? |
 |---|---|---|
-| PDE backends (T2, T3) with Ph0 | **No** (forbidden) | **Yes** |
+| PDE backends (diffusion, spatial) | **No** (forbidden) | **Yes** |
 | Rate-equation service (M25-style) | **Yes** | **No** |
 
-Specified behavior: mixed configurations shall be rejected at
-`PhononState` construction time.
+$\zeta$ appears nowhere in the package, and the $\tau_0$ it would
+renormalize lives on the material (`tau_0_pb_ns`), so the forbidden
+combination is a device-level configuration: a guard against it belongs in
+`qpsim.devices.device`, where both sectors are visible.
 
 ---
 
@@ -290,7 +292,7 @@ Smooth limits:
   at any BCS energy scale.
 
 This cleanness of $\tau_l(\omega)$ is a numerical convenience: the
-bath-relaxation operator in the Ph0 equation is well-conditioned at
+bath-relaxation operator in the phonon equation is well-conditioned at
 all frequencies, and no special grid refinement is needed at
 $\omega = 2\Delta$ on the phonon-transport side. (Refinement **is**
 needed there for the collision-integral side, driven by

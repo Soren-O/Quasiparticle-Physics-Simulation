@@ -1,7 +1,6 @@
 """Electron–phonon collision integral (J_1^eph).
 
-Ported from the old ``qpsim/numerics/collision_phonon.py`` at Gate 2
-with the numba acceleration path dropped. Provides:
+Provides:
 
 - ``phonon_collision_rates``: the main ``(gain, loss_rate)`` computation
   for a quasiparticle distribution ``f(E)`` at one spatial pixel.
@@ -19,8 +18,7 @@ with the numba acceleration path dropped. Provides:
   used when ``n_ph(ω, t)`` is a live dynamical variable.
 - ``apply_phonon_collision``: ETD2 step that combines the above for the
   thermal-bath case. Both steppers (ETD1 and ETD2) live in
-  ``qpsim.solvers.etd``; this wrapper uses the second-order form per
-  the Build Handoff's committed port-time upgrade.
+  ``qpsim.solvers.etd``; this wrapper selects the second-order form.
 """
 
 from __future__ import annotations
@@ -275,7 +273,7 @@ def build_phonon_frequency_map(
     (:func:`compute_phonon_source_sink` bincounts scattering on
     ``omega_idx_diff`` and pairs on ``omega_idx_sum``;
     :func:`phonon_occupation_matrices_from_state` reads them back the same
-    way; :func:`qpsim.phonon_models.ph0_local.phonon_steady_state` solves each
+    way; :func:`qpsim.phonon_models.local.phonon_steady_state` solves each
     bin independently), so on an incommensurate grid the two integrals live on
     disjoint, dynamically decoupled sublattices: scattering-emitted phonons
     above 2Δ cannot break pairs, and recombination phonons cannot be
@@ -298,7 +296,7 @@ def build_phonon_frequency_map(
     absorption composition has a negative off-diagonal: occupation in one bin
     can drive an adjacent empty bin negative. That construction is therefore a
     useful quadrature comparison, not a valid replacement for this point-mode
-    kinetic state. A future finite-volume representation must establish
+    kinetic state. Any finite-volume representation must establish
     positivity as well as conservation and detailed balance.
     """
     E = np.asarray(E_bins, dtype=float)
@@ -417,7 +415,7 @@ def validate_phonon_lattice_coupling(
     emits and absorbs there) and a SUM lattice ``2*E_face + m*dE`` (pair
     breaking and recombination live there). Equation 12 shares one ``n(omega)``
     between the two, but nothing downstream re-couples the bins: the source
-    terms bincount on the two index maps separately and the Ph0 balance solves
+    terms bincount on the two index maps separately and the balance solves
     each bin independently. When the lattices do not share bins, a phonon
     emitted by scattering above the pair threshold can never break a pair, and
     a recombination phonon can never be reabsorbed by scattering -- the two
@@ -535,8 +533,8 @@ def phonon_occupation_matrices_from_state(
     * ``N_emit``: recombination emission, ``1 + n_ph(E_i + E_j)``.
     * ``N_abs``: pair-breaking absorption, ``n_ph(E_i + E_j)``.
 
-    ``split_diff`` and ``split_sum`` are reserved finite-volume geometry
-    hooks. Any non-``None`` value currently raises ``ValueError``: composing a
+    ``split_diff`` and ``split_sum`` name the finite-volume geometry hooks.
+    Any non-``None`` value raises ``ValueError``: composing a
     two-bin deposit with its adjoint read does not preserve non-negative Bose
     occupations and is not a valid kinetic closure for this point-mode state.
     """
@@ -1207,7 +1205,8 @@ def phonon_collision_rates(
     # grids often retain cells below a moving gap, where rho is exactly zero;
     # those cells are numerical storage, not collision targets.  Partner
     # contractions already vanish through their rho_j weight, but the target
-    # row has no such factor and used to acquire unphysical sub-gap gain.
+    # row has no such factor and would otherwise acquire unphysical sub-gap
+    # gain.
     # Mask by spectral support rather than E > gap so a broadened Dynes DOS
     # keeps its non-zero sub-gap states active.
     unsupported = ~ctx.active_mask

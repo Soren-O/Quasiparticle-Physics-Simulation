@@ -25,9 +25,6 @@ weights and the objective are invariant under multiplying the whole
 spectrum by a positive constant, so this measures shape only: a
 pair-breaking band occupied at ``10 ×`` the bath Bose-Einstein level is
 reported as unheated (``T_bath``), not as a hotter phonon system.
-
-Port of the legacy ``extract_T_star_phonon`` from the old
-``reproduce_fischer_fig5.py`` script.
 """
 
 from __future__ import annotations

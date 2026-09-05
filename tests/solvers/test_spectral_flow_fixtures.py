@@ -12,7 +12,7 @@ Pins the two exact properties of the conservative spectral-flow operator
   (so ``u = N₁``) must reproduce ``∂_t N₁ + ∂_E[(Δ/E)Δ̇ N₁] = 0`` to
   scheme order: ``N₁(Δ_old)`` advects onto ``N₁(Δ_new)``.
 
-The tests replicate ``T3DiffusionBackend.apply_gap_update``'s composition
+The tests replicate ``DiffusionBackend.apply_gap_update``'s composition
 (advect ``u = N₁ f`` → rebuild DOS at the new gap → recover
 ``f = u/N₁``, clip) with a *prescribed* linear gap ramp, so they probe
 the operator without coupling to ``solve_gap``.

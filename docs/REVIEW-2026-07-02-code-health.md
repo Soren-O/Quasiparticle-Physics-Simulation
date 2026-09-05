@@ -22,18 +22,15 @@ reproduced the confirmed bugs before fixing.
 
 ## Known-and-accepted (flagged, deliberately not changed)
 
-- **Staged/planned API surface (test-covered, zero production callers):**
-  the 2D machinery in `qpsim/grid/spatial_grid.py` (~330 lines, Gate 5),
+- **Unused API surface (test-covered, zero production callers):**
+  the 2D machinery in `qpsim/grid/spatial_grid.py` (~330 lines),
   `qpsim/solvers/picard.py`'s generic `picard_iterate`,
   `transport/diffusion/base.py::from_name` + legacy aliases,
-  `JunctionQubitCoupling` (Phase-4 API, unwired),
-  `external_flux.target_cells` (Gate-5 reserved),
-  `Material.tau_s/tau_r` + `Substrate.density/sound_velocity` (planned
-  AMM inputs), `physics/kernels.py` with-phonon kernel variants
+  `JunctionQubitCoupling` (unwired), `external_flux.target_cells`,
+  `Material.tau_s/tau_r` + `Substrate.density/sound_velocity` (AMM
+  inputs), `physics/kernels.py` with-phonon kernel variants
   (production path uses the collisions/phonon equivalents),
-  `effective_phonon_temperature` (shipped observable, unused in-repo),
-  `qpsim/geometries/` and `validation/tier_reductions/` placeholder
-  packages. Delete-or-keep is a project decision tied to Gates 5–7.
+  `effective_phonon_temperature` (shipped observable, unused in-repo).
 - **`validation/transient/photon_kick_response.py`** is demo-only: its
   committed baselines are verified by nothing.
 - **scripts/**: four of eight `run_prelim_*` scripts are one-off

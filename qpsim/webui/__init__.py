@@ -1,7 +1,7 @@
 """Local web frontend for qpsim (optional extra ``qpsim[ui]``).
 
 A small FastAPI application that drives the shipped engine surfaces —
-0-D T3 steady state and transients, the 1D spatial strip, and the M25
+0-D steady state and transients, the 1D spatial strip, and the M25
 junction moment layer — from a browser, with named-setup persistence,
 background runs with progress/cancel, and server-rendered matplotlib
 plots.

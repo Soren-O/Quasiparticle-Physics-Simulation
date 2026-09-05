@@ -8,7 +8,7 @@ Uses parameter values transcribed from Tables II/III:
 * nbar set by the Table III Tstar,0/Delta values
 * plotted quality factor capped by Eq. (65) with Table III Q_i,ext
 
-The quasiparticle kinetic solve is done by the qpsim T3 backend with the
+The quasiparticle kinetic solve is done by the qpsim diffusion backend with the
 finite-tau_l phonon field. The intrinsic quasiparticle Q_i is evaluated
 with the leading Fischer Eq. (57) form used by the standalone
 transcribed-formula implementation:
@@ -623,7 +623,7 @@ def run_cached(
 
 def baseline_path() -> Path:
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "fischer_fig7_paper.csv"
+    return root / "validation" / "baselines" / "constant" / "fischer_fig7_paper.csv"
 
 
 def plot_path() -> Path:

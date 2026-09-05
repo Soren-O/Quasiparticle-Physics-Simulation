@@ -69,7 +69,7 @@ vanish under grid refinement.
 
 ### L2 — Vacuous ratio-10 regression assertion over an all-zero baseline (Low, already known)
 
-`validation/baselines/ph0_constant/fischer_fig3_paper.csv` (asserted in
+`validation/baselines/constant/fischer_fig3_paper.csv` (asserted in
 `validation/fischer_2023/test_fig3_paper.py:93-100`). The `f_ratio_10` column is
 exactly 0.0 across all 1620 bins; the per-ratio comparison uses `atol=1e-6`
 against a physical signal of ~1e-8, so any live output passes — the hardest
@@ -116,7 +116,7 @@ vmax≈1e-300` in the `LogNorm`, which matplotlib rejects — and `runs_plot`
 (`server.py:218`) only catches `KeyError`, so it escapes as HTTP 500.
 
 **Verdict: the crash mechanism exists but its only claimed reachable path does
-not reach it.** The plotted array is the T3-backend-*evolved* `final.f`, not the
+not reach it.** The plotted array is the backend-*evolved* `final.f`, not the
 seed. The verifier ran `run_spatial_1d` with injection disabled across
 `T_bath ∈ [1e-2 … 1e-6] K` and Al/Nb/extreme-gap materials: the seed does
 underflow to ~9.86e-305, but the backend regenerates a stable non-thermal QP
@@ -143,7 +143,7 @@ provenance for the "clean" verdict:
   detailed balance `γ_ee[0,1]=γ_ee[1,0]·exp(−ω10/T)`; nbar convergence residual on
   the raw pre-relaxation map (under-relaxation can't fake it); transient reaches
   `total_time` exactly; snapshots never extrapolate.
-- **T3 diffusion backend + moving-gap remap** (`backends/t3_diffusion.py`):
+- **Diffusion backend + moving-gap remap** (`backends/diffusion.py`):
   frozen-ξ characteristic is the correct collisionless gap-motion law; conserved
   invariant is QP *number* (energy exchanged with condensate) with relative drift
   ~1e-16 for rising/falling gap; DOS-weight consistency assert cannot false-raise;

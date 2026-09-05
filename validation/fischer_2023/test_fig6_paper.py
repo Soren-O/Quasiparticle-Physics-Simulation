@@ -1,6 +1,6 @@
 """Regression test: Fischer 2023 Fig. 6 qpsim run matches its pinned qpsim CSV.
 
-Iterative-mode tolerance per NFP §6.4.1 (1e-6). The exact regeneration is
+Iterative-mode tolerance: 1e-6. The exact regeneration is
 both ``slow`` and ``manual_slow``: its sweep performs
 $|T_B|\\times|\\bar n|$ joint Picard + self-consistent BCS gap solves on the
 1640-bin paper-parameter grid (including sub-gap guard cells). This is not a
@@ -32,7 +32,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.backends.diffusion import DiffusionBackend
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -1262,7 +1262,7 @@ def test_fixed_gap_solver_falls_back_to_picard(monkeypatch) -> None:
     monkeypatch.setattr(fig6_solve, "_solve_picard_fixed_gap", pass_picard)
 
     result = fig6_solve._solve_fixed_gap_kinetics(
-        T3DiffusionBackend(),
+        DiffusionBackend(),
         state,
         {"omega_0": OMEGA_0, "n_bar": 1e4, "c_phot": fig6_solve.C_PHOT},
     )
@@ -1304,7 +1304,7 @@ def test_fixed_gap_solver_does_not_mask_non_roundoff_failure(
 
     with pytest.raises(type(error), match=str(error).split(" at iteration")[0]):
         fig6_solve._solve_fixed_gap_kinetics(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             object(),  # type: ignore[arg-type]
             None,
         )
@@ -1323,7 +1323,7 @@ def test_direct_point_solve_propagates_fixed_gap_failure(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="singular Jacobian") as caught:
         fig6_solve._solve_and_measure(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             material,
             spectral,
             0.1,
@@ -1375,10 +1375,10 @@ def test_reduced_direct_gap_picard_fallback_is_repeatable_and_certified(
     }
 
     first = fig6_solve._solve_and_measure(
-        T3DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
+        DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
     )
     repeated = fig6_solve._solve_and_measure(
-        T3DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
+        DiffusionBackend(), material, spectral, 0.1, 1e4, None, **kwargs,
     )
 
     assert first[0].gap == DELTA_0
@@ -1605,7 +1605,7 @@ def test_sweep_carries_full_state_within_row_and_resets_between_rows(
         fake_solve_and_measure,
     )
     result = fig6_solve._solve_sweep(
-        T3DiffusionBackend(),
+        DiffusionBackend(),
         material,
         spectral,
         tau_0_pb=0.255,
@@ -1657,7 +1657,7 @@ def test_direct_gap_sweep_applies_strict_certificate_limit(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="limit=1e-09"):
         fig6_solve._solve_sweep(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             material,
             spectral,
             tau_0_pb=0.255,
@@ -1711,7 +1711,7 @@ def test_independent_certificate_runtime_error_propagates(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="independent certificate assembly failed"):
         fig6_solve._solve_sweep(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             material,
             spectral,
             tau_0_pb=0.255,
@@ -1753,7 +1753,7 @@ def test_nonfinite_derived_observable_propagates_through_sweep(
 
     with pytest.raises(RuntimeError, match="non-finite derived measurement"):
         fig6_solve._solve_sweep(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             material,
             spectral,
             tau_0_pb=0.255,
@@ -1779,7 +1779,7 @@ def test_self_consistent_inner_solver_failure_propagates_through_sweep(
 
     with pytest.raises(RuntimeError, match="inner Picard exhaustion") as caught:
         fig6_solve._solve_sweep(
-            T3DiffusionBackend(),
+            DiffusionBackend(),
             material,
             spectral,
             tau_0_pb=0.255,
@@ -1803,7 +1803,7 @@ def test_explicit_self_consistent_collapse_is_recorded_as_nan(monkeypatch) -> No
 
     monkeypatch.setattr(fig6_solve, "_solve_picard_sc_gap", collapse)
     result = fig6_solve._solve_sweep(
-        T3DiffusionBackend(),
+        DiffusionBackend(),
         material,
         spectral,
         tau_0_pb=0.255,
@@ -1839,7 +1839,7 @@ def test_reduced_full_state_continuation_is_certified_and_repeatable(
         "delta_eq": delta_eq,
         "delta_T": delta_T,
     }
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     first = fig6_solve._solve_and_measure(
         backend,
         material,
@@ -1994,7 +1994,7 @@ def test_matches_pinned_baseline() -> None:
         err_msg="T_*/Δ axis drift (Eq. 35)",
     )
 
-    # Gap observables — 1e-6 abs (NFP §6.4.1 iterative-mode tol).
+    # Gap observables — 1e-6 abs (iterative-mode tolerance).
     np.testing.assert_allclose(
         result.delta_eq, baseline.delta_eq, rtol=0.0, atol=1e-6,
         err_msg="Δ_eq(T_B) drift",

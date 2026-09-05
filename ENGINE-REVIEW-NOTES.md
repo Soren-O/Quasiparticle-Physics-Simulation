@@ -83,7 +83,7 @@ arguments, so programmatic use is as no-clobber-safe as the CLI.
 - **[P2] webui path traversal**: `_safe_segment` guards every slug/run_id path join
   in `qpsim/webui/store.py`; `qpsim/webui/server.py` maps the `ValueError` → 404.
   Closes the Windows `..%5C` (encoded-backslash) arbitrary read. + regression tests.
-- **[P2] `t3_spatial_1d`**: reject degenerate/descending meshes and non-positive
+- **[P2] `spatial` backend**: reject degenerate/descending meshes and non-positive
   `interface_conductance` in `_validate_state`. + tests.
 - **[P2]** `sympy` added to the `[dev]` extra; the `pytest -m slow` CI step.
 - **[P3] `picard`**: reject `mixing ∉ (0, 1]` (`mixing=0` falsely "converged").
@@ -103,7 +103,7 @@ arguments, so programmatic use is as no-clobber-safe as the CLI.
 pip install -e ".[dev,ui]"        # Python 3.13 or 3.14
 ruff check .                       # All checks passed
 mypy qpsim                         # Success
-pytest tests/solvers/test_picard.py tests/backends/test_t3_spatial_1d.py \
+pytest tests/solvers/test_picard.py tests/backends/test_spatial.py \
        tests/webui/test_server.py qpsim/physics/gap_equation.py -q   # 50 passed
 pytest -q                                                         # 802 passed
 pytest -m "slow and not manual_slow"                               # 14 passed; fig6 excluded

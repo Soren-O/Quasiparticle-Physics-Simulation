@@ -1,4 +1,4 @@
-"""Layer 1 — analytic tests (New Framework Plan §6.1).
+"""Analytic fixed-point tests.
 
 - test_detailed_balance.py — thermal (f, n_ph) is a fixed point of the
   collision integral

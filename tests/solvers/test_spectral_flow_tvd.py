@@ -66,19 +66,12 @@ class TestAdvectSpectralFlow:
                 np.ones(E.size), E, dE, gap=1.0, gap_dot=0.0, dt=bad_dt
             )
 
-    def test_handles_two_component_shape(self) -> None:
-        E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)
-        dE = integration_widths_from_centers(E)
-        u = np.random.default_rng(1).random((2, E.size))
-        u_new = advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=0.05, dt=0.01)
-        assert u_new.shape == u.shape
-
     def test_rejects_wrong_shape(self) -> None:
         import pytest
         E, _ = build_energy_grid(gap=1.0, energy_min_factor=1.01, energy_max_factor=5.0, num_energy_bins=20)
         dE = integration_widths_from_centers(E)
         u = np.zeros((3, E.size))
-        with pytest.raises(ValueError, match=r"\(NE,\) or \(2, NE\)"):
+        with pytest.raises(ValueError, match=r"u must be shape \(NE,\)"):
             advect_spectral_flow(u, E, dE, gap=1.0, gap_dot=0.05, dt=0.01)
 
     def test_cfl_warning(self) -> None:

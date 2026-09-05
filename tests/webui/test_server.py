@@ -47,9 +47,9 @@ class TestEveryFormControlBindsToAField:
     That is the defect this repo keeps finding, in the one place no Python test
     was looking.
 
-    It also catches the reverse of the mode collapse: `strategy`, `solver.*`,
-    `probe.*` and `snapshot_interval` all existed on the merged model for a
-    while with no way to reach them from the browser.
+    It also catches the reverse -- a field the engine reads that no control
+    reaches. `strategy`, `solver.*`, `probe.*` and `snapshot_interval` are all
+    on the setup model and all need a way in from the browser.
     """
 
     @staticmethod
@@ -101,7 +101,7 @@ class TestEveryFormControlBindsToAField:
             f"{mode}: these controls set nothing the engine reads: {unmapped}"
         )
 
-    def test_the_merged_mode_exposes_its_strategy(self) -> None:
+    def test_the_kinetics_mode_exposes_its_strategy(self) -> None:
         """Reachability, not just binding.
 
         `strategy` decides which solver runs, so a model that has it and a form
@@ -146,7 +146,7 @@ class TestMetaAndMaterials:
         assert body["mode"] == "kinetics"
         assert client.get("/api/defaults/nope").status_code == 404
 
-    def test_defaults_endpoint_answers_a_retired_mode_name(
+    def test_defaults_endpoint_answers_an_older_mode_name(
         self, client: TestClient,
     ) -> None:
         """A bookmarked URL or an older client can still name one.
@@ -231,8 +231,9 @@ class TestRunLifecycle:
         assert client.get("/api/runs").json() == []
 
     def test_equal_gap_interface_is_rejected_before_run(self, client: TestClient) -> None:
-        # Posted under the RETIRED name on purpose: the guard has to survive
-        # the upgrade, not just exist on the mode that replaced it.
+        # Posted under an older mode name on purpose: the guard has to fire on a
+        # setup that reaches the model through the upgrade, not only on one
+        # written in current form.
         setup = {
             "mode": "spatial_1d",
             "gap_profile": {

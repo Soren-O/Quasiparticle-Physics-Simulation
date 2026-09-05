@@ -48,10 +48,10 @@ record is in the qp-diffusion-paper project's Claude memory
    underwriting exact discrete fixtures (below).
 3. **Gap edge (new in the paper — §V "The local gap edge"):** at E = Δ(x,t)
    the operator is read in weak/flux form: zero-flux face for the energy mode
-   (diffusive Andreev retroreflection), 1/N₁ rate → 0 at the edge, charge (when
-   a charge module exists) continues via 𝒟_T ≠ 0. Implement as an explicit
-   zero-flux face or Dynes-regularized 𝒟_L, N₁ — check what qpsim actually
-   does at cells where N₁ → 0/∞ and at the moving edge in energy space.
+   (diffusive Andreev retroreflection), 1/N₁ rate → 0 at the edge, the charge
+   channel continues via 𝒟_T ≠ 0. Implement as an explicit zero-flux face or
+   Dynes-regularized 𝒟_L, N₁ — check what qpsim actually does at cells where
+   N₁ → 0/∞ and at the moving edge in energy space.
 4. **KL interface:** energy weight 𝒲_L = N₁N₁′ − N₂N₂′ (eq:scalar_BC_energy;
    = 1 at matched gaps; → N₁ at a normal contact), mobility G_N = (R_bA)⁻¹,
    **current** continuous (Robin), f discontinuous. The DOS product N₁N₁′ is
@@ -69,8 +69,8 @@ record is in the qp-diffusion-paper project's Claude memory
    would drift via the rate prefactor — that is not a bug); closed-box
    interface relaxation distinguishes conserved densities N₁f vs N₁²f.
 8. **Standing limit checks:** 𝒟_L = 0 sub-gap (energy blocked); 𝒟_T ≠ 0
-   sub-gap (Andreev — applies once a charge module exists); dirty κ_s reduces
-   to the gapped-normal-integrand form (undressed flux, lower limit Δ).
+   sub-gap (Andreev); dirty κ_s reduces to the gapped-normal-integrand form
+   (undressed flux, lower limit Δ).
 
 ## Primary task: the audit
 
@@ -82,7 +82,7 @@ risk first):
 2. `qpsim/transport/diffusion/base.py` — the (p,q) family (its docstring
    already mirrors the paper; verify the code does too), edge/blocked-cell
    handling vs spec item 3, default = A1.
-3. `qpsim/backends/t3_spatial_1d.py` + `t3_diffusion.py` — flux discretization
+3. `qpsim/backends/spatial.py` + `diffusion.py` — flux discretization
    (which average of the flux coefficient at faces — must conserve ∫N₁f and
    reduce to the zero-flux face at the edge), KL face vs spec item 4.
 4. `qpsim/solvers/spectral_flow_tvd.py` (+ ssprk/crank_nicolson as used) —
@@ -117,7 +117,7 @@ A second external model spot-audited qpsim against the paper + thesis Ch. 4
 the day this handoff was written. Every claim below was re-verified at the
 cited line before being recorded here. Its clean corroborations — diffusion
 taxonomy + A1 default (`transport/diffusion/base.py:77,102`), conservative
-N₁^p f update (`backends/t3_spatial_1d.py:170`), KL energy weight (`:256`),
+N₁^p f update (`backends/spatial.py:170`), KL energy weight (`:256`),
 e-ph/photon coherence factors, gap equation, spectral-flow conservation, plus
 a green 126-test targeted subset — raise confidence but replace nothing; the
 audit order above stands.
@@ -132,15 +132,15 @@ audit order above stands.
    while there.
 2. **Spatial runner silently drops nondefault physics — quick fix.**
    `FinitePhononSpatialRunner` (`scripts/run_prelim_spatial_finite_phonon_one.py:196`)
-   rebuilds `T3Spatial1DState` without `diffusion_model` / `gap_profile` /
-   `interface_conductance` (defaulted fields, `backends/t3_spatial_1d.py:125`),
+   rebuilds `SpatialState` without `diffusion_model` / `gap_profile` /
+   `interface_conductance` (defaulted fields, `backends/spatial.py:125`),
    resetting them mid-step. Harmless for today's uniform default-A1 runs,
    wrong for any nondefault run. Fix: `dataclasses.replace(state, f=f_mid)`.
    Full gate applies.
 3. **τ_l = 0 means opposite things in two modules — reconcile during step 5.**
-   `backends/t3_diffusion.py:159` (`use_thermal_phonons` doc): τ_l = 0 is
+   `backends/diffusion.py:159` (`use_thermal_phonons` doc): τ_l = 0 is
    Fischer's instantaneous-thermalization limit, n_ph pinned at the bath.
-   `phonon_models/ph0_local.py:12`: τ_l = 0 is a sentinel for NO substrate
+   `phonon_models/local.py:12`: τ_l = 0 is a sentinel for NO substrate
    coupling, n_ph = −a_ph/b_ph — the opposite (τ_l → ∞) limit of the same
    escape term. Each module is internally consistent; the API is a trap.
    Reconcile naming/docstrings (e.g. `tau_l=None` for the no-bath sentinel);
@@ -148,7 +148,7 @@ audit order above stands.
 4. **Phonon-side kernel default — decision item, OUTSIDE the paper spec.**
    Phonon-equation rates default to the legacy QP-side kernels; the F&C 2023
    Eq. 12 phonon-side form exists but is opt-in (`use_phonon_side_kernel=False`,
-   `backends/t3_diffusion.py:101,174`; `collisions/phonon.py:261`), and the
+   `backends/diffusion.py:101,174`; `collisions/phonon.py:261`), and the
    prelim finite-phonon script never opts in (its `_phonon_escape_step` passes
    no phonon-side kernels). The paper does not govern phonon dynamics (single
    passing mention, paper.tex:370) — this is thesis-Ch.4/F&C faithfulness, and
@@ -156,34 +156,20 @@ audit order above stands.
    Do NOT flip it mid-audit; flipping is a separately commissioned decision
    with baseline regeneration.
 
-The same spot-audit re-confirmed the f_T scope fence (qpsim implements the
-scalar reduction only, `backends/t3_diffusion.py:46`); secondary task 3 is
-unchanged.
-
 ## Secondary tasks
 
 1. **Merge decision** for `a1-diffusion-operators` → main (carry-over; do after
    the audit is clean). Note the untracked baseline artifacts: when this
    handoff was written there were two
-   (`validation/baselines/ph0_constant/fischer_fig3_qpsim_native.{csv,pdf}`);
-   by end of 2026-06-10 there are FOURTEEN — fig3+fig5 in `ph0_constant/` and
-   ten `fischer_fig6_*` variants in `ph0_kaplan/` (the
+   (`validation/baselines/constant/fischer_fig3_qpsim_native.{csv,pdf}`);
+   by end of 2026-06-10 there are FOURTEEN — fig3+fig5 in `constant/` and
+   ten `fischer_fig6_*` variants in `kaplan/` (the
    `paper_direct`/`paper_fast`/`partial_postfix` names look like
    comparison-run output of the external spot-audit session). Decide
    commit-or-clean for the lot, don't leave them floating.
 2. **M25 rate_equation fix-or-baseline-regen** (the 2 known failures; see the
    qpsim project memory `project_qpsim_a1_diffusion.md`). Separate track —
    touch only if asked.
-3. **Charge-imbalance (f_T) module groundwork** — qpsim has no f_T dynamics
-   yet. When commissioned, it consumes the paper's transverse sector
-   (eq:fT_kinetic_conservative, eq:fT_static, eq:fT_inhom):
-   `∂_t(N₁f_T) + ∂_E[(Δ/E)Δ̇N₁f_T] + (ΔΔ̇/E²)N₁f_T = D_N∇²f_T + J_T` (E>Δ,
-   uniform gap), physical charge current j_T = −D_N N₁²∇f_T (dressed; do NOT
-   pair it with ∂_t(N₁f_T) as if f_T were separately conserved — the imbalance
-   is coherent condensate conversion), collisionless fixture f_T = F(ξ)/E,
-   no f_L source (PH symmetry), no coherent above-gap relaxation on ideal BCS
-   (ℛ activates only under depairing/proximity/sub-gap). Out of scope unless
-   explicitly requested.
 
 ## Landmines
 

@@ -10,7 +10,7 @@ The specialized steady-state solver in ``qpsim.services.steady_state``
 does *not* call this function directly — it embeds a more elaborate
 version inline that also tracks branch-collapse of the ``(f, n_ph)``
 coupled system. ``picard_iterate`` here is the plain primitive for
-use elsewhere (future coupled solves, rate-equation iterations, etc.).
+use elsewhere (coupled solves, rate-equation iterations, etc.).
 """
 
 from __future__ import annotations

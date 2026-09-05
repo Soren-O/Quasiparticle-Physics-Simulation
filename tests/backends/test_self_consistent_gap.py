@@ -1,4 +1,4 @@
-"""Tests for the self-consistent-gap path in T3DiffusionBackend.steady_state."""
+"""Tests for the self-consistent-gap path in DiffusionBackend.steady_state."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import (
+from qpsim.backends.diffusion import (
+    DiffusionBackend,
+    DiffusionState,
     SelfConsistentGapCollapseError,
-    T3DiffusionBackend,
-    T3DiffusionState,
 )
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics import acoustic_escape_tau_l, calibrate_gap
 from qpsim.physics.bcs_quadrature import cell_edges_from_widths
 from qpsim.physics.gap_equation import solve_gap
@@ -28,7 +28,7 @@ def _build_state(
     T_bath: float = 0.3,
     num_energy: int = 40,
     tau_l_mode: str = "constant",
-) -> T3DiffusionState:
+) -> DiffusionState:
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -53,12 +53,11 @@ def _build_state(
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega_2d,
         tau_l=tau_l,
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     kT = KB_UEV_PER_K * T_bath
     f_init = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init,
         gap=gap,
         spectral=spectral,
@@ -74,7 +73,7 @@ class TestSelfConsistentGapPath:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         state = _build_state(T_bath=0.3, num_energy=20)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         monkeypatch.setattr(
             backend,
             "_steady_state_fixed_gap",
@@ -99,7 +98,7 @@ class TestSelfConsistentGapPath:
     ) -> None:
         state = _build_state(T_bath=0.3, num_energy=20)
         with pytest.raises(ValueError, match="gap_tol must be finite and positive"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -113,7 +112,7 @@ class TestSelfConsistentGapPath:
     ) -> None:
         state = _build_state(T_bath=0.3, num_energy=20)
         with pytest.raises(ValueError, match="gap_max_iter must be a positive integer"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -130,7 +129,7 @@ class TestSelfConsistentGapPath:
     ) -> None:
         state = _build_state(T_bath=0.3, num_energy=20)
         with pytest.raises(ValueError, match="gap_under_relaxation must be finite"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -145,7 +144,7 @@ class TestSelfConsistentGapPath:
             Delta_0=state.material.Delta_0,
         )
 
-        new_state = T3DiffusionBackend().steady_state(
+        new_state = DiffusionBackend().steady_state(
             state,
             use_thermal_phonons=True,
             self_consistent_gap=True,
@@ -182,7 +181,7 @@ class TestSelfConsistentGapPath:
             active_margin_factor=0.5,
         )
 
-        new_state = T3DiffusionBackend().steady_state(
+        new_state = DiffusionBackend().steady_state(
             state,
             use_thermal_phonons=True,
             self_consistent_gap=True,
@@ -202,7 +201,7 @@ class TestSelfConsistentGapPath:
             "c_phot": 1.0e-9,
         }
 
-        new_state = T3DiffusionBackend().steady_state(
+        new_state = DiffusionBackend().steady_state(
             state,
             method="picard",
             photon_params=photon_params,
@@ -222,7 +221,7 @@ class TestSelfConsistentGapPath:
     def test_rejects_bath_above_tc(self) -> None:
         state = _build_state(T_bath=1.3, num_energy=30)
         with pytest.raises(ValueError, match="T_bath < T_c"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -235,15 +234,15 @@ class TestSelfConsistentGapPath:
         # Force solve_gap to report collapse. Without the explicit
         # delta_raw <= 0 guard, under-relaxation would drift toward a
         # spurious tiny Δ > 0 instead of raising.
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
 
         state = _build_state(T_bath=0.3, num_energy=40)
-        monkeypatch.setattr(t3_mod, "solve_gap", lambda *args, **kwargs: 0.0)
+        monkeypatch.setattr(diffusion_mod, "solve_gap", lambda *args, **kwargs: 0.0)
         with pytest.raises(
             SelfConsistentGapCollapseError,
             match="gap collapsed",
         ) as caught:
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -257,17 +256,17 @@ class TestSelfConsistentGapPath:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
 
         state = _build_state(T_bath=0.3, num_energy=12)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         solved_gaps: list[float] = []
         reference_gaps: list[float] = []
 
         def fixed_gap_identity(
-            state_arg: T3DiffusionState,
+            state_arg: DiffusionState,
             **kwargs: object,
-        ) -> T3DiffusionState:
+        ) -> DiffusionState:
             solved_gaps.append(state_arg.gap)
             return state_arg
 
@@ -278,7 +277,7 @@ class TestSelfConsistentGapPath:
             return 2.0 * solved_gaps[-1]
 
         monkeypatch.setattr(
-            t3_mod,
+            diffusion_mod,
             "solve_gap",
             doubled_gap,
         )
@@ -300,18 +299,18 @@ class TestSelfConsistentGapPath:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
 
         state = _build_state(T_bath=0.3, num_energy=12)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         initial_gap = state.gap
         gap_tol = 1e-4
         solved_gaps: list[float] = []
 
         def kinetic_state_at_gap(
-            state_arg: T3DiffusionState,
+            state_arg: DiffusionState,
             **_kwargs: object,
-        ) -> T3DiffusionState:
+        ) -> DiffusionState:
             solved_gaps.append(state_arg.gap)
             f = np.zeros_like(state_arg.f)
             # A post-update kinetic solve changes the occupation branch.  The
@@ -331,7 +330,7 @@ class TestSelfConsistentGapPath:
             return 0.95 * initial_gap
 
         monkeypatch.setattr(backend, "_steady_state_fixed_gap", kinetic_state_at_gap)
-        monkeypatch.setattr(t3_mod, "solve_gap", occupation_dependent_gap)
+        monkeypatch.setattr(diffusion_mod, "solve_gap", occupation_dependent_gap)
 
         solved = backend.steady_state(
             state,
@@ -351,10 +350,10 @@ class TestSelfConsistentGapPath:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
 
         state = _build_state(T_bath=0.3, num_energy=20)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         lower_edge = float(
             cell_edges_from_widths(
                 state.spectral.E,
@@ -367,7 +366,7 @@ class TestSelfConsistentGapPath:
             lambda state_arg, **_kwargs: state_arg,
         )
         monkeypatch.setattr(
-            t3_mod,
+            diffusion_mod,
             "solve_gap",
             lambda *_args, **_kwargs: lower_edge - 1.0,
         )
@@ -392,7 +391,7 @@ class TestBelowSupportCollapseClassification:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
         from qpsim.physics.gap_equation import GapBelowGridSupportError
 
         state = _build_state(T_bath=0.3, num_energy=40)
@@ -404,11 +403,11 @@ class TestBelowSupportCollapseClassification:
                 candidate_gap=0.0,
             )
 
-        monkeypatch.setattr(t3_mod, "solve_gap", raise_below_support)
+        monkeypatch.setattr(diffusion_mod, "solve_gap", raise_below_support)
         with pytest.raises(
             SelfConsistentGapCollapseError, match="gap collapsed"
         ) as caught:
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,
@@ -425,7 +424,7 @@ class TestBelowSupportCollapseClassification:
         cannot represent (e.g. root 155.85 μeV under a 162.06 μeV first
         face) is grid under-resolution, not collapse — it must propagate
         as the domain error, never fold to the collapse/NaN path."""
-        from qpsim.backends import t3_diffusion as t3_mod
+        from qpsim.backends import diffusion as diffusion_mod
         from qpsim.physics.gap_equation import GapBelowGridSupportError
 
         state = _build_state(T_bath=0.3, num_energy=40)
@@ -438,9 +437,9 @@ class TestBelowSupportCollapseClassification:
                 candidate_gap=155.85,
             )
 
-        monkeypatch.setattr(t3_mod, "solve_gap", raise_positive_below_support)
+        monkeypatch.setattr(diffusion_mod, "solve_gap", raise_positive_below_support)
         with pytest.raises(GapBelowGridSupportError) as caught:
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
                 self_consistent_gap=True,

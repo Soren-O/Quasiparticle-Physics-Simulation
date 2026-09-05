@@ -41,7 +41,7 @@ class TestWorkspace:
         ws.delete_setup(slug)
         assert ws.list_setups() == []
 
-    def test_a_setup_saved_under_the_retired_mode_name_still_loads(
+    def test_a_setup_saved_under_an_older_mode_name_still_loads(
         self, tmp_path: Path,
     ) -> None:
         """Renaming a mode must not make saved work unloadable.
@@ -170,7 +170,7 @@ class TestWorkspace:
 
 
 def _tiny_steady_state() -> KineticsSetup:
-    """The retired 0-D steady-state mode, as it is reached now."""
+    """A one-cell mask solved by the steady-state root find, probe on."""
     setup = KineticsSetup(strategy="steady_state")
     setup.geometry.rows = setup.geometry.cols = 1
     setup.grid.max_factor, setup.grid.num_bins = 10.0, 48
@@ -179,7 +179,7 @@ def _tiny_steady_state() -> KineticsSetup:
 
 
 def _tiny_transient() -> KineticsSetup:
-    """The retired 0-D transient, as it is reached now."""
+    """A one-cell mask time-marched, with no early stop."""
     setup = KineticsSetup(strategy="time_march")
     setup.geometry.rows = setup.geometry.cols = 1
     setup.grid.max_factor, setup.grid.num_bins = 10.0, 24
@@ -188,16 +188,16 @@ def _tiny_transient() -> KineticsSetup:
 
 
 def _tiny_strip(cells: int = 8) -> KineticsSetup:
-    """The retired 1-D strip, as it is reached now."""
+    """A one-row mask of ``cells`` columns spanning 100 um, injection on."""
     setup = KineticsSetup(strategy="time_march")
     setup.geometry.rows, setup.geometry.cols = 1, cells
     setup.geometry.mesh_size_um = 100.0 / cells
     setup.grid.num_bins = 24
     setup.stop_tol = 0.0
-    # The retired 1-D mode defaulted injection ON and the merged mode defaults
-    # it OFF, so a helper that stays silent here reproduces a DIFFERENT run --
-    # the profile comes out flat and "the source end carries more" asserts
-    # equality against equality. Same class of trap as grid.max_factor.
+    # Injection defaults OFF, so a helper that stayed silent here would build a
+    # DIFFERENT run -- the profile comes out flat and "the source end carries
+    # more" asserts equality against equality. Same class of trap as
+    # grid.max_factor.
     setup.injection.enabled = True
     return setup
 
@@ -266,17 +266,16 @@ class TestSteadyState0DExecutor:
 
 
 
-class TestSetupsSavedUnderARetiredModeStillLoad:
-    """Retiring three modes must not orphan the work saved under them.
+class TestSetupsSavedUnderAnOlderModeNameStillLoad:
+    """A setup saved under an older mode name loads, and means the same run.
 
-    The legacy payloads are LITERALS, not `RetiredSetup().model_dump()`: the
-    classes are gone, and a test that needed them could only have run while the
-    thing it protects against had not happened yet. What is frozen here is the
-    on-disk FORMAT, which is what a user's file actually contains.
+    The payloads are LITERALS rather than any model's `model_dump()`: what is
+    frozen here is the on-disk FORMAT, which is what a user's file actually
+    contains, and which no model in the tree emits.
 
-    A rename could be a string swap. These are merges: they carry fields the
-    merged model does not have (`total_time`, `num_cells`, `gap_profile`) and
-    lack ones it requires (`geometry`, `strategy`).
+    A rename could be a string swap. These are translations: they carry fields
+    `KineticsSetup` does not have (`total_time`, `num_cells`, `gap_profile`)
+    and lack ones it requires (`geometry`, `strategy`).
     """
 
     @staticmethod
@@ -303,12 +302,12 @@ class TestSetupsSavedUnderARetiredModeStillLoad:
         assert (up.geometry.rows, up.geometry.cols) == (1, 1)
         assert up.max_time == 250.0
         assert up.dt == 0.2
-        # None meant "never stop early" on the retired model, which typed it
-        # optional; the merged model types it float and 0.0 says the same.
+        # A saved setup may carry stop_tol as None, meaning "never stop early";
+        # `KineticsSetup` types it as a float, and 0.0 says the same.
         assert up.stop_tol == 0.0
-        # The retired backends recorded at max_time/50 when the interval was
-        # None and the spatial one records nothing, so silence would drop the
-        # entire time series rather than preserve a default.
+        # A saved setup carrying no interval means max_time/50, which the
+        # upgrade has to supply: the time march records nothing on silence, so
+        # the entire time series would be dropped rather than defaulted.
         assert up.snapshot_interval == 5.0
 
     def test_spatial_1d_becomes_a_one_row_mask(self) -> None:
@@ -345,7 +344,7 @@ class TestSetupsSavedUnderARetiredModeStillLoad:
         assert int(np.count_nonzero(gaps == 180.0)) == 15
         assert int(np.count_nonzero(gaps == 200.0)) == 16
 
-    def test_a_retired_setup_still_runs(self) -> None:
+    def test_an_older_saved_setup_still_runs(self) -> None:
         up = self._load({
             "mode": "transient_0d", "total_time": 20.0, "dt": 1.0,
             "grid": {"min_factor": 1.0, "max_factor": 10.0, "num_bins": 24},
@@ -358,23 +357,14 @@ class TestSetupsSavedUnderARetiredModeStillLoad:
             self._load({"mode": "spatial_3d"})
 
 
-class TestTheMergedModeDoesNotNarrowTheAnswerSheet:
-    """Collapsing three modes into one must not lose what a reader gets.
+class TestTheAnswerSheetStaysComplete:
+    """Every observable a reader is promised must actually reach the payload.
 
-    The expected keys are a FROZEN LITERAL, derived from what
-    ``transient_0d`` and ``spatial_1d`` emitted at the commit before they were
-    retired, and deliberately not computed by running those modes: the point of
-    this test is to keep outliving them. Once they are deleted there is nothing
-    left to compare against, and a parity test that can only run while the old
-    code exists protects exactly the window in which nothing can go wrong.
-
-    Four keys are renames rather than losses, recorded at the emit site:
-        f_snapshots -> snap_f            t_ns             -> snap_t_ns
-        obs_x_qp    -> obs_x_qp_mean     obs_x_qp_paper   -> obs_x_qp_mean_paper
-        x_qp_final  -> x_qp_mean         x_qp_paper_final -> x_qp_mean_paper
-    One is a genuine drop with no equivalent: ``n_etd_substeps`` counts
-    adaptive substeps inside the 0-D ETD2 driver and the spatial stepper does
-    not expose one.
+    The expected keys below are a FROZEN LITERAL, written out by hand rather
+    than computed from the code under test. That is the whole point: a list
+    derived from the emit site would agree with it by construction and could
+    never catch a key silently disappearing. Adding a key here is a deliberate
+    act, and so is removing one.
     """
 
     REQUIRED_ARRAYS = frozenset({
@@ -401,7 +391,7 @@ class TestTheMergedModeDoesNotNarrowTheAnswerSheet:
         setup.probe.enabled = True
         return execute_setup(setup, _noop_progress, _never)
 
-    def test_every_retired_observable_is_still_available(self) -> None:
+    def test_every_documented_observable_is_emitted(self) -> None:
         payload = self._payload()
         assert not (self.REQUIRED_ARRAYS - set(payload.arrays))
         assert not (self.REQUIRED_SUMMARY - set(payload.summary))

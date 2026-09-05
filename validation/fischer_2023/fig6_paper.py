@@ -297,7 +297,7 @@ def baseline_path(*, direct_gap_observable: bool = False) -> Path:
         root
         / "validation"
         / "baselines"
-        / "ph0_kaplan"
+        / "kaplan"
         / f"fischer_fig6_paper{mode_suffix}{_FAST_SUFFIX}.csv"
     )
 

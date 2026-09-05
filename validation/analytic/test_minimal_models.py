@@ -19,7 +19,7 @@ things only:
    ``n* = (a + n_B/τ) / (1/τ - b)``. Comparing that against
    ``phonon_steady_state`` over a range of ``τ`` tests the solver against
    algebra rather than against a stored number.
-   ``tests/phonon_models/test_ph0_local.py`` already does the *thermal* case,
+   ``tests/phonon_models/test_local.py`` already does the *thermal* case,
    where the answer collapses to ``n_BE``; this is the driven case, where the
    root actually depends on ``τ``.
 
@@ -32,7 +32,7 @@ Deliberately NOT duplicated here, because the existing tests are stronger:
   ``tests/collisions/test_sub_gap_photon.py`` asserts it and additionally
   reproduces the point-rate failure mode it guards against;
 * thermal ``f`` giving ``n_BE`` —
-  ``tests/phonon_models/test_ph0_local.py``, through the solver.
+  ``tests/phonon_models/test_local.py``, through the solver.
 
 Also deliberately absent: the two-quasiparticles-per-phonon identity. It
 needs like-for-like measures across the two grids, and
@@ -55,7 +55,7 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.phonon_models.ph0_local import phonon_steady_state
+from qpsim.phonon_models.local import phonon_steady_state
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -139,7 +139,7 @@ class TestDrivenPhononFixedPointMatchesClosedForm:
 
     ``dn/dt = a + b n - (n - n_B)/τ`` has the root
     ``n* = (a + n_B/τ) / (1/τ - b)``. This is the driven case: unlike the
-    thermal case already covered in ``test_ph0_local``, the root genuinely
+    thermal case already covered in ``test_local``, the root genuinely
     moves with τ, sweeping from the bath occupation at fast escape to the
     quasiparticle-driven root at slow escape.
     """

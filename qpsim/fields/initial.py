@@ -1,8 +1,8 @@
 """Initial conditions: where a run starts, when that is not equilibrium.
 
-Every run used to start at ``f_FD(E, T_bath)``, so the only dynamics
-reachable were the ones a drive produced. That rules out the whole family of
-*relaxation* measurements — prepare quasiparticles above equilibrium and watch
+A run that starts at ``f_FD(E, T_bath)`` can reach only the dynamics a
+drive produces. That rules out the whole family of *relaxation*
+measurements — prepare quasiparticles above equilibrium and watch
 them recombine, seed a hot spot and watch it spread, put an excess in the top
 energy bin and watch it scatter down — which is where recombination times,
 diffusion constants and phonon trapping are actually measured from.

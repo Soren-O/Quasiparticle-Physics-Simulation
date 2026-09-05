@@ -1,8 +1,8 @@
 # Validation Chain
 
 Inventory of test and validation tiers under `tests/` and
-`validation/`. The canonical reference is `New Framework Plan.md` §6;
-this document maps the tiers onto the live test directories.
+`validation/`: three tiers plus a slow tier, mapped onto the live test
+directories.
 
 ## Tier 1 — Analytic fixed points (`validation/analytic/`)
 
@@ -17,15 +17,10 @@ parameter limits. Fast and included in the default test gate (not slow-marked).
 - `test_gap_equation_equilibrium.py` — `solve_gap(f_FD(T_B))` recovers
   `Δ_eq` from `calibrate_gap(T_c, T_B)`.
 
-## Tier 2 — Tier reductions (`validation/tier_reductions/`)
-
-Structural placeholder for T1 → T2 → T3 reductions when those
-backends ship. Empty in v1.
-
-## Tier 3 — Paper-topology numerical and artifact regressions
+## Tier 2 — Paper-topology numerical and artifact regressions
 
 Pinned against qpsim-generated CSV baselines and PDF plots under
-`validation/baselines/{ph0_constant, ph0_kaplan, transient}/`. The paired
+`validation/baselines/{constant, kaplan, transient}/`. The paired
 tests cover some combination of solver
 residual/certificate checks, exact producer provenance, artifact
 currentness, formula transcription, and regression against an earlier
@@ -172,7 +167,7 @@ occupation, and every public QP channel fixed. Its checked
 [`c6-phonon-balance-score.json`](../validation/paper_data/fischer_2023/fig6/c6-phonon-balance-score.json)
 replaces only the phonon-side balance with qpsim's public phonon-side
 kernels, frequency map, `compute_phonon_source_sink` contraction, and
-`ph0_local` bath-escape form on the full 3600-bin native lattice. The
+`local` bath-escape form on the full 3600-bin native lattice. The
 scattering net matches the author channel to `1.279582321835755e-15`
 symmetric relative L1, the same-kernel correction-off pair control to
 `2.351064591980878e-16`, and escape gain/loss below `1e-12` with an
@@ -372,7 +367,7 @@ The source-frozen Fig. 5 campaign publisher still performs five full
 81-state validation passes across assembly, publication, staged readback, and
 final readback. After the sixth row became durable, those passes added
 `504.201 s` before final status publication. Deduplicating them without
-weakening rollback/currentness checks is deferred to the next
+weakening rollback/currentness checks waits for the next
 provenance-breaking publisher revision.
 
 The Fig. 6 configuration preflight is deliberately scalar and fast. It holds
@@ -408,13 +403,6 @@ limitation until the next provenance-breaking reader revision.
 | Fig 8, qpsim-native PB x_qp(T_B) sweep | `fig8_xqp_pb.py` | summary-only v4 qpsim regression; certificate scalars are producer assertions requiring explicit opt-in |
 | Fig 8, paper-topology density sweep | `fig8_paper.py` | summary-only v5 qpsim regression; certificate scalars are producer assertions requiring explicit opt-in |
 
-### Retired paper reproduction: Marchegiani 2025
-
-The Marchegiani 2025 paper-reproduction modules, tests, and canonical bundles
-were retired on 2026-08-28. They remain recoverable from Git history. The
-generic M25 rate-equation, device, and UI capabilities remain active and retain
-their independent unit and integration coverage.
-
 ### Transient (`validation/transient/`)
 
 `photon_kick_response.py` drives the ETD2 transient stepper from an exact
@@ -437,11 +425,16 @@ The historical three-`dt` campaign established driver-partition
 insensitivity rather than formal order and was not rerun for the current
 artifact contract.
 
-## Tier 4 — Unit tests (`tests/`)
+## Tier 3 — Unit tests (`tests/`)
 
 Per-module tests mirroring the library layout. Run with `pytest -q`. Test
 counts are intentionally reported in the dated status/audit record rather
 than frozen here.
+
+The M25 rate-equation, device, and UI capabilities are validated at this
+tier: `qpsim.services.rate_equation`, its coefficient integrals, the
+Junction/Device composition over it, and the `m25_junction` web mode each
+carry their own unit and integration tests under `tests/`.
 
 ## Slow tier (`pytest -m slow`)
 

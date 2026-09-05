@@ -10,7 +10,7 @@ addition, the old paper-topology Fig. 8 table contains unchanged low-
 temperature thermal seeds at its two weakest drives. Current readers must
 reject every file in this directory as legacy.
 
-The canonical files in `../../ph0_constant/` were regenerated from live
+The canonical files in `../../constant/` were regenerated from live
 production-grid solves after commensurate-grid refinement checks. They are
 certified qpsim-native regressions at paper topology; they are not claims of
 paper parity.

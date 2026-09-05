@@ -7,9 +7,6 @@ consumes exactly that, so everything here produces masks and the
 
 The reductions are configurations of the same object rather than special
 cases: a one-cell-wide mask is a 1-D strip, and a single cell is 0-D.
-
-Ported from the archived 2D simulator's ``qpsim/geometry.py``. Copied rather
-than imported: this tree does not depend on that one.
 """
 
 from __future__ import annotations

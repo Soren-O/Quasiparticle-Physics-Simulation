@@ -56,7 +56,7 @@ class TestAcousticEscapeTauL:
         omega = np.linspace(0.1, 1.0, 10).reshape(1, 10)
         tau_l = acoustic_escape_tau_l(omega, mat)
         assert tau_l.shape == (1, 10)
-        # All entries equal (frequency-independent in v1).
+        # All entries equal (the escape time is frequency-independent).
         np.testing.assert_allclose(tau_l, tau_l[0, 0])
         # Check the formula: 4 · 63 / (0.2 · s_D)
         assert mat.sound_velocity_debye is not None

@@ -23,8 +23,8 @@ from typing import Any
 
 import numpy as np
 
-from qpsim.backends.t3_diffusion import T3DiffusionBackend
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.diffusion import DiffusionBackend
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import H_OVER_KB_K_PER_HZ
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.fields.drive import StaticDrive, SumDrive
@@ -162,10 +162,10 @@ def run_steady_state_0d(
 ) -> RunPayload:
     """The steady-state strategy: a root find on a single cell.
 
-    Still named for the 0-D mode it came from, because that is what it solves
-    -- ``T3DiffusionBackend.steady_state`` carries f:(NE,) and a scalar gap.
-    It is reached only through :func:`run_kinetics` now, which is why a
-    one-cell mask is a precondition rather than a coincidence.
+    Named for what it solves: ``DiffusionBackend.steady_state`` carries
+    f:(NE,) and a scalar gap, so its state has no cell axis at all. It is
+    reached only through :func:`run_kinetics`, which is why a one-cell mask is
+    a precondition rather than a coincidence.
     """
     payload = RunPayload()
     _check_cancel(is_cancelled)
@@ -186,7 +186,7 @@ def run_steady_state_0d(
 
     _check_cancel(is_cancelled)
     progress(0.15, "solving steady state")
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("once")
         solved = backend.steady_state(
@@ -437,7 +437,7 @@ def _require_single_cell_for_steady_state(setup: KineticsSetup) -> None:
     The message names the SOLVER rather than the geometry, because a 40-cell
     strip is a perfectly good device and there is nothing to fix about it --
     what cannot be done is asking this particular solver for its fixed point.
-    ``T3DiffusionBackend.steady_state`` carries ``f:(NE,)`` and a scalar gap;
+    ``DiffusionBackend.steady_state`` carries ``f:(NE,)`` and a scalar gap;
     there is nowhere to put a second cell.
     """
     cells = build_geometry_2d(setup).cell_count
@@ -456,7 +456,7 @@ def _require_single_cell_for_steady_state(setup: KineticsSetup) -> None:
 X_QP_CONVENTION = "qpsim: n_qp/(4 rho_F Delta_0)"
 
 
-def _qp_energy_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
+def _qp_energy_profile_2d(state: SpatialState, delta_0: float) -> np.ndarray:
     """Per-cell quasiparticle ENERGY in the x_qp normalisation.
 
     ``Σ_i W_i f_i / Δ_0`` with ``W_i`` the exact energy-weighted BCS cell
@@ -508,11 +508,11 @@ def _phonon_temperature_field(
     return t_eff, residual
 
 
-def _xqp_profile_2d(state: T3SpatialState, delta_0: float) -> np.ndarray:
+def _xqp_profile_2d(state: SpatialState, delta_0: float) -> np.ndarray:
     """Per-cell ``x_qp`` on a geometry, one quadrature per distinct gap.
 
-    Mirrors the 1-D helper: the numerator uses each cell's local gap because
-    transport does, while the denominator stays the material reference so
+    The numerator uses each cell's local gap because transport does, while
+    the denominator stays the material reference so
     values across a gap step share one normalization and stay comparable.
     """
     if not np.isfinite(delta_0) or delta_0 <= 0.0:
@@ -562,7 +562,7 @@ def run_kinetics(
         external_gain = external_loss = None
     delta_0 = setup.material.Delta_0
     photon_params, pb_photon_params = drive_dicts(setup)
-    backend = T3SpatialBackend(
+    backend = SpatialBackend(
         enable_scattering=setup.collisions.scattering,
         enable_recombination=setup.collisions.recombination,
         enable_phonon_scattering_source=(
@@ -650,27 +650,23 @@ def run_kinetics(
     payload.arrays["xqp_field"] = field
     payload.arrays["xqp_profile"] = profile
     payload.arrays["gap_per_cell"] = final.gaps()
-    # Observable parity with the 0-D and 1-D modes this one replaces. Without
-    # these, retiring those modes would silently drop what a reader gets: the
-    # reference state everything is measured against, the CONVENTION x_qp is
-    # quoted in, and the paper-convention variants the published Fischer
-    # comparisons are expressed in. Collapsing modes must not narrow the
-    # answer sheet.
+    # The rest of the answer sheet a reader needs to read the profile at all:
+    # the reference state everything is measured against, the CONVENTION x_qp
+    # is quoted in, and the paper-convention variants the published Fischer
+    # comparisons are expressed in.
     payload.arrays["f_thermal"] = fermi_dirac_distribution(
         final.spectral.E, setup.T_bath,
     )
-    # Factor 2 exactly, and the same factor the 1-D mode applies: the two
-    # conventions differ only in whether the denominator counts both spin
-    # species. Derived from the profile rather than recomputed, so the two can
-    # never disagree.
+    # Factor 2 exactly: the two conventions differ only in whether the
+    # denominator counts both spin species. Derived from the profile rather
+    # than recomputed, so the two can never disagree.
     payload.arrays["xqp_profile_paper"] = 2.0 * profile
     if geometry.dimensionality <= 1:
         # A strip has a distance coordinate and a reader plots against it (a
         # single cell is the degenerate strip and keeps its one position). The
         # mask plus mesh_size encodes the same information, but making every
-        # consumer reconstruct it is how the 1-D mode's plots would quietly
-        # stop working when that mode goes.
-        # CELL CENTRES, (i + 1/2) h -- the convention the retired 1-D mode used.
+        # consumer reconstruct it puts the convention in every consumer.
+        # CELL CENTRES, (i + 1/2) h.
         # Emitting i*h instead offsets every profile by half a cell, which is
         # invisible in a plot and wrong in a fit. The index is the cell's own
         # row or column, not its position in mask order: for a rectangle the
@@ -699,7 +695,7 @@ def run_kinetics(
             # The axis those populations live on, recorded WITH them. Without
             # it a reader can only re-derive the lattice and check its length,
             # which passes even when every frequency in it is wrong -- see
-            # T3SpatialBackend.phonon_frequency_axis.
+            # SpatialBackend.phonon_frequency_axis.
             payload.arrays["snap_omega_bins"] = backend.phonon_frequency_axis(
                 final
             )
@@ -815,10 +811,8 @@ def run_kinetics(
         "rows": int(geometry.shape[0]),
         "cols": int(geometry.shape[1]),
         "mesh_size_um": float(geometry.mesh_size),
-        # `n_steps`, not `steps`: both retired modes call it that, so keeping
-        # their name means a reader's existing scripts and plots keep working
-        # across the merge. One vocabulary, and it is theirs rather than a
-        # third one.
+        # `n_steps`, not `steps`: one vocabulary across the manifests, and
+        # readers' existing scripts and plots key on this name.
         "n_steps": int(n_steps),
         "converged": bool(converged),
         "E_qp_mean_ueV": (energy_end / number_end) if number_end > 0.0 else float("nan"),
@@ -829,17 +823,16 @@ def run_kinetics(
         "x_qp_mean": float(np.mean(profile)),
         "x_qp_max": float(np.max(profile)),
         "x_qp_min": float(np.min(profile)),
-        # Parity with the modes this one replaces (see the array block above).
-        # x_qp is a RATIO whose value depends on a convention, so quoting it
-        # without naming the convention is quoting a number without its units.
+        # The paper convention, as in the array block above. x_qp is a RATIO
+        # whose value depends on a convention, so quoting it without naming the
+        # convention is quoting a number without its units.
         "x_qp_mean_paper": 2.0 * float(np.mean(profile)),
         "x_qp_max_paper": 2.0 * float(np.max(profile)),
         "x_qp_min_paper": 2.0 * float(np.min(profile)),
         "x_qp_convention": X_QP_CONVENTION,
         "total_time_ns": float(result.elapsed),
-        # The reference the run is measured AGAINST, which this mode never
-        # reported and both retired modes did. Without it "x_qp = 1.1e-5" is
-        # unreadable: the question is always how far above thermal it sits.
+        # The reference the run is measured AGAINST. Without it "x_qp = 1.1e-5"
+        # is unreadable: the question is always how far above thermal it sits.
         "x_qp_thermal": float(
             qp_fraction(payload.arrays["f_thermal"], final.spectral,
                         delta_0=delta_0)
@@ -848,22 +841,13 @@ def run_kinetics(
             _xqp_profile_2d(replace(final, f=seeded_f), delta_0)
         )),
     })
-    # Deliberately NOT added: `x_qp_final` and `x_qp_paper_final`, which the
-    # 0-D transient reports. On a single cell they are exactly `x_qp_mean` and
-    # `x_qp_mean_paper`, already above -- a second name for a number that is
-    # already there is the duplication this merge exists to remove. The mapping
-    # is recorded here instead:
-    #     transient x_qp_final       -> x_qp_mean        (identical, 1 cell)
-    #     transient x_qp_paper_final -> x_qp_mean_paper
-    #     transient obs_x_qp         -> obs_x_qp_mean
-    #     transient f_snapshots/t_ns -> snap_f / snap_t_ns
-    # `n_etd_substeps` has no equivalent: it counts adaptive substeps inside
-    # the 0-D ETD2 driver, and the spatial stepper does not expose one.
+    # Deliberately NOT added: `x_qp_final` and `x_qp_paper_final`. On a single
+    # cell they are exactly `x_qp_mean` and `x_qp_mean_paper`, already above,
+    # and a second name for a number that is already there is a duplication a
+    # reader then has to check for agreement.
     # The probe is part of THIS mode's model, so it has to act here or say why
     # not. Leaving it silently unread would be a switch the interface shows and
-    # the engine ignores, which is the defect this repo keeps finding -- and it
-    # would be a fresh instance, since `probe` only reached this mode when the
-    # 0-D setups merged into it.
+    # the engine ignores, which is the defect this repo keeps finding.
     if setup.probe.enabled:
         if geometry.cell_count == 1:
             _mb_observables(

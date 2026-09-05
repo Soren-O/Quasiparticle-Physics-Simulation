@@ -10,7 +10,7 @@ never saw (assembled 2026-07-01, nine-review fixes @ 1d1efaa) was audited
 fresh. Spec: `papers/qp-diffusion/{paper.tex,supplement.tex}` in this
 repo @ 1d1efaa.
 
-Code delta since the June audit commit (7c0175a): `t3_spatial_1d.py`
+Code delta since the June audit commit (7c0175a): `spatial.py`
 (74f2573 cache keying), `gap_equation.py` + `ac_conductivity.py`
 (0a76f9d loud domain guards), `pair_breaking_photon.py` +
 `sub_gap_photon.py` (e0f80a8 partner alignment / comment fix), and the
@@ -48,7 +48,7 @@ main). Gate at end: **634 pass / 0 fail** (one new regression test, below).
    are the taxonomy's labeled diagnostics, and the benchmarks exist to
    quantify their artifacts.
 
-3. **`backends/t3_spatial_1d.py` — re-audited (changed), core CLEAN,
+3. **`backends/spatial.py` — re-audited (changed), core CLEAN,
    one guard added.** The 74f2573 diff is cache-keying only (spectral
    value fingerprint replacing shape/identity keys — correct and
    physics-safe; the fingerprint covers E, dE, Δ, Γ). Re-verified
@@ -157,10 +157,10 @@ main). Gate at end: **634 pass / 0 fail** (one new regression test, below).
 
 ## Fix record
 
-- `qpsim/backends/t3_spatial_1d.py`: `_build_transport_operators` now
+- `qpsim/backends/spatial.py`: `_build_transport_operators` now
   rejects Dynes-broadened spectral contexts (ValueError citing the
   paper's Dynes footnote). Test added in
-  `tests/backends/test_t3_spatial_1d.py`. This implements the handoff's
+  `tests/backends/strip/test_strip_transport.py`. This implements the handoff's
   explicit check "the code never relies on [N₁²−N₂² = 1] there".
 
 ## Open items (judgment calls, recorded not decided)

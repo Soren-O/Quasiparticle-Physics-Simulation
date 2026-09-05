@@ -1,7 +1,7 @@
 """Rasterize qpsim baseline PDFs into output/ as PNGs.
 
 The figN_*.py modules in this package write PDFs under
-``validation/baselines/ph0_constant/``. This helper rasterizes them via
+``validation/baselines/constant/``. This helper rasterizes them via
 ``pdftoppm`` so make_comparison.py (which expects PNGs in output/) has
 fresh inputs.
 
@@ -22,10 +22,10 @@ BASELINES = QPSIM_ROOT / "validation" / "baselines"
 OUT_DIR = HERE / "output"
 
 PDFS: dict[str, str] = {
-    "ph0_constant/fischer2024_fig5_qpsim_native.pdf": "fig5_paper.png",
-    "ph0_constant/fischer2024_fig8_qpsim_native.pdf": "fig8_paper.png",
-    "ph0_constant/f24_fig8_xqp_pb.pdf": "fig8_xqp_pb.png",
-    "ph0_constant/f24_figs_5_7_fe_pb.pdf": "figs_5_7_fe_pb.png",
+    "constant/fischer2024_fig5_qpsim_native.pdf": "fig5_paper.png",
+    "constant/fischer2024_fig8_qpsim_native.pdf": "fig8_paper.png",
+    "constant/f24_fig8_xqp_pb.pdf": "fig8_xqp_pb.png",
+    "constant/f24_figs_5_7_fe_pb.pdf": "figs_5_7_fe_pb.png",
 }
 
 

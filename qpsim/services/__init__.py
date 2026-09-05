@@ -1,20 +1,14 @@
 """Orchestration — user-facing entry points.
 
-Ported (Gate 2):
 - steady_state.py — solve_steady_state (thermal-phonon + finite-τ_l paths)
-
-Ported (Gate 3):
 - nbar_loop.py — self-consistent n̄(P_read) fixed-point iteration
 - transient.py — run_time_dependent driver for f(E, t) under frozen n_ph
-
-Planned (New Framework Plan §5):
-- parametric_sweep.py — sweep over (T_B, n̄, P_read, …)
 - rate_equation.py — Marchegiani rate-equation module
 """
 
 # Note: run_time_dependent / TransientResult / TransientSnapshot are *not*
 # re-exported here because qpsim.services.transient imports from
-# qpsim.backends.t3_diffusion, which in turn imports from
+# qpsim.backends.diffusion, which in turn imports from
 # qpsim.services.steady_state. Pulling transient into this __init__ would
 # create a circular import at package load time. Import directly:
 #     from qpsim.services.transient import run_time_dependent

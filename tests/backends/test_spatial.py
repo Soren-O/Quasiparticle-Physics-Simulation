@@ -1,15 +1,13 @@
-"""Tests for qpsim.backends.t3_spatial, the dimension-agnostic backend.
+"""Tests for qpsim.backends.spatial, the dimension-agnostic backend.
 
-The 1-D backend this was gated against is retired, so the bit-parity class
-is gone with it -- a comparison has no content once there is nothing to compare
-to. The 1-D reduction is now asserted directly in ``tests/backends/strip/``.
+The 1-D reduction is asserted directly in ``tests/backends/strip/``.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.geometries import rectangle, strip
 from qpsim.grid.energy_grid import (
     build_energy_grid,
@@ -60,11 +58,11 @@ class TestDimensionality:
     def test_zero_dimensional_has_no_transport_but_still_collides(self):
         material, spectral = _setup(ne=16)
         f0 = _occupations(spectral, material, 1)
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0.copy(), geometry=rectangle(1, 1), spectral=spectral,
             material=material, T_bath=T_BATH,
         )
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         transported = backend.apply_transport(state, DT)
         assert np.array_equal(transported.f, f0)      # nothing to transport
         stepped = backend.step(state, DT)
@@ -76,11 +74,11 @@ class TestDimensionality:
         f0 = np.zeros((spectral.E.size, geom.cell_count))
         peak = int(np.argmax(spectral.cell_density > 0))
         f0[peak, 12] = 0.5                            # a spike at the centre
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0.copy(), geometry=geom, spectral=spectral,
             material=material, T_bath=T_BATH,
         )
-        got = T3SpatialBackend().apply_transport(state, DT).f
+        got = SpatialBackend().apply_transport(state, DT).f
         grid = got[peak].reshape(5, 5)
         assert grid[1, 2] > 0.0 and grid[3, 2] > 0.0
         assert grid[2, 1] > 0.0 and grid[2, 3] > 0.0
@@ -93,11 +91,11 @@ class TestDimensionality:
         from qpsim.geometries import Geometry, extract_edge_segments
         geom = Geometry("holed", mask, extract_edge_segments(mask))
         f0 = _occupations(spectral, material, geom.cell_count)
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0.copy(), geometry=geom, spectral=spectral,
             material=material, T_bath=T_BATH,
         )
-        got = T3SpatialBackend().step(state, DT).f
+        got = SpatialBackend().step(state, DT).f
         assert got.shape == f0.shape
         assert np.all(got >= 0.0) and np.all(got <= 1.0)
 
@@ -107,12 +105,12 @@ class TestTermSwitches:
         material, spectral = _setup(ne=16)
         geom = strip(5)
         f0 = _occupations(spectral, material, geom.cell_count)
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0.copy(), geometry=geom, spectral=spectral,
             material=material, T_bath=T_BATH,
         )
-        both = T3SpatialBackend().step(state, DT).f
-        neither = T3SpatialBackend(
+        both = SpatialBackend().step(state, DT).f
+        neither = SpatialBackend(
             enable_scattering=False, enable_recombination=False,
         ).step(state, DT).f
         assert not np.array_equal(both, neither)
@@ -120,18 +118,18 @@ class TestTermSwitches:
 
 class TestBoundaryConditions:
     def test_a_dirichlet_edge_injects(self):
-        """Capability the 1-D backend has no path for at all."""
+        """A Dirichlet edge holds an occupation and injects into the strip."""
         material, spectral = _setup(ne=16)
         geom = strip(6)
         conditions = geom.conditions()
         left = next(e for e in geom.edges if e.faces[0].direction == "left")
         conditions[left.edge_id] = BoundaryCondition("dirichlet", 0.4)
         f0 = np.zeros((spectral.E.size, geom.cell_count))
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0.copy(), geometry=geom, spectral=spectral, material=material,
             T_bath=T_BATH, conditions=conditions,
         )
-        got = T3SpatialBackend().apply_transport(state, DT).f
+        got = SpatialBackend().apply_transport(state, DT).f
         supported = spectral.cell_density > 0
         assert np.any(got[supported, 0] > 0.0)
 
@@ -145,11 +143,11 @@ class TestResidualAndRun:
             fermi_dirac_distribution(spectral.E, T_BATH)[:, None],
             geom.cell_count, axis=1,
         )
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0, geometry=geom, spectral=spectral, material=material,
             T_bath=T_BATH,
         )
-        residual = float(np.max(np.abs(T3SpatialBackend().rates(state))))
+        residual = float(np.max(np.abs(SpatialBackend().rates(state))))
         assert residual < 1e-18
 
     def test_the_residual_is_not_a_finite_difference(self):
@@ -164,11 +162,11 @@ class TestResidualAndRun:
         f0 = np.zeros((spectral.E.size, geom.cell_count))
         supported = spectral.cell_density > 0
         f0[supported, 0] = 1.0            # saturated at the upper clip bound
-        state = T3SpatialState(
+        state = SpatialState(
             f=f0, geometry=geom, spectral=spectral, material=material,
             T_bath=T_BATH,
         )
-        assert float(np.max(np.abs(T3SpatialBackend().rates(state)))) > 0.0
+        assert float(np.max(np.abs(SpatialBackend().rates(state)))) > 0.0
 
     def test_a_hot_spot_relaxes_and_the_residual_falls(self):
         from qpsim.observables.gap_suppression import fermi_dirac_distribution
@@ -180,8 +178,8 @@ class TestResidualAndRun:
         )
         peak = int(np.argmax(spectral.cell_density > 0))
         f0[peak, 27] += 1e-3
-        backend = T3SpatialBackend()
-        state = T3SpatialState(
+        backend = SpatialBackend()
+        state = SpatialState(
             f=f0.copy(), geometry=geom, spectral=spectral, material=material,
             T_bath=T_BATH,
         )
@@ -197,12 +195,12 @@ class TestResidualAndRun:
     def test_a_non_positive_step_is_refused(self):
         material, spectral = _setup(ne=16)
         geom = strip(4)
-        state = T3SpatialState(
+        state = SpatialState(
             f=_occupations(spectral, material, geom.cell_count),
             geometry=geom, spectral=spectral, material=material, T_bath=T_BATH,
         )
         with pytest.raises(ValueError, match="dt must be positive"):
-            T3SpatialBackend().run(state, dt=0.0, max_time=1.0)
+            SpatialBackend().run(state, dt=0.0, max_time=1.0)
 
 
 class TestFeatureParityWithTheStrip:
@@ -274,10 +272,10 @@ class TestPhononPopulationSurvivesAGapChange:
     """The evolved phonon population is state, not a cached kernel.
 
     ``SpatialCollisions`` is cache-keyed on the gap profile *and* owns
-    ``n_ph``. Rebuilding it for a new gap therefore used to re-seed the
-    phonons at the bath, so a self-consistent solve -- which moves the gap on
-    every step -- silently discarded phonon trapping, the entire reason the
-    dynamic sector exists. A gap change of one part in 10^6 was enough.
+    ``n_ph``. Rebuilding it for a new gap must not re-seed the phonons at the
+    bath: a self-consistent solve -- which moves the gap on every step --
+    would silently discard phonon trapping, the entire reason the dynamic
+    sector exists. A gap change of one part in 10^6 is enough to expose it.
     """
 
     @staticmethod
@@ -290,7 +288,7 @@ class TestPhononPopulationSurvivesAGapChange:
         setup.geometry.rows, setup.geometry.cols = rows, cols
         setup.phonons.mode = "dynamic_escape"
         state = build_state_2d(setup)
-        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        backend = SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
         return backend, state
 
     def test_a_nudged_gap_does_not_reset_the_phonons(self):
@@ -358,7 +356,7 @@ class TestThePhononAdvanceIsSymmetric:
         setup.grid.num_bins = bins
         setup.geometry.rows, setup.geometry.cols = 2, 3
         setup.phonons.mode = "dynamic_escape"
-        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        backend = SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
         return backend, build_state_2d(setup)
 
     def test_one_step_advances_the_phonons_in_two_halves(self):
@@ -454,21 +452,21 @@ class TestRecordedFrames:
         material, spectral = _setup(ne=16)
         geom = strip(cells)
         f0 = _occupations(spectral, material, geom.cell_count)
-        return T3SpatialState(
+        return SpatialState(
             f=f0, geometry=geom, spectral=spectral,
             material=material, T_bath=T_BATH,
         )
 
     def test_no_interval_records_nothing(self):
         """The default path must be untouched: frames cost memory."""
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._driven_state(), dt=1.0, max_time=10.0, stop_tol=0.0,
         )
         assert result.snapshots == []
         assert result.n_steps == 10
 
     def test_frames_span_the_run_including_both_ends(self):
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._driven_state(), dt=0.5, max_time=10.0,
             stop_tol=0.0, snapshot_interval=2.0,
         )
@@ -481,7 +479,7 @@ class TestRecordedFrames:
         assert len(times) == len(set(times)) == 6
 
     def test_the_initial_residual_is_measured_not_infinite(self):
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._driven_state(), dt=1.0, max_time=4.0,
             stop_tol=0.0, snapshot_interval=2.0,
         )
@@ -490,7 +488,7 @@ class TestRecordedFrames:
 
     def test_a_frame_is_a_copy_not_a_view(self):
         """A later step must not be able to rewrite recorded history."""
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._driven_state(), dt=1.0, max_time=6.0,
             stop_tol=0.0, snapshot_interval=2.0,
         )
@@ -500,7 +498,7 @@ class TestRecordedFrames:
 
     def test_a_cadence_finer_than_the_cap_is_refused(self):
         with pytest.raises(ValueError, match=r"past the .* cap"):
-            T3SpatialBackend().run(
+            SpatialBackend().run(
                 self._driven_state(), dt=1.0, max_time=1e6,
                 snapshot_interval=1e-3,
             )
@@ -518,7 +516,7 @@ class TestRecordedFrames:
         setup.grid.num_bins = 24
         setup.geometry.rows, setup.geometry.cols = 2, 4
         setup.phonons.mode = "dynamic_escape"
-        backend = T3SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
+        backend = SpatialBackend(phonon_escape_time=setup.phonons.tau_l_ns)
         result = backend.run(
             build_state_2d(setup), dt=1.0, max_time=4.0,
             stop_tol=0.0, snapshot_interval=2.0,

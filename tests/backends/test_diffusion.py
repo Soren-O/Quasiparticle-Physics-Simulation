@@ -1,27 +1,26 @@
-"""End-to-end smoke test for the T3 diffusion backend.
+"""End-to-end smoke test for the diffusion backend.
 
-Doubles as the Gate 2 task 13 integration test: build every piece
-from scratch (Material, grid, spectral context, phonon state, T3
-state) and exercise the full steady-state pipeline.
+Also an integration test: build every piece from scratch (Material,
+grid, spectral context, phonon state, diffusion state) and exercise
+the full steady-state pipeline.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.base import Tier
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.spectral import SpectralContext
 
 
-def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
-    """Build a homogeneous Al-like T3 state at thermal equilibrium."""
+def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> DiffusionState:
+    """Build a homogeneous Al-like diffusion state at thermal equilibrium."""
     material = load_material("Al")
     # Use the BCS Δ(0) as the gap for this test (T_bath ≪ T_c).
     gap = 1.764 * KB_UEV_PER_K * material.T_c
@@ -38,7 +37,6 @@ def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
         n_ph=np.zeros((1, omega_grid.size, 1)),
         omega_bins=omega_grid.reshape(1, -1),
         tau_l=np.full((1, omega_grid.size), 0.25),  # 0.25 ns
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
 
@@ -46,7 +44,7 @@ def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
     kT = KB_UEV_PER_K * T_bath
     f_init = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init,
         gap=gap,
         spectral=spectral,
@@ -56,7 +54,7 @@ def _build_state(T_bath: float = 0.3, num_energy: int = 30) -> T3DiffusionState:
     )
 
 
-class TestT3DiffusionBackendSteadyState:
+class TestDiffusionBackendSteadyState:
     @pytest.mark.parametrize("imaginary", [1.0, float("nan")])
     def test_rejects_complex_initial_state_before_float_cast(
         self,
@@ -68,7 +66,7 @@ class TestT3DiffusionBackendSteadyState:
         state.f = bad_f
 
         with pytest.raises(ValueError, match="initial_guess must be real-valued"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
             )
@@ -78,7 +76,7 @@ class TestT3DiffusionBackendSteadyState:
         state.gap *= 0.9
 
         with pytest.raises(ValueError, match=r"state\.gap.*spectral\.gap"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
             )
@@ -87,7 +85,7 @@ class TestT3DiffusionBackendSteadyState:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
         state = _build_state(T_bath=0.3, num_energy=12)
         omega = build_phonon_frequency_map(state.spectral.E)[0]
@@ -96,7 +94,6 @@ class TestT3DiffusionBackendSteadyState:
             n_ph=seed.reshape(1, -1, 1),
             omega_bins=omega.reshape(1, -1),
             tau_l=np.full((1, omega.size), 0.25),
-            model=PhononModel.PH0_LOCAL,
             branches=[PhononBranchSpec(name="debye_average")],
         )
         observed: dict[str, np.ndarray | None] = {}
@@ -108,7 +105,7 @@ class TestT3DiffusionBackendSteadyState:
             return state.f.copy()
 
         monkeypatch.setattr(backend_module, "solve_steady_state", capture_solve)
-        result = T3DiffusionBackend().steady_state(state)
+        result = DiffusionBackend().steady_state(state)
 
         np.testing.assert_array_equal(observed["seed"], seed)
         np.testing.assert_array_equal(result.phonon.n_ph[0, :, 0], seed)
@@ -116,7 +113,7 @@ class TestT3DiffusionBackendSteadyState:
     def test_dynamic_phonons_build_phonon_side_kernels_by_default(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
         state = _build_state(T_bath=0.3, num_energy=12)
         original_scattering = backend_module.build_scattering_kernel_phonon_side
@@ -142,7 +139,7 @@ class TestT3DiffusionBackendSteadyState:
             capture_recombination,
         )
 
-        T3DiffusionBackend().steady_state(state)
+        DiffusionBackend().steady_state(state)
 
         assert sorted(observed) == [
             ("recombination", state.material.tau_0_pb_ns),
@@ -155,16 +152,16 @@ class TestT3DiffusionBackendSteadyState:
         state = _build_state(T_bath=0.3, num_energy=12)
         state.material.tau_0_pb_ns = None
 
-        thermal = T3DiffusionBackend().steady_state(
+        thermal = DiffusionBackend().steady_state(
             state,
             use_thermal_phonons=True,
         )
         assert thermal.f.shape == state.f.shape
 
         with pytest.raises(ValueError, match=r"tau_0_pb_ns.*finite and positive"):
-            T3DiffusionBackend().steady_state(state)
+            DiffusionBackend().steady_state(state)
 
-        legacy = T3DiffusionBackend().steady_state(
+        legacy = DiffusionBackend().steady_state(
             state,
             use_phonon_side_kernel=False,
         )
@@ -180,7 +177,7 @@ class TestT3DiffusionBackendSteadyState:
         )
 
         with pytest.raises(ValueError, match="Dynes-broadened collision solves"):
-            T3DiffusionBackend().steady_state(
+            DiffusionBackend().steady_state(
                 state,
                 use_thermal_phonons=True,
             )
@@ -190,7 +187,7 @@ class TestT3DiffusionBackendSteadyState:
         # barely move it, since f_FD(T_bath) is the fixed point of the
         # e-ph collision integral with thermal phonons.
         state = _build_state(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
         # Relative, not absolute: f_FD spans 15 decades on this grid, so the
         # former atol=1e-6 left 24 of 30 bins unconstrained. The solve
@@ -208,7 +205,7 @@ class TestT3DiffusionBackendSteadyState:
             0.0, 1.0,
         )
         state.f = perturbed_f  # type: ignore[misc]
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
         # Relative, not absolute: max|perturbation| is only 1.35e-4 here and
         # shrinks with num_energy (6.0e-5 at 12 bins), so the former atol=1e-4
@@ -219,10 +216,9 @@ class TestT3DiffusionBackendSteadyState:
 
     def test_returns_new_state_with_updated_f_and_phonon(self) -> None:
         state = _build_state(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
         # Scalar / reference-identity fields unchanged.
-        assert new_state.tier == Tier.T3_DIFFUSION
         assert new_state.gap == state.gap
         assert new_state.T_bath == state.T_bath
         assert new_state.material is state.material
@@ -238,7 +234,7 @@ class TestT3DiffusionBackendSteadyState:
         from qpsim.physics.kernels import thermal_phonon_occupation
 
         state = _build_state(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
 
         # Non-zero; not the stale input.
@@ -255,7 +251,7 @@ class TestT3DiffusionBackendSteadyState:
         from qpsim.collisions.phonon import build_phonon_frequency_map
 
         state = _build_state(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
 
         expected_omega, _, _, _ = build_phonon_frequency_map(state.spectral.E)
@@ -263,19 +259,12 @@ class TestT3DiffusionBackendSteadyState:
 
     def test_f_preserved_shape(self) -> None:
         state = _build_state(T_bath=0.3, num_energy=25)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.steady_state(state)
         assert new_state.f.shape == state.f.shape
 
 
-class TestT3DiffusionBackendScopeValidation:
-    def test_rejects_non_ph0_phonon_model(self) -> None:
-        state = _build_state()
-        state.phonon.model = PhononModel.PH1_BALLISTIC
-
-        with pytest.raises(ValueError, match="only the PH0_LOCAL"):
-            T3DiffusionBackend().steady_state(state)
-
+class TestDiffusionBackendScopeValidation:
     def test_transient_and_steady_reject_gain_on_zero_capacity_row(self) -> None:
         state = _build_state(num_energy=10)
         E = np.linspace(0.8 * state.gap, 2.0 * state.gap, state.f.size)
@@ -291,14 +280,13 @@ class TestT3DiffusionBackendScopeValidation:
             n_ph=np.zeros((1, omega.size, 1)),
             omega_bins=omega.reshape(1, -1),
             tau_l=np.full((1, omega.size), 0.25),
-            model=PhononModel.PH0_LOCAL,
             branches=[PhononBranchSpec(name="debye_average")],
         )
         gain = np.zeros(E.size)
         gain[0] = 1e-4
         flux = ExternalFlux(gain=gain, loss_rate=np.zeros(E.size))
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         with pytest.raises(ValueError, match="zero-spectral-capacity"):
             backend.apply_collisions(
                 state, 0.01, external_flux=flux,
@@ -326,14 +314,13 @@ class TestT3DiffusionBackendScopeValidation:
             n_ph=np.zeros((2, state.phonon.n_omega, 1)),
             omega_bins=np.tile(state.phonon.omega_bins[0], (2, 1)),
             tau_l=np.full((2, state.phonon.n_omega), 0.25),
-            model=state.phonon.model,
             branches=[
                 PhononBranchSpec(name="longitudinal"),
                 PhononBranchSpec(name="transverse"),
             ],
         )
         with pytest.raises(ValueError, match="single-branch"):
-            T3DiffusionBackend().steady_state(state)
+            DiffusionBackend().steady_state(state)
 
     def test_rejects_multi_spatial(self) -> None:
         state = _build_state()
@@ -341,11 +328,10 @@ class TestT3DiffusionBackendScopeValidation:
             n_ph=np.zeros((1, state.phonon.n_omega, 3)),
             omega_bins=state.phonon.omega_bins,
             tau_l=state.phonon.tau_l,
-            model=state.phonon.model,
             branches=state.phonon.branches,
         )
         with pytest.raises(ValueError, match="spatially-homogeneous"):
-            T3DiffusionBackend().steady_state(state)
+            DiffusionBackend().steady_state(state)
 
     def test_rejects_non_constant_tau_l(self) -> None:
         state = _build_state()
@@ -355,18 +341,13 @@ class TestT3DiffusionBackendScopeValidation:
             n_ph=state.phonon.n_ph,
             omega_bins=state.phonon.omega_bins,
             tau_l=varied,
-            model=state.phonon.model,
             branches=state.phonon.branches,
         )
         with pytest.raises(ValueError, match="constant-τ_l"):
-            T3DiffusionBackend().steady_state(state)
+            DiffusionBackend().steady_state(state)
 
 
-class TestT3DiffusionState:
-    def test_default_tier(self) -> None:
-        state = _build_state()
-        assert state.tier == Tier.T3_DIFFUSION
-
+class TestDiffusionState:
     def test_carries_material(self) -> None:
         state = _build_state()
         assert state.material.name == "Al"

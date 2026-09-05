@@ -493,7 +493,7 @@ class TestFig7CacheIntegration:
             raise original
 
         monkeypatch.setattr(
-            target.T3DiffusionBackend,
+            target.DiffusionBackend,
             "steady_state",
             fail_steady_state,
         )

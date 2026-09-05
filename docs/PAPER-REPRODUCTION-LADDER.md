@@ -355,7 +355,7 @@ It holds the accepted C5 frozen occupation, projected phonon occupation,
 component replacement is the inherited author phonon balance: qpsim's public
 phonon-side kernels `2K⁻/(π Δ τ_0^PB)` and `K⁺/(π Δ τ_0^PB)`, the public
 frequency map, the `compute_phonon_source_sink` contraction, and the
-`ph0_local` bath-escape form `(n_th − n_ph)/τ_l` with the public thermal
+`local` bath-escape form `(n_th − n_ph)/τ_l` with the public thermal
 occupation, evaluated on the full 3600-bin native ω lattice. Each channel is
 retained as public affine coefficients `(a, b)` with
 `dn_ph/dt = a + b·n_ph`; gain/loss/net are declared derived identities of

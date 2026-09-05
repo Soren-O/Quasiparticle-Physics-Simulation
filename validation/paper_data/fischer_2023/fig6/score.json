@@ -566,9 +566,9 @@
         "authoritative_replay": "separate slow gate under the recorded single-thread environment",
         "status": "promotion_attested_not_replayed"
       },
-      "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
+      "csv_path": "validation/baselines/kaplan/fischer_fig6_paper.csv",
       "csv_sha256": "5a5e3c6eec534cec121eaff93b5efdfac8fc4225f72f3e006c0936aab683bc9c",
-      "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
+      "promotion_path": "validation/baselines/kaplan/fischer_fig6_paper.promotion.json",
       "promotion_sha256": "a9a8f09dd9408c2f3ed2b6c0bde5c22d76da5a99e889e864550cd05905cea823"
     },
     "scorer_sources": {

@@ -486,7 +486,7 @@ def baseline_path() -> Path:
     """
     root = Path(__file__).resolve().parents[2]
     return (
-        root / "validation" / "baselines" / "ph0_constant"
+        root / "validation" / "baselines" / "constant"
         / "fischer_fig3_paper.csv"
     )
 
@@ -612,7 +612,7 @@ def _validate_persisted_grid_and_thermal_reference(
 def _reassemble_artifact_certificates(
     result: Fig3PaperResult,
 ) -> dict[str, Any]:
-    """Reconstruct the implied Ph0 root and certify every persisted f(E)."""
+    """Reconstruct the implied phonon root and certify every persisted f(E)."""
     from qpsim.collisions.phonon import (
         build_phonon_frequency_map,
         build_recombination_kernel_base,
@@ -620,7 +620,7 @@ def _reassemble_artifact_certificates(
         build_scattering_kernel_base,
         build_scattering_kernel_phonon_side,
     )
-    from qpsim.phonon_models.ph0_local import phonon_steady_state
+    from qpsim.phonon_models.local import phonon_steady_state
     from qpsim.physics.kernels import thermal_phonon_occupation
 
     _E, _dE, spectral = fig3_solve._build_grid_and_spectral(NUM_BINS)
@@ -754,7 +754,7 @@ def _reassemble_artifact_certificates(
         "maxima": maxima,
         "rows": rows,
         "scope": (
-            "Each persisted f(E) is paired with the unique Ph0 affine phonon "
+            "Each persisted f(E) is paired with the unique affine phonon "
             "fixed point it implies under the bound current equations. The "
             "complete QP, phonon, and pair-number certificate is then "
             "independently reassembled from that pair."
@@ -2134,7 +2134,7 @@ def _publish_baseline_triple_locked(
             ],
             "claim": (
                 "The source/configuration-bound current Fig. 3 solve was "
-                "strictly read back and freshly recertified at the Ph0 fixed "
+                "strictly read back and freshly recertified at the phonon fixed "
                 "point implied by every persisted occupation curve. The fresh "
                 "pass uses the shared certificate implementation; it is not "
                 "an independent implementation."

@@ -493,7 +493,7 @@ Estimates, flagged by confidence:
 
 **Why C7 is the risk, concretely:** `build_c7_bundle` re-runs the *entire* `build_c6_score` **twice** (once before the solve, once after, to prove parent evidence did not change mid-run), and each of those internally replays C5→C4→C3→C2. Then the iteration probe calls `coupled_newton_solve` up to 10 times with increasing caps plus once more at `max_iter=10` demanding bit-identical output. Then `build_c7_receipt` re-runs the whole `build_c7_score` again. That is **≈4 complete chain replays + ~11 Newton solves**.
 
-**Determine it rather than guess:** time Step 3 (C3) with `Measure-Command`. Call that `T3`. A single chain replay is roughly `T2+T3+T4+T5+T6`; C7 is ≈4× that plus the solves. If `T3` comes in under ~3 minutes, C7 lands in tens of minutes and the whole run is a half-day. If `T3` exceeds ~15 minutes, C7 is plausibly multi-hour and should be started with a wall-clock budget and `run_in_background`.
+**Determine it rather than guess:** time Step 3 (C3) with `Measure-Command`. Call that `T_C3`. A single chain replay is roughly `T_C2+T_C3+T_C4+T_C5+T_C6`; C7 is ≈4× that plus the solves. If `T_C3` comes in under ~3 minutes, C7 lands in tens of minutes and the whole run is a half-day. If `T_C3` exceeds ~15 minutes, C7 is plausibly multi-hour and should be started with a wall-clock budget and `run_in_background`.
 
 **Do not run any of this concurrently with an editor autosave, formatter, linter, or a second build.** Every producer re-hashes its source closure at import, before the work, and again immediately before renaming the temp directory into place. A stray save aborts the build with `source closure changed during execution` — after you have paid the compute.
 

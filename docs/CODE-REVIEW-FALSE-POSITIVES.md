@@ -361,7 +361,7 @@ the impact actionable.)
   independent Fischer certificate detects the cold amplitude/null mode.
   Fig. 3 persists `f` and distinguishes the producer solve contract from the
   later validator contract; finite-escape validation reconstructs the affine
-  Ph0 root implied by stored `f`, not the producer's omitted original
+  phonon fixed point implied by stored `f`, not the producer's omitted original
   `n_ph`. The locally promoted F23 Fig. 5 v3 and Fig. 6 v2 working-tree
   canonicals persist complete `f/n_ph` state and independently reassemble the
   number certificate. This is not yet a claim about a durable pushed commit.
@@ -493,7 +493,7 @@ findings that must be refuted.
    turnover stays in the normalizer; only explicitly tagged conservative
    Device exchange is excluded, so a large balanced transfer cannot hide
    internal imbalance. Device backends are pure-map boundaries: input
-   mutation, incoherent/non-finite ancillary T3 state, and overflow/NaN in a
+   mutation, incoherent/non-finite ancillary backend state, and overflow/NaN in a
    declared transfer check refuse rather than self-certify. Regression:
    `tests/solvers/test_newton_steady_state.py` and `tests/devices/test_device.py`;
    historical Round-6 production evidence included the certified
@@ -535,7 +535,7 @@ findings that must be refuted.
    Regression: `tests/grid/test_spatial_grid.py`. *Lesson: matching outputs on
    valid input do not refute a missing invalid-input/domain guard.*
    (2026-07-21 Round 6)
-8. **The WebUI all-underflow heatmap branch was unreachable because the T3
+8. **The WebUI all-underflow heatmap branch was unreachable because the spatial
    backend floors occupations** — **overturned in Round 6.** The plotting API
    accepts schema-valid arrays independently of that one backend path, and an
    ultracold/direct payload can have no positive representable samples. The
@@ -606,7 +606,7 @@ findings that must be refuted.
     `7e38be09b9b7eaafb02b83015da7cc21c8e5db172954757ac0cdd94256635812`,
     and `680454ae17835717a2f52874448fdefa380d367a843a273cf02dab28001a9371`.
     The raw payload did not persist finite-ratio `n_ph`; validation therefore
-    reconstructs the unique Ph0 affine fixed point implied by each saved
+    reconstructs the unique phonon affine fixed point implied by each saved
     `f(E)` and does not claim to authenticate the producer's original stored
     phonon residual independently. *Lesson: a baseline is evidence only for the quantities
     independently certified at the stored snapshot; nonzero shape, hashes,
@@ -957,7 +957,7 @@ findings that must be refuted.
     evaluated independently through `apply_collisions_with_diagnostics`, is
     `9.788e-11 /ns <= stop_tol`. The veto gates only the *stop decision*:
     the old-veto trajectory truncated at the new stop time is bitwise
-    identical to the new stop state, and the default `T3DiffusionBackend`
+    identical to the new stop state, and the default `DiffusionBackend`
     (the exact-residual path every shipped caller uses) stops at the
     identical step. Pinned by
     `tests/review_2026_08_03/test_P15.py::TestFiniteDifferenceCertificate`.

@@ -78,7 +78,7 @@ _MAX_KT_OVER_GAP = 0.1
 # The numbers that are not free:
 #   geometry 1x5 + D_0 = 0. Five INDEPENDENT 0-D cells: the flux weight is
 #     D_0*N_1**q, so D_0 = 0 gives an identically zero transport operator and
-#     T3SpatialBackend.apply_transport moves nothing between columns. That is
+#     SpatialBackend.apply_transport moves nothing between columns. That is
 #     what lets five different energies be measured in one run.
 #   initial.expression. A one-bin excess per column at 987.975 / 1190.475 /
 #     1392.975 / 1595.475 / 1797.975 ueV = cells 199/249/299/349/399 of this

@@ -11,7 +11,7 @@ Two regimes:
   :func:`newton_solve_f` does the whole job.
 * ``phonon_escape_time >= 0`` — finite τ_l. Runs a Picard outer loop
   over ``n_ph``, solving the inner Newton for ``f`` at each step and
-  recomputing the steady-state ``n_ph`` from the Ph0 phonon-balance
+  recomputing the steady-state ``n_ph`` from the phonon-balance
   equation. Anderson acceleration is available via ``anderson_depth``.
   A branch-collapse guard resets the coupled state to the last known
   physical-branch configuration as soon as an Anderson iterate lands on the
@@ -19,7 +19,7 @@ Two regimes:
 
 Sentinel trap: ``None`` and ``0.0`` are OPPOSITE limits. ``None`` pins
 phonons at the bath (τ_l → 0); the float ``0.0`` enters the Picard path,
-where :func:`qpsim.phonon_models.ph0_local.phonon_steady_state` treats it
+where :func:`qpsim.phonon_models.local.phonon_steady_state` treats it
 as the no-substrate-coupling sentinel (τ_l → ∞ limit of the escape term).
 """
 
@@ -34,7 +34,7 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
 )
 from qpsim.devices.external_flux import ExternalFlux
-from qpsim.phonon_models.ph0_local import (
+from qpsim.phonon_models.local import (
     phonon_balance_diagnostics,
     phonon_steady_state,
 )
@@ -82,7 +82,7 @@ def _picard_convergence_ratio(
     That guard is insensitive to the overall occupation amplitude, but it is an
     L1 test dominated by the largest bins and does not constrain a sub-floor
     block either.  Per-bin physical control of the above-gap bins comes from
-    the Ph0 balance certificate (``picard_balance_tol``), which is what
+    the phonon balance certificate (``picard_balance_tol``), which is what
     actually binds such a solve; callers that want the change test itself to
     resolve that block override the default downward — ``picard_atol=0.0``
     (fig3), 1e-12 (fig5), 1e-13 (fig7), 1e-14 (fig6).  The returned value is
@@ -132,7 +132,7 @@ def _phonon_balance_backward_error(
     *,
     tau_l: float,
 ) -> float:
-    """Representability-aware normwise error of the affine Ph0 balance.
+    """Representability-aware normwise error of the affine phonon balance.
 
     The shared diagnostic retains the raw direct-form error separately while
     this production gate certifies the nearest floating-point occupation.  A
@@ -222,7 +222,7 @@ def solve_steady_state(
         kernels (build via
         :func:`qpsim.collisions.phonon.build_scattering_kernel_phonon_side` and
         :func:`qpsim.collisions.phonon.build_recombination_kernel_phonon_side`).
-        Forwarded to :func:`qpsim.phonon_models.ph0_local.phonon_steady_state`
+        Forwarded to :func:`qpsim.phonon_models.local.phonon_steady_state`
         on the finite-τ_l Picard path; when supplied, the phonon
         sub-step uses the F&C 2023 Eq. 12 prefactors instead of the
         QP-side kernels. Ignored on the thermal-phonon path
@@ -660,7 +660,7 @@ def solve_steady_state(
                 # AndersonAccelerationError subclasses only Exception so a
                 # caller can catch it and retry without acceleration -- and no
                 # caller under qpsim/ did, so it escaped this function,
-                # T3DiffusionBackend.steady_state and solve_device_steady_state
+                # DiffusionBackend.steady_state and solve_device_steady_state
                 # and aborted the whole run, losing every region already
                 # converged. Acceleration is a convergence aid, not physics:
                 # the exact recovery it asks for is the `n_ph_aa is None`

@@ -10,8 +10,7 @@ Used both as a standalone steady-state solver (thermal-phonon limit,
 ``τ_l → 0``) and as the inner solve inside the Picard outer loop for
 the finite-``τ_l`` regime.
 
-Ported from ``_newton_solve_f`` in ``qpsim/numerics/steady_state.py``
-with the Jacobian and residual helpers co-located here.
+The Jacobian and residual helpers are co-located here.
 """
 
 from __future__ import annotations
@@ -824,7 +823,7 @@ def newton_solve_f(
         contract added to the residual. Used by Junction-coupled
         regions in the device architecture (see
         ``docs/Device_Architecture.md``). When ``None`` (default),
-        the solver path is bit-for-bit identical to pre-Phase-2 behavior.
+        no boundary term enters the residual at all.
     external_flux_is_conservative_transfer
         Set only when ``external_flux`` is a frozen conservative exchange
         term from a Device component. Such exchange remains in the residual

@@ -10,9 +10,8 @@ one-cell-wide mask the 5-point Laplacian is the 3-point chain, and on a single
 cell it is identically zero.
 
 The per-energy active set -- the cells with states above the local gap -- is
-itself a mask, which is what makes this general. The 1-D backend had to require
-that set be a contiguous interval; here it can be any shape, including the
-disconnected pockets a 2-D gap profile produces.
+itself a mask, which is what makes this general: the set can be any shape,
+including the disconnected pockets a 2-D gap profile produces.
 """
 
 from __future__ import annotations

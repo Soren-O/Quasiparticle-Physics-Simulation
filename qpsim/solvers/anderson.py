@@ -6,9 +6,6 @@ least-squares problem in the residual differences. The
 least-squares-on-residual-differences form (with the update
 ``x = G(x_k) − ΔG·θ``) is the Type-II / "bad Broyden" Anderson update
 (Walker & Ni 2011); it is a valid acceleration regardless of the label.
-
-Ported from ``_anderson_extrapolate`` in
-``qpsim/numerics/steady_state.py``.
 """
 
 from __future__ import annotations

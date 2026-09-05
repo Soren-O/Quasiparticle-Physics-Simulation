@@ -177,7 +177,7 @@
 > parameters fixed. It replaces only the phonon-side balance with qpsim's
 > public phonon-side kernels `2K-/(pi Delta tau_0^PB)` and
 > `K+/(pi Delta tau_0^PB)`, the public frequency map, the
-> `compute_phonon_source_sink` contraction, and the `ph0_local` bath-escape
+> `compute_phonon_source_sink` contraction, and the `local` bath-escape
 > form `(n_th - n_ph)/tau_l`, evaluated on the full 3600-bin native omega
 > lattice. C6s/C6p/C6p0/C6e/C6spe/C6spe0 isolate every locality
 > combination; the C5 hybrid QP residual is bit-exact.
@@ -489,8 +489,8 @@
 >
 > Fig. 3 now persists an amplitude-sensitive pair-number certificate and
 > distinct producer/validated solve-contract records. Finite-escape validation
-> reconstructs the unique affine Ph0 root implied by stored `f`; this proves
-> current-equation root membership for that reconstructed pair, not the
+> reconstructs the unique affine phonon fixed point implied by stored `f`; this
+> proves current-equation root membership for that reconstructed pair, not the
 > producer's original omitted finite-ratio `n_ph`. The promoted validation
 > record states that qualification explicitly.
 
@@ -718,10 +718,7 @@ numerical-qualification work, not hidden green checkmarks:
    threshold layers remain slowly convergent.
 5. **Fischer 2024:** paper-target analytic overlays are still incomplete even
    though the qpsim-native fixed-grid regressions are certified.
-6. **Roadmap:** T2/T1 electronic backends and Ph1/Ph2 phonon transport are not
-   implemented. These are roadmap gaps, not regressions introduced by this
-   branch.
-7. **Orthogonal manuscript question:** `papers/qp-diffusion` still has contested
+6. **Orthogonal manuscript question:** `papers/qp-diffusion` still has contested
    physics items documented elsewhere. Passing its symbolic scripts proves the
    code/manuscript identities agree; it does not prove the manuscript physics.
    Do not turn the next code audit into a paper audit unless explicitly asked.
@@ -788,7 +785,7 @@ Known documentation debt:
   promotion-locked scalar preflight now takes `1.71 s`, while one explicit
   slow full recertification takes `82.58 s`. Separately, the source-frozen
   publisher still validates all 81 states five times; this added
-  `504.201 s` after the solve phase and is deferred to the next
+  `504.201 s` after the solve phase and will be addressed at the next
   provenance-breaking publisher revision.
 - Older hosted counts of 1513 tests belong to earlier exact trees. The current
   `71c5f02` hosted count is 1549.
@@ -817,8 +814,8 @@ Known documentation debt:
    - `qpsim/observables/gap_suppression.py`
    - `qpsim/solvers/coupled_newton.py`
    - `qpsim/solvers/etd.py`
-   - `qpsim/backends/t3_diffusion.py`
-   - `qpsim/backends/t3_spatial.py`
+   - `qpsim/backends/diffusion.py`
+   - `qpsim/backends/spatial.py`
    - `validation/fischer_2023/`
    - `validation/fischer_2024/`
 

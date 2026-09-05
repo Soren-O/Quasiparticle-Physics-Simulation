@@ -5,15 +5,12 @@ two coupled regions and returns a :class:`JunctionResult` with the
 per-region :class:`ExternalFlux` contributions to push into each
 region's f-equation.
 
-v1 ships one concrete Junction:
+This module ships one concrete Junction:
 
 * :class:`SymmetricGapTunnelingJunction` — energy-conserving tunneling
   between two regions sharing the same superconducting gap and energy
   grid. No qubit, no photon drive. Reaches detailed balance at matched
   temperature with no drive.
-
-Phase 4 will add ``JunctionQubitCoupling`` + ``QubitTransitionChannel``
-to the result for qubit-coupled junctions.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ from qpsim.devices.external_flux import ExternalFlux
 from qpsim.devices.qubit import QubitTransitionChannel
 
 if TYPE_CHECKING:
-    from qpsim.backends.t3_diffusion import T3DiffusionState
+    from qpsim.backends.diffusion import DiffusionState
     from qpsim.devices.qubit import QubitState
 
 
@@ -139,8 +136,8 @@ class Junction(ABC):
     @abstractmethod
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state: QubitState | None = None,
     ) -> JunctionResult:
         """Compute (gain, loss_rate) contributions for both regions
@@ -165,7 +162,7 @@ class SymmetricGapTunnelingJunction(Junction):
     The simplest physically-meaningful junction: at each energy ``E``,
     quasiparticles tunnel between regions A and B in proportion to
     ``[f_a(E) - f_b(E)]`` (the chemical-potential-difference drive at the
-    bin level). For the v1 implementation the rates are scalar in energy.
+    bin level). The rates are scalar in energy.
 
     Decomposition into the ``(gain, loss_rate)`` ``ExternalFlux`` form:
 
@@ -192,7 +189,7 @@ class SymmetricGapTunnelingJunction(Junction):
     non-degenerate limit ``f_α ≪ 1`` that holds throughout the
     superconducting regime where this framework lives. A more
     complete junction would carry full ``α(E) (1 - f_partner)`` into
-    loss_rate; deferred for v1.
+    loss_rate.
 
     Both regions must share the complete finite-volume spectral
     discretization: energy centers, cell widths, gap, broadening model, and
@@ -208,13 +205,12 @@ class SymmetricGapTunnelingJunction(Junction):
         Names of the two coupled regions in the parent Device.
     alpha_per_ns
         Per-bin tunneling rate out of region A, ``α_a``, in 1/ns.
-        Constant in energy for v1; a future extension can take an
-        E-resolved array.
+        Constant in energy.
     capacity_ratio_a_to_b
         Ratio ``C_a / C_b`` of the two regions' quasiparticle capacities
         (for matched spectra, proportional to ``rho_F * volume``).  Region
         B's rate is ``α_b = α_a C_a/C_b``, so the junction conserves
-        ``C_a f_a + C_b f_b``.  The default ``1`` retains the historical
+        ``C_a f_a + C_b f_b``.  The default ``1`` is the
         equal-capacity model.
     """
 
@@ -263,8 +259,8 @@ class SymmetricGapTunnelingJunction(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state: QubitState | None = None,
     ) -> JunctionResult:
         # qubit_state is unused — this Junction has no qubit coupling.

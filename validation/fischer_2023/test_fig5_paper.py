@@ -1,6 +1,6 @@
 """Regression test: Fischer 2023 Fig. 5 paper-topology run matches the pinned CSV.
 
-Iterative-mode tolerance per NFP §6.4.1 (1e-6). The complete live
+Iterative-mode tolerance: 1e-6. The complete live
 81-point regeneration is both ``slow`` and ``manual_slow``. The promoted
 campaign measured 9.853 aggregate worker-hours and 2.606 wall hours with six
 concurrent single-thread rows, so it is not a bounded CI check. Opt in

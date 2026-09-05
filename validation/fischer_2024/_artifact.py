@@ -30,7 +30,7 @@ from typing import Any, TextIO, cast
 import matplotlib
 import numpy as np
 import scipy
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.collisions.pair_breaking_photon import (
     pair_breaking_photon_collision_components,
     pair_breaking_photon_collision_rates,
@@ -632,7 +632,7 @@ def _weighted_pair_number_error(
 
 
 def qp_certificate(
-    state: T3DiffusionState,
+    state: DiffusionState,
     *,
     pb_photon_params: Mapping[str, float],
     residual_inf_limit: float = TARGET_QP_RESIDUAL_INF_LIMIT,

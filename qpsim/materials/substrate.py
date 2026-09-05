@@ -2,8 +2,8 @@
 
 A substrate is needed to compute the acoustic-mismatch transmission
 ``η`` that sets ``τ_l ≈ 4 d / (η s)`` (see
-``docs/Phonon_Escape_Time.md``). Gate 2 v1 uses a constant-``τ_l``
-phonon bath by default, so the acoustic fields are optional.
+``docs/Phonon_Escape_Time.md``). The default is a constant-``τ_l``
+phonon bath, so the acoustic fields are optional.
 """
 
 from __future__ import annotations

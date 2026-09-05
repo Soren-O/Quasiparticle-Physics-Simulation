@@ -939,7 +939,7 @@
           "sector": "ph",
           "available": false,
           "blurb": "The trapping loop closed on itself: recombination phonons breaking pairs again before they leave.",
-          "evidence": "tests/phonon_models/test_ph0_local.py",
+          "evidence": "tests/phonon_models/test_local.py",
           "why": "Needs scattering off on both sides of the loop."
         },
         {

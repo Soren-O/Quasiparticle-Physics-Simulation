@@ -113,11 +113,11 @@
   },
   "qpsim_artifact": {
     "artifact_schema": "qpsim.fischer2023.fig6_paper.v2",
-    "csv_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.csv",
+    "csv_path": "validation/baselines/kaplan/fischer_fig6_paper.csv",
     "csv_sha256": "fcabbc3d9e75ce680c532c4010593936f8da79e3058bfc0e5569648c275b958c",
     "filter_column": "T_bath_K",
     "native_row_count": 66,
-    "promotion_path": "validation/baselines/ph0_kaplan/fischer_fig6_paper.promotion.json",
+    "promotion_path": "validation/baselines/kaplan/fischer_fig6_paper.promotion.json",
     "promotion_schema": "qpsim.fischer2023.fig6_promotion.v2",
     "promotion_sha256": "448638a2bcc38a7b89e9482aace95c1308cc4a8d0199eb28c751ab73ab55d4d5",
     "required_fingerprint_mode": {

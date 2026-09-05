@@ -1,21 +1,16 @@
 """The 1-D reduction of the unified spatial backend: the stopping residual.
 
-Translated from ``TestRunUntilSteadyStateResidual`` in
-``tests/backends/test_t3_spatial_1d.py``, which covered the retired
-``T3Spatial1DBackend`` / ``T3Spatial1DState`` / ``T3SpatialFlux1D``. The unified
-:class:`~qpsim.backends.t3_spatial.T3SpatialBackend` solves the same strip as a
-``(1, N)`` mask, and ``run_until_steady_state`` has become
-:meth:`~qpsim.backends.t3_spatial.T3SpatialBackend.run`.
+The unified :class:`~qpsim.backends.spatial.SpatialBackend` solves the strip
+as a ``(1, N)`` mask, and its driver is
+:meth:`~qpsim.backends.spatial.SpatialBackend.run`.
 
-The property under test is unchanged: the convergence certificate is the RAW
-endpoint operator residual -- transport and collision/source summed pointwise
-BEFORE the norm, and evaluated before any occupation clipping. What moved is
-where the sum is assembled. The retired driver added ``_transport_rate`` and
-``_collision_rate`` inside its own loop; the unified backend assembles both in
-:meth:`~qpsim.backends.t3_spatial.T3SpatialBackend.rates` and the driver takes
-one ``max|.|`` of what comes back. So the first test constructs the cancellation
-physically (an external gain that annihilates the summed rate) instead of
-monkeypatching the two halves that no longer exist as separate seams.
+The property under test: the convergence certificate is the RAW endpoint
+operator residual -- transport and collision/source summed pointwise BEFORE
+the norm, and evaluated before any occupation clipping. The backend assembles
+both halves in :meth:`~qpsim.backends.spatial.SpatialBackend.rates` and the
+driver takes one ``max|.|`` of what comes back, so the first test constructs
+the cancellation physically (an external gain that annihilates the summed
+rate) rather than monkeypatching two halves that are not separate seams.
 """
 
 from __future__ import annotations
@@ -24,7 +19,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import Geometry, strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -40,7 +35,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
 
 
 def _strip_geometry(NX: int) -> Geometry:
-    """The retired tests' grid: ``x = linspace(0, 100, NX)``, so the spacing is
+    """The strip grid: ``x = linspace(0, 100, NX)``, so the spacing is
     ``100/(NX-1)`` -- read off the array rather than assumed."""
     x = np.linspace(0.0, 100.0, NX)
     return strip(NX, mesh_size=float(x[1] - x[0]))
@@ -52,7 +47,7 @@ def _build_state(
     T_bath: float = 0.1,
     NE: int = 28,
     NX: int = 11,
-) -> T3SpatialState:
+) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -69,7 +64,7 @@ def _build_state(
     )
     geometry = _strip_geometry(NX)
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=geometry,
         spectral=spectral,
@@ -78,20 +73,20 @@ def _build_state(
     )
 
 
-def _collision_only_rates(state: T3SpatialState) -> np.ndarray:
+def _collision_only_rates(state: SpatialState) -> np.ndarray:
     """``df/dt`` from collisions alone, cell by cell.
 
     Collisions are strictly local, so one cell of the strip evaluated on its own
     ``1x1`` mask sees exactly the collision half of that column's rate: a single
     reflective cell has no acting device face, so ``rates`` skips the transport
-    contribution entirely (``t3_spatial.py``, same guard as ``apply_transport``).
+    contribution entirely (``spatial.py``, same guard as ``apply_transport``).
     This is only used to show that BOTH halves of the residual are individually
     live in the test below -- it is not itself the quantity under test.
     """
     cell = strip(1, mesh_size=state.geometry.mesh_size)
     columns = []
     for j in range(state.f.shape[1]):
-        one = T3SpatialState(
+        one = SpatialState(
             f=state.f[:, j : j + 1].copy(),
             geometry=cell,
             spectral=state.spectral,
@@ -100,16 +95,12 @@ def _collision_only_rates(state: T3SpatialState) -> np.ndarray:
         )
         # A fresh backend per column: the collision layer caches on the gap, and
         # sharing one would only obscure what this helper is for.
-        columns.append(T3SpatialBackend().rates(one)[:, 0])
+        columns.append(SpatialBackend().rates(one)[:, 0])
     return np.column_stack(columns)
 
 
 class TestStripRunResidual:
-    """The 1-D reduction of the unified backend's stopping residual.
-
-    From ``TestRunUntilSteadyStateResidual`` on the retired
-    ``T3Spatial1DBackend``.
-    """
+    """The 1-D reduction of the unified backend's stopping residual."""
 
     def test_transport_and_source_rates_cancel_before_norm(
         self, monkeypatch: pytest.MonkeyPatch,
@@ -121,11 +112,11 @@ class TestStripRunResidual:
         f = state.f.copy()
         f[:, 0] = np.clip(f[:, 0] + 0.05, 0.0, 1.0)
         state = replace(state, f=f)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
-        # Freeze the state, exactly as the retired test did, so the residual is
-        # measured at the configuration that was constructed rather than at
-        # wherever one step happens to land.
+        # Freeze the state so the residual is measured at the configuration
+        # that was constructed rather than at wherever one step happens to
+        # land.
         monkeypatch.setattr(backend, "step", lambda state_arg, _dt, **_kwargs: state_arg)
 
         bare = backend.rates(state)
@@ -164,9 +155,8 @@ class TestStripRunResidual:
         assert result.converged
         assert result.n_steps == 1
         assert result.snapshots[-1].max_rate < stop_tol
-        # The retired test could assert `max_rate == 0.0` because it fed the
-        # driver two exactly opposite arrays. Here the cancellation is real
-        # arithmetic, so what survives is that the reported residual is
+        # The cancellation here is real arithmetic rather than two exactly
+        # opposite arrays, so what survives is that the reported residual is
         # rounding dust against the size of the two halves that cancelled --
         # measured at 2.8e-17 of the baseline, against 1e-12 here.
         assert result.snapshots[-1].max_rate < 1.0e-12 * baseline
@@ -176,7 +166,7 @@ class TestStripRunResidual:
 
     def test_constant_thermal_state_stops_on_raw_operator_residual(self) -> None:
         state = _build_state(T_bath=0.1, NE=12, NX=5)
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state,
             dt=1.0,
             max_time=10.0,
@@ -191,10 +181,10 @@ class TestStripRunResidual:
     def test_saturated_positive_source_does_not_claim_convergence(self) -> None:
         state = _build_state(T_bath=0.0, NE=8, NX=3)
         state.f[:] = 1.0
-        # T3SpatialFlux1D(gain=..., loss_rate=zeros) on the retired backend.
+        # A pure gain source: gain=..., loss_rate=zeros.
         gain = np.full_like(state.f, 1.0e6)
 
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state,
             dt=0.1,
             max_time=0.3,

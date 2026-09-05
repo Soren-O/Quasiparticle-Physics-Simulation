@@ -397,12 +397,12 @@ function renderStepForm(selector, sections) {
   form.innerHTML = "";
   if (!sections.length) {
     // Not "this dimensionality has no geometry" -- 0-D IS a geometry, a 1x1
-    // mask, and the unified mode expresses it that way (measured
-    // bit-identical to the old 0-D mode). What lands here is a LEGACY mode
-    // that predates the unified geometry and carries no mask at all.
-    form.innerHTML = `<p class="hint">This is a legacy mode with no geometry `
-      + `of its own. In the unified mode a 0-D run is simply a 1&times;1 mask `
-      + `and a 1-D strip a 1&times;N one, so the geometry step applies there.</p>`;
+    // mask, and `kinetics` expresses it that way. What lands here is a mode
+    // that carries no mask at all.
+    form.innerHTML = `<p class="hint">This mode has no geometry of its own: `
+      + `it is a rate-equation model over a temperature sweep, not a device. `
+      + `In <code>kinetics</code> a 0-D run is a 1&times;1 mask and a 1-D `
+      + `strip a 1&times;N one, so the geometry step applies there.</p>`;
     return;
   }
   for (const section of sections) {
@@ -1440,11 +1440,11 @@ async function viewCaseSettings(tc) {
   }
 }
 
-/* `openCase` used to load a test case into the editor. It is deliberately
-   gone rather than merely unreferenced: a test case's settings are chosen so
-   that a particular closed form applies to them, so an edited copy keeps the
-   analytic comparison while no longer being the case it describes. Editing
-   belongs to setups. `viewCaseSettings` shows the same values, read-only. */
+/* A test case is not opened in the editor. Its settings are chosen so that a
+   particular closed form applies to them, so an edited copy would keep the
+   analytic comparison while ceasing to be the case that comparison describes.
+   Editing belongs to setups. `viewCaseSettings` shows the same values,
+   read-only. */
 
 async function runCase(tc, btn) {
   const label = btn.textContent;
@@ -1787,7 +1787,7 @@ async function openItem(catId, itemId) {
     const actions = card.querySelector(".tc-actions");
     // A test simulation is a fixed experiment: its settings are chosen to make
     // a specific closed form apply, so editing them would leave the analytic
-    // comparison attached to a case it no longer describes. The settings are
+    // comparison attached to a case it does not describe. The settings are
     // therefore viewable and not editable, and the only action is to run it.
     const view = document.createElement("button");
     view.textContent = "View settings";
@@ -2025,7 +2025,7 @@ initCopyEditing();
    ===================================================================== */
 
 /* Which setup field each clickable term maps onto.
-   `path` null means the unified 2-D mode cannot express that term yet, and
+   `path` null means `kinetics` cannot express that term yet, and
    `why` says what is missing. Showing the term greyed with a reason is
    honest; hiding it would misrepresent the model, and wiring it to nothing
    would be worse. */
@@ -2060,11 +2060,11 @@ const TERM_FIELDS = {
              label: "Self-consistent gap" },
 };
 
-/* The wizard builds kinetics, but the read-only view has to show any mode a
-   saved run or a test case used -- several are 0-D, which has no geometry at
-   all. Sections are therefore taken from the mode being shown rather than
-   pinned to one, and the geometry step says so when a mode has none, instead
-   of presenting an empty page as though something were missing. */
+/* The wizard builds kinetics, but the read-only view has to show whatever mode
+   a saved run or a test case used, including one with no geometry at all.
+   Sections are therefore taken from the mode being shown rather than pinned to
+   one, and the geometry step says so when a mode has none, instead of
+   presenting an empty page as though something were missing. */
 const isGeometrySection = (section) =>
   section.title === "Geometry" || section.title === "Boundary";
 const geometrySections = (mode) => (FORMS[mode] || []).filter(isGeometrySection);

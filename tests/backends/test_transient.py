@@ -1,4 +1,4 @@
-"""Tests for T3 fixed-gap and stage-constrained moving-gap transients."""
+"""Tests for fixed-gap and stage-constrained moving-gap transients."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.bcs_quadrature import (
     bcs_dos_cell_weights,
     cell_edges_from_widths,
@@ -25,7 +25,7 @@ from qpsim.physics.spectral import SpectralContext
 def _state_on_physics_grid(
     T_bath: float = 0.3,
     num_energy: int = 20,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Build a state whose PhononState sits on the physics ω grid."""
     material = load_material("Al")
     gap = material.Delta_0
@@ -48,14 +48,13 @@ def _state_on_physics_grid(
         n_ph=n_ph_thermal.reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), 0.25),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
 
     kT = KB_UEV_PER_K * T_bath
     f_init = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init,
         gap=gap,
         spectral=spectral,
@@ -71,7 +70,7 @@ def _state_on_custom_grid(
     gap: float = 1.0,
     f: np.ndarray | None = None,
     dynes_gamma: float = 0.0,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Reuse the lightweight phonon fixture with a prescribed QP grid."""
     state = _state_on_physics_grid(T_bath=0.1, num_energy=E.size)
     dE = integration_widths_from_centers(E)
@@ -101,7 +100,7 @@ class TestPublicOccupationValidation:
         bad_f = state.f.astype(complex)
         bad_f[0] = complex(float(bad_f[0].real), imaginary)
         state.f = bad_f
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
 
         with pytest.raises(ValueError, match=r"state\.f must be real-valued"):
             getattr(backend, operation)(state, 1.0e-3)
@@ -112,7 +111,7 @@ class TestApplyCollisions:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
         state = _state_on_physics_grid(T_bath=0.1, num_energy=8)
         state.f = np.zeros_like(state.f)
@@ -137,7 +136,7 @@ class TestApplyCollisions:
             adversarial_rates,
         )
         updated, residual, accepted = (
-            T3DiffusionBackend().apply_collisions_with_diagnostics(
+            DiffusionBackend().apply_collisions_with_diagnostics(
                 state,
                 0.01,
             )
@@ -155,7 +154,7 @@ class TestApplyCollisions:
         )
 
         with pytest.raises(ValueError, match="Dynes-broadened transient collisions"):
-            T3DiffusionBackend().apply_collisions(state, dt=0.01)
+            DiffusionBackend().apply_collisions(state, dt=0.01)
 
     @pytest.mark.parametrize("bad_shape", ["short", "spatial"])
     def test_rejects_invalid_f_shape_before_kernel_build(
@@ -168,12 +167,12 @@ class TestApplyCollisions:
             state.f[:-1] if bad_shape == "short" else state.f[:, None]
         )
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.build_scattering_kernel_base",
+            "qpsim.backends.diffusion.build_scattering_kernel_base",
             lambda *_args, **_kwargs: pytest.fail("kernel build should not run"),
         )
 
         with pytest.raises(ValueError, match="one-dimensional shape"):
-            T3DiffusionBackend().apply_collisions(state, dt=0.01)
+            DiffusionBackend().apply_collisions(state, dt=0.01)
 
     @pytest.mark.parametrize(
         "bad_value",
@@ -188,22 +187,22 @@ class TestApplyCollisions:
         state.f = state.f.copy()  # type: ignore[misc]
         state.f[0] = bad_value
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.build_scattering_kernel_base",
+            "qpsim.backends.diffusion.build_scattering_kernel_base",
             lambda *_args, **_kwargs: pytest.fail("kernel build should not run"),
         )
 
         with pytest.raises(ValueError, match=r"finite occupations in \[0, 1\]"):
-            T3DiffusionBackend().apply_collisions(state, dt=0.01)
+            DiffusionBackend().apply_collisions(state, dt=0.01)
 
     def test_thermal_is_near_fixed_point(self) -> None:
         state = _state_on_physics_grid(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_collisions(state, dt=0.01)
         np.testing.assert_allclose(new_state.f, state.f, atol=1e-8)
 
     def test_preserves_bounds(self) -> None:
         state = _state_on_physics_grid(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         # Perturb f to stress the stepper.
         state.f = np.clip(  # type: ignore[misc]
             state.f * (1.0 + 0.3 * np.cos(state.spectral.E / state.gap)),
@@ -215,10 +214,10 @@ class TestApplyCollisions:
         assert np.all(new_state.f <= 1.0)
 
     def test_phonon_unchanged(self) -> None:
-        # apply_collisions freezes n_ph; transient phonon dynamics are
-        # out of Gate 2 scope.
+        # apply_collisions freezes n_ph; the phonon advance is a separate
+        # step and is not part of it.
         state = _state_on_physics_grid()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_collisions(state, dt=0.01)
         assert new_state.phonon is state.phonon
 
@@ -230,25 +229,24 @@ class TestApplyCollisions:
             n_ph=np.zeros((1, off_grid_omega.size, 1)),
             omega_bins=off_grid_omega.reshape(1, -1),
             tau_l=np.full((1, off_grid_omega.size), 0.25),
-            model=state.phonon.model,
             branches=state.phonon.branches,
         )
         with pytest.raises(ValueError, match="physics grid"):
-            T3DiffusionBackend().apply_collisions(state, dt=0.01)
+            DiffusionBackend().apply_collisions(state, dt=0.01)
 
 
 class TestApplyTransport:
     def test_is_no_op_for_homogeneous(self) -> None:
         state = _state_on_physics_grid()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_transport(state, dt=0.1)
         assert new_state is state  # identical object — nothing moved
 
     def test_rejects_non_1d_f(self) -> None:
         state = _state_on_physics_grid()
         state.f = state.f[:, None]  # type: ignore[misc] — fake spatial axis
-        with pytest.raises(NotImplementedError, match="spatial transport"):
-            T3DiffusionBackend().apply_transport(state, dt=0.1)
+        with pytest.raises(ValueError, match="must be 1D over energy"):
+            DiffusionBackend().apply_transport(state, dt=0.1)
 
 
 class TestApplyGapUpdate:
@@ -260,8 +258,8 @@ class TestApplyGapUpdate:
             1.0,
         )
 
-        short_label = T3DiffusionBackend().apply_gap_update(state, dt=1e-6)
-        long_label = T3DiffusionBackend().apply_gap_update(state, dt=1e6)
+        short_label = DiffusionBackend().apply_gap_update(state, dt=1e-6)
+        long_label = DiffusionBackend().apply_gap_update(state, dt=1e6)
 
         assert short_label.gap == long_label.gap
         np.testing.assert_array_equal(short_label.f, long_label.f)
@@ -284,8 +282,8 @@ class TestApplyGapUpdate:
             )
         )
 
-        projected = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
-        projected_again = T3DiffusionBackend().apply_gap_update(projected, dt=1.0)
+        projected = DiffusionBackend().apply_gap_update(state, dt=1.0)
+        projected_again = DiffusionBackend().apply_gap_update(projected, dt=1.0)
         mass_after = float(
             np.sum(
                 bcs_dos_cell_weights(
@@ -309,7 +307,7 @@ class TestApplyGapUpdate:
             1.0,
         )
 
-        projected = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        projected = DiffusionBackend().apply_gap_update(state, dt=1.0)
         calibration = calibrate_gap(
             T_c=projected.material.T_c,
             T_bath=projected.T_bath,
@@ -329,7 +327,7 @@ class TestApplyGapUpdate:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
         state = _state_on_custom_grid(np.linspace(0.75, 6.0, 241))
         constrained_gaps = iter((0.999, 0.998, 0.997))
@@ -347,14 +345,14 @@ class TestApplyGapUpdate:
         )
 
         with pytest.raises(RuntimeError, match="did not converge in 3 iterations"):
-            T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+            DiffusionBackend().apply_gap_update(state, dt=1.0)
         np.testing.assert_allclose(reference_gaps, [1.0, 0.999, 0.998])
 
     def test_gap_calibration_uses_material_delta_0(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
         state = _state_on_physics_grid(T_bath=0.01)
         original = backend_module.calibrate_gap
@@ -366,7 +364,7 @@ class TestApplyGapUpdate:
 
         monkeypatch.setattr(backend_module, "calibrate_gap", capture_calibration)
 
-        T3DiffusionBackend().apply_gap_update(state, dt=0.1)
+        DiffusionBackend().apply_gap_update(state, dt=0.1)
 
         assert observed == [state.material.Delta_0]
 
@@ -376,14 +374,14 @@ class TestApplyGapUpdate:
         # Δ_eq(T_bath), which is close to Δ(0) for low T_bath / T_c).
         state = _state_on_physics_grid(T_bath=0.01)  # very low T
         gap_before = state.gap
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_gap_update(state, dt=0.1)
         rel_change = abs(new_state.gap - gap_before) / gap_before
         assert rel_change < 0.01  # within 1%
 
     def test_zero_dt_is_no_op(self) -> None:
         state = _state_on_physics_grid()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_gap_update(state, dt=0.0)
         assert new_state is state
 
@@ -391,11 +389,11 @@ class TestApplyGapUpdate:
     def test_nonfinite_dt_is_rejected(self, bad_dt: float) -> None:
         state = _state_on_physics_grid()
         with pytest.raises(ValueError, match="dt must be finite"):
-            T3DiffusionBackend().apply_gap_update(state, dt=bad_dt)
+            DiffusionBackend().apply_gap_update(state, dt=bad_dt)
 
     def test_preserves_f_bounds(self) -> None:
         state = _state_on_physics_grid()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         new_state = backend.apply_gap_update(state, dt=0.01)
         assert np.all(new_state.f >= 0.0)
         assert np.all(new_state.f <= 1.0)
@@ -411,11 +409,11 @@ class TestApplyGapUpdate:
         weights_before = bcs_dos_cell_weights(E, dE, state.gap)
         mass_before = float(np.sum(weights_before * state.f))
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.02,
         )
 
-        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        out = DiffusionBackend().apply_gap_update(state, dt=1.0)
 
         weights_after = bcs_dos_cell_weights(E, dE, out.gap)
         mass_after = float(np.sum(weights_after * out.f))
@@ -436,11 +434,11 @@ class TestApplyGapUpdate:
         )
         mass_before = float(np.sum(weights_before * state.f))
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.1,
         )
 
-        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        out = DiffusionBackend().apply_gap_update(state, dt=1.0)
 
         weights_after = bcs_dos_cell_weights(
             out.spectral.E,
@@ -479,11 +477,11 @@ class TestApplyGapUpdate:
         f_old[active_old] = np.diff(primitive(old_xi))[active_old] / old_widths[active_old]
         state = _state_on_custom_grid(E, gap=gap_old, f=f_old)
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: gap_new,
         )
 
-        out = T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+        out = DiffusionBackend().apply_gap_update(state, dt=1.0)
 
         new_xi = xi_edges(gap_new)
         new_widths = np.diff(new_xi)
@@ -507,12 +505,12 @@ class TestApplyGapUpdate:
         E = np.linspace(0.8, 1.5, 101)
         state = _state_on_custom_grid(E, f=np.full_like(E, 0.2))
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.2,
         )
 
         with pytest.raises(RuntimeError, match="finite E_max boundary"):
-            T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+            DiffusionBackend().apply_gap_update(state, dt=1.0)
 
     def test_rejects_finite_emax_tail_that_cannot_fit_last_cell(
         self,
@@ -521,12 +519,12 @@ class TestApplyGapUpdate:
         E, _ = build_energy_grid(1.0, 0.75, 6.0, 80)
         state = _state_on_custom_grid(E, f=np.full_like(E, 0.999))
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.01,
         )
 
         with pytest.raises(RuntimeError, match="does not fit"):
-            T3DiffusionBackend().apply_gap_update(state, dt=1.0)
+            DiffusionBackend().apply_gap_update(state, dt=1.0)
 
     def test_gap_flow_uses_cell_average_dos_not_midpoint_rho(self) -> None:
         # A constant occupation exposes only the spectral measure error. On a
@@ -556,12 +554,12 @@ class TestApplyGapUpdate:
         E, _ = build_energy_grid(1.0, 1.01, 2.0, 80)
         state = _state_on_custom_grid(E)
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.02,
         )
 
         with pytest.raises(ValueError, match="does not cover"):
-            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
+            DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     @pytest.mark.parametrize("collapsed_gap", [0.0, -1.0, float("nan")])
     def test_rejects_collapsed_or_nonfinite_gap_root(
@@ -571,11 +569,11 @@ class TestApplyGapUpdate:
     ) -> None:
         state = _state_on_physics_grid()
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: collapsed_gap,
         )
         with pytest.raises(RuntimeError, match="collapsed or non-finite"):
-            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
+            DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     def test_rejects_dynes_gap_motion(
         self,
@@ -584,11 +582,11 @@ class TestApplyGapUpdate:
         E = np.linspace(0.8, 2.0, 81)
         state = _state_on_custom_grid(E, dynes_gamma=0.01)
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 1.01,
         )
         with pytest.raises(ValueError, match="dynes_gamma == 0"):
-            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
+            DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     def test_rejects_falling_gap_without_lower_grid_room(
         self,
@@ -597,22 +595,22 @@ class TestApplyGapUpdate:
         E = np.linspace(1.01, 2.0, 81)
         state = _state_on_custom_grid(E)
         monkeypatch.setattr(
-            "qpsim.backends.t3_diffusion.solve_gap",
+            "qpsim.backends.diffusion.solve_gap",
             lambda *_args, **_kwargs: 0.9,
         )
         with pytest.raises(ValueError, match="does not cover"):
-            T3DiffusionBackend().apply_gap_update(state, dt=0.1)
+            DiffusionBackend().apply_gap_update(state, dt=0.1)
 
     def test_rejects_state_spectral_gap_mismatch(self) -> None:
         state = _state_on_physics_grid()
         state.gap *= 0.99
         with pytest.raises(ValueError, match="must match"):
-            T3DiffusionBackend().apply_gap_update(state, dt=0.0)
+            DiffusionBackend().apply_gap_update(state, dt=0.0)
 
 
 class TestStep:
     def test_moving_gap_coupling_is_second_order_and_constrained(self) -> None:
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         initial = _state_on_physics_grid(T_bath=0.3, num_energy=24)
         E = initial.spectral.E
         kT = KB_UEV_PER_K * initial.T_bath
@@ -634,7 +632,7 @@ class TestStep:
             loss_rate=np.zeros_like(E),
         )
 
-        def integrate(dt: float) -> T3DiffusionState:
+        def integrate(dt: float) -> DiffusionState:
             state = initial
             for _ in range(round(0.08 / dt)):
                 state = backend.step(state, dt, external_flux=external_flux)
@@ -671,7 +669,7 @@ class TestStep:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = _state_on_physics_grid(T_bath=0.3, num_energy=24)
         E = state.spectral.E
         state.f = np.clip(
@@ -685,8 +683,8 @@ class TestStep:
         mass_before = float(xi_widths @ coordinates.occupation)
 
         def zero_rates(
-            _self: T3DiffusionBackend,
-            _state: T3DiffusionState,
+            _self: DiffusionBackend,
+            _state: DiffusionState,
             _spectral: SpectralContext,
             f: np.ndarray,
             **_kwargs: object,
@@ -694,7 +692,7 @@ class TestStep:
             return np.zeros_like(f), np.zeros_like(f)
 
         monkeypatch.setattr(
-            T3DiffusionBackend,
+            DiffusionBackend,
             "_moving_gap_energy_collision_rates",
             zero_rates,
         )
@@ -725,9 +723,9 @@ class TestStep:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = _state_on_physics_grid(T_bath=0.3, num_energy=24)
         E = state.spectral.E
         state.f = np.clip(
@@ -759,9 +757,9 @@ class TestStep:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = _state_on_physics_grid(T_bath=0.3, num_energy=24)
         E = state.spectral.E
         state.f = np.clip(
@@ -801,10 +799,9 @@ class TestStep:
             n_ph=thermal_phonon_occupation(omega, state.T_bath).reshape(1, -1, 1),
             omega_bins=omega.reshape(1, -1),
             tau_l=np.full((1, omega.size), 0.25),
-            model=PhononModel.PH0_LOCAL,
             branches=[PhononBranchSpec(name="debye_average")],
         )
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = backend.apply_gap_update(state, dt=1.0)
         photon_params = {
             "omega_0": 2.0 * spacing,
@@ -833,10 +830,10 @@ class TestStep:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import qpsim.backends.t3_diffusion as backend_module
+        import qpsim.backends.diffusion as backend_module
         from qpsim.solvers.etd import etd2_step as real_etd2_step
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = _state_on_physics_grid(T_bath=0.3, num_energy=24)
         E = state.spectral.E
         state.f = np.where(
@@ -847,8 +844,8 @@ class TestStep:
         state = backend.apply_gap_update(state, dt=1.0)
 
         def zero_rates(
-            _self: T3DiffusionBackend,
-            _state: T3DiffusionState,
+            _self: DiffusionBackend,
+            _state: DiffusionState,
             _spectral: SpectralContext,
             f: np.ndarray,
             **_kwargs: object,
@@ -856,7 +853,7 @@ class TestStep:
             return np.zeros_like(f), np.zeros_like(f)
 
         monkeypatch.setattr(
-            T3DiffusionBackend,
+            DiffusionBackend,
             "_moving_gap_energy_collision_rates",
             zero_rates,
         )
@@ -868,8 +865,8 @@ class TestStep:
         gap_before = seeded.gap
 
         def predictor_stiff_rates(
-            _self: T3DiffusionBackend,
-            _state: T3DiffusionState,
+            _self: DiffusionBackend,
+            _state: DiffusionState,
             _spectral: SpectralContext,
             f: np.ndarray,
             **_kwargs: object,
@@ -886,7 +883,7 @@ class TestStep:
             return real_etd2_step(*args, **kwargs)
 
         monkeypatch.setattr(
-            T3DiffusionBackend,
+            DiffusionBackend,
             "_moving_gap_energy_collision_rates",
             predictor_stiff_rates,
         )
@@ -918,7 +915,7 @@ class TestStep:
         # above the data and certified nothing — f ≡ 0 (total annihilation),
         # a uniform 1e-5 population and the energy-reversed array all passed.
         state = _state_on_physics_grid(T_bath=0.01)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         scale = float(np.max(state.f))
         started = backend.step(state, dt=0.01)
         np.testing.assert_allclose(started.f, state.f, rtol=0.0, atol=0.2 * scale)
@@ -942,7 +939,7 @@ class TestStep:
 
     def test_multiple_steps_remain_bounded(self) -> None:
         state = _state_on_physics_grid(T_bath=0.3)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         for _ in range(5):
             state = backend.step(state, dt=0.01)
             assert np.all(state.f >= 0.0)
@@ -958,7 +955,7 @@ class TestRisingGapRecoveryTolerance:
     mass stays frozen in the persistent representation (zero overlap) and
     re-enters if the gap falls."""
 
-    def _grid_state(self) -> T3DiffusionState:
+    def _grid_state(self) -> DiffusionState:
         # Sub-gap guard cells (E_min factor 0.9) so a risen gap up to ~1.05
         # stays covered by the grid bottom; uniform occupation so the
         # stranded xi sliver carries a controlled mass fraction.
@@ -969,7 +966,7 @@ class TestRisingGapRecoveryTolerance:
 
     def test_subcap_stranded_tail_warns_and_materializes(self) -> None:
         state = self._grid_state()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         coordinates = backend._persistent_coordinates_for_state(state)
 
         # Rising gap 1.0 -> 1.005 strands ~6e-4 of the uniform mass above
@@ -995,7 +992,7 @@ class TestRisingGapRecoveryTolerance:
 
     def test_material_truncation_still_rejected_at_cap(self) -> None:
         state = self._grid_state()
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         coordinates = backend._persistent_coordinates_for_state(state)
 
         # Rising gap 1.0 -> 1.05 strands ~6.5e-3 > the 1e-3 cap.
@@ -1005,7 +1002,7 @@ class TestRisingGapRecoveryTolerance:
     def test_tail_fraction_cap_is_independent_of_occupation_amplitude(self) -> None:
         state = self._grid_state()
         state.f = np.where(state.spectral.rho > 0.0, 1e-16, 0.0)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         coordinates = backend._persistent_coordinates_for_state(state)
 
         # The geometry still strands ~0.66% of the mass.  An absolute

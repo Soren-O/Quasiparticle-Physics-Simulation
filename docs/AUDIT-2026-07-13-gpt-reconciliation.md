@@ -41,7 +41,7 @@ GPT also **overstated several severities** and got one diagnosis backwards
 | G6 | Newton fallback bypasses relative/balance certificate | High | partially-confirmed | yes | low |
 | G7 | Nbar loop certifies convergence at pre-advance state | High | partially-confirmed | yes | low |
 | G8 | Near-Tc gap discontinuity (coupling derivation) | Medium | partially-confirmed | yes | low |
-| G9 | T3 apply_collisions: NaN/nonpositive dt + gap mismatch accepted | Medium | partially-confirmed | yes | low |
+| G9 | Diffusion apply_collisions: NaN/nonpositive dt + gap mismatch accepted | Medium | partially-confirmed | yes | low |
 | G10 | Zero-active-bin shortcut: NaN passthrough + KeyError | Medium | partially-confirmed | yes | low |
 | G11 | Spectral caches alias caller arrays / writable | Medium | partially-confirmed | yes | low |
 | G12 | High-energy tail silently zero-filled, no warning | Medium | partially-confirmed | yes | low |
@@ -68,7 +68,7 @@ Observed at default NE=400: low-T x_qp differs **14.77% at 0.15 K** (12.68% at
 (20.5/14.8/10.4/7.3/5.1% at NE=200/400/800/1620/3200). Decisive: scattering
 conserves Σρf·dE to machine zero (rel 5e-17) but the *reported* exact-weight
 number drifts **rel 1.1e-2** under the same number-conserving relaxation.
-`t3_diffusion` even mixes the two measures within one backend. *Fix:* route
+`diffusion` even mixes the two measures within one backend. *Fix:* route
 collision dE-contractions and observables through a single cell-weight vector on
 `SpectralContext` (exact singular weights for pure-BCS, `ρ·dE` for Dynes).
 
@@ -120,7 +120,7 @@ tolerance, e.g. `atol = max(1e-14, 1e-6·max|curve|)` or an rtol.
   Tc, irrelevant at operating T≪Tc. Distinct from the documented "solve_gap
   biased near Tc" warning (this is in `calibrate_gap`, no grid, no warning).
   *Fix:* derive 1/λ from the linearized gap equation at the declared Tc.
-- **G9 — T3 apply_collisions missing guards** (`backends/t3_diffusion.py:866`).
+- **G9 — Diffusion apply_collisions missing guards** (`backends/diffusion.py:866`).
   Observed: dt=NaN → all-NaN output, no raise; `state.gap=999` vs
   `spectral.gap=180` silently ignored. Only reachable by directly invoking the
   backend method (the supported driver validates dt). *Fix:* mirror the sibling

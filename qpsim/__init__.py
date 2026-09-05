@@ -1,8 +1,8 @@
 """qpsim — nonequilibrium superconductor kinetics framework.
 
-Solves Keldysh kinetic equations over the tier hierarchy
-(T1 two-component / T2 scalar-kinetic / T3 diffusion-scalar) with
-orthogonal phonon models (Ph0 local / Ph1 ballistic / Ph2 diffusive).
+Solves the Keldysh kinetic equation for the quasiparticle distribution
+``f(E, r)`` in the isotropic dirty limit, resolved in energy and space and
+coupled to a local phonon bath with acoustic escape to the substrate.
 
 See the repo's docs/ for physics and numerics references.
 """

@@ -1,6 +1,6 @@
 """Layer-1 validation — Mattis-Bardeen σ at the T → 0 analytic limit.
 
-NFP §6.1: at ``f = f_FD(T)`` the σ_1 and σ_2 integrals should reduce
+At ``f = f_FD(T)`` the σ_1 and σ_2 integrals should reduce
 to the textbook BCS coherence-factor expressions (Mattis-Bardeen
 1958). These tests check the two simplest closed-form cases:
 

@@ -1,31 +1,21 @@
 """Phonon state representation with the (N_branch, N_omega, N_spatial) shape.
 
 Carries the non-equilibrium phonon distribution ``n_ph(ω, r)`` over
-possibly multiple phonon branches (single-branch Debye for v1 per
-D5; two-branch L+T for v3), the per-branch frequency grid
-``omega_bins``, and the per-branch bath-relaxation time
-``tau_l(ω)`` (acoustic escape).
+possibly multiple phonon branches, the per-branch frequency grid
+``omega_bins``, and the per-branch bath-relaxation time ``tau_l(ω)``
+(acoustic escape).
 
-``PhononState`` is *data* only — it holds arrays and a model tag.
+``PhononState`` is *data* only — it holds arrays.
 The steady-state solve for ``n_ph`` given ``f`` lives in
-:mod:`qpsim.phonon_models.ph0_local`. ``tau_l`` builders (constant,
+:mod:`qpsim.phonon_models.local`. ``tau_l`` builders (constant,
 acoustic-escape) live in :mod:`qpsim.physics.phonon_escape`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 
 import numpy as np
-
-
-class PhononModel(Enum):
-    """Phonon-sector tier (see Phonon_Model_Decisions.md)."""
-
-    PH0_LOCAL = "ph0_local"          # local bath with escape (v1 target)
-    PH1_BALLISTIC = "ph1_ballistic"  # lateral transport (deferred v2)
-    PH2_DIFFUSIVE = "ph2_diffusive"  # explicit substrate (deferred v3)
 
 
 @dataclass
@@ -48,7 +38,7 @@ class PhononBranchSpec:
 class PhononState:
     """Phonon distribution, frequency grid, and bath escape-time.
 
-    Shape conventions (from NFP §4.1):
+    Shape conventions:
 
     * ``n_ph`` is ``(N_branch, N_omega, N_spatial)``.
     * ``omega_bins`` is ``(N_branch, N_omega)``.
@@ -56,12 +46,11 @@ class PhononState:
     * ``branches`` is a length-``N_branch`` list of
       :class:`PhononBranchSpec`.
 
-    For v1 (single-branch Debye, spatially homogeneous), ``N_branch = 1``
-    and ``N_spatial = 1``. The singleton axes are retained so that
-    extending to multi-branch (v3) or spatially-resolved (Ph1/Ph2) is
-    an additive change.
+    A single-branch Debye, spatially homogeneous state has
+    ``N_branch = 1`` and ``N_spatial = 1``; the axes are always present
+    so that multi-branch and spatially-resolved states share one shape.
 
-    Note that the Gate-0 ban on mixing a dynamic ``n_ph`` with a
+    Note that the ban on mixing a dynamic ``n_ph`` with a
     Rothwarf–Taylor ζ-renormalized τ₀ is *not* enforced here, contrary to
     Phonon_Escape_Time.md §6 and Phonon_Model_Decisions.md: ζ exists
     nowhere in the package, and the τ₀ it would renormalize lives on the
@@ -74,19 +63,12 @@ class PhononState:
     n_ph: np.ndarray
     omega_bins: np.ndarray
     tau_l: np.ndarray
-    model: PhononModel
     branches: list[PhononBranchSpec]
 
     def __post_init__(self) -> None:
         n_ph = np.asarray(self.n_ph, dtype=float)
         omega_bins = np.asarray(self.omega_bins, dtype=float)
         tau_l = np.asarray(self.tau_l, dtype=float)
-
-        if not isinstance(self.model, PhononModel):
-            raise ValueError(
-                "model must be a PhononModel enum value; got "
-                f"{self.model!r}."
-            )
 
         if n_ph.ndim != 3:
             raise ValueError(

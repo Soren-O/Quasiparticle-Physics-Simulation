@@ -8,8 +8,8 @@ thermal floor up to the driven steady state as pair breaking builds
 a non-equilibrium QP population.
 
 Uses the :func:`qpsim.services.transient.run_time_dependent` driver
-from Gate 3 — the companion to the nbar-loop and steady-state
-services that provides transient capability for the v1 T3 backend.
+— the companion to the nbar-loop and steady-state services that
+provides transient capability for the diffusion backend.
 
 Parameters (Fischer 2024 Sec. IV pair-breaking configuration):
 
@@ -49,7 +49,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.pair_breaking_photon import (
     pair_breaking_photon_collision_components,
 )
@@ -63,7 +63,7 @@ from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.services.transient import run_time_dependent
@@ -646,7 +646,7 @@ def _material() -> Material:
     )
 
 
-def _build_state(material: Material) -> T3DiffusionState:
+def _build_state(material: Material) -> DiffusionState:
     E, _ = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
@@ -660,11 +660,10 @@ def _build_state(material: Material) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_BATH).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f_FD = fermi_dirac_occupation(E, T_BATH)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_FD,
         gap=DELTA_0,
         spectral=spectral,
@@ -676,7 +675,7 @@ def _build_state(material: Material) -> T3DiffusionState:
 
 def run() -> PhotonKickResult:
     material = _material()
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     state = _build_state(material)
 
     pb_photon_params = {

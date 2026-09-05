@@ -90,8 +90,7 @@ def test_spatial_and_readout_campaigns_share_cell_center_grid() -> None:
     np.testing.assert_array_equal(strip_coordinates(readout_state), readout_x)
     assert spatial_state.geometry.mesh_size == pytest.approx(expected_dx)
     assert readout_state.geometry.mesh_size == pytest.approx(readout_dx)
-    # One mesh size times the cell count IS the strip length; the retired
-    # state summed a per-cell width array for the same statement.
+    # One mesh size times the cell count IS the strip length.
     assert spatial_state.geometry.mesh_size * spatial_state.f.shape[1] == pytest.approx(LENGTH_UM)
     assert readout_state.geometry.mesh_size * readout_state.f.shape[1] == pytest.approx(LENGTH_UM)
 

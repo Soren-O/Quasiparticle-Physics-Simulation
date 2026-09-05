@@ -4,7 +4,7 @@ This module deliberately rebuilds the collision kernels from a returned state
 instead of trusting solver-internal convergence flags.  Its supported scope is
 the common Fischer Fig. 3/6/7 contract: an ideal-BCS, homogeneous fixed-gap
 state with electron-phonon collisions, one sub-gap photon drive, and either
-thermal phonons or a single finite-escape-time Ph0 branch using the Eq. 12
+thermal phonons or a single finite-escape-time phonon branch using the Eq. 12
 phonon-side kernels.
 
 Keeping the scope narrow is intentional.  A pair-breaking photon drive,
@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_base,
@@ -30,8 +30,7 @@ from qpsim.collisions.phonon import (
     phonon_occupation_matrices_from_state,
 )
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
-from qpsim.phonon_models.ph0_local import phonon_balance_diagnostics
-from qpsim.phonon_models.state import PhononModel
+from qpsim.phonon_models.local import phonon_balance_diagnostics
 from qpsim.physics.kernels import thermal_phonon_occupation
 
 CERTIFICATE_FIELDS: tuple[str, ...] = (
@@ -179,7 +178,7 @@ def _validated_photon_params(
 
 
 def steady_state_certificate(
-    state: T3DiffusionState,
+    state: DiffusionState,
     *,
     photon_params: Mapping[str, float],
     tau_l: float | None,
@@ -190,7 +189,7 @@ def steady_state_certificate(
     certified equation. ``tau_l=None`` certifies the thermal-phonon shortcut,
     where only the quasiparticle balance is solved. A finite positive ``tau_l``
     certifies both the quasiparticle and dynamic-phonon equations and requires
-    the returned state's single Ph0 branch to carry that same constant value.
+    the returned state's single phonon branch to carry that same constant value.
 
     The state's material supplies ``tau_0``, ``T_c``, and ``tau_0_pb_ns``. The
     last quantity is required only for finite ``tau_l``, where the phonon block
@@ -242,8 +241,6 @@ def steady_state_certificate(
         tau_l = float(tau_l)
         if not np.isfinite(tau_l) or tau_l <= 0.0:
             raise ValueError(f"tau_l must be finite and positive; got {tau_l}.")
-        if state.phonon.model is not PhononModel.PH0_LOCAL:
-            raise ValueError("Fischer certificate supports only the Ph0-local model.")
         expected_n_shape = (1, omega.size, 1)
         expected_grid_shape = (1, omega.size)
         if state.phonon.n_ph.shape != expected_n_shape:

@@ -4,8 +4,6 @@ Provides ``build_energy_grid`` (uniform bins between scaled-gap limits)
 and ``integration_widths_from_centers`` (midpoint widths for a
 strictly increasing centers array). Used across the kinetic,
 gap-equation, and observable pipelines.
-
-Ported from the old ``qpsim/numerics/grid.py`` at Gate 2.
 """
 
 from __future__ import annotations

@@ -20,7 +20,7 @@ failures**; the three `validation/diffusion_operators/` benchmark tests
    paper Table III exactly: A1(1,0) default, A1P(1,2), A2(2,2), C(0,−1),
    B(0,−2). `flux_weight` implements 𝒟_L = 1 above / 0 below the local
    edge at every q via the sub-gap zero guard.
-3. **`backends/t3_spatial_1d.py` — CLEAN.** Conservative CN update on
+3. **`backends/spatial.py` — CLEAN.** Conservative CN update on
    u = N₁^p f; harmonic face weights vanish against sub-gap neighbours
    (the explicit zero-flux edge face of paper §V); KL faces carry exactly
    𝒲_L = N₁N₁′ − N₂N₂′ (eq:scalar_BC_energy) as G_N·𝒲_L/dx with current
@@ -58,7 +58,7 @@ failures**; the three `validation/diffusion_operators/` benchmark tests
    √(G_T/R)); the drive-dominated regime where it shows is precisely
    where the Picard/Newton solvers currently fail (the fig6 sweep's
    nan/collapse tail). Removed at: `phonon.py` rates + `J_fn` Jacobian,
-   `t3_spatial_1d.py` inlined collisions, `newton_steady_state.py`
+   `spatial.py` inlined collisions, `newton_steady_state.py`
    analytic Jacobian. `coupled_newton` routes through the shared
    helpers and needed no change (FD-vs-analytic Jacobian tests stayed
    green).
@@ -100,7 +100,7 @@ Lead 2 (spatial runner dropping nondefault fields) fixed with
   convergence, edge-cell-scaled mass bound) and discrete DOS continuity
   (f ≡ 1 invariance both directions + single-step N₁→N₁′ check, exact
   full-grid conservation).
-- `tests/backends/test_t3_spatial_1d.py` — KL weight fixtures
+- `tests/backends/strip/` — KL weight fixtures
   (matched-gap 𝒲_L = 1, normal-contact 𝒲_L = N₁, sub-gap closure,
   operator-level extraction of the face conductance) and the gap-edge
   packet fixture (conservation + zero leakage past the local edge).

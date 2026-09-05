@@ -41,13 +41,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -151,7 +151,7 @@ def _material() -> Material:
     )
 
 
-def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
+def _build_state(material: Material, T_bath: float) -> DiffusionState:
     E, _ = build_energy_grid(
         gap=DELTA_0,
         energy_min_factor=E_MIN_FACTOR,
@@ -165,11 +165,10 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f_FD = fermi_dirac_occupation(E, T_bath)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_FD,
         gap=DELTA_0,
         spectral=spectral,
@@ -181,7 +180,7 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
 
 def run() -> Fig8Result:
     material = _material()
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     T_values = np.array(T_BATH_VALUES)
     x_thermal = np.zeros_like(T_values)
     x_by_power: dict[float, np.ndarray] = {p: np.zeros_like(T_values) for p in POWER_LEVELS}
@@ -253,7 +252,7 @@ def run() -> Fig8Result:
 
 def baseline_path() -> Path:
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "f24_fig8_xqp_pb.csv"
+    return root / "validation" / "baselines" / "constant" / "f24_fig8_xqp_pb.csv"
 
 
 def plot_path() -> Path:

@@ -22,18 +22,18 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.transient import run_time_dependent
 
 
-def _build_state(T_bath: float = 0.1, num_energy: int = 12) -> T3DiffusionState:
+def _build_state(T_bath: float = 0.1, num_energy: int = 12) -> DiffusionState:
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -49,11 +49,10 @@ def _build_state(T_bath: float = 0.1, num_energy: int = 12) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     kT = KB_UEV_PER_K * T_bath
-    return T3DiffusionState(
+    return DiffusionState(
         f=1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0),
         gap=gap,
         spectral=spectral,
@@ -74,12 +73,12 @@ class _DecayBackend:
         self.mu = mu
 
     def apply_collisions(
-        self, state_arg: T3DiffusionState, dt: float, **kwargs: object,
-    ) -> T3DiffusionState:
+        self, state_arg: DiffusionState, dt: float, **kwargs: object,
+    ) -> DiffusionState:
         return replace(state_arg, f=state_arg.f * np.exp(-self.mu * dt))
 
 
-class _FrozenBackend(T3DiffusionBackend):
+class _FrozenBackend(DiffusionBackend):
     """Subclass overriding only ``apply_collisions``: an exact fixed point.
 
     Overriding ``apply_collisions`` alone routes the driver onto the
@@ -89,8 +88,8 @@ class _FrozenBackend(T3DiffusionBackend):
     """
 
     def apply_collisions(
-        self, state_arg: T3DiffusionState, dt: float, **kwargs: object,
-    ) -> T3DiffusionState:
+        self, state_arg: DiffusionState, dt: float, **kwargs: object,
+    ) -> DiffusionState:
         return state_arg
 
 
@@ -213,10 +212,10 @@ class TestFiniteDifferenceCertificate:
         state = _build_state(num_energy=8)
         state.f = np.full(8, 1.0e-30)
 
-        class _ClipOneBin(T3DiffusionBackend):
+        class _ClipOneBin(DiffusionBackend):
             def apply_collisions(
-                self, state_arg: T3DiffusionState, dt: float, **kwargs: object,
-            ) -> T3DiffusionState:
+                self, state_arg: DiffusionState, dt: float, **kwargs: object,
+            ) -> DiffusionState:
                 f = state_arg.f.copy()
                 f[3] = 0.0
                 return replace(state_arg, f=f)

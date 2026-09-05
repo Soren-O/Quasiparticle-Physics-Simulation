@@ -1,19 +1,15 @@
 """Transport on the 1-D reduction of the unified spatial backend.
 
-Translated from ``TestT3Spatial1DTransport`` in
-``tests/backends/test_t3_spatial_1d.py``, which tested the now-retired
-``T3Spatial1DBackend`` / ``T3Spatial1DState``. The same strip is a
-``T3SpatialState`` on a ``strip(N, mesh_size=dx)`` geometry -- a mask of shape
-``(1, N)`` -- so every property here is a statement about the unified backend
-solving the degenerate one-cell-wide case.
+The strip is a ``SpatialState`` on a ``strip(N, mesh_size=dx)`` geometry -- a
+mask of shape ``(1, N)`` -- so every property here is a statement about the
+unified backend solving the degenerate one-cell-wide case.
 
-Two guards the retired backend carried have no counterpart on the unified
-backend and are held as strict xfails rather than dropped, because the
-property they assert is physics, not an implementation detail of the class
-that is going away:
+Two guards are not enforced by the backend and are held as strict xfails
+rather than dropped, because the property they assert is physics, not an
+implementation detail:
 
 * the ``[0, 1]`` clip escalation (warn, then fail) -- ``SpatialTransport.apply``
-  still MEASURES the clipped density, but ``T3SpatialBackend.apply_transport``
+  still MEASURES the clipped density, but ``SpatialBackend.apply_transport``
   discards the diagnostics dict, so nothing acts on it;
 * the pure-BCS transport contract -- a Dynes-broadened context is accepted and
   then silently ignored by the transport dressings.
@@ -25,7 +21,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -47,12 +43,12 @@ def _build_state(
     NE: int = 28,
     NX: int = 11,
     dx: float | None = None,
-) -> T3SpatialState:
-    """The retired ``_build_state`` on a strip geometry.
+) -> SpatialState:
+    """The strip fixture.
 
-    The 1-D tests laid cells on ``x = np.linspace(0.0, 100.0, NX)``, so the
-    spacing is ``100/(NX-1)``, not ``100/NX``. ``dx`` overrides it for the
-    tests that replaced the mesh outright.
+    Cells lie on ``x = np.linspace(0.0, 100.0, NX)``, so the spacing is
+    ``100/(NX-1)``, not ``100/NX``. ``dx`` overrides it for the tests that
+    set the mesh outright.
     """
     material = load_material("Al")
     gap = material.Delta_0
@@ -71,7 +67,7 @@ def _build_state(
     x = np.linspace(0.0, 100.0, NX)
     mesh_size = float(x[1] - x[0]) if dx is None else float(dx)
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(NX, mesh_size=mesh_size),
         spectral=spectral,
@@ -93,12 +89,10 @@ class _FixedSolve:
 def _fixed_op(result: np.ndarray) -> tuple:
     """One unified ``EnergyTransportOp`` whose CN solve is prescribed.
 
-    The retired backend's operator tuple was
-    ``(B, LU, idx, rho_p, n_substeps)``; the unified one is
+    The operator tuple is
     ``(B, LU, idx, rho_p, n_substeps, forcing, operator)`` -- the per-substep
-    boundary forcing and the raw generator were appended so a caller can form
-    the endpoint residual. Only the width changed, not the meaning of the
-    first five entries.
+    boundary forcing and the raw generator ride along so a caller can form
+    the endpoint residual.
     """
     return (
         np.eye(2),
@@ -114,9 +108,7 @@ def _fixed_op(result: np.ndarray) -> tuple:
 class TestStripTransport:
     """Unified-backend transport on a one-cell-wide ``(1, N)`` mask.
 
-    The 1-D reduction of :class:`qpsim.backends.t3_spatial.T3SpatialBackend`.
-    Translated from ``TestT3Spatial1DTransport``, which exercised the retired
-    :class:`qpsim.backends.t3_spatial_1d.T3Spatial1DBackend`.
+    The 1-D reduction of :class:`qpsim.backends.spatial.SpatialBackend`.
     """
 
     def test_large_finite_diffusivity_remains_finite(self) -> None:
@@ -125,7 +117,7 @@ class TestStripTransport:
         state.f[:] = 0.0
         state.f[-1, 0] = 0.2
 
-        out = T3SpatialBackend().apply_transport(state, dt=1e-200)
+        out = SpatialBackend().apply_transport(state, dt=1e-200)
 
         assert np.all(np.isfinite(out.f))
         assert out.f[-1, 1] > 0.0
@@ -133,7 +125,7 @@ class TestStripTransport:
 
     def test_reflective_transport_preserves_uniform_field(self) -> None:
         state = _build_state()
-        out = T3SpatialBackend().apply_transport(state, dt=2.0)
+        out = SpatialBackend().apply_transport(state, dt=2.0)
         np.testing.assert_allclose(out.f, state.f, atol=1e-13)
 
     def test_reflective_transport_spreads_and_conserves_pulse(self) -> None:
@@ -143,7 +135,7 @@ class TestStripTransport:
         f[energy_idx, 0] = 0.2
         state.f = f
 
-        out = T3SpatialBackend().apply_transport(state, dt=5.0)
+        out = SpatialBackend().apply_transport(state, dt=5.0)
 
         assert out.f[energy_idx, 0] < state.f[energy_idx, 0]
         assert out.f[energy_idx, 1] > 0.0
@@ -154,11 +146,9 @@ class TestStripTransport:
         )
 
     def test_transport_conserves_declared_cell_center_measure(self) -> None:
-        # The retired state carried an explicit cell-center array plus a
-        # derived ``cell_widths``; the geometry carries one uniform
-        # ``mesh_size`` instead, and the declared measure is that pitch times
-        # the cell count. The original mesh -- (arange(NX)+0.5)*100/NX -- IS
-        # the unified cell-center convention, so this is the same strip.
+        # The geometry carries one uniform ``mesh_size``, and the declared
+        # measure is that pitch times the cell count. The mesh --
+        # (arange(NX)+0.5)*100/NX -- IS the cell-center convention.
         length_um = 100.0
         NX = 21
         state = _build_state(T_bath=0.0, NX=NX, dx=length_um / NX)
@@ -166,7 +156,7 @@ class TestStripTransport:
         state.f[-1, 0] = 0.2
         before = float(np.sum(state.geometry.mesh_size * state.f[-1]))
 
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         out = state
         for _ in range(20):
             out = backend.apply_transport(out, dt=0.5)
@@ -182,14 +172,12 @@ class TestStripTransport:
         # Opposite-sign, individually small clips cancel in the signed sum.
         # The absolute diagnostic must still register them.
         #
-        # The retired backend did this accounting inside its own
-        # ``apply_transport``; on the unified backend it lives one layer down,
-        # in ``SpatialTransport.apply``, which is where the loop over substeps
-        # now is. This is the reachable half of the original test -- the
-        # escalation on top of it is held as an xfail below.
+        # This accounting lives one layer down from the backend, in
+        # ``SpatialTransport.apply``, which is where the loop over substeps
+        # is. The escalation on top of it is held as an xfail below.
         state = _build_state(T_bath=0.0, NE=2, NX=2, dx=1.0)
         state.f[:] = 0.5
-        transport = T3SpatialBackend()._transport_for(state)
+        transport = SpatialBackend()._transport_for(state)
         ops = [
             _fixed_op(np.array([1.000001, 0.5])),
             _fixed_op(np.array([-0.000001, 0.5])),
@@ -208,7 +196,7 @@ class TestStripTransport:
     ) -> None:
         state = _build_state(T_bath=0.0, NE=2, NX=2, dx=1.0)
         state.f[:] = 0.5
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         transport = backend._transport_for(state)
 
         # Opposite-sign, individually small clips cancel in the signed sum.
@@ -233,7 +221,7 @@ class TestStripTransport:
     ) -> None:
         state = _build_state(T_bath=0.0, NE=1, NX=2, dx=1.0)
         state.f[:] = 0.5
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         transport = backend._transport_for(state)
         ops = [_fixed_op(np.array([1.1, 0.5]))]
         monkeypatch.setattr(
@@ -247,7 +235,7 @@ class TestStripTransport:
         state = _build_state(T_bath=0.0, NE=2, NX=2, dx=1.0)
         state.f[:] = 0.0
         state.f[-1, 0] = 0.2
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
         ops = backend._build_transport_operators(state, dt=100.0)
         assert ops[-1] is not None
@@ -277,10 +265,10 @@ class TestStripTransport:
         monkeypatch.setattr(spatial_module, "_MAX_CN_SUBSTEPS", 2)
 
         with pytest.raises(RuntimeError, match="monotonicity would require"):
-            T3SpatialBackend().apply_transport(state, dt=100.0)
+            SpatialBackend().apply_transport(state, dt=100.0)
 
     @staticmethod
-    def _dynes_state() -> T3SpatialState:
+    def _dynes_state() -> SpatialState:
         state = _build_state()
         dynes = SpectralContext(
             E_bins=state.spectral.E,
@@ -296,11 +284,11 @@ class TestStripTransport:
         # only the DOS is not a self-consistent broadened model and must fail
         # loudly (paper's Dynes footnote).
         with pytest.raises(ValueError, match="pure-BCS"):
-            T3SpatialBackend().apply_collisions(self._dynes_state(), dt=1.0)
+            SpatialBackend().apply_collisions(self._dynes_state(), dt=1.0)
 
     def test_dynes_context_rejected_by_transport(self) -> None:
         # The transport dressings are clean-BCS traces (D_L indicator, KL
         # weight from real N_1/N_2, identity N_1^2 - N_2^2 = 1); a
         # Dynes-broadened context invalidates them and must fail loudly.
         with pytest.raises(ValueError, match="pure-BCS"):
-            T3SpatialBackend().apply_transport(self._dynes_state(), dt=1.0)
+            SpatialBackend().apply_transport(self._dynes_state(), dt=1.0)

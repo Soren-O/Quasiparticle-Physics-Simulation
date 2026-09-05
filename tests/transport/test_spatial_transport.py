@@ -1,9 +1,8 @@
 """Tests for qpsim.transport.spatial_transport.
 
-The gate: a full transport step on a one-cell-wide geometry must reproduce
-the retired 1-D backend's transport bit for bit. That backend already
-carries validated harmonic face weights and monotonicity subcycling, so
-matching it is a stronger statement than any single analytic check.
+Covers the operator cache, transport on general geometries -- a
+non-contiguous active region, spreading in both directions on a 2-D mask,
+conservation under reflective edges -- and inhomogeneous Dirichlet edges.
 """
 
 from __future__ import annotations
@@ -150,7 +149,7 @@ class TestGeneralGeometry:
 
 class TestInhomogeneousBoundary:
     def test_a_dirichlet_edge_drives_the_solution_toward_its_value(self):
-        """The capability the 1-D backend has no path for at all."""
+        """A held edge value injects density and it falls away inward."""
         geom = strip(6)
         conditions = geom.conditions()
         # The left end of the strip is held at a raised occupation.

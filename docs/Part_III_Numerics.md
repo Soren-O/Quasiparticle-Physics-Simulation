@@ -1,8 +1,7 @@
 # Part III — Numerics
 
 Index of the discretizations and solvers in `qpsim.solvers` and the
-companion driver services. The canonical reference remains
-`New Framework Plan.md` §4.3; this document points at the live code.
+companion driver services. This document points at the live code.
 
 ## Discretizations
 
@@ -26,9 +25,18 @@ companion driver services. The canonical reference remains
   the binary64 subnormal range, returns zero only on physical underflow, and
   saturates at the largest finite value only when the mathematical occupation
   exceeds binary64 range.
-- **Spatial grid** (`qpsim.grid.spatial_grid`): uniform 1D mesh. The
-  `T3Spatial1DBackend` uses a conservative finite-volume nearest-neighbour
-  flux operator with reflective ends and optional two-gap interfaces.
+- **Spatial grid** (`qpsim.grid.spatial_grid`): a uniform mesh over a cell
+  mask, with the boundary-condition dataclasses and Laplacian assembly that
+  go with it. `SpatialBackend` uses a conservative finite-volume
+  nearest-neighbour flux operator over that mask. Every exposed face
+  carries its own condition — `reflective`, `absorbing`, `dirichlet`,
+  `neumann` or `robin` — declared in `SpatialState.conditions` and resolved
+  face by face by `qpsim.transport.spatial_operator.face_condition_lookup`;
+  a state that declares none is reflective on every face, which is the
+  closed-device default. Absorbing, Dirichlet, Neumann and Robin faces each
+  carry their own analytic benchmark (`qpsim/webui/bench/bc_*.py`); Robin is
+  first order because β is evaluated on the cell centre. Two-gap interfaces
+  are optional and add their face conductances to the same assembly.
 
 ## Steady-state solvers (`qpsim.solvers.*`)
 
@@ -65,7 +73,7 @@ companion driver services. The canonical reference remains
   reveals a larger nonlinear loss is rejected and retried at a shorter step.
   Accepted internal steps are counted independently of rejected trials.
   The fixed-gap method is verified second-order in `dt`.
-- `T3DiffusionBackend.step` — for a self-consistent moving ideal-BCS gap,
+- `DiffusionBackend.step` — for a self-consistent moving ideal-BCS gap,
   stage-constrained ETD2 advances cell-average occupation on persistent
   material coordinates `xi = sqrt(E**2 - Delta**2)`. Predictor and corrector
   materialize onto the fixed energy work grid and solve the branch-anchored
@@ -94,23 +102,24 @@ companion driver services. The canonical reference remains
   by callers that need it (e.g. fig6), not via this router. Shape and grid
   validation happens at this layer. Finite-`τ_l` convergence combines a local
   `atol + rtol` occupation-change test, an amplitude-independent normwise
-  fixed-point guard, and a normwise physical Ph0 balance certificate assembled
-  from the already computed affine source/sink coefficients. The generic
-  `picard_balance_tol` is `max(10*picard_tol, 1e-6)` when omitted; candidate
-  acceptance requires this physical certificate as well as both iterate tests.
-  The Ph0 certificate retains the raw direct-form error but gates the positive
-  excess beyond an operation-level and half-ULP bound for the nearest
-  representable affine root. This matters when a bath-pinned correction is
-  smaller than one binary64 spacing; resolvable multi-ULP errors and negative or
-  non-finite roots still fail. Validation sweeps pass explicit limits and
-  independently reassemble both raw and representability-aware diagnostics.
+  fixed-point guard, and a normwise physical phonon balance certificate
+  assembled from the already computed affine source/sink coefficients. The
+  generic `picard_balance_tol` is `max(10*picard_tol, 1e-6)` when omitted;
+  candidate acceptance requires this physical certificate as well as both
+  iterate tests. The phonon certificate retains the raw direct-form error but
+  gates the positive excess beyond an operation-level and half-ULP bound for
+  the nearest representable affine root. This matters when a bath-pinned
+  correction is smaller than one binary64 spacing; resolvable multi-ULP errors
+  and negative or non-finite roots still fail. Validation sweeps pass explicit
+  limits and independently reassemble both raw and representability-aware
+  diagnostics.
   A finite-escape Picard caller may supply `initial_phonon_guess` on the exact
-  QP-derived frequency grid. `T3DiffusionBackend.steady_state` forwards both
+  QP-derived frequency grid. `DiffusionBackend.steady_state` forwards both
   `f` and same-grid `n_ph`, so parameter sweeps continue the full nonlinear
   state rather than silently restarting the phonons at the bath on every row.
-  The backend also requires `state.gap == state.spectral.gap` and a
-  `PH0_LOCAL` model before building any Ph0 operator.
-- `T3DiffusionBackend.solve_steady_state(self_consistent_gap=True)` — the outer
+  The backend also requires `state.gap == state.spectral.gap` before
+  building any phonon operator.
+- `DiffusionBackend.solve_steady_state(self_consistent_gap=True)` — the outer
   loop completes a fixed-gap kinetic solve, evaluates a branch-anchored raw gap
   map on that exact occupation, and returns that same state only if the
   unrelaxed relative map residual passes `gap_tol`. Under-relaxation changes the
@@ -138,15 +147,16 @@ companion driver services. The canonical reference remains
   "no further improvement possible") raises.
   `solve_rate_equation_steady_state_multi_seed`
   brackets the multi-stable branch space and defaults to the minimum-residual
-  fixed point. The historical max-`x_L` picker is deprecated.
+  fixed point. The max-`x_L` picker is deprecated and emits a
+  `DeprecationWarning` when selected.
 - `rate_equation_coefficients.py` — SI Notes III/IV/V coefficient
   integrals. See `M25_coefficient_integrals.md` for the formulas.
 
 ## Stability and safety floors
 
 - `phonon_steady_state` raises on singular or runaway phonon balances
-  rather than clipping negative occupations to zero. A "no Ph0 fixed
-  point exists" condition is now a loud `RuntimeError`.
+  rather than clipping negative occupations to zero. A "no phonon fixed
+  point exists" condition is a loud `RuntimeError`.
 - `PhononState.__post_init__` validates finite/nonneg `n_ph`,
   finite/nonneg/strict-monotone `omega_bins`, and finite/nonneg
   `tau_l`.

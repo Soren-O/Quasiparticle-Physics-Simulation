@@ -4,10 +4,10 @@ Returns normalized conductivities ``σ₁/σ_N`` and ``σ₂/σ_N`` — the
 normal-state ``σ_N`` cancels out of the ``Q_i`` and ``δω/ω``
 observables that build on these integrals.
 
-Ported from ``qpsim/numerics/observables.py`` at Gate 2. The super-gap
-``σ₁`` integral pairs the analytic pure-BCS DOS measure of each cell with the
-remaining regular factor sampled at that cell's center — the finite-volume
-convention of ``qpsim.physics.bcs_quadrature``. The measure is exact, but the
+The super-gap ``σ₁`` integral pairs the analytic pure-BCS DOS measure of each
+cell with the remaining regular factor sampled at that cell's center — the
+finite-volume convention of ``qpsim.physics.bcs_quadrature``. The measure is
+exact, but the
 pairing is not: a gap-edge cell's measure is concentrated near its lower edge
 while ``f``, ``ρ(E+ω₀)`` and ``K⁺`` all fall steeply away from that edge, so
 ``σ₁`` is one-signed LOW and converges only as ``O(dE^{3/2})``. Against

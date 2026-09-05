@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.fields.drive import cell_coordinates
 from qpsim.fields.initial import (
     InitialConditionError,
@@ -183,11 +183,11 @@ class TestItActuallyRelaxes:
         material, spectral = _spectral(ne=20)
         geom = strip(cells, mesh_size=5.0)
         seeded = seed_occupation(spectral, cells, T_BATH, excess=excess)
-        state = T3SpatialState(
+        state = SpatialState(
             f=seeded.f, geometry=geom, spectral=spectral,
             material=material, T_bath=T_BATH,
         )
-        return spectral, state, T3SpatialBackend().run(
+        return spectral, state, SpatialBackend().run(
             state, dt=1.0, max_time=float(steps), stop_tol=0.0,
             snapshot_interval=float(steps) / 6.0,
         )

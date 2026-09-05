@@ -1,4 +1,4 @@
-"""Tests for the v1 transient driver (collisions-only, frozen n_ph)."""
+"""Tests for the transient driver (collisions-only, frozen n_ph)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices.external_flux import ExternalFlux
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.bcs_quadrature import bcs_dos_cell_weights
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
@@ -25,7 +25,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
 
-def _build_state(T_bath: float = 0.1, num_energy: int = 40) -> T3DiffusionState:
+def _build_state(T_bath: float = 0.1, num_energy: int = 40) -> DiffusionState:
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -41,10 +41,9 @@ def _build_state(T_bath: float = 0.1, num_energy: int = 40) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    return T3DiffusionState(
+    return DiffusionState(
         f=_fermi_dirac(E, T_bath),
         gap=gap,
         spectral=spectral,
@@ -136,7 +135,7 @@ class TestEarlyStopping:
     def test_stop_residual_reuses_built_collision_operators(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.backends import t3_diffusion as backend_module
+        from qpsim.backends import diffusion as backend_module
 
         state = _build_state(T_bath=0.1, num_energy=12)
         original = backend_module.build_scattering_kernel_base
@@ -165,13 +164,13 @@ class TestEarlyStopping:
     def test_subclass_without_diagnostics_uses_bound_safe_fallback(self) -> None:
         state = replace(_build_state(T_bath=0.1, num_energy=8), f=np.ones(8))
 
-        class OverrideBackend(T3DiffusionBackend):
+        class OverrideBackend(DiffusionBackend):
             def apply_collisions(
                 self,
-                state_arg: T3DiffusionState,
+                state_arg: DiffusionState,
                 dt: float,
                 **kwargs: object,
-            ) -> T3DiffusionState:
+            ) -> DiffusionState:
                 return state_arg
 
         result = run_time_dependent(
@@ -241,8 +240,8 @@ class TestSnapshotCadence:
         class NoOpBackend:
             @staticmethod
             def apply_collisions(
-                state_arg: T3DiffusionState, dt: float, **kwargs: object,
-            ) -> T3DiffusionState:
+                state_arg: DiffusionState, dt: float, **kwargs: object,
+            ) -> DiffusionState:
                 return state_arg
 
         result = run_time_dependent(
@@ -264,8 +263,8 @@ class TestSnapshotCadence:
         class NoOpBackend:
             @staticmethod
             def apply_collisions(
-                state_arg: T3DiffusionState, dt: float, **kwargs: object,
-            ) -> T3DiffusionState:
+                state_arg: DiffusionState, dt: float, **kwargs: object,
+            ) -> DiffusionState:
                 return state_arg
 
         result = run_time_dependent(
@@ -289,8 +288,8 @@ class TestTimeVaryingExternalFlux:
         class FluxOnlyBackend:
             @staticmethod
             def apply_collisions(
-                state_arg: T3DiffusionState, dt: float, **kwargs: object,
-            ) -> T3DiffusionState:
+                state_arg: DiffusionState, dt: float, **kwargs: object,
+            ) -> DiffusionState:
                 flux = kwargs["external_flux"]
                 assert isinstance(flux, ExternalFlux)
                 return replace(state_arg, f=state_arg.f + dt * flux.gain)
@@ -326,8 +325,8 @@ class TestTimeVaryingExternalFlux:
         class FluxOnlyBackend:
             @staticmethod
             def apply_collisions(
-                state_arg: T3DiffusionState, dt: float, **kwargs: object,
-            ) -> T3DiffusionState:
+                state_arg: DiffusionState, dt: float, **kwargs: object,
+            ) -> DiffusionState:
                 flux = kwargs["external_flux"]
                 assert isinstance(flux, ExternalFlux)
                 return replace(state_arg, f=state_arg.f + dt * flux.gain)
@@ -369,7 +368,7 @@ class TestObservables:
         state = _build_state(T_bath=0.1, num_energy=20)
         call_count = [0]
 
-        def _counting_obs(_state: T3DiffusionState) -> float:
+        def _counting_obs(_state: DiffusionState) -> float:
             call_count[0] += 1
             return float(call_count[0])
 

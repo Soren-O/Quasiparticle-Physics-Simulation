@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend
+from qpsim.backends.diffusion import DiffusionBackend
 from qpsim.observables.density import qp_fraction
 
 from validation.fischer_2024._artifact import (
@@ -113,7 +113,7 @@ def _columns() -> list[str]:
 
 def run() -> Figs57Result:
     material = _material()
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
 
     state = _build_state(material, T_BATH_FE)
 
@@ -176,7 +176,7 @@ def run() -> Figs57Result:
 
 def baseline_path() -> Path:
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "f24_figs_5_7_fe_pb.csv"
+    return root / "validation" / "baselines" / "constant" / "f24_figs_5_7_fe_pb.csv"
 
 
 def plot_path() -> Path:

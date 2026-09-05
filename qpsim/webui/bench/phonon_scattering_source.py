@@ -60,7 +60,7 @@ _KB_UEV_PER_K = 86.17333262145
 # phonon field is per cell and this term needs no transport to act.
 #
 # NOT SET HERE, deliberately: ``collisions.phonon_scattering_source``. On this
-# route it is INERT — run_kinetics does not forward it, T3SpatialBackend does
+# route it is INERT — run_kinetics does not forward it, SpatialBackend does
 # not accept it, and SpatialCollisions.advance_phonons calls
 # compute_phonon_source_sink with ``enable_scattering`` alone. Writing it into
 # the case would state a switch that is not honoured, which is exactly the
@@ -697,7 +697,7 @@ register(
             "collisions.phonon_scattering_source (AUDIT: the original reported "
             "three wiring gaps and this is a fourth of the same kind, on a "
             "different route). On kinetics the phonon-source flags reach "
-            "nothing: run_kinetics does not forward them and T3SpatialBackend "
+            "nothing: run_kinetics does not forward them and SpatialBackend "
             "does not take them. So the null run removes the quasiparticle-side "
             "scattering channel as well. That is harmless HERE — at frozen f the "
             "quasiparticle side moves nothing measurable, and the phonon field "

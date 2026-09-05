@@ -1,6 +1,5 @@
-"""Numerical solvers (tier-agnostic).
+"""Numerical solvers.
 
-Ported / written (Gate 2):
 - anderson.py — Type-II Anderson extrapolation helper
 - coupled_newton.py — joint (f, n_ph) Newton (unlocks F23 ratio=10)
 - crank_nicolson.py — Crank–Nicolson operator builder for parabolic solves

@@ -47,7 +47,7 @@ re-derives ``delta_eq`` from a fresh continuum ``calibrate_gap`` and
 ``_require_close``s the stored column against it, so a grid-consistent
 producer would be *rejected*. Adopting the grid-consistent reference is
 provenance-breaking for every promoted row (and needs the validator and
-``test_fig6_paper`` re-pinned with it), so it is deferred to the next
+``test_fig6_paper`` re-pinned with it), so it waits for the next
 regeneration. Until then the three offsets above are pinned by
 ``tests/review_2026_08_03/test_P14.py`` so the convention is an explicit
 choice rather than an incidental one.
@@ -103,10 +103,10 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import (
+from qpsim.backends.diffusion import (
+    DiffusionBackend,
+    DiffusionState,
     SelfConsistentGapCollapseError,
-    T3DiffusionBackend,
-    T3DiffusionState,
 )
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
@@ -123,7 +123,7 @@ from qpsim.observables.gap_suppression import (
     gap_suppression_ratio_from_integrals,
     thermal_gap_integral_direct,
 )
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics import build_tau_l, calibrate_gap, solve_gap
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
@@ -384,8 +384,8 @@ def _build_state(
     *,
     f_seed: np.ndarray | None = None,
     n_ph_seed: np.ndarray | None = None,
-    continuation_seed: T3DiffusionState | None = None,
-) -> T3DiffusionState:
+    continuation_seed: DiffusionState | None = None,
+) -> DiffusionState:
     """Build a state, optionally cloning a complete same-temperature seed.
 
     A self-consistent continuation seed carries its gap and matching
@@ -432,12 +432,11 @@ def _build_state(
         n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
         omega_bins=omega_2d,
         tau_l=build_tau_l(TAU_L_MODEL, omega_2d, material),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     if f_seed is None:
         f_seed = fermi_dirac_occupation(spectral.E, T_bath)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_seed.copy(),
         gap=DELTA_0,
         spectral=spectral,
@@ -448,10 +447,10 @@ def _build_state(
 
 
 def _solve_picard_sc_gap(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float] | None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Joint Picard + self-consistent BCS gap solve.
 
     Inner Picard iterates (f, n_ph); outer iteration re-solves the BCS
@@ -497,10 +496,10 @@ def _solve_picard_sc_gap(
 
 
 def _solve_coupled_newton_fixed_gap(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float] | None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Joint coupled-Newton solve at fixed Delta0."""
     return backend.steady_state(
         state,
@@ -526,10 +525,10 @@ def _solve_coupled_newton_fixed_gap(
 
 
 def _solve_picard_fixed_gap(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float] | None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Strict fixed-gap Picard solve used when coupled Newton stalls.
 
     Coupled Newton is the fast path for the paper grid, but at a fully
@@ -558,10 +557,10 @@ def _solve_picard_fixed_gap(
 
 
 def _solve_fixed_gap_kinetics(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float] | None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Use coupled Newton first, with strict fixed-gap Picard as fallback."""
     try:
         return _solve_coupled_newton_fixed_gap(backend, state, photon_params)
@@ -717,19 +716,19 @@ class _PointSolveError(RuntimeError):
 
 
 def _solve_and_measure(
-    backend: T3DiffusionBackend,
+    backend: DiffusionBackend,
     material: Material,
     spectral: SpectralContext,
     T_bath: float,
     n_bar_val: float,
-    continuation_seed: T3DiffusionState | None,
+    continuation_seed: DiffusionState | None,
     *,
     fixed_gap_kinetics: bool,
     direct_gap_observable: bool,
     thermal_integral: float | None,
     delta_eq: float,
     delta_T: float,
-) -> tuple[T3DiffusionState, float, float, float, dict[str, float]]:
+) -> tuple[DiffusionState, float, float, float, dict[str, float]]:
     """Build a seeded state, solve, and measure the gap-suppression observable.
 
     Returns ``(converged, obs, delta_driven, x_qp, certificate)``; raises
@@ -815,7 +814,7 @@ def _solve_and_measure(
 
 
 def _solve_sweep(
-    backend: T3DiffusionBackend,
+    backend: DiffusionBackend,
     material: Material,
     spectral: SpectralContext,
     tau_0_pb: float,
@@ -927,7 +926,7 @@ def _solve_sweep(
             obs_eq53[i, :] = np.nan
             continue
 
-        continuation_seed: T3DiffusionState | None = None
+        continuation_seed: DiffusionState | None = None
         tau_l_val: float | None = None
         for j, n_bar in enumerate(drives):
             if tau_l_val is None:
@@ -954,7 +953,7 @@ def _solve_sweep(
             # An explicitly classified self-consistent superconducting collapse
             # is recorded as NaN. Every other solver or certificate failure
             # propagates; fixed-gap/direct mode has no outer gap collapse.
-            converged: T3DiffusionState | None = None
+            converged: DiffusionState | None = None
             certificate: dict[str, float] | None = None
             obs = delta_driven_pt = x_qp_pt = float("nan")
             ok = False
@@ -1084,7 +1083,7 @@ def solve(
 
     tau_0_pb = _compute_tau_0_pb(spectral)
 
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
 
     if direct_gap_observable:
         if fixed_gap_kinetics:
@@ -1165,7 +1164,7 @@ def solve_temperature_row(
     material = _fischer_material()
     _, _, spectral = _build_grid_and_spectral()
     tau_0_pb = _compute_tau_0_pb(spectral)
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     (
         T_star,
         delta_eq_per_T,

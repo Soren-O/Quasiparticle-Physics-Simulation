@@ -36,7 +36,7 @@ solves for a dynamic phonon occupation is affected:
 | `fig3_solve.py` | sets `use_phonon_side_kernel=True` (2 call sites) | yes |
 | `fig5_solve.py` | finite `tau_l = 1.0 * tau_0_pb` | yes |
 | `fig7_solve.py` | finite `tau_l` | yes |
-| fig6 / C6 / C7 | dynamic Ph0 | yes |
+| fig6 / C6 / C7 | dynamic phonons | yes |
 | F24 fig8, figs 9-13 | `use_thermal_phonons=True`, `tau_l = 0` | **no** |
 
 So the blast radius is fig3, fig5, fig6 and fig7 — expect rate-level shifts of
@@ -331,7 +331,7 @@ costs more than it buys. Check here before filing any of them again.
 These advance the whole-tree source digest. Landing them separately would pay
 the recertification cost once per commit, so they are one changeset.
 
-### P05 KL series half-cell (t3_spatial_1d.py:600)
+### P05 KL series half-cell (spatial.py:600)
 
 - **Verdict:** APPLY (high confidence)
 - **Held-back doc line:** 20
@@ -342,11 +342,11 @@ the recertification cost once per commit, so they are one changeset.
 
 **Measured.** My reconciliation checks: doc header at line 20 confirmed; interface_trap.py named as mandatory companion in the doc itself (line 54); gap_gradient_drift benchmark is untouched by this face (item-57 adjudicator measured s_L==s_R bitwise at every spatial face), so the P10/P13 commit is order-independent of this one. Adjudicator's numbers (machine-precision series reference, substeps 18->9, interface_trap RuntimeError 5.6e-2 vs 1e-8 without the companion) accepted; internally consistent.
 
-**Risk.** Shares Bundle R's single digest advance (see item 588 note for the bundle definition). MANDATORY same-change companions or the tree goes red: re-pin tests/backends/test_t3_spatial_1d.py:978; fix validation/diffusion_operators/interface_trap.py:135-156 (fires RuntimeError otherwise, loud not silent); docs/Diffusion_Operators.md L112-118 + docstring/limitation-comment reverts.
+**Risk.** Shares Bundle R's single digest advance (see item 588 note for the bundle definition). MANDATORY same-change companions or the tree goes red: re-pin tests/backends/strip/test_strip_kl_weights.py:978; fix validation/diffusion_operators/interface_trap.py:135-156 (fires RuntimeError otherwise, loud not silent); docs/Diffusion_Operators.md L112-118 + docstring/limitation-comment reverts.
 
-**Note.** BUNDLE R member. One commit with doc-line-57 (same function; patches compose in either order; together the series bulk term at a cut interface bin becomes min-based). CAUTION: t3_spatial_1d.py is also edited by doc-line-468's mirror hunk (lines 122-125) — coordinate the three edits to this file in one merge.
+**Note.** BUNDLE R member. One commit with doc-line-57 (same function; patches compose in either order; together the series bulk term at a cut interface bin becomes min-based). CAUTION: spatial.py is also edited by doc-line-468's mirror hunk (lines 122-125) — coordinate the three edits to this file in one merge.
 
-### P05 q==0 stepped face min(s_L,s_R) (t3_spatial_1d.py:594)
+### P05 q==0 stepped face min(s_L,s_R) (spatial.py:594)
 
 - **Verdict:** APPLY (high confidence)
 - **Held-back doc line:** 57
@@ -444,7 +444,7 @@ the recertification cost once per commit, so they are one changeset.
 
 **Measured.** My checks: fischer fig3/fig5/fig7 producers ALL run the dynamic phonon-side path (fig3_solve.py:290/314-324 use_phonon_side_kernel=True + coupled_newton analytic_cross=True; fig5_solve.py:90 + tau_l=1.0*tau_0_pb; fig7_solve.py:74 finite TAU_L) — so this item moves fig3/5/7 as well as fig6, i.e. the ~2.5h fig3 republish becomes a RE-BASELINE, not a bitwise check. F24 fig8 and figs_9_13 are tau_l=0/use_thermal_phonons (fig8_paper.py:232, figs_9_13:196) — immune, per the item's own thermal-bath scope. Adjudicator's ledger/convergence/fixed-point numbers accepted.
 
-**Risk.** Full recertification is the point; every dynamic-Ph0 figure and C6/C7 move up to ~2-3% at rate level (fixed-point shifts smaller, thermal anchors unchanged). If the companion Jacobian edit (phonon_collision_jacobian_nph -> coupled_newton.py:642 consumer) or the precomputed K_r product sites (newton_steady_state.py:205, t3_diffusion fast paths) are missed, FD-vs-analytic Jacobian tests fail and Newton degrades — those are same-commit requirements, not options.
+**Risk.** Full recertification is the point; every dynamic-phonon figure and C6/C7 move up to ~2-3% at rate level (fixed-point shifts smaller, thermal anchors unchanged). If the companion Jacobian edit (phonon_collision_jacobian_nph -> coupled_newton.py:642 consumer) or the precomputed K_r product sites (newton_steady_state.py:205, diffusion fast paths) are missed, FD-vs-analytic Jacobian tests fail and Newton degrades — those are same-commit requirements, not options.
 
 **Note.** BUNDLE R co-anchor (with 588). MANDATORY pre-merge gates before the recert starts: run tests/collisions/test_phonon.py:244-254 (tau_0^PB pin) and :883-918 (Kaplan Eq.8 continuum check) and the FD-vs-analytic Jacobian tests against the full patch — the adjudicator reasoned these survive but did not report running them post-patch. Item 168 lands in the same bundle in its reshaped form; C6 'recorded' entries re-pin in window W2. Document (do not 'fix') the residual convention wart: the thermal-bath path stays uncorrected, so dynamic tau_l->0 differs from thermal-bath by ~2-3% in threshold channels.
 
@@ -457,11 +457,11 @@ the recertification cost once per commit, so they are one changeset.
 
 **Rationale.** Defect fully verified by both adjudicators independently (0 shared omega bins on shipped defaults; 2537-2672x dynamical error on incommensurate grids; 2.8-7.4% silent x_qp bias end-to-end). Fail-loud on dynamic-phonon entry points only is the right posture and mirrors the repo's own photon-lattice policy; every certified artifact is commensurate so nothing published moves. Both prepared patches are wrong as written (unconditional placement bricks harmless thermal-bath paths; the 364 variant's n_valid suggestion formula returns the same invalid bin count it rejects).
 
-**Measured.** My checks: confirmed the two doc items are the same guard filed twice (headers at 135 and 364, phonon.py:306 vs ph0_local.py:397); confirmed live exposure — scripts/run_prelim_readout_heating_overnight.py NE=101 at lines 109/126 with its own comment at 720 acknowledging the off-grid mode; confirmed ledger 3.11 requires keying the coupled_newton guard on canonically-built maps, which the merged design honors. Structural/dynamical numbers inherited from the two adjudicators, mutually consistent.
+**Measured.** My checks: confirmed the two doc items are the same guard filed twice (headers at 135 and 364, phonon.py:306 vs local.py:397); confirmed live exposure — scripts/run_prelim_readout_heating_overnight.py NE=101 at lines 109/126 with its own comment at 720 acknowledging the off-grid mode; confirmed ledger 3.11 requires keying the coupled_newton guard on canonically-built maps, which the merged design honors. Structural/dynamical numbers inherited from the two adjudicators, mutually consistent.
 
 **Risk.** Bundle R digest cost. Intended availability break: incommensurate DYNAMIC configs (webui 400-bin default in dynamic modes, 64-bin spatial preset, NE=101 campaign) start raising — so shipped defaults must move 400->405 and 64->63 or 66 IN THE SAME COMMIT, and the error message must give CORRECT alternative bin counts (fix the broken n_valid formula).
 
-**Note.** BUNDLE R member — ONE shared validator, implemented once for both this item and doc-line 364: structural check on the built maps (every diff-lattice bin above 2Delta must be shared; tolerance-free, auto-exempts narrow windows and E_min=0) per the 364 adjudicator's stronger evidence, called from ph0_local.phonon_steady_state, coupled_newton_solve setup (keyed on canonically-built maps per ledger 3.11), t3_diffusion dynamic branch, and webui validate_setup for dynamic modes; scripts runner calls it digest-free. Update tests/review_2026_08_03/test_P16.py::TestPhononOmegaLatticeCommensurability same commit. IMMEDIATE digest-free side action (do now, before the bundle): move the overnight campaign to NE=100 in scripts/ — its current numbers carry a 7-15%-class bias, though the campaign is already flagged stale for independent blind-spot reasons. The rate-preserving omega remap (D3 reversal) remains a recorded open physicist design item (ledger section 2) — this guard neither blocks nor prejudges it; do not fold it in.
+**Note.** BUNDLE R member — ONE shared validator, implemented once for both this item and doc-line 364: structural check on the built maps (every diff-lattice bin above 2Delta must be shared; tolerance-free, auto-exempts narrow windows and E_min=0) per the 364 adjudicator's stronger evidence, called from local.phonon_steady_state, coupled_newton_solve setup (keyed on canonically-built maps per ledger 3.11), diffusion dynamic branch, and webui validate_setup for dynamic modes; scripts runner calls it digest-free. Update tests/review_2026_08_03/test_P16.py::TestPhononOmegaLatticeCommensurability same commit. IMMEDIATE digest-free side action (do now, before the bundle): move the overnight campaign to NE=100 in scripts/ — its current numbers carry a 7-15%-class bias, though the campaign is already flagged stale for independent blind-spot reasons. The rate-preserving omega remap (D3 reversal) remains a recorded open physicist design item (ledger section 2) — this guard neither blocks nor prejudges it; do not fold it in.
 
 ### P01 QP/phonon pair ledger residual diagnostic (phonon.py:449)
 
@@ -538,7 +538,7 @@ the recertification cost once per commit, so they are one changeset.
 
 **Note.** BUNDLE R member; same commit as 297. Companions: rewrite the two test_P16 raise-pinning tests as value pins (e.g. clip=0.212047 for the f0=1/f1=0.3 fixture); fix the edge_samples_from_centers docstring and centers-branch comment; keep the strict samples='edges' DATA check; recommended RuntimeWarning when the clip bites beyond ~64 eps.
 
-### P16 Ph0 omega-lattice commensurability guard, ph0_local.py:397 (twin of doc-line 135)
+### P16 phonon omega-lattice commensurability guard, local.py:397 (twin of doc-line 135)
 
 - **Verdict:** APPLY (high confidence)
 - **Held-back doc line:** 364
@@ -575,13 +575,13 @@ the recertification cost once per commit, so they are one changeset.
 - **Touches `qpsim/`:** yes — recert: ride_along
 - **Prepared patch correct as written:** yes
 
-**Rationale.** Mathematically exact identity that removes a real reachable gap-edge cancellation (2.2e-3-class at hi-gap=1e-12) and converges spectral.py, t3_spatial_1d.py, and the C3 mirror script on one convention. The adjudicator's enlarged blast radius (not bit-neutral even on on-face grids; every BCS-context root moves O(1e-12)) made it conditional on a planned full-Fischer regeneration window. RECONCILIATION: that condition is now STRUCTURALLY SATISFIED — I verified fig3/fig5/fig7 are all dynamic-phonon producers, so item 101 already forces genuine re-baselining of fig3/5/6/7, and 436 forces figs_9_13; 468 adds no regeneration this bundle does not already perform and no bitwise anchor survives 101 for it to destroy. Confidence raised from the adjudicator's medium accordingly (the medium reflected only the scheduling contingency, which is resolved; the measurements were solid).
+**Rationale.** Mathematically exact identity that removes a real reachable gap-edge cancellation (2.2e-3-class at hi-gap=1e-12) and converges spectral.py, spatial.py, and the C3 mirror script on one convention. The adjudicator's enlarged blast radius (not bit-neutral even on on-face grids; every BCS-context root moves O(1e-12)) made it conditional on a planned full-Fischer regeneration window. RECONCILIATION: that condition is now STRUCTURALLY SATISFIED — I verified fig3/fig5/fig7 are all dynamic-phonon producers, so item 101 already forces genuine re-baselining of fig3/5/6/7, and 436 forces figs_9_13; 468 adds no regeneration this bundle does not already perform and no bitwise anchor survives 101 for it to destroy. Confidence raised from the adjudicator's medium accordingly (the medium reflected only the scheduling contingency, which is resolved; the measurements were solid).
 
 **Measured.** My checks: fig3_solve.py/fig5_solve.py/fig7_solve.py dynamic-phonon path confirmed by grep (the load-bearing fact for resolving the condition). Bitwise blast-radius counts (509/1620 fig3, 590/1701 fig7, 137/405 figs_9_13, 55% of K_plus at the fig6 anchor) inherited; accepted.
 
 **Risk.** All root shifts O(1e-12), pass every scientific gate; risk is purely certification churn, which Bundle R already pays. Applied incompletely it breaks the C3 mirror property and the fig6 frozen-state test — hence atomicity below.
 
-**Note.** BUNDLE R member, ONE atomic three-site edit: spectral.py:435-438 + t3_spatial_1d.py:122-125 + validation/fischer_2023/fig6_author_c3_score.py:626-628, with tests/validation/test_fig6_author_frozen_state.py re-pinned in the same change. Same commit as 436. t3_spatial_1d.py is also edited by items 20/57 — one coordinated file edit. The fig6_author_c3_score edit is covered by window W2's C-ladder regeneration.
+**Note.** BUNDLE R member, ONE atomic three-site edit: spectral.py:435-438 + spatial.py:122-125 + validation/fischer_2023/fig6_author_c3_score.py:626-628, with tests/validation/test_fig6_author_frozen_state.py re-pinned in the same change. Same commit as 436. spatial.py is also edited by items 20/57 — one coordinated file edit. The fig6_author_c3_score edit is covered by window W2's C-ladder regeneration.
 
 ### P04 remove 1e-14 Hz absolute floor (rate_equation.py:584)
 
@@ -656,5 +656,5 @@ the recertification cost once per commit, so they are one changeset.
 
 **Risk.** Bundle R digest cost (webui/*.py is inside the source rglob); UI observables shift <=1.6e-8; saved setups silently switch Jacobian (intended).
 
-**Note.** BUNDLE R member. Patch is correct ONLY with the out-of-packet schemas.py field coupled_newton_analytic_cross: bool = True in the same commit; do NOT flip the backend default at t3_diffusion.py:568; do NOT adopt the silent min(newton_max_iter,50) cap. Add a mapping assert to test_schemas_builders.py. The queued mypy phonon.py:487 annotation rides this same bundle (repo-state B6).
+**Note.** BUNDLE R member. Patch is correct ONLY with the out-of-packet schemas.py field coupled_newton_analytic_cross: bool = True in the same commit; do NOT flip the backend default at diffusion.py:568; do NOT adopt the silent min(newton_max_iter,50) cap. Add a mapping assert to test_schemas_builders.py. The queued mypy phonon.py:487 annotation rides this same bundle (repo-state B6).
 

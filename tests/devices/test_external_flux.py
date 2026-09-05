@@ -1,6 +1,9 @@
-"""Tests for the ExternalFlux dataclass + threading through the T3 solver stack.
+"""Tests for the ExternalFlux dataclass + threading through the solver stack.
 
-Phase 2 of the Device Architecture:
+``ExternalFlux`` is the external-flux surface of a Region: the
+``(gain, loss_rate)`` pair the Device layer adds to the RHS of the
+region-local kinetic equation. The contract tests below pin:
+
 * Dataclass validation (shape, signs, finite values, immutability).
 * Linear ODE closed form: with all collision kernels disabled,
   ``f = gain / loss_rate`` is the unique steady state — pinned by the
@@ -8,8 +11,8 @@ Phase 2 of the Device Architecture:
 * Detailed-balance variant: gain/loss_rate matches Fermi-Dirac.
 * Threading: nonzero ExternalFlux changes the solver output across
   every advertised public surface (forwarding regression tests for
-  ``solve_steady_state``, ``coupled_newton_solve``, the T3 backend
-  methods, and ``run_time_dependent``).
+  ``solve_steady_state``, ``coupled_newton_solve``, the diffusion
+  backend methods, and ``run_time_dependent``).
 * Grid-shape validation: length-1 broadcast and length mismatches
   are rejected at solver entry.
 """
@@ -106,7 +109,7 @@ class TestExternalFluxValidation:
 
 
 def _make_ctx(NE: int = 30, gap: float = 175.0, dE: float = 5.0) -> SpectralContext:
-    """Minimal SpectralContext for collision-free Phase 2 contract tests.
+    """Minimal SpectralContext for collision-free ExternalFlux contract tests.
 
     Energy grid spans [gap, gap + (NE-1)*dE] in μeV.
     """
@@ -487,15 +490,11 @@ class TestForwardingThroughPublicSurfaces:
         assert np.max(np.abs(f_yes - f_no)) > 1e-6
 
 
-class TestForwardingThroughT3Backend:
+class TestForwardingThroughDiffusionBackend:
     def _build_state(self, num_energy: int = 25):
-        from qpsim.backends.t3_diffusion import T3DiffusionState
+        from qpsim.backends.diffusion import DiffusionState
         from qpsim.materials.database import Material
-        from qpsim.phonon_models.state import (
-            PhononBranchSpec,
-            PhononModel,
-            PhononState,
-        )
+        from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 
         T_c = 1.2
         gap = 1.764 * KB_UEV_PER_K * T_c
@@ -514,12 +513,11 @@ class TestForwardingThroughT3Backend:
             n_ph=thermal_phonon_occupation(omega_bins, 0.3).reshape(1, -1, 1),
             omega_bins=omega_bins.reshape(1, -1),
             tau_l=np.full((1, omega_bins.size), 0.5),
-            model=PhononModel.PH0_LOCAL,
             branches=[PhononBranchSpec(name="debye_average")],
         )
         kT = KB_UEV_PER_K * 0.3
         f0 = 1.0 / (np.exp(np.minimum(ctx.E / kT, 500.0)) + 1.0)
-        return T3DiffusionState(
+        return DiffusionState(
             f=f0, gap=gap, spectral=ctx, phonon=phonon,
             material=material, T_bath=0.3,
         )
@@ -527,9 +525,9 @@ class TestForwardingThroughT3Backend:
     def test_steady_state_thermal_phonons(self) -> None:
         # backend.steady_state(use_thermal_phonons=True) routes through
         # solve_steady_state thermal-phonon path → newton_solve_f.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         s_no = backend.steady_state(state, use_thermal_phonons=True)
@@ -539,9 +537,9 @@ class TestForwardingThroughT3Backend:
         assert np.max(np.abs(s_yes.f - s_no.f)) > 1e-6
 
     def test_steady_state_coupled_newton(self) -> None:
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         s_no = backend.steady_state(state, method="coupled_newton")
@@ -556,9 +554,9 @@ class TestForwardingThroughT3Backend:
         # under ExternalFlux. This test pins the kwarg threading through
         # the Anderson-Picard path; the unaccelerated-Picard guard test
         # below pins the explicit-error contract.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         # Exercise the minimum advertised accelerated depth: depth=1 must be a
@@ -576,9 +574,9 @@ class TestForwardingThroughT3Backend:
         # the no-flux default works. The backend now catches this at the
         # API boundary and raises a ValueError pointing at the three
         # routes: anderson_depth >= 1, coupled_newton, or use_thermal_phonons.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         with pytest.raises(ValueError, match=r"anderson_depth >= 1.*coupled_newton"):
@@ -593,9 +591,9 @@ class TestForwardingThroughT3Backend:
         # the user should see the clearer "sized for {M} energy bins"
         # shape error, not the Picard-routing error. Validation order:
         # shape first, then Picard guard.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         # length-1 flux on a 25-bin grid would silently broadcast.
         bad = ExternalFlux(gain=np.full(1, 0.1), loss_rate=np.full(1, 1.0))
@@ -605,9 +603,9 @@ class TestForwardingThroughT3Backend:
             backend.steady_state(state, external_flux=bad)
 
     def test_apply_collisions_one_step(self) -> None:
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         s_no = backend.apply_collisions(state, dt=0.5)
@@ -618,9 +616,9 @@ class TestForwardingThroughT3Backend:
         # This compact fixture intentionally starts above the BCS edge, so it
         # exercises ExternalFlux forwarding through the fixed-gap collision
         # API. Moving-gap ``step`` has separate tests on a supporting grid.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         state = self._build_state()
         ef = _modest_external_flux(state.spectral.E.size)
         s_no = backend.apply_collisions(state, dt=0.5)
@@ -679,7 +677,7 @@ class TestServiceLayerPicardGuard:
 
 class TestForwardingThroughTransient:
     def _build_state(self, num_energy: int = 25):
-        return TestForwardingThroughT3Backend()._build_state(num_energy)
+        return TestForwardingThroughDiffusionBackend()._build_state(num_energy)
 
     def test_static_external_flux(self) -> None:
         from qpsim.services.transient import run_time_dependent

@@ -2,7 +2,7 @@
 
 ## Implemented contract
 
-`T3DiffusionBackend.step` advances the homogeneous, ideal-BCS collision
+`DiffusionBackend.step` advances the homogeneous, ideal-BCS collision
 problem with a self-consistent scalar gap using a stage-constrained ETD2
 method. The authoritative transient unknown is not the public fixed-energy
 array. It is a cell-average occupation `g(xi)` on persistent material
@@ -13,7 +13,7 @@ xi = sqrt(E**2 - Delta**2),       rho_BCS(E, Delta) dE = dxi.
 ```
 
 The persistent array is stored privately in each accepted
-`T3DiffusionState`. A later accepted step reuses it only while the public
+`DiffusionState`. A later accepted step reuses it only while the public
 energy grid, widths, gap, and occupation still match their synchronization
 snapshot. If a caller edits the public state, the backend deliberately
 reinitializes the material state rather than using stale hidden data.
@@ -95,7 +95,7 @@ work lattice to the moving spectral state.
 
 ## Accuracy and invariant evidence
 
-`tests/backends/test_t3_transient.py` independently integrates a driven,
+`tests/backends/test_transient.py` independently integrates a driven,
 self-consistent trajectory to the same final time with successively halved
 steps and compares each result with a much finer reference. The observed
 orders in the audit fixture are approximately
@@ -131,8 +131,8 @@ general spectral solver:
   quasiparticle NUMBER may sit above the window (warning above `1e-9`),
   kept at its true `xi` in the persistent representation and re-entering
   if the gap falls; beyond `1e-3` it raises (2026-07-20 adjudication —
-  previously any tail above ~`5e-12` raised, which barred
-  rising-gap/recovery trajectories). Caveats: (i) the bound is on QP
+  a threshold at ~`5e-12` would raise on essentially any tail and so
+  bar rising-gap/recovery trajectories). Caveats: (i) the bound is on QP
   number, not energy or collision-rate error — the hidden tail is
   excluded from public observables, collisions, and gap feedback;
   (ii) only persistent rows lying WHOLLY above the window are truly

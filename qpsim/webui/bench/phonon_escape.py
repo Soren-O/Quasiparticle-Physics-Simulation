@@ -1,4 +1,4 @@
-r"""Phonon escape to the substrate: the ``(n_bath − n)/τ_l`` term in the Ph0 sector.
+r"""Phonon escape to the substrate: the ``(n_bath − n)/τ_l`` term in the phonon sector.
 
 The term
 --------
@@ -536,7 +536,7 @@ register(
             "1×1 / 1×3 / 2×3 all give 3.439589e-12 (95 / 285 / 570 series) with "
             "cell-to-cell spread exactly 0.000e+00.\n"
             "Snapshot cadence is NOT a hazard in this backend, unlike the 0-D "
-            "transient the derivation was written against. T3SpatialBackend.run "
+            "transient the derivation was written against. SpatialBackend.run "
             "snapshots at step boundaries and records the time actually reached "
             "rather than the time asked for, so a cadence that is not a multiple "
             "of dt mislabels nothing: snapshot_interval = 1.6·dt gives 21 frames "
@@ -598,8 +598,8 @@ register(
             "SCOPE. One material (Al, Δ₀ = 180 μeV), one bath temperature, one "
             "uniform gap, pure BCS only (spatial collisions reject dynes_gamma > "
             "0), 0-D in space. The 0-D transient's own copy of this update "
-            "(qpsim/backends/t3_diffusion.py::advance_phonons) and the "
-            "steady-state balance in qpsim/phonon_models/ph0_local.py are "
+            "(qpsim/backends/diffusion.py::advance_phonons) and the "
+            "steady-state balance in qpsim/phonon_models/local.py are "
             "separate implementations of the same term and are untested here — "
             "and run_transient_0d publishes no phonon arrays at all, which is "
             "why this benchmark lives in kinetics.\n"

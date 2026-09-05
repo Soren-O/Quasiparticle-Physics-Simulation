@@ -54,12 +54,12 @@ acceptance in `newton_solve_f`; retain this paragraph only as audit history.
   stale "~14 h" Fig. 6 estimates replaced with measured 6.04 h serial.
 - **Core contracts** (`347af41`): `SpectralContext._rebuild` exception-safe
   (was torn-state on failure); `GapBelowGridSupportError` classifies a solved
-  below-support gap and T3 folds it into `SelfConsistentGapCollapseError`
-  (the designed collapse→NaN chain was dead code on every physical grid — a
-  genuine collapse aborted sweeps unclassified); near-T_c resolution guard
-  (silent +4.7% gap error at dE=0.31Δ_eq now warns); pair-breaking photon
-  partners above the grid top fail loud (silent skip lost ~42% of pair
-  generation in a realistic case).
+  below-support gap and the diffusion backend folds it into
+  `SelfConsistentGapCollapseError` (the designed collapse→NaN chain was dead
+  code on every physical grid — a genuine collapse aborted sweeps
+  unclassified); near-T_c resolution guard (silent +4.7% gap error at
+  dE=0.31Δ_eq now warns); pair-breaking photon partners above the grid top
+  fail loud (silent skip lost ~42% of pair generation in a realistic case).
 
 ## Historical F24 fingerprint rewrites (not execution provenance)
 
@@ -451,7 +451,7 @@ baseline node:
   backend map output (including phonons), then certifies that same snapshot.
   Injected backends are pure-map boundaries: mutating the input state refuses
   instead of erasing the measured defect. Returned gap, spectral grid, bath
-  temperature, occupation, and phonon state are validated as one coherent T3
+  temperature, occupation, and phonon state are validated as one coherent
   state; value-equivalent deep copies are accepted (object identity is not a
   physical static-field invariant), while invalid qubit probabilities fail
   before defect arithmetic. Stored `n_ph` participates in the undamped
@@ -710,16 +710,16 @@ curves, while their peak-normalized shape residuals are only `5.8e-9` and
   `producer_solve_contract_digest` (the contract that generated stored `f`)
   separate from `validated_solve_contract_digest` (the contract that most
   recently re-certified it). For a finite-escape row, the artifact stores `f`
-  but not the producer's `n_ph`; validation reconstructs the affine Ph0 root
-  implied by `f` and the validation-time equations. That proves root membership
-  of the reconstructed `(f, n_ph)` under those equations. It neither recovers
-  the producer's original `n_ph` nor proves that the current solver algorithm
-  executed or converged to the persisted state. Figs. 5--7 apply the number
-  gate to every live solve but retain
-  their legacy summary schemas because those CSVs do not contain the raw
-  states needed for honest reconstruction. Their existing artifacts are not
-  artifact-level number certificates; upgrading them requires genuine
-  regeneration, not invented fields or metadata-only rebinding.
+  but not the producer's `n_ph`; validation reconstructs the phonon affine
+  fixed point implied by `f` and the validation-time equations. That proves
+  root membership of the reconstructed `(f, n_ph)` under those equations. It
+  neither recovers the producer's original `n_ph` nor proves that the current
+  solver algorithm executed or converged to the persisted state. Figs. 5--7
+  apply the number gate to every live solve but retain their legacy summary
+  schemas because those CSVs do not contain the raw states needed for honest
+  reconstruction. Their existing artifacts are not artifact-level number
+  certificates; upgrading them requires genuine regeneration, not invented
+  fields or metadata-only rebinding.
 
 Final source-frozen full-grid evidence:
 
@@ -744,7 +744,7 @@ Final source-frozen full-grid evidence:
   `8.363e-11`, QP-number backward `2.260e-9`, raw phonon backward
   `2.977e-7`, and phonon residual `5.503e-15`, all below the unchanged
   `1e-5` artifact limit. The producer NPZ did not retain finite-ratio
-  `n_ph`, so this reassembly certifies the unique Ph0 affine fixed point
+  `n_ph`, so this reassembly certifies the unique phonon affine fixed point
   implied by stored `f(E)` rather than authenticating the producer's original
   phonon array;
 - promoted CSV/PDF/validation-record SHA-256:

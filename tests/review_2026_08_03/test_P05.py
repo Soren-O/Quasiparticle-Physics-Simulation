@@ -5,18 +5,15 @@ Covers the transport-operator cache ordering and the gap de-duplication in the
 per-cell spectral helpers. Both changes are numerically neutral, so every
 assertion here is either bit-exact or a structural one about which work runs.
 
-Written against ``T3Spatial1DBackend`` and moved to ``T3SpatialBackend`` when
-that backend was retired. The properties are the unified backend's too -- it
-groups cells by exact gap and caches transport operators on the same inputs --
-so the packet's regressions stay covered rather than lapsing with the class
-they were first found in.
+The properties are the unified backend's: it groups cells by exact gap and
+caches transport operators on the same inputs.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -40,7 +37,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
 
-def _stepped_state(interface_conductance: float | None = None) -> T3SpatialState:
+def _stepped_state(interface_conductance: float | None = None) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -53,7 +50,7 @@ def _stepped_state(interface_conductance: float | None = None) -> T3SpatialState
         diffusion_coefficient=D0,
     )
     profile = np.where(np.arange(NX) < NX // 2, gap, 1.25 * gap).astype(float)
-    return T3SpatialState(
+    return SpatialState(
         f=np.repeat(_fermi_dirac(E, T_BATH)[:, None], NX, axis=1),
         geometry=strip(NX, mesh_size=LENGTH_UM / NX),
         spectral=spectral,
@@ -67,7 +64,7 @@ def _stepped_state(interface_conductance: float | None = None) -> T3SpatialState
 class TestPerCellSpectralDeduplication:
     def test_n1_per_cell_matches_per_column_construction(self) -> None:
         state = _stepped_state()
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         E, dE = state.spectral.E, state.spectral.dE
 
         expected = np.column_stack(
@@ -80,7 +77,7 @@ class TestPerCellSpectralDeduplication:
 
     def test_support_fraction_matches_per_column_construction(self) -> None:
         state = _stepped_state()
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         E, dE = state.spectral.E, state.spectral.dE
 
         expected = np.column_stack(
@@ -96,7 +93,7 @@ class TestPerCellSpectralDeduplication:
         state = _stepped_state()
         gap = float(state.spectral.gap)
         state.gap_per_cell = gap * (1.0 + 0.1 * np.linspace(0.0, 1.0, NX) ** 2)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
 
         support = backend._per_cell(state.spectral, state.gaps(), "support")
 
@@ -106,10 +103,9 @@ class TestPerCellSpectralDeduplication:
 class TestTransportOperatorCacheOrdering:
     @pytest.mark.xfail(
         reason=(
-            "OPEN REGRESSION (performance, not correctness), found by moving "
-            "this packet onto the unified backend. P05's whole point was that "
-            "a transport-operator cache HIT skips the per-cell spectral "
-            "quadratures. T3SpatialBackend cannot: _transport_weights runs "
+            "OPEN REGRESSION (performance, not correctness). P05's whole "
+            "point is that a transport-operator cache HIT skips the per-cell "
+            "spectral quadratures. SpatialBackend cannot: _transport_weights runs "
             "first and its output IS the cache key "
             "(build(..., cache_key=(weights.tobytes(), ...))), so the work the "
             "cache exists to avoid is redone in order to look the cache up. "
@@ -123,13 +119,13 @@ class TestTransportOperatorCacheOrdering:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         state = _stepped_state(interface_conductance=2.0)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         first = backend._build_transport_operators(state, 0.5)
 
         def _boom(*args: object, **kwargs: object) -> np.ndarray:
             raise AssertionError("cache hit recomputed per-cell spectral data")
 
-        monkeypatch.setattr(T3SpatialBackend, "_per_cell", staticmethod(_boom))
+        monkeypatch.setattr(SpatialBackend, "_per_cell", staticmethod(_boom))
 
         assert backend._build_transport_operators(state, 0.5) is first
 
@@ -148,7 +144,7 @@ class TestTransportOperatorCacheOrdering:
     )
     def test_cache_key_still_separates_operator_inputs(self, mutate: object) -> None:
         state = _stepped_state(interface_conductance=2.0)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         first = backend._build_transport_operators(state, 0.5)
 
         mutate(state)  # type: ignore[operator]
@@ -164,7 +160,7 @@ class TestTransportOperatorCacheOrdering:
         asserting nothing about the barrier.
         """
         state = _stepped_state(interface_conductance=2.0)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         _transport, first = backend._transport_ops(state, 0.5)
 
         state.interface_conductance = 3.0

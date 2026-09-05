@@ -1,8 +1,8 @@
 """Tests for Device, Junction, and solve_device_steady_state.
 
-Phase 3 of the Device Architecture: the framework now supports
-multi-region devices with tunnel coupling via Junctions. The
-contract tests below pin the architectural invariants:
+A Device composes multi-region setups with tunnel coupling via
+Junctions. The contract tests below pin the architectural invariants
+that composition guarantees:
 
 * Device + Junction validation (region names match).
 * SymmetricGapTunnelingJunction.evaluate gives the right per-region
@@ -21,7 +21,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.devices import (
@@ -37,7 +37,7 @@ from qpsim.devices import (
 )
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.spectral import SpectralContext
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -47,8 +47,8 @@ from qpsim.physics.spectral import SpectralContext
 
 def _build_state(
     *, T_bath: float, num_energy: int = 30, name_suffix: str = "",
-) -> T3DiffusionState:
-    """Build an Al-like T3 state at thermal equilibrium."""
+) -> DiffusionState:
+    """Build an Al-like diffusion state at thermal equilibrium."""
     material = load_material("Al")
     gap = 1.764 * KB_UEV_PER_K * material.T_c
     E, _ = build_energy_grid(
@@ -62,12 +62,11 @@ def _build_state(
         n_ph=np.zeros((1, omega_bins.size, 1)),
         omega_bins=omega_bins.reshape(1, -1),
         tau_l=np.full((1, omega_bins.size), 0.25),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     kT = KB_UEV_PER_K * T_bath
     f_init = 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_init, gap=gap, spectral=spectral, phonon=phonon,
         material=material, T_bath=T_bath,
     )
@@ -160,13 +159,13 @@ class TestSymmetricGapTunnelingJunction:
         state_L = _build_state(T_bath=0.1, num_energy=20)
         state_R = _build_state(T_bath=0.1, num_energy=20)
         # Perturb each so f_L ≠ f_R.
-        state_L = T3DiffusionState(
+        state_L = DiffusionState(
             f=state_L.f * 0.5,  # half-occupied
             gap=state_L.gap, spectral=state_L.spectral,
             phonon=state_L.phonon, material=state_L.material,
             T_bath=state_L.T_bath,
         )
-        state_R = T3DiffusionState(
+        state_R = DiffusionState(
             f=state_R.f * 0.8,
             gap=state_R.gap, spectral=state_R.spectral,
             phonon=state_R.phonon, material=state_R.material,
@@ -200,7 +199,7 @@ class TestSymmetricGapTunnelingJunction:
     def test_unequal_capacities_conserve_weighted_population(self) -> None:
         state_a = _build_state(T_bath=0.1, num_energy=20)
         state_b = _build_state(T_bath=0.1, num_energy=20)
-        state_a = T3DiffusionState(
+        state_a = DiffusionState(
             f=np.full_like(state_a.f, 0.2),
             gap=state_a.gap,
             spectral=state_a.spectral,
@@ -208,7 +207,7 @@ class TestSymmetricGapTunnelingJunction:
             material=state_a.material,
             T_bath=state_a.T_bath,
         )
-        state_b = T3DiffusionState(
+        state_b = DiffusionState(
             f=np.full_like(state_b.f, 0.8),
             gap=state_b.gap,
             spectral=state_b.spectral,
@@ -339,7 +338,7 @@ class TestSymmetricGapTunnelingJunction:
             dE_bins=state_L.spectral.dE,
             gap=gap_b,
         )
-        state_R_diff_gap = T3DiffusionState(
+        state_R_diff_gap = DiffusionState(
             f=state_L.f,
             gap=gap_b,
             spectral=spectral_b,
@@ -360,7 +359,7 @@ class TestSymmetricGapTunnelingJunction:
 
 
 class TestDetailedBalanceMatchedTemperature:
-    """The headline Phase 3 invariant: at matched temperature with no
+    """The headline invariant: at matched temperature with no
     external drive, two tunnel-coupled regions converge to the same
     Fermi-Dirac steady state, and the junction-mediated net flux
     between them vanishes.
@@ -373,13 +372,13 @@ class TestDetailedBalanceMatchedTemperature:
         # Perturb the initial guesses away from the thermal fixed
         # point so the solver actually has work to do. Region L
         # starts colder (smaller f), region R starts warmer.
-        state_L = T3DiffusionState(
+        state_L = DiffusionState(
             f=state_L.f * 0.5,
             gap=state_L.gap, spectral=state_L.spectral,
             phonon=state_L.phonon, material=state_L.material,
             T_bath=T_bath,
         )
-        state_R = T3DiffusionState(
+        state_R = DiffusionState(
             f=state_R.f * 1.5,
             gap=state_R.gap, spectral=state_R.spectral,
             phonon=state_R.phonon, material=state_R.material,
@@ -490,8 +489,8 @@ class TestMismatchedTemperatures:
         # damped Picard needs ~1200 iterations (~5 s) to drain it to
         # 1e-5 relative. The former absolute 1e-5 gate certified after
         # far fewer iterations at up to ~30% relative slack on the warm
-        # region. Outer Anderson acceleration remains a Phase 4+
-        # improvement.
+        # region. Anderson acceleration is not applied to the outer
+        # loop.
         # This splitting stalls at a real pair-number backward-error floor
         # around 3.8e-5. Ask for an achievable accuracy here, then verify a
         # stricter request fails rather than returning the same looser state.
@@ -574,8 +573,8 @@ class _ConstantFluxJunction(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state=None,
     ) -> JunctionResult:
         del qubit_state  # not used
@@ -597,8 +596,8 @@ class _UnknownFluxJunction(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state=None,
     ) -> JunctionResult:
         del qubit_state
@@ -632,8 +631,8 @@ class _DeclaredConservativeJunction(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state=None,
     ) -> JunctionResult:
         del qubit_state
@@ -671,7 +670,7 @@ class _EchoBackend:
         self.use_thermal_phonons: list[bool] = []
         self.conservative_transfer: list[bool] = []
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         self.use_thermal_phonons.append(bool(kwargs["use_thermal_phonons"]))
         self.conservative_transfer.append(
             bool(kwargs["external_flux_is_conservative_transfer"])
@@ -682,7 +681,7 @@ class _EchoBackend:
 class _NonlinearMapBackend:
     """A map whose defect grows sharply after an unverified damped step."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         mapped = np.clip(state.f + 0.004 + 100.0 * (state.f - 0.5), 0.0, 1.0)
         return replace(state, f=mapped)
@@ -691,7 +690,7 @@ class _NonlinearMapBackend:
 class _NonFiniteBackend:
     """Backend contract violator used to guard Device acceptance."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         return replace(state, f=np.full_like(state.f, np.nan))
 
@@ -699,7 +698,7 @@ class _NonFiniteBackend:
 class _InPlaceBackend:
     """Illegal mutating map that used to erase its own Device defect."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         state.f[:] = np.clip(state.f + 0.1, 0.0, 1.0)
         return state
@@ -711,7 +710,7 @@ class _InvalidAncillaryBackend:
     def __init__(self, field_name: str) -> None:
         self.field_name = field_name
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         if self.field_name == "gap":
             return replace(state, gap=float("nan"))
@@ -731,7 +730,7 @@ class _TinyImaginaryBackend:
         self.field_name = field_name
         self.imaginary = imaginary
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         if self.field_name == "f":
             bad_f = state.f.astype(complex)
@@ -752,7 +751,7 @@ class _SpectralCacheCorruptingBackend:
         self.cache_name = cache_name
         self.in_place = in_place
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         target = state if self.in_place else copy.deepcopy(state)
         spectral = target.spectral
@@ -765,7 +764,7 @@ class _SpectralCacheCorruptingBackend:
 class _TogglePhononBackend:
     """Two-cycle in n_ph with an exact midpoint fixed point."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         mapped_phonon = replace(
             state.phonon,
@@ -777,7 +776,7 @@ class _TogglePhononBackend:
 class _StaticTemperatureChangingBackend:
     """Valid-looking candidate outside the Device outer map's state space."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         return replace(state, T_bath=state.T_bath + 0.01)
 
@@ -785,7 +784,7 @@ class _StaticTemperatureChangingBackend:
 class _ValueCopyBackend:
     """Pure extension that returns an equivalent, non-aliased state."""
 
-    def steady_state(self, state: T3DiffusionState, **kwargs):
+    def steady_state(self, state: DiffusionState, **kwargs):
         del kwargs
         return copy.deepcopy(state)
 
@@ -801,8 +800,8 @@ class _MutatingInputJunction(Junction):
 
     def evaluate(
         self,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
         qubit_state=None,
     ) -> JunctionResult:
         if self.mutate_qubit:
@@ -924,7 +923,7 @@ class TestCommonModeCertification:
         states = {}
         for name in ("L", "R"):
             s = _build_state(T_bath=T_bath, num_energy=30)
-            states[name] = T3DiffusionState(
+            states[name] = DiffusionState(
                 f=np.clip(s.f * c, 0.0, 1.0),
                 gap=s.gap, spectral=s.spectral,
                 phonon=s.phonon, material=s.material,
@@ -1077,7 +1076,7 @@ class TestControlValidation:
             junctions=[],
         )
 
-        with pytest.raises(RuntimeError, match="changed static T3 fields"):
+        with pytest.raises(RuntimeError, match="changed static fields"):
             solve_device_steady_state(
                 device,
                 backend=_SpectralCacheCorruptingBackend(cache_name),
@@ -1131,7 +1130,7 @@ class TestControlValidation:
 
     def test_quiet_initial_f_does_not_return_stale_phonon_state(self) -> None:
         state = _build_state(T_bath=0.3, num_energy=20)
-        backend = T3DiffusionBackend()
+        backend = DiffusionBackend()
         expected = backend.steady_state(state, use_thermal_phonons=True)
         assert not np.any(state.phonon.n_ph)
         assert np.any(expected.phonon.n_ph > 0.0)
@@ -1176,14 +1175,14 @@ class TestControlValidation:
         )
         assert solution.final_max_delta_n_ph == 0.0
 
-    def test_backend_may_not_change_valid_static_t3_fields(self) -> None:
+    def test_backend_may_not_change_valid_static_fields(self) -> None:
         state = _build_state(T_bath=0.1, num_energy=20)
         device = Device(
             regions={"L": Region(name="L", state=state)},
             junctions=[],
         )
 
-        with pytest.raises(RuntimeError, match="changed static T3 fields"):
+        with pytest.raises(RuntimeError, match="changed static fields"):
             solve_device_steady_state(
                 device,
                 backend=_StaticTemperatureChangingBackend(),
@@ -1265,7 +1264,7 @@ class TestConservedModeCertificateRound5:
         states = {}
         for name, c in (("L", c_L), ("R", c_R)):
             s = _build_state(T_bath=T_bath, num_energy=30)
-            states[name] = T3DiffusionState(
+            states[name] = DiffusionState(
                 f=np.clip(s.f * c, 0.0, 1.0), gap=s.gap, spectral=s.spectral,
                 phonon=s.phonon, material=s.material, T_bath=T_bath,
             )
@@ -1303,7 +1302,7 @@ class TestConservedModeCertificateRound5:
         states = {}
         for name, c in (("A1", 0.5), ("A2", 0.5), ("B1", 2.0), ("B2", 2.0)):
             s = _build_state(T_bath=0.1, num_energy=30)
-            states[name] = T3DiffusionState(
+            states[name] = DiffusionState(
                 f=np.clip(s.f * c, 0.0, 1.0), gap=s.gap, spectral=s.spectral,
                 phonon=s.phonon, material=s.material, T_bath=0.1,
             )

@@ -38,12 +38,10 @@ def _never() -> bool:
 def test_ultracold_field_frames_still_render() -> None:
     """An all-underflow thermal field must render instead of returning 500.
 
-    Written against the retired 1-D mode's occupation heatmap, whose log
-    colour scale had no valid limits when every value underflowed. That
-    figure went with its mode; the surviving frame figures normalise
-    LINEARLY and guard the degenerate range explicitly, so the hazard is
-    structurally absent rather than merely untriggered -- but the scenario
-    is worth keeping on the path that still exists.
+    The frame figures normalise LINEARLY and guard the degenerate range
+    explicitly, so an all-underflow field has well-defined colour limits.
+    This pins that: a thermal field far below the gap must still produce a
+    figure.
     """
     from qpsim.webui import plots
 
@@ -520,10 +518,10 @@ class TestDiagnosticsNeverSinkARun:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import qpsim.webui.execute as execute_mod
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
+        from qpsim.backends.diffusion import DiffusionBackend
 
         def return_input_state(
-            _backend: T3DiffusionBackend,
+            _backend: DiffusionBackend,
             state: object,
             **_kwargs: object,
         ) -> object:
@@ -538,7 +536,7 @@ class TestDiagnosticsNeverSinkARun:
             return 1.0
 
         monkeypatch.setattr(
-            T3DiffusionBackend, "steady_state", return_input_state
+            DiffusionBackend, "steady_state", return_input_state
         )
         monkeypatch.setattr(
             execute_mod, "effective_phonon_temperature", clamped_fit
@@ -556,17 +554,14 @@ class TestDiagnosticsNeverSinkARun:
 
 
 class TestSpatialProbeIsRefusedRatherThanAbsent:
-    """The guarantee MOVED; it did not disappear.
+    """A spatial device is TOLD why its probe yields no conductivity.
 
-    The retired 1-D mode had no `probe` field at all, and a setup carrying one
-    was rejected at parse time. The merged mode does have the field, because a
-    one-cell mask is 0-D and its probe is perfectly well defined -- the old
-    schema made that impossible to express.
-
-    What must survive is the reason the field was withheld: sigma(f) is
-    nonlinear and cells can carry different local gaps, so there is no single
-    sigma for a spatially varying f. That is now enforced at the point of use
-    instead of by absence, which is strictly stronger -- it says WHY.
+    `probe` is a field on every kinetics setup, because a one-cell mask is 0-D
+    and its probe is perfectly well defined. On a mask of more than one cell
+    the probe is refused at the point of use rather than silently dropped:
+    sigma(f) is nonlinear and cells can carry different local gaps, so there
+    is no single sigma for a spatially varying f. Refusing where the value
+    would be computed is what lets the run say WHY.
     """
 
     def test_a_spatial_device_gets_no_conductivity_from_the_probe(self) -> None:
@@ -582,8 +577,8 @@ class TestSpatialProbeIsRefusedRatherThanAbsent:
 
         assert not [k for k in payload.summary if "sigma" in k or k.startswith("Q_")]
         assert any("Mattis-Bardeen probe skipped" in n for n in payload.notes), (
-            "silently dropping the probe is the defect the old schema avoided "
-            "by not having the field at all"
+            "a probe that is silently dropped leaves the caller believing "
+            "it ran"
         )
 
 

@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_phonon_side,
@@ -40,7 +40,7 @@ from qpsim.collisions.phonon import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 from qpsim.solvers.anderson import AndersonAccelerationError
@@ -222,8 +222,8 @@ def _build_state(
     tau_l_scalar: float,
     *,
     n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
-    """Build a T3 state with the given τ_l scalar + (f, n_ph) seeds."""
+) -> DiffusionState:
+    """Build a diffusion state with the given τ_l scalar + (f, n_ph) seeds."""
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
     if n_ph_seed is None:
         n_ph_seed = thermal_phonon_occupation(omega, T_BATH)
@@ -231,10 +231,9 @@ def _build_state(
         n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), tau_l_scalar),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_seed.copy(),
         gap=DELTA_0,
         spectral=spectral,
@@ -245,10 +244,10 @@ def _build_state(
 
 
 def _solve_tau_l_zero(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float],
-) -> T3DiffusionState:
+) -> DiffusionState:
     """τ_l = 0: thermal-phonon shortcut. Newton-on-f only."""
     return backend.steady_state(
         state,
@@ -262,13 +261,13 @@ def _solve_tau_l_zero(
 
 
 def _solve_picard(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float],
     *,
     mixing: float,
     anderson_depth: int = 0,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Under-relaxed Picard on ``(f, n_ph)`` for branch continuation.
 
     No absolute phonon-occupation allowance is used here: Fig. 3's driven
@@ -302,10 +301,10 @@ def _solve_picard(
 
 
 def _solve_coupled_newton(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float],
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Coupled Newton on the joint (f, n_ph) vector (strong-bottleneck branch)."""
     return backend.steady_state(
         state,
@@ -332,8 +331,8 @@ def _picard_mixing_for_ratio(ratio: float) -> float:
 
 
 def _advances_bottleneck_branch(
-    before: T3DiffusionState,
-    after: T3DiffusionState,
+    before: DiffusionState,
+    after: DiffusionState,
 ) -> bool:
     """Whether a continuation step advances the nonzero bottleneck branch."""
     weights = before.spectral.cell_weights
@@ -350,14 +349,14 @@ def _advances_bottleneck_branch(
 
 
 def _solve_picard_predictor(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float],
     *,
     ratio: float,
     mixing: float,
     fallback_mixing: float,
-) -> T3DiffusionState:
+) -> DiffusionState:
     """Accelerate one continuation step, with a branch-checked fallback."""
     try:
         accelerated = _solve_picard(
@@ -829,7 +828,7 @@ def solve(
 
     f_FD = fermi_dirac_occupation(E, T_BATH)
 
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     photon_params = {"omega_0": OMEGA_0, "n_bar": N_BAR, "c_phot": C_PHOT}
 
     f_by_ratio: dict[float, np.ndarray] = {}
@@ -848,7 +847,7 @@ def solve(
 
     def record_target(
         ratio: float,
-        state: T3DiffusionState,
+        state: DiffusionState,
         certificate: Mapping[str, float],
     ) -> None:
         if ratio not in paper_ratios:

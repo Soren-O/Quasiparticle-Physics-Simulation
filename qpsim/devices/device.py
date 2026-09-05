@@ -1,6 +1,6 @@
 """Device — composition of Regions + Junctions, with a top-level solver.
 
-Phase 3 ships:
+This module provides:
 
 * :class:`Device` — dataclass holding regions (keyed by name) and a
   list of junctions.
@@ -12,9 +12,9 @@ Phase 3 ships:
     3. Repeat until per-region |Δf| converges below ``outer_tol``.
 
 Independent regions may use either thermal or stored finite-phonon inner
-solves. Active conservative cross-region components currently require
+solves. Active conservative cross-region components require
 ``use_thermal_phonons=True`` because their component-level number certificate
-does not yet include the stored non-equilibrium phonon state.
+does not include the stored non-equilibrium phonon state.
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ from qpsim.devices.qubit import (
     solve_qubit_master_equation_steady_state,
 )
 from qpsim.devices.region import Region
-from qpsim.phonon_models.state import PhononModel, PhononState
+from qpsim.phonon_models.state import PhononState
 
 if TYPE_CHECKING:
-    from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+    from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 
 
 @dataclass
@@ -137,7 +137,7 @@ class DeviceSolution:
     Attributes
     ----------
     states
-        Converged ``T3DiffusionState`` per region (keyed by name).
+        Converged ``DiffusionState`` per region (keyed by name).
     qubit_state
         Converged ``QubitState`` when ``device.qubit`` is set; ``None``
         otherwise.
@@ -161,7 +161,7 @@ class DeviceSolution:
         no larger than ``outer_tol`` at success.
     """
 
-    states: dict[str, T3DiffusionState]
+    states: dict[str, DiffusionState]
     n_outer_iterations: int
     final_max_delta_f: float
     qubit_state: QubitState | None = None
@@ -173,7 +173,7 @@ class DeviceSolution:
 
 
 def _map_output_is_stationary(
-    new_states: dict[str, T3DiffusionState],
+    new_states: dict[str, DiffusionState],
     previous: dict[str, tuple[np.ndarray, np.ndarray]],
     *,
     rtol: float = 1e-12,
@@ -268,7 +268,7 @@ def _dataclass_public_signature(value: object) -> object:
     return (type(value), value)
 
 
-def _spectral_static_signature(state: T3DiffusionState) -> tuple[object, ...]:
+def _spectral_static_signature(state: DiffusionState) -> tuple[object, ...]:
     """Value signature for the static public spectral contract.
 
     Object identity is deliberately excluded: an injected pure backend may
@@ -297,17 +297,16 @@ def _spectral_static_signature(state: T3DiffusionState) -> tuple[object, ...]:
     )
 
 
-def _phonon_static_signature(state: T3DiffusionState) -> tuple[object, ...]:
+def _phonon_static_signature(state: DiffusionState) -> tuple[object, ...]:
     phonon = state.phonon
     return (
         _array_signature(phonon.omega_bins),
         _array_signature(phonon.tau_l),
-        phonon.model,
         _dataclass_public_signature(phonon.branches),
     )
 
 
-def _region_static_signature(state: T3DiffusionState) -> tuple[object, ...]:
+def _region_static_signature(state: DiffusionState) -> tuple[object, ...]:
     """Fields the current Device outer map does not iterate or damp."""
     return (
         float(state.gap),
@@ -315,11 +314,10 @@ def _region_static_signature(state: T3DiffusionState) -> tuple[object, ...]:
         _phonon_static_signature(state),
         _dataclass_public_signature(state.material),
         float(state.T_bath),
-        state.tier,
     )
 
 
-def _region_input_signature(state: T3DiffusionState) -> tuple[object, ...]:
+def _region_input_signature(state: DiffusionState) -> tuple[object, ...]:
     """Exact snapshot of every public region field visible to extensions."""
     return (
         _array_signature(state.f),
@@ -338,12 +336,12 @@ def _qubit_input_signature(state: QubitState | None) -> object:
 
 
 def _validate_backend_candidate_state(
-    candidate: T3DiffusionState,
-    expected: T3DiffusionState,
+    candidate: DiffusionState,
+    expected: DiffusionState,
     *,
     region_name: str,
-) -> T3DiffusionState:
-    """Validate and normalize the complete T3 state from an injected backend."""
+) -> DiffusionState:
+    """Validate and normalize the complete state from an injected backend."""
     try:
         candidate_f_raw = np.asarray(candidate.f)
         if np.iscomplexobj(candidate_f_raw):
@@ -359,7 +357,7 @@ def _validate_backend_candidate_state(
     except (AttributeError, TypeError, ValueError, OverflowError) as exc:
         raise RuntimeError(
             f"Backend returned an invalid state for region {region_name!r}; "
-            "the T3 state fields must be numeric and complete."
+            "the state fields must be numeric and complete."
         ) from exc
 
     if candidate_f.shape != expected.f.shape:
@@ -433,7 +431,6 @@ def _validate_backend_candidate_state(
             n_ph=np.asarray(n_ph_raw, dtype=float).copy(),
             omega_bins=np.asarray(omega_raw, dtype=float).copy(),
             tau_l=np.asarray(tau_l_raw, dtype=float).copy(),
-            model=phonon.model,
             branches=list(phonon.branches),
         )
     except (AttributeError, TypeError, ValueError, OverflowError) as exc:
@@ -441,14 +438,10 @@ def _validate_backend_candidate_state(
             f"Backend returned an invalid phonon state for region "
             f"{region_name!r}."
         ) from exc
-    if (
-        validated_phonon.model is not PhononModel.PH0_LOCAL
-        or validated_phonon.n_branch != 1
-        or validated_phonon.n_spatial != 1
-    ):
+    if validated_phonon.n_branch != 1 or validated_phonon.n_spatial != 1:
         raise RuntimeError(
             f"Backend returned a phonon state outside the homogeneous "
-            f"PH0_LOCAL Device contract for region {region_name!r}."
+            f"Device contract for region {region_name!r}."
         )
     try:
         static_changed = (
@@ -461,10 +454,10 @@ def _validate_backend_candidate_state(
         ) from exc
     if static_changed:
         raise RuntimeError(
-            f"Backend changed static T3 fields for region {region_name!r}. "
-            "The Device outer solver currently iterates only f and n_ph; "
-            "gap, spectral grid/configuration, phonon grid/escape model, "
-            "material, T_bath, and tier must remain invariant."
+            f"Backend changed static fields for region {region_name!r}. "
+            "The Device outer solver iterates only f and n_ph; gap, "
+            "spectral grid/configuration, phonon grid/escape model, "
+            "material and T_bath must remain invariant."
         )
     return replace(candidate, f=candidate_f, phonon=validated_phonon)
 
@@ -472,7 +465,7 @@ def _validate_backend_candidate_state(
 def solve_device_steady_state(
     device: Device,
     *,
-    backend: T3DiffusionBackend | None = None,
+    backend: DiffusionBackend | None = None,
     use_thermal_phonons: bool = True,
     inner_anderson_depth: int = 3,
     outer_tol: float = 1e-6,
@@ -487,7 +480,7 @@ def solve_device_steady_state(
       1. Evaluate every Junction at the current region states; sum the
          per-region :class:`ExternalFlux` contributions.
       2. For each region, solve the steady-state ``f(E)`` at the
-         aggregated boundary flux via the T3 backend.
+         aggregated boundary flux via the backend.
       3. Measure the UNDAMPED fixed-point defects in both ``f`` and stored
          ``n_ph`` per region, then take the damped step
          ``x_next = x + outer_damping*(F(x) - x)``.
@@ -511,14 +504,14 @@ def solve_device_steady_state(
     device
         Region+Junction composition to solve.
     backend
-        Optional shared T3 backend instance; one is constructed if
+        Optional shared backend instance; one is constructed if
         omitted.
     use_thermal_phonons
         Pin n_ph at the substrate Bose-Einstein distribution and run
-        Newton-only on f for each region. Default for Phase 3
-        (sidesteps the inner Picard-on-n_ph complication). Finite-phonon
+        Newton-only on f for each region. The default, because it
+        sidesteps the inner Picard-on-n_ph complication. Finite-phonon
         solves are supported only when the Device has no active conservative
-        cross-region transfer component; such components need a future
+        cross-region transfer component; such components would need an
         n_ph-aware Device-level number certificate.
     inner_anderson_depth
         Forwarded to the inner backend solve when relevant. Ignored
@@ -599,13 +592,13 @@ def solve_device_steady_state(
             f"outer_max_iter must be a positive integer; got {outer_max_iter!r}."
         )
     if backend is None:
-        # Lazy import to avoid circular dep with qpsim.backends.t3_diffusion
+        # Lazy import to avoid circular dep with qpsim.backends.diffusion
         # which itself imports qpsim.devices.external_flux.
-        from qpsim.backends.t3_diffusion import T3DiffusionBackend
-        backend = T3DiffusionBackend()
+        from qpsim.backends.diffusion import DiffusionBackend
+        backend = DiffusionBackend()
 
     # Initial region states (copies are taken implicitly by replace())
-    states: dict[str, T3DiffusionState] = {
+    states: dict[str, DiffusionState] = {
         name: r.state for name, r in device.regions.items()
     }
     # Initial qubit state: uniform mixture if not specified.
@@ -751,7 +744,7 @@ def solve_device_steady_state(
         raise ValueError(
             "solve_device_steady_state cannot certify finite-phonon Device "
             "solutions with active conservative cross-region transfer: the "
-            "component certificate does not yet include the stored "
+            "component certificate does not include the stored "
             "non-equilibrium phonon state. Junction-free Devices and Devices "
             "whose conservative couplings are identically disabled remain "
             "valid finite-phonon wrappers around independent region solves."
@@ -783,8 +776,8 @@ def solve_device_steady_state(
         junction: Junction,
         result_a: ExternalFlux,
         result_b: ExternalFlux,
-        state_a: T3DiffusionState,
-        state_b: T3DiffusionState,
+        state_a: DiffusionState,
+        state_b: DiffusionState,
     ) -> None:
         """Verify one declared edge's capacity-weighted transfer balance."""
         ratio = conservative_ratio_by_id[id(junction)]
@@ -875,7 +868,7 @@ def solve_device_steady_state(
             )
 
     def _component_conserved_mode_error(
-        accepted: dict[str, T3DiffusionState],
+        accepted: dict[str, DiffusionState],
     ) -> float:
         """Max capacity-weighted pair-number error over components."""
         worst = 0.0
@@ -952,7 +945,7 @@ def solve_device_steady_state(
     last_delta_p = 0.0
     last_slow_mode_error = 0.0
     # A converged defect certifies the *input* at which F(x) was evaluated.
-    # Return it only when that full T3/qubit state is itself a prior map
+    # Return it only when that full region/qubit state is itself a prior map
     # output; otherwise ancillary backend-owned fields (notably n_ph) may be
     # stale even when f is already fixed. The first quiet evaluation promotes
     # the exact map output and a second evaluation certifies that snapshot.
@@ -1040,7 +1033,7 @@ def solve_device_steady_state(
             all_qubit_channels.extend(result.qubit_channels)
 
         # Step 2: per-region steady-state solve at frozen flux
-        new_states: dict[str, T3DiffusionState] = {}
+        new_states: dict[str, DiffusionState] = {}
         for name, state in states.items():
             ef = fluxes[name]
             owns_dissipation = name in dissipation_owner
@@ -1069,13 +1062,13 @@ def solve_device_steady_state(
             except (AttributeError, TypeError, ValueError, OverflowError) as exc:
                 raise RuntimeError(
                     f"Backend mutated region {name!r}'s input state into an "
-                    "invalid public T3 state."
+                    "invalid public region state."
                 ) from exc
             if state_input_mutated:
                 raise RuntimeError(
                     f"Backend mutated region {name!r}'s input state in "
                     "place. Device fixed-point defects require a pure map; "
-                    "return a new T3DiffusionState instead."
+                    "return a new DiffusionState instead."
                 )
             candidate = _validate_backend_candidate_state(
                 candidate,
@@ -1225,7 +1218,7 @@ def solve_device_steady_state(
             name: (state.f.copy(), state.phonon.n_ph.copy())
             for name, state in new_states.items()
         }
-        damped_states: dict[str, T3DiffusionState] = {}
+        damped_states: dict[str, DiffusionState] = {}
         for name in states:
             f_damped = states[name].f + step * (
                 new_states[name].f - states[name].f

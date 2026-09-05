@@ -2,7 +2,7 @@
 
 Model:
 * 100 um reflective Al strip, uniform 1D mesh.
-* T3 local electron-phonon collisions with thermal phonons at 100 mK.
+* Local electron-phonon collisions with thermal phonons at 100 mK.
 * Energy-dependent legacy diffusion ``D(E) = D0 sqrt(1 - (Delta/E)^2)``.
 * Continuous one-end external source centered near ``2 Delta``.
 
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from qpsim.geometries import strip
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import HBAR_UEV_NS
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -67,7 +67,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return fermi_dirac_occupation(E, T)
 
 
-def _build_state(D0: float) -> T3SpatialState:
+def _build_state(D0: float) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -84,7 +84,7 @@ def _build_state(D0: float) -> T3SpatialState:
     )
     x, dx_um = _cell_centered_strip_grid(NX, length_um=LENGTH_UM)
     f0 = np.repeat(_fermi_dirac(E, T_BATH_K)[:, None], NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(
             int(np.asarray(x).size),
@@ -96,7 +96,7 @@ def _build_state(D0: float) -> T3SpatialState:
     )
 
 
-def _source_flux(state: T3SpatialState) -> StripFlux:
+def _source_flux(state: SpatialState) -> StripFlux:
     center = SOURCE_CENTER_FACTOR * state.gap
     sigma = SOURCE_SIGMA_FACTOR * state.gap
     profile = np.exp(-0.5 * ((state.spectral.E - center) / sigma) ** 2)
@@ -121,30 +121,30 @@ def _source_flux(state: T3SpatialState) -> StripFlux:
     )
 
 
-def _xqp_profile(state: T3SpatialState) -> np.ndarray:
+def _xqp_profile(state: SpatialState) -> np.ndarray:
     spectral_weights = bcs_dos_cell_weights(
         state.spectral.E, state.spectral.dE, state.gap,
     )
     return np.sum(spectral_weights[:, None] * state.f, axis=0) / state.gap
 
 
-def _mean_f(state: T3SpatialState) -> np.ndarray:
+def _mean_f(state: SpatialState) -> np.ndarray:
     return np.mean(state.f, axis=1)
 
 
 def _observables(f_ref: np.ndarray) -> dict[str, object]:
     probe_energy = HBAR_UEV_NS * 2.0 * np.pi * RESONATOR_FREQUENCY_GHZ
 
-    def xqp_mean(state: T3SpatialState) -> float:
+    def xqp_mean(state: SpatialState) -> float:
         return float(np.mean(_xqp_profile(state)))
 
-    def xqp_source(state: T3SpatialState) -> float:
+    def xqp_source(state: SpatialState) -> float:
         return float(_xqp_profile(state)[0])
 
-    def xqp_open_end(state: T3SpatialState) -> float:
+    def xqp_open_end(state: SpatialState) -> float:
         return float(_xqp_profile(state)[-1])
 
-    def qi_uniform_weight(state: T3SpatialState) -> float:
+    def qi_uniform_weight(state: SpatialState) -> float:
         return compute_quality_factor(
             _mean_f(state),
             state.spectral,
@@ -153,7 +153,7 @@ def _observables(f_ref: np.ndarray) -> dict[str, object]:
             n_subgap=200,
         )
 
-    def frac_freq_shift_uniform_weight(state: T3SpatialState) -> float:
+    def frac_freq_shift_uniform_weight(state: SpatialState) -> float:
         return compute_frequency_shift(
             _mean_f(state),
             f_ref,
@@ -194,7 +194,7 @@ def _write_trace(path: Path, snapshots: list[object]) -> None:
             writer.writerow(row)
 
 
-def _write_profile(path: Path, state: T3SpatialState) -> None:
+def _write_profile(path: Path, state: SpatialState) -> None:
     profile = _xqp_profile(state)
     with path.open("w", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=["x_um", "xqp"])
@@ -212,7 +212,7 @@ def main() -> None:
         state = _build_state(D0)
         f_ref = _mean_f(state)
         flux = _source_flux(state)
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         dx_um = state.geometry.mesh_size
         dt = min(DT_NS, CFL_TARGET * dx_um * dx_um / D0)
         print(f"  dt={dt:g} ns (diffusion number {D0 * dt / dx_um**2:.1f})", flush=True)

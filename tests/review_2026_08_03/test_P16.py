@@ -9,7 +9,7 @@ Pins, in order:
 * the documented absolute-floor behaviour of the Picard change test
   (``qpsim/services/steady_state``);
 * the phonon ω-lattice commensurability condition now documented in
-  ``qpsim/phonon_models/ph0_local``;
+  ``qpsim/phonon_models/local``;
 * the newline-independence of the recorded Fig. 6 P0 oracle digests.
 """
 
@@ -199,7 +199,7 @@ class TestPhononOmegaLatticeCommensurability:
         num_energy_bins: int,
         commensurate: bool,
     ) -> None:
-        # Characterizes the unguarded behaviour described in the ph0_local
+        # Characterizes the unguarded behaviour described in the local
         # module docstring: update this test together with any commensurability
         # guard or rate-preserving deposition that fixes it.
         E, _ = build_energy_grid(

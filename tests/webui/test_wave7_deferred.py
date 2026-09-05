@@ -1,4 +1,4 @@
-"""Wave 7: the deferred items, each bound to a number.
+"""Wave 7 items, each bound to a number.
 
 * A static injection under strategy='steady_state' is folded into the
   solver's external flux. The measured answer moves with it, and agrees with

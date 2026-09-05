@@ -22,12 +22,12 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -204,7 +204,7 @@ def _build_state(
     *,
     f_seed: np.ndarray | None = None,
     n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     f0 = _fermi_dirac(spectral.E, T_bath) if f_seed is None else f_seed.copy()
     n_ph = (
         thermal_phonon_occupation(omega, T_bath)
@@ -215,10 +215,9 @@ def _build_state(
         n_ph=n_ph.reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), TAU_L),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    return T3DiffusionState(
+    return DiffusionState(
         f=f0,
         gap=DELTA_0,
         spectral=spectral,
@@ -236,11 +235,12 @@ def solve(
 ) -> dict[str, np.ndarray]:
     """Run the finite-tau_l kinetic sweep; return the raw converged occupations.
 
-    The expensive half of Fig. 7. For each (readout power, T_bath) point the T3
-    backend solves the steady-state quasiparticle distribution from a fresh
-    thermal seed (no warm-seeding between points — every point is independent,
-    which is what makes the solve/observable split bit-for-bit faithful to the
-    original ``run``). The returned payload is what the sweep cache stores.
+    The expensive half of Fig. 7. For each (readout power, T_bath) point the
+    diffusion backend solves the steady-state quasiparticle distribution from
+    a fresh thermal seed (no warm-seeding between points — every point is
+    independent, which is what makes the solve/observable split bit-for-bit
+    faithful to the original ``run``). The returned payload is what the sweep
+    cache stores.
 
     Returns
     -------
@@ -256,7 +256,7 @@ def solve(
     )
     material = _paper_material()
     spectral, omega = _build_grid(resolved_num_bins)
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
 
     n_bar = np.asarray([_nbar_from_table_iii(p) for p in powers], dtype=float)
 

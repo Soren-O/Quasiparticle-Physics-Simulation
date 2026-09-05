@@ -1,4 +1,4 @@
-"""Tests for qpsim.phonon_models.ph0_local."""
+"""Tests for qpsim.phonon_models.local."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from qpsim.collisions.phonon import (
 )
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
-from qpsim.phonon_models.ph0_local import (
+from qpsim.phonon_models.local import (
     phonon_balance_diagnostics,
     phonon_steady_state,
 )
@@ -80,7 +80,7 @@ class TestPhononSteadyState:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Uniformly tiny regular balances must not be classified as singular."""
-        from qpsim.phonon_models import ph0_local as ph0_mod
+        from qpsim.phonon_models import local as local_mod
 
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
 
@@ -88,8 +88,8 @@ class TestPhononSteadyState:
             n_omega = len(omega)
             return np.full(n_omega, 1e-40), np.full(n_omega, -1e-40)
 
-        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
-        n_ph = ph0_mod.phonon_steady_state(
+        monkeypatch.setattr(local_mod, "compute_phonon_source_sink", fake_source_sink)
+        n_ph = local_mod.phonon_steady_state(
             f_th,
             ctx,
             K_s0,
@@ -107,7 +107,7 @@ class TestPhononSteadyState:
     def test_zero_tau_l_rejects_negative_fixed_point(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.phonon_models import ph0_local as ph0_mod
+        from qpsim.phonon_models import local as local_mod
 
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
 
@@ -115,9 +115,9 @@ class TestPhononSteadyState:
             n_omega = len(omega)
             return np.ones(n_omega), np.ones(n_omega)
 
-        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        monkeypatch.setattr(local_mod, "compute_phonon_source_sink", fake_source_sink)
         with pytest.raises(RuntimeError, match="unphysical"):
-            ph0_mod.phonon_steady_state(
+            local_mod.phonon_steady_state(
                 f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
                 T_bath=T_bath, tau_l=0.0,
             )
@@ -126,7 +126,7 @@ class TestPhononSteadyState:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """An absolute clipping tolerance must not turn a negative root into 0."""
-        from qpsim.phonon_models import ph0_local as ph0_mod
+        from qpsim.phonon_models import local as local_mod
 
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
 
@@ -134,9 +134,9 @@ class TestPhononSteadyState:
             n_omega = len(omega)
             return np.full(n_omega, 1e-13), np.ones(n_omega)
 
-        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        monkeypatch.setattr(local_mod, "compute_phonon_source_sink", fake_source_sink)
         with pytest.raises(RuntimeError, match="unphysical"):
-            ph0_mod.phonon_steady_state(
+            local_mod.phonon_steady_state(
                 f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
                 T_bath=T_bath, tau_l=0.0,
             )
@@ -144,7 +144,7 @@ class TestPhononSteadyState:
     def test_zero_tau_l_rejects_negative_root_that_underflows_to_zero(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.phonon_models import ph0_local as ph0_mod
+        from qpsim.phonon_models import local as local_mod
 
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
 
@@ -155,9 +155,9 @@ class TestPhononSteadyState:
                 np.full(n_omega, np.finfo(float).max),
             )
 
-        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        monkeypatch.setattr(local_mod, "compute_phonon_source_sink", fake_source_sink)
         with pytest.raises(RuntimeError, match="unphysical"):
-            ph0_mod.phonon_steady_state(
+            local_mod.phonon_steady_state(
                 f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
                 T_bath=T_bath, tau_l=0.0,
             )
@@ -165,7 +165,7 @@ class TestPhononSteadyState:
     def test_finite_tau_l_rejects_runaway_denominator(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from qpsim.phonon_models import ph0_local as ph0_mod
+        from qpsim.phonon_models import local as local_mod
 
         ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn, f_th, T_bath = _setup()
 
@@ -173,9 +173,9 @@ class TestPhononSteadyState:
             n_omega = len(omega)
             return np.ones(n_omega), np.full(n_omega, 2.0)
 
-        monkeypatch.setattr(ph0_mod, "compute_phonon_source_sink", fake_source_sink)
+        monkeypatch.setattr(local_mod, "compute_phonon_source_sink", fake_source_sink)
         with pytest.raises(RuntimeError, match="phonon runaway"):
-            ph0_mod.phonon_steady_state(
+            local_mod.phonon_steady_state(
                 f_th, ctx, K_s0, K_r0, omega, idx_d, idx_s, sgn,
                 T_bath=T_bath, tau_l=1.0,
             )

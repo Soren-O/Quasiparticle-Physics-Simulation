@@ -1205,7 +1205,7 @@ def test_spatial_partial_attempt_retries_once_then_skips(
     monkeypatch.setattr(spatial, "_build_state", fake_build_state)
     monkeypatch.setattr(spatial, "_mean_f", lambda _state: object())
     monkeypatch.setattr(spatial, "_source_flux", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(spatial, "T3SpatialBackend", FakeBackend)
+    monkeypatch.setattr(spatial, "SpatialBackend", FakeBackend)
     monkeypatch.setattr(
         spatial,
         "_write_trace",

@@ -4,8 +4,7 @@ The :class:`Material` dataclass captures everything the kinetics
 framework needs about a superconducting material: gap, critical
 temperature, e-ph timescales, normal-state transport, phonon branches
 (per Phonon_Model_Decisions.md D5, all three sound velocities are
-carried so the v3 multi-branch extension is purely additive), film
-thickness, and a :class:`Substrate` descriptor.
+carried), film thickness, and a :class:`Substrate` descriptor.
 
 YAML files live in ``qpsim/materials/data/``. Load one with
 ``load_material("Al")``. Pass ``database_dir`` to point at a custom
@@ -83,12 +82,12 @@ class Material:
     tau_0: float                # characteristic e-ph time
     # Accepted but currently IGNORED: every backend hands ``tau_0`` to
     # both build_scattering_kernel_base and build_recombination_kernel_base
-    # (t3_diffusion.py, t3_spatial.py, devices/device.py), so a YAML
+    # (diffusion.py, spatial.py, devices/device.py), so a YAML
     # that sets these changes no solve. They are not independent material
     # inputs either — Kaplan 1976 normalizes both channels by the one
     # ``tau_0``, and the phonon-side pair-breaking kernel (``tau_0_pb_ns``)
     # is matched to the QP side, so scaling one channel alone would break
-    # QP↔phonon energy consistency in the dynamic-Ph0 backends.
+    # QP↔phonon energy consistency in the dynamic-phonon backends.
     # ``__post_init__`` warns when a supplied value differs from ``tau_0``.
     tau_s: float | None = None  # scattering time (defaults to tau_0)
     tau_r: float | None = None  # recombination time (defaults to tau_0)
@@ -106,7 +105,7 @@ class Material:
     # scattering ``2K⁻/(π Δ τ_0^PB)`` and pair-breaking/recombination
     # ``K⁺/(π Δ τ_0^PB)``. Distinct from ``tau_0`` (QP-side e-ph
     # characteristic time): F&C Eq. 13 relates the two via a
-    # material-specific ratio (≈ 1.7×10³ for Al). Dynamic Ph0 backend
+    # material-specific ratio (≈ 1.7×10³ for Al). Dynamic-phonon backend
     # solves use these phonon-side kernels by default; callers can explicitly
     # opt into the pre-fix QP-side-kernel behavior for legacy reproduction.
     tau_0_pb_ns: float | None = None  # τ_0^PB (ns)
@@ -117,7 +116,7 @@ class Material:
     rho_F: float = 0.0          # single-spin DOS (eV⁻¹ m⁻³)
 
     # Phonon branches (D5 commits to carrying all three; the Debye
-    # average is the scalar-s default for the Ph0 single-branch model).
+    # average is the scalar-s default for the single-branch phonon model).
     sound_velocity_longitudinal: float = 0.0  # s_L (m/s)
     sound_velocity_transverse: float = 0.0    # s_T (m/s)
     sound_velocity_debye: float | None = None  # s_D; derived if omitted

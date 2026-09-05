@@ -13,18 +13,17 @@ Decomposes a region-level external coupling into the same
 Signed fluxes are explicitly rejected — extraction (flow OUT of
 the region across a junction) is encoded as ``loss_rate * f``,
 NOT a negative gain. This preserves the positivity-preserving
-ETD / Newton machinery the existing T3 stack relies on.
+ETD / Newton machinery the solvers rely on.
 
-Units are ``1/ns`` to match the rest of the T3 stack (every
+Units are ``1/ns`` to match the rest of the stack (every
 collision evaluator returns rates in ``1/ns``). Junction
 implementations are responsible for converting from Stage A's
 ``Hz`` rates and applying the boundary-current normalization
 ``gain(E) = I_J(E) / (4 ρ_F ρ(E) V)`` documented in
 ``docs/Device_Architecture.md`` §3.2.1.
 
-v1 shape is ``(NE,)`` because Gate-2 T3 is lumped-0D. Optional
-``(NE, 1)`` is squeezed transparently. ``target_cells`` is
-reserved for Gate 5 spatial T3 and IGNORED in v1.
+``gain`` and ``loss_rate`` have shape ``(NE,)``; ``(NE, 1)`` is
+squeezed transparently.
 """
 
 from __future__ import annotations
@@ -47,10 +46,6 @@ class ExternalFlux:
     loss_rate
         Damping coefficient ``∂_t f -= loss_rate * f``. Same shape
         as ``gain``. All entries must be non-negative. Units: ``1/ns``.
-    target_cells
-        Reserved for Gate 5 spatial T3. IGNORED in v1 (lumped 0D
-        regions have one cell). Pass ``None`` until spatial T3
-        lands.
     diagnostics
         Free-form dict for solver-log diagnostics: junction name,
         total injected current, etc. Not consumed by the residual.
@@ -64,7 +59,6 @@ class ExternalFlux:
 
     gain: np.ndarray
     loss_rate: np.ndarray
-    target_cells: np.ndarray | None = None
     diagnostics: dict[str, str | float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -86,13 +80,12 @@ class ExternalFlux:
 
         if gain.ndim != 1:
             raise ValueError(
-                f"ExternalFlux.gain must be 1D (shape (NE,)) in v1; "
-                f"got shape {gain.shape}. Spatial T3 with (NE, NR) "
-                f"shape lands at Gate 5."
+                f"ExternalFlux.gain must be 1D (shape (NE,)); "
+                f"got shape {gain.shape}."
             )
         if loss_rate.ndim != 1:
             raise ValueError(
-                f"ExternalFlux.loss_rate must be 1D (shape (NE,)) in v1; "
+                f"ExternalFlux.loss_rate must be 1D (shape (NE,)); "
                 f"got shape {loss_rate.shape}."
             )
         if gain.shape != loss_rate.shape:
@@ -160,8 +153,8 @@ class ExternalFlux:
         collision solver. A loss rate on
         an unsupported storage row is harmless and may be ignored by the
         solver, but a positive gain there would create an occupation where the
-        represented density of states is exactly zero. Rejecting it at the API
-        boundary avoids the previous backend-dependent add/drop behavior.
+        represented density of states is exactly zero. Rejecting it here, at
+        the API boundary, gives every consumer the same contract.
         """
         support = np.asarray(supported, dtype=bool)
         if support.ndim != 1 or support.shape != self.gain.shape:

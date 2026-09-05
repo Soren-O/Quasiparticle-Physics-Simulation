@@ -144,12 +144,12 @@ class SpatialCollisions:
         # no-substrate tau -> infinity sentinel, not instantaneous escape.
         self.phonon_escape_time = phonon_escape_time
         # The phonon equation is written on its OWN kernels (F&C 2023 Eq. 12).
-        # This path used to pass the quasiparticle-side matrices instead, which
+        # Passing the quasiparticle-side matrices instead is a defect: they
         # carry an extra omega^2/(tau_0 (kB T_c)^3) and a tau_0 about 1700x
         # larger than tau_0^PB: measured n_ph 28x low at omega = 2 Delta and 6x
-        # at 3.8 Delta, so the same setup landed on a different fixed point
+        # at 3.8 Delta, so the same setup lands on a different fixed point
         # here than in the steady-state solver. Same defect, same reason, as
-        # the phonon-source flags that were crossed on this call.
+        # crossing the phonon-source flags on this call.
         self.use_phonon_side_kernel = bool(use_phonon_side_kernel)
         self.tau_0_pb_ns = tau_0_pb_ns
         if phonon_escape_time is not None and self.use_phonon_side_kernel:
@@ -549,8 +549,7 @@ class SpatialCollisions:
         unsupported = ~operator[4]
         # Refuse an external source aimed at states that do not exist here,
         # rather than deleting it below. Injection into an unrepresented bin is
-        # undefined, and BOTH backends this one replaces raise on it
-        # (the retired 1-D backend, and t3_diffusion via
+        # undefined, and the diffusion backend raises on it too (via
         # external_flux._validate_gain_support). Silently zeroing it is how a
         # gap-step device could be asked for the same injection on both sides
         # and get it on only one, with nothing in the output saying so.

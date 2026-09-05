@@ -60,13 +60,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -215,7 +215,7 @@ def _material() -> Material:
     )
 
 
-def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
+def _build_state(material: Material, T_bath: float) -> DiffusionState:
     """Build a fresh thermal-seed state at the paper grid + given T_B."""
     E, _ = build_energy_grid(
         gap=DELTA_0,
@@ -230,11 +230,10 @@ def _build_state(material: Material, T_bath: float) -> T3DiffusionState:
         n_ph=thermal_phonon_occupation(omega, T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),  # τ_ℓ = 0 throughout F24 Fig. 8
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f_FD = fermi_dirac_occupation(E, T_bath)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_FD,
         gap=DELTA_0,
         spectral=spectral,
@@ -282,7 +281,7 @@ def run() -> Fig8PaperResult:
     _assert_unit_audit()
 
     material = _material()
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
 
     # Convert Hz → ns⁻¹ once, up front, so the kernel only ever sees
     # ns⁻¹ values.
@@ -328,7 +327,7 @@ def run() -> Fig8PaperResult:
                 use_thermal_phonons=True,
                 pb_photon_params=pb_params,
                 # The dimensional gate follows this validation's established
-                # tier. The independent backward-error gate still rejects an
+                # tolerance. The independent backward-error gate still rejects an
                 # unchanged thermal seed; strong-to-weak continuation above
                 # supplies a feasible, well-scaled Newton starting state.
                 newton_tol=NEWTON_TOL,
@@ -379,7 +378,7 @@ def baseline_path() -> Path:
     density formula is not implemented or serialized.
     """
     root = Path(__file__).resolve().parents[2]
-    return root / "validation" / "baselines" / "ph0_constant" / "fischer2024_fig8_qpsim_native.csv"
+    return root / "validation" / "baselines" / "constant" / "fischer2024_fig8_qpsim_native.csv"
 
 
 def plot_path() -> Path:

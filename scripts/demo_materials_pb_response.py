@@ -3,7 +3,7 @@
 Solves the driven steady state x_qp(T_B) for Al, Nb, and TiN under an
 identical pair-breaking photon drive (omega_PB = 2.8 Delta per material,
 fixed drive product c*nbar), using nothing but `load_material` and the
-0-D T3 backend. The point of the figure: material parameters (tau_0,
+0-D diffusion backend. The point of the figure: material parameters (tau_0,
 Delta_0, T_c) come from the database, everything else is shared code —
 the drive-set low-T plateau and the thermal takeover at higher T_B/T_c
 fall out per material with no per-material code.
@@ -31,12 +31,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import build_phonon_frequency_map
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
 from qpsim.observables.density import qp_fraction
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -60,7 +60,7 @@ def _fermi_dirac(E: np.ndarray, T_K: float) -> np.ndarray:
 
 
 def _build_state(material_name: str, T_bath_K: float,
-                 f_init: np.ndarray | None = None) -> T3DiffusionState:
+                 f_init: np.ndarray | None = None) -> DiffusionState:
     material = load_material(material_name)
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -77,11 +77,10 @@ def _build_state(material_name: str, T_bath_K: float,
         n_ph=thermal_phonon_occupation(omega, T_bath_K).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.zeros((1, omega.size)),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     f0 = _fermi_dirac(E, T_bath_K) if f_init is None else f_init
-    return T3DiffusionState(
+    return DiffusionState(
         f=f0,
         gap=gap,
         spectral=spectral,
@@ -93,7 +92,7 @@ def _build_state(material_name: str, T_bath_K: float,
 
 def run_material(material_name: str) -> list[dict[str, float | str | bool]]:
     material = load_material(material_name)
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     pb_params = {
         "omega_PB": OMEGA_PB_FACTOR * material.Delta_0,
         "n_bar_PB": N_BAR_PB,

@@ -51,7 +51,7 @@ Recommended to **not build**: 24 false gaps + 4 more (scalar-diffusion mode, num
 - **Self-consistent Δ per cell per frame** (`snap_gap`) — a capability the old app never had, recorded on every time march.
 - **Every spatial initial-condition probe** (IC #1–#9) — gaussian/point/uniform/expression all verified against a real per-cell gradient.
 - **Phonon sector distinctions** (`thermal_bath` vs `dynamic_escape` vs `dynamic_closed`, `use_phonon_side_kernel`) — all measured on spatial runs.
-- **Saved setups still load** via `RETIRED_MODE_UPGRADES`, so no migration work is owed.
+- **Saved setups still load** via `SAVED_SETUP_UPGRADES`, so no migration work is owed.
 
 **The cost of the collapse, which this audit surfaced:** making `strategy` a setting rather than a mode created a route (`steady_state` → `run_steady_state_0d`, 1-cell only) that reads a *strict subset* of the setup and silently ignores the rest — `setup.initial`, `setup.drives`, `setup.injection` are all dropped with no error, no warning, no note, while `terms.py` still reports `src = on`. That is Wave 0, item 1, and it is the single most important fix in this plan.
 
@@ -158,7 +158,7 @@ Three of those are genuinely desirable **new** features (run comparison, paramet
 
 ## 5. The hard ones — research, not plumbing
 
-**5.1 Dynes broadening (3 entries, blocked at 10+ sites).** Refused with a stated reason at `collisions/spatial.py:100`, `t3_spatial.py:494`, `t3_diffusion.py:710/1255/2087/2190`, `collisions/phonon.py:60`, both photon modules, and `observables/ac_conductivity.py:110`. The refusal text names the old implementation as the problem: the old app multiplied a *broadened* ρ into *pure-BCS* coherence kernels. **Unresolved:** whether a consistently broadened normal/anomalous coherence kernel is tractable in this quadrature scheme at all. **Contradiction to flag to a physicist:** `devices/m25_junction.py:163` *requires* Γ>0 and rejects Γ below the local cell width, so the codebase currently holds two opposite positions on Γ. Report as blocked-with-cause; do not schedule.
+**5.1 Dynes broadening (3 entries, blocked at 10+ sites).** Refused with a stated reason at `collisions/spatial.py:100`, `spatial.py:494`, `diffusion.py:710/1255/2087/2190`, `collisions/phonon.py:60`, both photon modules, and `observables/ac_conductivity.py:110`. The refusal text names the old implementation as the problem: the old app multiplied a *broadened* ρ into *pure-BCS* coherence kernels. **Unresolved:** whether a consistently broadened normal/anomalous coherence kernel is tractable in this quadrature scheme at all. **Contradiction to flag to a physicist:** `devices/m25_junction.py:163` *requires* Γ>0 and rejects Γ below the local cell width, so the codebase currently holds two opposite positions on Γ. Report as blocked-with-cause; do not schedule.
 
 **5.2 Energy budget / conservation residual.** Rebuild, not port. The QP side needs the BCS DOS; the phonon side needs a mode density. **Unresolved and dangerous:** per this repo's own pair-marginal work, adding a per-bin Debye ω² on top of a lattice whose kernels may already carry it is a double count that was caught once before, by inches. Do not ship any ω-weighted phonon quantity until someone establishes whether the ω lattice carries mode density. The plain `∫n_ph dω` occupation map in Wave 2 needs no such judgement and is the honest interim.
 

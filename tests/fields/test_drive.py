@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.fields.drive import (
     DriveEvaluationError,
     ExpressionDrive,
@@ -44,7 +44,7 @@ def _state(cells: int = 6, ne: int = 20, min_factor: float = 1.0):
     f0 = np.repeat(
         fermi_dirac_distribution(spectral.E, T_BATH)[:, None], cells, axis=1,
     )
-    return T3SpatialState(
+    return SpatialState(
         f=f0, geometry=geom, spectral=spectral,
         material=material, T_bath=T_BATH,
     )
@@ -66,7 +66,7 @@ class TestTheCanonicalExperiment:
         def gate(t: float) -> float:
             return 1.0 if 10.0 <= t < 30.0 else 0.0
 
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=80.0,
             drive=SeparableDrive(pattern, gate),
             snapshot_interval=5.0,
@@ -90,7 +90,7 @@ class TestTheCanonicalExperiment:
         """
         state = _state()
         pattern = _pattern(state)
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=40.0, stop_tol=1e30,
             drive=SeparableDrive(pattern, lambda t: 1.0 if t < 5.0 else 0.0),
         )
@@ -99,7 +99,7 @@ class TestTheCanonicalExperiment:
 
     def test_a_static_drive_still_converges(self):
         state = _state()
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=40.0, stop_tol=1e30,
             drive=StaticDrive(_pattern(state)),
         )
@@ -109,7 +109,7 @@ class TestTheCanonicalExperiment:
 class TestSpatialAndSpectralShape:
     def test_a_drive_confined_to_one_cell_starts_there(self):
         state = _state(cells=7)
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=0.5, max_time=2.0, stop_tol=0.0,
             drive=StaticDrive(_pattern(state, cell=0)),
         )
@@ -125,7 +125,7 @@ class TestSpatialAndSpectralShape:
         and the error case.
         """
         state = _state(min_factor=0.8)
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=10.0, stop_tol=0.0,
             drive=StaticDrive(np.zeros_like(state.f)),
         )
@@ -139,16 +139,16 @@ class TestSpatialAndSpectralShape:
         is the wrong answer twice over: it is indistinguishable from a drive
         that was applied and did nothing, and on a gap-step device the same
         code discarded a source the user had asked for on BOTH sides of the
-        step while delivering it on one. Both backends this one replaced
-        raise here (the collision layer's gain-support guard,
-        t3_diffusion via external_flux._validate_gain_support).
+        step while delivering it on one. Two guards raise here: the
+        collision layer's gain-support check, and
+        external_flux._validate_gain_support on the diffusion path.
         """
         state = _state(min_factor=0.8)
         _ne, ncells = state.f.shape
         below = (state.spectral.cell_density == 0).astype(float)
         assert below.sum() > 0, "this grid has no sub-gap bins -- the test is inert"
         with pytest.raises(ValueError, match="zero-spectral-capacity"):
-            T3SpatialBackend().run(
+            SpatialBackend().run(
                 state, dt=1.0, max_time=10.0, stop_tol=0.0,
                 drive=StaticDrive(2e-4 * np.outer(below, np.ones(ncells))),
             )
@@ -173,7 +173,7 @@ class TestGenerality:
         late, _ = drive.sample(40.0)
         assert int(np.argmax(early.sum(axis=0))) < int(np.argmax(late.sum(axis=0)))
 
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=40.0, drive=drive, snapshot_interval=10.0,
         )
         assert len(result.snapshots) >= 4
@@ -205,7 +205,7 @@ class TestGenerality:
     def test_a_loss_channel_drains_in_proportion_to_what_is_there(self):
         state = _state()
         ne, ncells = state.f.shape
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             state, dt=1.0, max_time=20.0, stop_tol=0.0,
             drive=StaticDrive(loss=1e-3 * np.ones((ne, ncells))),
         )
@@ -216,7 +216,7 @@ class TestWiring:
     def test_passing_both_a_drive_and_arrays_is_refused(self):
         state = _state()
         with pytest.raises(ValueError, match="not both"):
-            T3SpatialBackend().run(
+            SpatialBackend().run(
                 state, dt=1.0, max_time=1.0,
                 external_gain=_pattern(state), drive=StaticDrive(),
             )
@@ -225,10 +225,10 @@ class TestWiring:
         """The old call shape must remain exactly what it was."""
         state = _state()
         pattern = _pattern(state)
-        by_array = T3SpatialBackend().run(
+        by_array = SpatialBackend().run(
             state, dt=1.0, max_time=10.0, stop_tol=0.0, external_gain=pattern,
         )
-        by_drive = T3SpatialBackend().run(
+        by_drive = SpatialBackend().run(
             state, dt=1.0, max_time=10.0, stop_tol=0.0,
             drive=StaticDrive(pattern),
         )

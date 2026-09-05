@@ -2,14 +2,14 @@
 
 Drives the per-energy operators from :mod:`qpsim.transport.spatial_operator`
 through a monotonicity-subcycled CN step. Dimension-agnostic: a one-cell-wide
-geometry reproduces the 1-D backend, and a single cell has no transport at all.
+geometry is the 1-D chain, and a single cell has no transport at all.
 
-Two things here differ deliberately from the 1-D backend they generalise.
+Two properties of the operator cache are deliberate.
 
-*The factor cache is bounded.* The 1-D backend keeps one SuperLU factor per
-energy bin in an unbounded dict. For NE tridiagonals that is cheap; for NE
-sparse LUs of an N-by-N 5-point Laplacian it is not, and it would exhaust
-memory long before the physics went wrong.
+*The factor cache is bounded.* Keeping one SuperLU factor per energy bin in an
+unbounded dict is cheap for NE tridiagonals; for NE sparse LUs of an N-by-N
+5-point Laplacian it is not, and it would exhaust memory long before the
+physics went wrong.
 
 *The cache key fingerprints the mask.* The active region changes with the gap
 profile, and an operator built for one mask is silently wrong for another --
@@ -137,9 +137,9 @@ class SpatialTransport:
         ):
             # Nothing to diffuse BETWEEN, and no wall to lose to either.
             #
-            # The second half used to be assumed rather than checked, so a
-            # trap on the rim was silently inert wherever a bin's active
-            # region was a single cell -- exactly the low-gap-pocket-beside-a-
+            # Assuming the second half rather than checking it would leave a
+            # trap on the rim silently inert wherever a bin's active
+            # region is a single cell -- exactly the low-gap-pocket-beside-a-
             # trap geometry the boundary conditions exist for. Losing to a
             # device face is not transport between cells and does not need a
             # neighbour.

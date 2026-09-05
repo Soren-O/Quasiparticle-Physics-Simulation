@@ -1,7 +1,7 @@
 r"""Qubit, QubitState, QubitTransitionChannel, JunctionQubitCoupling.
 
-Phase 4 of the Device Architecture: a discrete two-level (or N-level)
-system optionally coupled to junction tunneling events. The qubit
+A discrete two-level (or N-level) system in the Device Architecture,
+optionally coupled to junction tunneling events. The qubit
 state space is ``(level, parity)``: a 2-level transmon with parity
 tracking has 4 discrete states |0,e>, |0,o>, |1,e>, |1,o>, addressed
 by ``QubitState.p`` of shape ``(n_levels, 2)``.
@@ -35,7 +35,7 @@ class Qubit:
     Parameters
     ----------
     n_levels
-        Number of logical levels. v1 ships with 2 (transmon ground
+        Number of logical levels. Typically 2 (transmon ground
         + first excited); 3 (qutrit) and higher are accepted by the
         master-equation evolver but not currently exercised.
     track_parity
@@ -103,7 +103,7 @@ class QubitState:
         within ``rtol = 1e-12``.
     t_ns
         Lab-frame time when this state was reached (ns). Defaults to
-        zero. Used by transient evolution (Phase 5+); steady-state
+        zero. Used by transient evolution; steady-state
         results leave it at zero.
 
     Raises

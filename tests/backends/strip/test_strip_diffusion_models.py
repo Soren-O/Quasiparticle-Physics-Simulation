@@ -1,17 +1,15 @@
 """Diffusion-closure family on the 1-D reduction of the unified backend.
 
-Translated from ``TestT3Spatial1DDiffusionModels`` in
-``tests/backends/test_t3_spatial_1d.py`` (retired ``T3Spatial1DBackend`` /
-``T3Spatial1DState``). Every property asserted here is a statement about the
-``(p, q)`` operator family itself -- which conserved density each member
-carries, which members coincide and which separate -- so it survives the move
-onto ``T3SpatialBackend`` with a one-cell-wide ``strip`` geometry.
+Every property asserted here is a statement about the ``(p, q)`` operator
+family itself -- which conserved density each member carries, which members
+coincide and which separate -- checked on ``SpatialBackend`` with a
+one-cell-wide ``strip`` geometry.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -33,7 +31,7 @@ def _build_state(
     T_bath: float = 0.1,
     NE: int = 28,
     NX: int = 11,
-) -> T3SpatialState:
+) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -48,12 +46,12 @@ def _build_state(
         gap=gap,
         diffusion_coefficient=D0,
     )
-    # The retired state carried x = linspace(0, 100, NX), i.e. a spacing of
-    # 100/(NX-1) -- NOT 100/NX. The geometry's mesh_size is that same spacing.
+    # The state meshes with x = linspace(0, 100, NX), i.e. a spacing of
+    # 100/(NX-1) -- NOT 100/NX. The geometry's mesh_size is that spacing.
     x = np.linspace(0.0, 100.0, NX)
     dx = float(x[1] - x[0])
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], NX, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=strip(NX, mesh_size=dx),
         spectral=spectral,
@@ -62,16 +60,16 @@ def _build_state(
     )
 
 
-def _centres(state: T3SpatialState) -> np.ndarray:
+def _centres(state: SpatialState) -> np.ndarray:
     """Cell-centre coordinates of the strip, the unified mesh's own x."""
     mesh = float(state.geometry.mesh_size)
     return (np.arange(state.geometry.cell_count, dtype=float) + 0.5) * mesh
 
 
 def _model_state(
-    base: T3SpatialState, f: np.ndarray, model: DiffusionModel,
-) -> T3SpatialState:
-    return T3SpatialState(
+    base: SpatialState, f: np.ndarray, model: DiffusionModel,
+) -> SpatialState:
+    return SpatialState(
         f=f,
         geometry=base.geometry,
         spectral=base.spectral,
@@ -82,17 +80,16 @@ def _model_state(
 
 
 class TestStripDiffusionModels:
-    """1-D reduction of ``T3SpatialBackend``: the ``(p, q)`` closure family.
+    """1-D reduction of ``SpatialBackend``: the ``(p, q)`` closure family.
 
-    Came from ``TestT3Spatial1DDiffusionModels`` on the retired
-    ``T3Spatial1DBackend``; the geometry is now ``strip(NX, mesh_size=dx)``.
+    The geometry is ``strip(NX, mesh_size=dx)``.
     """
 
     def test_default_model_is_a1(self) -> None:
         assert _build_state().diffusion_model is DiffusionModel.A1
 
     def test_each_closure_conserves_weighted_density(self) -> None:
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         base = _build_state(T_bath=0.0)
         NE, _NX = base.f.shape
         x = _centres(base)
@@ -113,7 +110,7 @@ class TestStripDiffusionModels:
         x = _centres(base)
         f0 = np.tile(0.3 * np.exp(-((x - 50.0) / 15.0) ** 2), (NE, 1))
         state = _model_state(base, f0.copy(), DiffusionModel.C)
-        new = T3SpatialBackend().apply_transport(state, dt=2.0).f
+        new = SpatialBackend().apply_transport(state, dt=2.0).f
 
         # Modal Crank-Nicolson step with the mass-lumped finite-volume
         # D_E = D0/N1_bar closure.
@@ -144,7 +141,7 @@ class TestStripDiffusionModels:
         x = _centres(base)
         f0 = np.tile(0.3 * np.exp(-((x - 50.0) / 15.0) ** 2), (NE, 1))
         out = {
-            model: T3SpatialBackend().apply_transport(
+            model: SpatialBackend().apply_transport(
                 _model_state(base, f0.copy(), model), 2.0
             ).f
             for model in (DiffusionModel.A1, DiffusionModel.C)
@@ -161,7 +158,7 @@ class TestStripDiffusionModels:
         x = _centres(base)
         f0 = np.tile(0.3 * np.exp(-((x - 50.0) / 15.0) ** 2), (NE, 1))
         out = {
-            model: T3SpatialBackend().apply_transport(
+            model: SpatialBackend().apply_transport(
                 _model_state(base, f0.copy(), model), 2.0
             ).f
             for model in (DiffusionModel.A1, DiffusionModel.A1P)

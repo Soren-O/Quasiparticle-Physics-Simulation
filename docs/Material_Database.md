@@ -27,7 +27,7 @@ pass `database_dir=` to point at a user-curated directory.
 | `tau_0` | ns | ✓ | Kaplan e-ph characteristic time. |
 | `tau_s`, `tau_r` | ns |  | Default to `tau_0` if omitted. |
 | `tau_0_phonon` | ns |  | Kaplan 1976 Table II `τ₀^ph`. Required by `kaplan_pair_breaking.tau_PB_inverse_Hz`. |
-| `tau_0_pb_ns` | ns |  | F&C Eq. 12 phonon-side characteristic time. Required by the default dynamic-Ph0 kernel; omit only when using thermal phonons or the explicit legacy-kernel opt-out. |
+| `tau_0_pb_ns` | ns |  | F&C Eq. 12 phonon-side characteristic time. Required by the default dynamic-phonon kernel; omit only when using thermal phonons or the explicit legacy-kernel opt-out. |
 | `D_0` | μm²/ns |  | Normal-state diffusion. |
 | `v_F` | m/s |  | Fermi velocity. |
 | `rho_F` | eV⁻¹ m⁻³ |  | Conventional single-spin DOS at the Fermi level; density observables convert qpsim's µeV integration measure to eV explicitly. |
@@ -38,11 +38,12 @@ pass `database_dir=` to point at a user-curated directory.
 | `substrate` | `Substrate` |  | Nested mapping in YAML. |
 | `substrate_transmission_eta` | — |  | `η` for `acoustic_escape_tau_l`. |
 
-`rho_F` used to be stored per µeV (for example Al `1.74e22`). Custom
-material files and direct density-observable callers must migrate those values
-by multiplying by `1e6` (Al `1.74e28`). Values in the legacy material-scale
-band fail loudly instead of producing a density that is silently `1e6` low;
-version-1 Web UI setup files are migrated automatically when loaded.
+`rho_F` is stored per eV. Custom material files and direct
+density-observable callers that carry a per-µeV value (for example Al
+`1.74e22`) must migrate it by multiplying by `1e6` (Al `1.74e28`). Values
+in the legacy material-scale band fail loudly instead of producing a density
+that is silently `1e6` low; version-1 Web UI setup files are migrated
+automatically when loaded.
 
 ## BCS calibration caveat
 

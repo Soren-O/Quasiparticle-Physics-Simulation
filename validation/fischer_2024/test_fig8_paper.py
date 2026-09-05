@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_diffusion import T3DiffusionState
+from qpsim.backends.diffusion import DiffusionState
 from qpsim.observables.density import qp_fraction
 
 import validation.fischer_2024.fig8_paper as target
@@ -238,14 +238,14 @@ def test_temperature_reset_and_full_state_strong_to_weak_continuation(
 ) -> None:
     monkeypatch.setattr(target, "NUM_BINS", 90)
     monkeypatch.setattr(target, "T_BATH_VALUES", np.asarray([0.10, 0.20]))
-    calls: list[tuple[T3DiffusionState, T3DiffusionState, dict[str, float]]] = []
+    calls: list[tuple[DiffusionState, DiffusionState, dict[str, float]]] = []
 
     class FakeBackend:
         def steady_state(
             self,
-            state: T3DiffusionState,
+            state: DiffusionState,
             **kwargs: object,
-        ) -> T3DiffusionState:
+        ) -> DiffusionState:
             returned = replace(
                 state,
                 f=np.full_like(state.f, 1.0e-4 * (len(calls) + 1)),
@@ -255,7 +255,7 @@ def test_temperature_reset_and_full_state_strong_to_weak_continuation(
             calls.append((state, returned, params))
             return returned
 
-    monkeypatch.setattr(target, "T3DiffusionBackend", FakeBackend)
+    monkeypatch.setattr(target, "DiffusionBackend", FakeBackend)
     monkeypatch.setattr(
         target,
         "qp_certificate",

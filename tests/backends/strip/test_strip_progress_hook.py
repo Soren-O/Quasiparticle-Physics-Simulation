@@ -1,20 +1,16 @@
 """The 1-D reduction of the unified spatial backend: the driver's progress hook.
 
-Translated from ``TestRunUntilSteadyStateProgressHook`` in
-``tests/backends/test_t3_spatial_1d.py``, which covered the retired
-``T3Spatial1DBackend`` / ``T3Spatial1DState``. The unified
-:class:`~qpsim.backends.t3_spatial.T3SpatialBackend` solves the same strip as a
-``(1, N)`` mask and exposes the same driver as
-:meth:`~qpsim.backends.t3_spatial.T3SpatialBackend.run`, so the hook contract
-carries over verbatim: reporting only, plus a clean cooperative early stop when
-it returns ``False``.
+The unified :class:`~qpsim.backends.spatial.SpatialBackend` solves the strip
+as a ``(1, N)`` mask and exposes its driver as
+:meth:`~qpsim.backends.spatial.SpatialBackend.run`. The hook contract is
+reporting only, plus a clean cooperative early stop when it returns ``False``.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.geometries import Geometry, strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
@@ -30,7 +26,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
 
 
 def _strip_geometry(NX: int) -> Geometry:
-    """The retired tests' grid: ``x = linspace(0, 100, NX)``, so ``dx`` is
+    """The strip grid: ``x = linspace(0, 100, NX)``, so ``dx`` is
     ``100/(NX-1)`` -- taken off the array rather than assumed."""
     x = np.linspace(0.0, 100.0, NX)
     return strip(NX, mesh_size=float(x[1] - x[0]))
@@ -42,7 +38,7 @@ def _build_state(
     T_bath: float = 0.1,
     NE: int = 28,
     NX: int = 11,
-) -> T3SpatialState:
+) -> SpatialState:
     material = load_material("Al")
     gap = material.Delta_0
     E, _ = build_energy_grid(
@@ -59,7 +55,7 @@ def _build_state(
     )
     geometry = _strip_geometry(NX)
     f0 = np.repeat(_fermi_dirac(E, T_bath)[:, None], geometry.cell_count, axis=1)
-    return T3SpatialState(
+    return SpatialState(
         f=f0,
         geometry=geometry,
         spectral=spectral,
@@ -73,7 +69,7 @@ class TestStripRunProgressHook:
     cooperative early stop when it returns False."""
 
     @staticmethod
-    def _perturbed_state() -> T3SpatialState:
+    def _perturbed_state() -> SpatialState:
         state = _build_state(NE=12, NX=7)
         f = state.f.copy()
         f[:, 0] = np.clip(f[:, 0] + 0.05, 0.0, 1.0)
@@ -81,7 +77,7 @@ class TestStripRunProgressHook:
         return state
 
     def test_none_hook_bit_for_bit_unchanged(self) -> None:
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         baseline = backend.run(
             self._perturbed_state(), dt=1.0, max_time=6.0, stop_tol=0.0,
         )
@@ -91,7 +87,6 @@ class TestStripRunProgressHook:
         )
         np.testing.assert_array_equal(hooked.state.f, baseline.state.f)
         assert hooked.n_steps == baseline.n_steps
-        # ``total_time`` on the retired result object is ``elapsed`` here.
         assert hooked.elapsed == baseline.elapsed
 
     def test_hook_called_once_per_step_with_times(self) -> None:
@@ -101,7 +96,7 @@ class TestStripRunProgressHook:
             calls.append((t, total))
             return True
 
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._perturbed_state(), dt=1.0, max_time=5.0, stop_tol=0.0,
             progress_hook=hook,
         )
@@ -109,7 +104,7 @@ class TestStripRunProgressHook:
         assert all(total == pytest.approx(5.0) for _, total in calls)
 
     def test_false_return_stops_early(self) -> None:
-        result = T3SpatialBackend().run(
+        result = SpatialBackend().run(
             self._perturbed_state(), dt=1.0, max_time=100.0, stop_tol=0.0,
             snapshot_interval=50.0,
             progress_hook=lambda t, _total: t < 3.0,
@@ -124,19 +119,16 @@ class TestStripRunProgressHook:
     ) -> None:
         """A coarse dt against a fine cadence must not drop or duplicate frames.
 
-        The retired driver answered this with dense output: it interpolated
-        between the split-step endpoints and emitted a frame at every crossed
-        cadence boundary, so ``dt=5`` against ``interval=2`` gave
-        ``[0, 2, 4, 6, 8, 10]``. The unified driver deliberately does not --
-        see :meth:`T3SpatialBackend.run`: a frame now carries the whole
+        The driver deliberately does not interpolate between the split-step
+        endpoints -- see :meth:`SpatialBackend.run`: a frame carries the whole
         ``(NE, Ncells)`` field plus the phonon map, so interpolating one would
         be both expensive and a claim about a state that was never computed.
         Frames are taken at step boundaries at or after each requested time and
-        every boundary already overtaken is advanced past, so the same setup
-        emits one frame per step -- and, still, no dropped run segment and no
-        duplicate times.
+        every boundary already overtaken is advanced past, so ``dt=5`` against
+        ``interval=2`` emits one frame per step -- and, still, no dropped run
+        segment and no duplicate times.
         """
-        backend = T3SpatialBackend()
+        backend = SpatialBackend()
         monkeypatch.setattr(
             backend,
             "step",
@@ -155,8 +147,7 @@ class TestStripRunProgressHook:
             [snapshot.t for snapshot in result.snapshots],
             [0.0, 5.0, 10.0],
         )
-        # The intent the retired assertion encoded, restated on this contract:
-        # both ends of the run are present and no time is emitted twice.
+        # Both ends of the run are present and no time is emitted twice.
         times = [snapshot.t for snapshot in result.snapshots]
         assert times[0] == 0.0
         assert times[-1] == pytest.approx(result.elapsed)
@@ -178,7 +169,7 @@ class TestStripRunProgressHook:
         values = {"dt": 1.0, "max_time": 2.0, "stop_tol": 0.0}
         values.update(kwargs)
         with pytest.raises(ValueError, match=field):
-            T3SpatialBackend().run(
+            SpatialBackend().run(
                 self._perturbed_state(),
                 **values,
             )

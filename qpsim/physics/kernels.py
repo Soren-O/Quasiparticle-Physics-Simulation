@@ -9,12 +9,8 @@ The "with-phonon" variants (``recombination_kernel``,
 ``scattering_kernel``) multiply by the Bose–Einstein phonon-occupation
 factor N_p for a thermal phonon bath.
 
-Ported from the old ``qpsim/numerics/kernels.py`` at Gate 2 with the
-numba acceleration path stripped (v1 is pure numpy per Build Handoff).
-``thermal_qp_weights`` moved to ``qpsim.physics.spectral``;
-``diffusion_coefficient_table`` and ``build_fixed_phonon_history``
-are not ported here (they live in ``qpsim.transport.diffusion`` and
-``qpsim.phonon_models`` respectively when those land).
+The implementation is pure numpy. ``thermal_qp_weights`` lives in
+``qpsim.physics.spectral``.
 """
 
 from __future__ import annotations

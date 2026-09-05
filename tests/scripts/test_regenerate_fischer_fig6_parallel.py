@@ -94,7 +94,7 @@ def test_temperature_row_entry_point_keeps_complete_continuation_axis(
         lambda: (None, None, SimpleNamespace(E=np.arange(5.0))),
     )
     monkeypatch.setattr(fig6_solve, "_compute_tau_0_pb", lambda _spectral: 0.255)
-    monkeypatch.setattr(fig6_solve, "T3DiffusionBackend", lambda: object())
+    monkeypatch.setattr(fig6_solve, "DiffusionBackend", lambda: object())
     monkeypatch.setattr(fig6_solve, "_check_tau_0_pb", lambda *_args: None)
     captured: dict[str, object] = {}
 

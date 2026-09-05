@@ -1,13 +1,13 @@
 """One finite-escape phonon-bottleneck timing run for the prelim strip.
 
 This script is intentionally a single-case probe, not a sweep.  It adds a
-local dynamic phonon occupation ``n_ph(omega, x, t)`` to the 1D spatial T3
+local dynamic phonon occupation ``n_ph(omega, x, t)`` to the 1D spatial
 strip run:
 
     dn_ph/dt = a_ph[f] + b_ph[f] n_ph + (n_th - n_ph) / tau_l.
 
-The QP distribution still diffuses spatially; the phonons are local Ph0
-phonons coupled to a substrate bath by the finite escape time ``tau_l``.
+The QP distribution still diffuses spatially; the phonons are local,
+coupled to a substrate bath by the finite escape time ``tau_l``.
 """
 
 # ruff: noqa: E402, I001
@@ -27,7 +27,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.collisions.sub_gap_photon import sub_gap_photon_collision_rates
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
@@ -110,7 +110,7 @@ class ReadoutPhotonDrive:
             raise ValueError("spatial_profile must be non-negative.")
         object.__setattr__(self, "spatial_profile", profile.copy())
 
-    def validate_for_state(self, state: T3SpatialState) -> None:
+    def validate_for_state(self, state: SpatialState) -> None:
         if self.spatial_profile.shape != (state.f.shape[1],):
             raise ValueError(
                 "readout spatial_profile length does not match strip_coordinates(state): "
@@ -161,7 +161,7 @@ def snap_omega_to_grid(omega_uev: float, dE_uev: float) -> tuple[float, int, flo
 
 
 def readout_drive_from_resonator(
-    state: T3SpatialState,
+    state: SpatialState,
     resonator: PrelimResonator,
     *,
     n_bar: float,
@@ -215,11 +215,11 @@ class FinitePhononSnapshot:
 class FinitePhononSpatialRunner:
     """Operator-split finite-escape phonon dynamics for one spatial strip."""
 
-    def __init__(self, state: T3SpatialState, tau_l_ns: float) -> None:
+    def __init__(self, state: SpatialState, tau_l_ns: float) -> None:
         if tau_l_ns <= 0.0:
             raise ValueError("tau_l_ns must be positive.")
         self.tau_l_ns = float(tau_l_ns)
-        self.transport = T3SpatialBackend()
+        self.transport = SpatialBackend()
         self.omega, self.idx_diff, self.idx_sum, self.diff_sign = (
             build_phonon_frequency_map(state.spectral.E)
         )
@@ -239,7 +239,7 @@ class FinitePhononSpatialRunner:
         )
         # The PHONON equation must use the phonon-side kernels
         # K+-/(pi*Delta*tau_0^PB) — the paper-faithful F&C 2023 Eq. 12
-        # discretization that the T3 backend defaults to. Reusing the QP-side
+        # discretization that the backend defaults to. Reusing the QP-side
         # kernels there under-weighted phonon emission/pair-breaking by 4-17x
         # across 2-6*Delta (2026-07-19 audit H1), which corrupted every prelim
         # finite-phonon campaign number while leaving thermal equilibrium
@@ -259,13 +259,13 @@ class FinitePhononSpatialRunner:
 
     def step(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         dt_ns: float,
         source: object,
         *,
         readout_drive: ReadoutPhotonDrive | None = None,
     ) -> tuple[
-        T3SpatialState,
+        SpatialState,
         float,
         float,
     ]:
@@ -292,7 +292,7 @@ class FinitePhononSpatialRunner:
 
     def _qp_collision_step(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         dt_ns: float,
         source: object,
         *,
@@ -345,7 +345,7 @@ class FinitePhononSpatialRunner:
             f_new[:, ix] = etd2_step(state.f[:, ix], rhs, dt_ns)
         return f_new
 
-    def _phonon_escape_step(self, state: T3SpatialState, dt_ns: float) -> None:
+    def _phonon_escape_step(self, state: SpatialState, dt_ns: float) -> None:
         inv_tau = 1.0 / self.tau_l_ns
         next_n = np.empty_like(self.n_ph)
         for ix in range(state.f.shape[1]):
@@ -378,7 +378,7 @@ class FinitePhononSpatialRunner:
 
 def _snapshot(
     t_ns: float,
-    state: T3SpatialState,
+    state: SpatialState,
     runner: FinitePhononSpatialRunner,
     max_dfdt: float,
     max_dnphdt: float,
@@ -477,7 +477,7 @@ def main() -> None:
         "delta_fr_hz_min": min(delta_values),
         "delta_fr_hz_max": max(delta_values),
         "model_note": (
-            "Dynamic local Ph0 phonons with finite escape to thermal bath; "
+            "Dynamic local phonons with finite escape to thermal bath; "
             "no lateral phonon transport."
         ),
     }

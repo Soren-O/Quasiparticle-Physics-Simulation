@@ -1,7 +1,6 @@
 """Smoke test: qpsim imports and exposes a version string.
 
-Exists so that CI's pytest step collects at least one item until Gate 2
-adds real unit tests.
+Exists so that CI's pytest step always collects at least one item.
 """
 
 import qpsim

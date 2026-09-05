@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import scripts.run_prelim_spatial_finite_phonon_one as finite_phonon
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.spatial import SpatialState
 from qpsim.geometries import strip
 from scripts.run_prelim_spatial_overnight import StripFlux, strip_coordinates
 from qpsim.constants import KB_UEV_PER_K
@@ -21,7 +21,7 @@ def _fermi_dirac(E: np.ndarray, T: float) -> np.ndarray:
     return 1.0 / (np.exp(np.minimum(E / kT, 500.0)) + 1.0)
 
 
-def _build_state(*, NE: int = 18, NX: int = 5) -> T3SpatialState:
+def _build_state(*, NE: int = 18, NX: int = 5) -> SpatialState:
     material = load_material("Al")
     E, _ = build_energy_grid(
         gap=material.Delta_0,
@@ -38,7 +38,7 @@ def _build_state(*, NE: int = 18, NX: int = 5) -> T3SpatialState:
     # linspace NODES, so the spacing is 100/(NX-1). Stated from the same
     # definition linspace uses rather than re-derived as x[1]-x[0]: on a length
     # that is not exactly representable those differ in the last bit.
-    return T3SpatialState(
+    return SpatialState(
         f=np.repeat(_fermi_dirac(E, 0.0)[:, None], NX, axis=1),
         geometry=strip(NX, mesh_size=100.0 / (NX - 1)),
         spectral=spectral,
@@ -96,7 +96,7 @@ def test_readout_photon_drive_uses_local_current_weight(monkeypatch: pytest.Monk
     assert float(np.mean(out[:, 0])) > float(np.mean(out[:, -1]))
 
 
-def _build_probe_grid_state() -> T3SpatialState:
+def _build_probe_grid_state() -> SpatialState:
     """The exact NE=101 prelim probe grid (Al, E_min_factor=1.0, E_max=5Δ)."""
     material = load_material("Al")
     E, _ = build_energy_grid(
@@ -111,7 +111,7 @@ def _build_probe_grid_state() -> T3SpatialState:
         gap=material.Delta_0,
         diffusion_coefficient=20.0,
     )
-    return T3SpatialState(
+    return SpatialState(
         f=np.repeat(_fermi_dirac(E, 0.007)[:, None], 11, axis=1),
         geometry=strip(11, mesh_size=100.0 / 10),
         spectral=spectral,

@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from qpsim.backends.t3_diffusion import T3DiffusionBackend, T3DiffusionState
+from qpsim.backends.diffusion import DiffusionBackend, DiffusionState
 from qpsim.collisions.phonon import (
     build_phonon_frequency_map,
     build_recombination_kernel_phonon_side,
@@ -32,7 +32,7 @@ from qpsim.collisions.phonon import (
 from qpsim.constants import KB_UEV_PER_K
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import Material
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext, fermi_dirac_occupation
 
@@ -168,7 +168,7 @@ def _build_state(
     *,
     f_seed: np.ndarray | None = None,
     n_ph_seed: np.ndarray | None = None,
-) -> T3DiffusionState:
+) -> DiffusionState:
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
     if n_ph_seed is None:
         n_ph_seed = thermal_phonon_occupation(omega, T_bath)
@@ -176,12 +176,11 @@ def _build_state(
         n_ph=n_ph_seed.reshape(1, -1, 1).copy(),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), tau_l_scalar),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
     if f_seed is None:
         f_seed = fermi_dirac_occupation(spectral.E, T_bath)
-    return T3DiffusionState(
+    return DiffusionState(
         f=f_seed.copy(),
         gap=DELTA_0,
         spectral=spectral,
@@ -192,12 +191,12 @@ def _build_state(
 
 
 def _solve_picard(
-    backend: T3DiffusionBackend,
-    state: T3DiffusionState,
+    backend: DiffusionBackend,
+    state: DiffusionState,
     photon_params: dict[str, float],
     *,
     mixing: float = 0.30,
-) -> T3DiffusionState:
+) -> DiffusionState:
     kwargs = dict(SOLVER_KWARGS)
     kwargs["picard_mixing"] = mixing
     return backend.steady_state(
@@ -242,7 +241,7 @@ def solve(
     _check_tau_0_pb(tau_0_pb)
     tau_l = 1.0 * tau_0_pb  # paper: τ_ℓ = τ_0^PB throughout Fig. 5
 
-    backend = T3DiffusionBackend()
+    backend = DiffusionBackend()
     NE = spectral.E.size
 
     up_T = np.asarray(upper_T_bath, dtype=float)

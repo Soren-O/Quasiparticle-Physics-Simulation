@@ -335,8 +335,8 @@ reported only as historical context and was not copied forward.
 pytest -q -m "not slow"
 pytest tests/services/test_rate_equation.py tests/devices/test_m25_junction.py -q
 pytest tests/observables tests/physics tests/collisions -q
-pytest tests/backends/test_t3_transient.py tests/solvers/test_spectral_flow_tvd.py -q
-pytest tests/backends/test_t3_spatial_1d.py tests/webui tests/grid -q
+pytest tests/backends/test_transient.py tests/solvers/test_spectral_flow_tvd.py -q
+pytest tests/backends/test_spatial.py tests/webui tests/grid -q
 make -C papers/qp-diffusion verify PY=python
 ruff check qpsim tests validation scripts
 mypy qpsim

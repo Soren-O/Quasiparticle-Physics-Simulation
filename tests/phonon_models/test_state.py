@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 
 
 def _single_branch_state(n_omega: int = 5, n_spatial: int = 1) -> PhononState:
@@ -15,22 +15,11 @@ def _single_branch_state(n_omega: int = 5, n_spatial: int = 1) -> PhononState:
         n_ph=n_ph,
         omega_bins=omega_bins,
         tau_l=tau_l,
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
 
 
 class TestPhononState:
-    def test_rejects_non_enum_model(self) -> None:
-        with pytest.raises(ValueError, match="PhononModel enum"):
-            PhononState(
-                n_ph=np.zeros((1, 5, 1)),
-                omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
-                tau_l=np.full((1, 5), 0.25),
-                model="ph0_local",  # type: ignore[arg-type]
-                branches=[PhononBranchSpec(name="x")],
-            )
-
     def test_single_branch_homogeneous_construction(self) -> None:
         state = _single_branch_state(n_omega=5, n_spatial=1)
         assert state.n_branch == 1
@@ -45,7 +34,6 @@ class TestPhononState:
             n_ph=n_ph,
             omega_bins=omega_bins,
             tau_l=tau_l,
-            model=PhononModel.PH0_LOCAL,
             branches=[
                 PhononBranchSpec(name="longitudinal", sound_velocity=6000.0),
                 PhononBranchSpec(name="transverse", sound_velocity=3000.0),
@@ -59,7 +47,6 @@ class TestPhononState:
                 n_ph=np.zeros(5),
                 omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -69,7 +56,6 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=np.linspace(0.1, 1.0, 4).reshape(1, 4),  # wrong NO
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -79,7 +65,6 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
                 tau_l=np.full((2, 5), 0.25),  # wrong N_branch
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -89,7 +74,6 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[],  # empty for N_branch = 1
             )
 
@@ -99,7 +83,6 @@ class TestPhononState:
                 n_ph=-np.ones((1, 5, 1)),
                 omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -109,7 +92,6 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=np.array([[0.1, 0.2, 0.2, 0.4, 0.5]]),
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -119,7 +101,6 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=np.linspace(0.1, 1.0, 5).reshape(1, 5),
                 tau_l=-np.ones((1, 5)),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
 
@@ -131,13 +112,5 @@ class TestPhononState:
                 n_ph=np.zeros((1, 5, 1)),
                 omega_bins=omega,
                 tau_l=np.full((1, 5), 0.25),
-                model=PhononModel.PH0_LOCAL,
                 branches=[PhononBranchSpec(name="x")],
             )
-
-
-class TestPhononModel:
-    def test_enum_values(self) -> None:
-        assert PhononModel.PH0_LOCAL.value == "ph0_local"
-        assert PhononModel.PH1_BALLISTIC.value == "ph1_ballistic"
-        assert PhononModel.PH2_DIFFUSIVE.value == "ph2_diffusive"

@@ -1,6 +1,6 @@
 """Layer-1 validation — gap equation recovers Δ_eq at Fischer scale.
 
-NFP §6.1: at ``f = f_FD(T_B)``, the gap self-consistency solver must
+At ``f = f_FD(T_B)``, the gap self-consistency solver must
 return ``Δ_eq(T_B)``. The unit-test suite has a small-scale version
 of this in ``tests/physics/test_gap_equation.py``; this is the
 Fischer-scale version (1620 bins / Fischer Table I).

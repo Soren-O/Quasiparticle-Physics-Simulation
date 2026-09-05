@@ -1,12 +1,11 @@
-"""T3 kinetics on an arbitrary geometry: transport composed with collisions.
+"""Kinetics on an arbitrary geometry: transport composed with collisions.
 
 One backend for every dimensionality. The geometry is a mask, so a single
 cell is 0-D, a one-cell-wide mask is a 1-D strip, and anything else is 2-D --
 configurations of the same object rather than separate code paths.
 
 Composes :class:`qpsim.transport.spatial_transport.SpatialTransport` with
-:class:`qpsim.collisions.spatial.SpatialCollisions` in a symmetric split,
-matching the 1-D backend it generalises:
+:class:`qpsim.collisions.spatial.SpatialCollisions` in a symmetric split:
 
     transport(dt/2) -> collisions(dt) -> transport(dt/2)
 
@@ -16,14 +15,13 @@ composition is
     T(dt/2) -> P(dt/2) -> C(dt) -> P(dt/2) -> T(dt/2)
 
 which is what makes the whole step second order rather than merely the
-transport wrap around a first-order interior. See :meth:`T3SpatialBackend.step`.
+transport wrap around a first-order interior. See :meth:`SpatialBackend.step`.
 
-The 1-D backend this replaced is gone. Its acceptance gate -- a one-cell-wide
-geometry reproducing it bit for bit -- was met and is in the history; what
-carries the physics forward is ``tests/backends/strip/``, which asserts the
-same properties on this backend directly rather than by comparison. That
-migration also surfaced ten behaviours the retired backend guarded and this one
-did not; nine are now here, and the tenth is a marked open regression.
+``tests/backends/strip/`` asserts this backend's properties on the
+one-cell-wide reduction directly: transport and the ``(p, q)`` diffusion
+family, the collision layer, operator-cache keying, a spatially varying gap
+with its Kupriyanov-Lukichev interface, the convergence residual and the
+driver's progress hook.
 """
 
 from __future__ import annotations
@@ -57,11 +55,11 @@ from qpsim.transport.spatial_transport import (
     SpatialTransport,
 )
 
-__all__ = ["T3SpatialBackend", "T3SpatialState"]
+__all__ = ["SpatialBackend", "SpatialState"]
 
 
 @dataclass
-class T3SpatialState:
+class SpatialState:
     """Occupation ``f(E, cell)`` on a geometry.
 
     ``f`` is ``(NE, Ncells)`` with cells in the geometry's mask order, i.e.
@@ -108,9 +106,8 @@ class T3SpatialState:
         after construction is exactly how these defects were demonstrated -- so
         a construction-time check alone guards the one path nobody takes.
 
-        Every check here was carried by the 1-D backend this one replaced and
-        by nothing else, so each was a live way to get a confident wrong
-        answer. They are cheap; they run once per step.
+        Each of these closes a live route to a confident wrong answer. They
+        are cheap; they run once per step.
         """
         if not np.isfinite(self.T_bath) or self.T_bath < 0.0:
             # phonon.py branches on `T_bath > 0`, which is FALSE for NaN, so a
@@ -159,9 +156,9 @@ class SpatialSnapshot:
 
 @dataclass(frozen=True)
 class SpatialRunResult:
-    """Outcome of :meth:`T3SpatialBackend.run`."""
+    """Outcome of :meth:`SpatialBackend.run`."""
 
-    state: T3SpatialState
+    state: SpatialState
     n_steps: int
     converged: bool
     last_max_rate: float
@@ -176,9 +173,9 @@ _SNAPSHOT_HARD_CAP = 4_000
 
 # The [0, 1] occupation clip is normally a round-off no-op: the subcycling
 # stiffness bound keeps Crank-Nicolson inside the representable box. A material
-# clip therefore means the step was not conservative, and the thresholds below
-# are the retired 1-D backend's, unchanged -- warn once it is measurable, fail
-# once the step stops being a defensible approximation.
+# clip therefore means the step was not conservative: warn once the clipped
+# fraction is measurable, fail once the step stops being a defensible
+# approximation.
 _CLIP_WARN_FRACTION = 1e-9
 _CLIP_FAIL_FRACTION = 1e-3
 
@@ -186,11 +183,10 @@ _CLIP_FAIL_FRACTION = 1e-3
 def _reject_complex(name: str, array: np.ndarray | None) -> None:
     """Refuse a complex source instead of casting its real part.
 
-    The retired backend's flux container rejected these at construction; the
-    unified API takes plain arrays, so the check moved to the point of use.
-    Without it numpy discards the imaginary part with a ComplexWarning -- which
-    this repo does not escalate -- and an imaginary NaN vanishes into a
-    perfectly plausible finite answer.
+    This API takes plain arrays rather than a validating container, so the
+    check belongs at the point of use. Without it numpy discards the imaginary
+    part with a ComplexWarning -- which this repo does not escalate -- and an
+    imaginary NaN vanishes into a perfectly plausible finite answer.
     """
     if array is not None and np.iscomplexobj(array):
         raise ValueError(
@@ -224,8 +220,8 @@ def _check_clip(diagnostics: dict[str, float]) -> None:
     warnings.warn(message, stacklevel=3)
 
 
-class T3SpatialBackend:
-    """Split-step T3 kinetics on a geometry of any dimensionality."""
+class SpatialBackend:
+    """Split-step kinetics on a geometry of any dimensionality."""
 
     def __init__(
         self,
@@ -250,8 +246,8 @@ class T3SpatialBackend:
         self.pb_photon_params = pb_photon_params
         self.phonon_escape_time = phonon_escape_time
         # Defaults True to match the 0-D/diffusion backend, so the two solve
-        # the SAME phonon equation for the same setup. False reproduces the
-        # legacy quasiparticle-side path this route used to take unavoidably.
+        # the SAME phonon equation for the same setup. False reuses the
+        # legacy quasiparticle-side kernel instead.
         self.use_phonon_side_kernel = bool(use_phonon_side_kernel)
         # Applied only when the collision layer is first built; a later
         # rebuild carries the EVOLVED population forward instead (see
@@ -294,7 +290,7 @@ class T3SpatialBackend:
         return np.column_stack(columns)[:, group_index]
 
     def _transport_weights(
-        self, state: T3SpatialState,
+        self, state: SpatialState,
     ) -> tuple[np.ndarray, np.ndarray]:
         gaps = state.gaps()
         n1 = self._per_cell(state.spectral, gaps, "density")
@@ -314,7 +310,7 @@ class T3SpatialBackend:
 
     # -- the two halves ---------------------------------------------------
 
-    def _transport_for(self, state: T3SpatialState) -> SpatialTransport:
+    def _transport_for(self, state: SpatialState) -> SpatialTransport:
         signature = (
             id(state.geometry), state.geometry.mask.tobytes(),
             float(state.geometry.mesh_size), id(state.conditions),
@@ -328,7 +324,7 @@ class T3SpatialBackend:
             self._transport_signature = signature
         return self._transport
 
-    def _collisions_for(self, state: T3SpatialState) -> SpatialCollisions:
+    def _collisions_for(self, state: SpatialState) -> SpatialCollisions:
         gaps = state.gaps()
         signature = (
             gaps.tobytes(), float(state.T_bath), float(state.material.tau_0),
@@ -400,7 +396,7 @@ class T3SpatialBackend:
             self._collision_signature = signature
         return self._collisions
 
-    def phonon_frequency_axis(self, state: T3SpatialState) -> np.ndarray:
+    def phonon_frequency_axis(self, state: SpatialState) -> np.ndarray:
         """The frequencies a recorded ``n_ph`` for this state lives on.
 
         Public because a phonon population is meaningless without the axis it
@@ -416,18 +412,18 @@ class T3SpatialBackend:
         """
         return np.array(self._collisions_for(state).omega_bins, dtype=float)
 
-    def _n1_per_cell(self, state: T3SpatialState) -> np.ndarray:
+    def _n1_per_cell(self, state: SpatialState) -> np.ndarray:
         """Finite-volume BCS density per energy and cell, ``(NE, Ncells)``.
 
-        Same quantity and name as the 1-D backend's helper, so validation
-        producers that read it keep working across the migration.
+        Validation producers reach in for this helper by name, so the name
+        is part of their contract.
         """
         return self._per_cell(state.spectral, state.gaps(), "density")
 
     def _build_transport_operators(
-        self, state: T3SpatialState, dt: float,
+        self, state: SpatialState, dt: float,
     ) -> list[EnergyTransportOp | None]:
-        """Per-energy transport operators, in the 1-D backend's tuple order.
+        """Per-energy transport operators, one per energy bin in grid order.
 
         Kept as a named entry point because validation producers inspect the
         operators directly -- the substep count in particular, which is a
@@ -437,7 +433,7 @@ class T3SpatialBackend:
         return self._transport_for(state).build(weights, density, dt)
 
     def _transport_ops(
-        self, state: T3SpatialState, dt: float,
+        self, state: SpatialState, dt: float,
     ) -> tuple[SpatialTransport, list[EnergyTransportOp | None]]:
         """The transport operators for this state. ONE builder, deliberately.
 
@@ -462,9 +458,8 @@ class T3SpatialBackend:
 
         # An indicator weight composes at a face as the OVERLAP of the two
         # cells (min), a genuine diffusivity as series resistance (harmonic).
-        # Selecting on the member is what makes the 2-D core agree with the
-        # 1-D backend it replaced; composing an indicator harmonically
-        # over-weights a gap-cut bin by up to 2x.
+        # Selecting on the member is what keeps a gap-cut bin right:
+        # composing an indicator harmonically over-weights it by up to 2x.
         composition = "min" if state.diffusion_model.q == 0 else "harmonic"
         ops = transport.build(
             weights, density, dt,
@@ -475,8 +470,8 @@ class T3SpatialBackend:
         return transport, ops
 
     def apply_transport(
-        self, state: T3SpatialState, dt: float,
-    ) -> T3SpatialState:
+        self, state: SpatialState, dt: float,
+    ) -> SpatialState:
         """One CN transport step.
 
         A single cell has no neighbour to transport TO, but it can still lose
@@ -508,7 +503,7 @@ class T3SpatialBackend:
         return replace(state, f=f_new)
 
     def _interface_overrides(
-        self, state: T3SpatialState, conductance: float,
+        self, state: SpatialState, conductance: float,
     ) -> dict[int, dict[tuple[int, int], float]]:
         """Kupriyanov-Lukichev face conductances, per energy bin."""
         gap_grid = np.zeros(state.geometry.mask.shape, dtype=float)
@@ -532,12 +527,12 @@ class T3SpatialBackend:
 
     def apply_collisions(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         dt: float,
         *,
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
-    ) -> T3SpatialState:
+    ) -> SpatialState:
         """One local ETD2 collision/source step at every cell."""
         state.validate()
         _reject_complex("external_gain", external_gain)
@@ -553,12 +548,12 @@ class T3SpatialBackend:
 
     def step(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         dt: float,
         *,
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
-    ) -> T3SpatialState:
+    ) -> SpatialState:
         """Symmetric split step, phonons included:
 
             T(dt/2) . [ P(dt/2) . C(dt) . P(dt/2) ] . T(dt/2)
@@ -571,7 +566,7 @@ class T3SpatialBackend:
         the error instead of quartering it, and the docstring claimed parity
         with the 0-D transient that this backend is supposed to reduce to.
 
-        The 0-D transient (``t3_diffusion.py``) has always been symmetric here
+        The 0-D transient (``diffusion.py``) has always been symmetric here
         -- half a phonon step at the incoming ``f``, the ``f`` sub-step against
         those frozen matrices, half a phonon step at the outgoing ``f``. This
         is that same arrangement, so the two backends now compose the same
@@ -601,7 +596,7 @@ class T3SpatialBackend:
 
     def rates(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         *,
         external_gain: np.ndarray | None = None,
         external_loss: np.ndarray | None = None,
@@ -653,7 +648,7 @@ class T3SpatialBackend:
 
     def run(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         *,
         dt: float,
         max_time: float,
@@ -805,7 +800,7 @@ class T3SpatialBackend:
         )
 
     def _snapshot(
-        self, state: T3SpatialState, t: float, max_rate: float
+        self, state: SpatialState, t: float, max_rate: float
     ) -> SpatialSnapshot:
         """One frame, copied so a later step cannot rewrite recorded history.
 
@@ -827,7 +822,7 @@ class T3SpatialBackend:
 
     def solve_gaps(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         *,
         quantum: float | None = None,
     ) -> np.ndarray:
@@ -859,13 +854,13 @@ class T3SpatialBackend:
 
     def relax_gap(
         self,
-        state: T3SpatialState,
+        state: SpatialState,
         *,
         quantum: float | None = None,
         tol: float = 1e-9,
         max_iter: int = 20,
         mixing: float = 0.5,
-    ) -> tuple[T3SpatialState, int, float]:
+    ) -> tuple[SpatialState, int, float]:
         """Iterate the gap to a fixed point at frozen ``f``.
 
         Under-relaxed because the closure is strongly nonlinear near the gap
@@ -886,8 +881,8 @@ class T3SpatialBackend:
             # profile must invalidate it or the next step runs the old
             # kernels. Clear the SIGNATURE, not the object: `_collisions_for`
             # needs the outgoing layer to carry the evolved phonon population
-            # onto the new kernels. Dropping the object here is what used to
-            # reset n_ph to the bath on every iteration of this loop.
+            # onto the new kernels. Dropping the object here would reset
+            # n_ph to the bath on every iteration of this loop.
             self._collision_signature = None
             if change <= tol:
                 return current, iteration, change

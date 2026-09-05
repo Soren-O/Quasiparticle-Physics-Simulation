@@ -21,8 +21,8 @@ from typing import Any
 
 import numpy as np
 
-from qpsim.backends.t3_diffusion import T3DiffusionState
-from qpsim.backends.t3_spatial import T3SpatialState
+from qpsim.backends.diffusion import DiffusionState
+from qpsim.backends.spatial import SpatialState
 from qpsim.collisions.pair_breaking_photon import (
     validate_pair_breaking_photon_grid,
 )
@@ -58,7 +58,7 @@ from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_ce
 from qpsim.grid.spatial_grid import BoundaryCondition
 from qpsim.materials.database import Material
 from qpsim.observables import fermi_dirac_distribution
-from qpsim.phonon_models.state import PhononBranchSpec, PhononModel, PhononState
+from qpsim.phonon_models.state import PhononBranchSpec, PhononState
 from qpsim.physics.kernels import thermal_phonon_occupation
 from qpsim.physics.spectral import SpectralContext
 from qpsim.services.rate_equation_coefficients import M25PhotonDrive, M25PhysicalParameters
@@ -293,15 +293,13 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
 
     if isinstance(setup, KineticsSetup):
         _validate_drives_and_probe(report, setup)
-        # Strategy-specific guards, carried over from the modes this one
-        # replaced. They were never about those modes -- they are about the
-        # SOLVER each strategy selects, and deleting them with the modes
-        # would have dropped six real checks on the route that still runs
-        # them (the equal-gap interface guard below was found exactly that
-        # way, by a test that posted a retired mode name and got a 200).
+        # Strategy-specific guards. They are about the SOLVER each strategy
+        # selects, not about the shape of the setup: a setting the selected
+        # solver cannot read is one that would be typed, stored, and mean
+        # nothing, so each strategy is guarded on its own terms.
         if setup.strategy == "steady_state":
             # This strategy reads the material, the phonon sector, the probe,
-            # the photon drives and -- since Wave 7 -- a STATIC injection,
+            # the photon drives and a STATIC injection,
             # folded into the solver's ExternalFlux. What it still cannot
             # take is anything time-dependent or a prepared start: the
             # prescribed `drives` (a steady state has no t) and a non-thermal
@@ -404,7 +402,7 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                             f"Energy conservation is not being tracked: the {channels} "
                             "channel is switched on for one population and off for the "
                             "other, so one trades energy with the other without it being "
-                            "recorded. Detailed balance no longer holds and there is no "
+                            "recorded. Detailed balance is broken and there is no "
                             "thermal fixed point. Proceed at your own risk."
                         )
             if setup.self_consistent_gap and setup.grid.min_factor >= 1.0:
@@ -479,24 +477,19 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                     "so both memory and time grow with this; start smaller and "
                     "refine once the physics looks right."
                 )
-            # There used to be a warning here that a mask of reduced rank "is
-            # the N-D reduction ... but say so deliberately rather than by
-            # accident". It is gone, because it stopped being true: with the
-            # 0-D and 1-D modes retired, a 1x1 mask is not an accident to flag,
-            # it is HOW you ask for 0-D. The warning would now fire on the
-            # ordinary path, and a warning that fires when nothing is wrong
-            # teaches people to ignore warnings.
+            # No warning for a mask of reduced rank: a 1x1 mask is HOW you ask
+            # for 0-D and a 1xN one is HOW you ask for a strip, so a warning
+            # here would fire on the ordinary path, and a warning that fires
+            # when nothing is wrong teaches people to ignore warnings.
             regions = setup.gap_regions
             if (
                 regions.kind == "column_step"
                 and regions.interface_G_N is not None
                 and regions.gap_left == regions.gap_right
             ):
-                # Ported from the retired 1-D mode, which was the only place
-                # this was checked. A conductance describes how hard it is to
-                # cross a step FACE, and equal gaps do not define one -- the
-                # setting would be read, stored, and mean nothing. Retiring a
-                # mode must not quietly drop the guards it carried.
+                # A conductance describes how hard it is to cross a step FACE,
+                # and equal gaps do not define one -- the setting would be
+                # read, stored, and mean nothing.
                 report.errors.append(
                     "Gap regions: interface_G_N requires distinct gap_left and "
                     "gap_right values; equal gaps do not define a step face."
@@ -520,13 +513,11 @@ def validate_setup(setup: AnySetup) -> ValidationReport:
                 f"Kinetics: a {setup.boundary.kind} boundary needs a finite "
                 "value."
             )
-        # The 1-D branch has always checked this and the 2-D branch never did,
-        # so the identical setup was rejected on one mode and silently ran on
-        # the other. A line outside the grid is not a small source: at
-        # centre = 6Delta on a grid stopping at 4Delta the peak gain is 5e-95
-        # against a nominal 2e-5, and terms.py reads only `enabled`, so the
-        # panel reports "External injection: on" for a device that reaches the
-        # bath value and nothing else.
+        # A line outside the grid is not a small source: at centre = 6Delta on
+        # a grid stopping at 4Delta the peak gain is 5e-95 against a nominal
+        # 2e-5, and terms.py reads only `enabled`, so the panel reports
+        # "External injection: on" for a device that reaches the bath value and
+        # nothing else.
         if setup.injection.enabled:
             e_center = setup.injection.center_over_delta
             if not (setup.grid.min_factor < e_center < setup.grid.max_factor):
@@ -594,14 +585,14 @@ def build_spectral(
 
 def build_state_0d(
     setup: KineticsSetup,
-) -> T3DiffusionState:
-    """Thermal-seed 0-D T3 state on the physics ω-grid.
+) -> DiffusionState:
+    """Thermal-seed 0-D diffusion state on the physics ω-grid.
 
-    Also serves ``KineticsSetup`` under ``strategy="steady_state"``, which is
-    what makes the merged mode reproduce the 0-D mode BIT-IDENTICALLY: the two
-    do not build equivalent states by parallel code, they build the same state
-    by the same code. A second implementation that merely agreed today is the
-    standing defect of this repo.
+    The state ``DiffusionBackend.steady_state`` carries: f:(NE,), a scalar
+    gap, and one phonon column. Its spectral context and its thermal seed come
+    from the same helpers the geometry state uses, so the two starts agree by
+    construction rather than by two implementations that happen to match
+    today.
     """
     spectral = build_spectral(setup)
     omega, _, _, _ = build_phonon_frequency_map(spectral.E)
@@ -621,10 +612,9 @@ def build_state_0d(
         n_ph=thermal_phonon_occupation(omega, setup.T_bath).reshape(1, -1, 1),
         omega_bins=omega.reshape(1, -1),
         tau_l=np.full((1, omega.size), tau_l_value),
-        model=PhononModel.PH0_LOCAL,
         branches=[PhononBranchSpec(name="debye_average")],
     )
-    return T3DiffusionState(
+    return DiffusionState(
         f=fermi_dirac_distribution(spectral.E, setup.T_bath),
         gap=setup.material.Delta_0,
         spectral=spectral,
@@ -660,10 +650,10 @@ def steady_state_solver_kwargs(
 ) -> dict[str, object]:
     """Backend ``steady_state`` kwargs for the chosen phonon sector + method."""
     s = setup.solver
-    # ONE authority for the gap switch. The 0-D mode carries it on `solver`;
-    # the merged mode carries it at the top level, which is also what the term
-    # panel's `gapeq` switch and the time-march path read. Reading `solver` for
-    # both would make the merged mode's displayed switch inert.
+    # ONE authority for the gap switch: the top-level field, which is what the
+    # term panel's `gapeq` switch and the time-march path also read. Taking it
+    # off `solver` here instead would leave the displayed switch inert on this
+    # route while still reading as though it worked.
     self_consistent_gap = (
         setup.self_consistent_gap if isinstance(setup, KineticsSetup)
         else s.self_consistent_gap
@@ -696,17 +686,16 @@ def steady_state_solver_kwargs(
         kwargs["coupled_newton_max_iter"] = s.newton_max_iter
         # How the cross blocks are BUILT, not what is solved: the same root,
         # reached by an exact closed-form derivative of the discrete residual
-        # instead of a finite-difference secant. This route used to take the
-        # backend's legacy default and rebuild the cross blocks by finite
-        # differences -- NE + N_omega residual assemblies per Newton iteration
-        # rather than two -- so every web-UI coupled-Newton run paid tens of
-        # seconds per iteration for a Jacobian every in-tree driver already
-        # builds analytically.
+        # instead of a finite-difference secant. Passed explicitly because the
+        # backend defaults to the secant, which costs NE + N_omega residual
+        # assemblies per Newton iteration rather than two -- tens of seconds
+        # per iteration, for a Jacobian every in-tree driver already builds
+        # analytically.
         kwargs["coupled_newton_analytic_cross"] = s.coupled_newton_analytic_cross
-        # The one that actually gates this route. Without it the displayed
-        # "Newton tolerance" was routed into `coupled_newton_tol`, which is
-        # read only when step_rtol <= 0 -- so tightening it from 1e-12 to
-        # 1e-20, or loosening it to 1e-2, returned bit-identical f and n_ph.
+        # The one that actually gates this route. `coupled_newton_tol` is read
+        # only when step_rtol <= 0, so routing the displayed "Newton tolerance"
+        # there alone would leave it inert: tightening it from 1e-12 to 1e-20,
+        # or loosening it to 1e-2, returns bit-identical f and n_ph.
         kwargs["coupled_newton_step_rtol"] = s.coupled_newton_step_rtol
     kwargs["picard_tol"] = s.picard_tol
     kwargs["picard_max_iter"] = s.picard_max_iter
@@ -755,7 +744,7 @@ def build_m25_inputs(
 
 
 def build_geometry_2d(setup: KineticsSetup) -> Geometry:
-    """Geometry for the 2-D mode, from extent or from a layout file."""
+    """The run's 2-D cell geometry, from extent or from a layout file."""
     source = setup.geometry
     if source.kind == "rectangle":
         return rectangle(
@@ -794,13 +783,13 @@ def build_geometry_2d(setup: KineticsSetup) -> Geometry:
     )
 
 
-def build_state_2d(setup: KineticsSetup) -> T3SpatialState:
+def build_state_2d(setup: KineticsSetup) -> SpatialState:
     """Thermal-seed state on the setup's geometry."""
     geometry = build_geometry_2d(setup)
     spectral = build_spectral(setup)
     conditions = build_boundary_conditions_2d(setup, geometry)
     thermal = fermi_dirac_distribution(spectral.E, setup.T_bath)
-    return T3SpatialState(
+    return SpatialState(
         f=np.repeat(thermal[:, None], geometry.cell_count, axis=1),
         geometry=geometry,
         spectral=spectral,
@@ -1016,7 +1005,7 @@ def injection_line(setup: KineticsSetup, energies: np.ndarray) -> np.ndarray:
 
 
 def build_injection_2d(
-    setup: KineticsSetup, state: T3SpatialState,
+    setup: KineticsSetup, state: SpatialState,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Gaussian-in-energy source as ``(gain, loss_rate)`` over the cells."""
     injection = setup.injection
@@ -1140,8 +1129,8 @@ def _time_factor(
 
 
 def build_initial_state_2d(
-    setup: KineticsSetup, state: T3SpatialState,
-) -> tuple[T3SpatialState, list[str]]:
+    setup: KineticsSetup, state: SpatialState,
+) -> tuple[SpatialState, list[str]]:
     """Apply the setup's initial condition, returning the state and any notes.
 
     ``kind='thermal'`` returns the state untouched, so every setup written
@@ -1190,7 +1179,7 @@ def build_initial_state_2d(
 
 
 def build_drives_2d(
-    setup: KineticsSetup, state: T3SpatialState,
+    setup: KineticsSetup, state: SpatialState,
 ) -> ExternalDrive | None:
     """Every enabled drive on the setup, summed, or None if there are none."""
     parts: list[ExternalDrive] = []

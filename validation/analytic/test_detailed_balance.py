@@ -1,6 +1,6 @@
 """Layer-1 validation — detailed balance at thermal equilibrium.
 
-NFP §6.1: at ``(f = f_FD(T), n_ph = n_BE(T))`` the full collision
+At ``(f = f_FD(T), n_ph = n_BE(T))`` the full collision
 integral (e-ph + whatever photon channel we're exercising) must
 vanish to roundoff. These tests fix ``T_bath`` and a set of
 physically consistent phonon / photon occupations and assert the

@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -102,7 +102,7 @@ def run(
     ed = NE - 1  # highest energy: both regions active
     drive_energy = float(E[ed])
 
-    backend = T3SpatialBackend()
+    backend = SpatialBackend()
     probe = _make_state(
         np.zeros((NE, NX)), x, gap_hi, spectral, material, DiffusionModel.A1, gap_profile
     )
@@ -196,8 +196,8 @@ def _make_state(
     model: DiffusionModel,
     gap_profile: np.ndarray,
     G_N: float | None = None,
-) -> T3SpatialState:
-    return T3SpatialState(
+) -> SpatialState:
+    return SpatialState(
         f=f,
         geometry=strip(
             f.shape[1],
@@ -213,14 +213,14 @@ def _make_state(
 
 
 def _drive_to_steady(
-    backend: T3SpatialBackend,
-    state: T3SpatialState,
+    backend: SpatialBackend,
+    state: SpatialState,
     ed: int,
     f_source: float,
     dt: float,
     max_iter: int,
     tol: float,
-) -> T3SpatialState:
+) -> SpatialState:
     """Pin source (cell 0) / sink (cell -1) at energy ``ed`` until steady."""
     current = state
     for _ in range(max_iter):

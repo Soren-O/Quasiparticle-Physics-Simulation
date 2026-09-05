@@ -14,7 +14,7 @@ population therefore digs a gap well under itself, and the gap acquires
 exactly the spatial gradient that separates the ``L_{p,q}`` operators:
 ``v_com = D_N q N_1^{q-p-1} d_x N_1`` (benchmark 2), now evaluated on a
 *self-generated* profile rather than an imposed ramp. (The package's
-``self_consistent_gap`` support in the homogeneous ``t3_diffusion``
+``self_consistent_gap`` support in the homogeneous ``diffusion``
 backend solves the same closure with no spatial resolution; this
 benchmark supplies the spatial coupling.)
 
@@ -50,7 +50,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 import numpy as np
-from qpsim.backends.t3_spatial import T3SpatialBackend, T3SpatialState
+from qpsim.backends.spatial import SpatialBackend, SpatialState
 from qpsim.geometries import strip
 from qpsim.grid.energy_grid import build_energy_grid, integration_widths_from_centers
 from qpsim.materials.database import load_material
@@ -404,8 +404,8 @@ def run(
             f0: np.ndarray,
             model: DiffusionModel = model,
             gap_profile: np.ndarray = gap_profile,
-        ) -> T3SpatialState:
-            return T3SpatialState(
+        ) -> SpatialState:
+            return SpatialState(
                 f=f0.copy(),
                 geometry=strip(
                     len(x),
@@ -421,7 +421,7 @@ def run(
         heavy = make_state(f_heavy0)
         probe = make_state(f_probe0)
 
-        def conserved_total(state: T3SpatialState, p: int = p) -> float:
+        def conserved_total(state: SpatialState, p: int = p) -> float:
             N1 = _n1_columns(E, dE, state.gap_per_cell)
             return float(np.sum(dE[:, None] * np.power(N1, p) * state.f))
 
@@ -432,10 +432,10 @@ def run(
         com_t[0] = _com_per_energy(N1_now, p, probe.f, x)
 
         if not dynamic:
-            backend = T3SpatialBackend()
+            backend = SpatialBackend()
         for step in range(n_steps):
             if dynamic:
-                backend = T3SpatialBackend()  # profile changes every step
+                backend = SpatialBackend()  # profile changes every step
                 heavy = backend.apply_transport(heavy, dt)
             probe = backend.apply_transport(probe, dt)
             if dynamic:

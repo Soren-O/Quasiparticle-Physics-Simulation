@@ -1,7 +1,7 @@
-"""Ph0 local-phonon tier: steady-state ``n_ph(ω)`` from QP distribution.
+"""Local phonon bath: steady-state ``n_ph(ω)`` from QP distribution.
 
 At phonon steady state with a local bath of escape time ``τ_l``, the
-Ph0 equation is
+balance equation is
 
     0 = a_ph[f] + b_ph[f] · n_ph + (n_th − n_ph) / τ_l,
 
@@ -43,10 +43,6 @@ does not. Check ``2·E_min/dE`` before trusting a dynamic-phonon run,
 and prefer a refinement ladder that holds it integral. The bath-pinned path
 (``phonon_escape_time=None`` upstream) never reaches this module and is
 unaffected.
-
-Moved here from the private ``_phonon_steady_state`` helper that
-previously lived in :mod:`qpsim.services.steady_state` (Gate 2
-task 11).
 """
 
 from __future__ import annotations
@@ -63,7 +59,7 @@ from qpsim.physics.spectral import SpectralContext
 
 @dataclass(frozen=True)
 class PhononBalanceDiagnostics:
-    """Raw and representability-aware diagnostics for the affine Ph0 balance.
+    """Raw and representability-aware diagnostics for the affine phonon balance.
 
     ``raw_backward_error`` evaluates the physical three-term equation directly.
     ``certified_backward_error`` removes only the residual that can be caused by
@@ -130,7 +126,7 @@ def phonon_balance_diagnostics(
     *,
     tau_l: float,
 ) -> PhononBalanceDiagnostics:
-    """Certify the nearest representable solution of the affine Ph0 balance.
+    """Certify the nearest representable solution of the affine phonon balance.
 
     The physical equation is
 
@@ -330,7 +326,7 @@ def _solve_affine_balance(
     if np.any(inconsistent):
         bad = np.flatnonzero(inconsistent)[:5].tolist()
         raise RuntimeError(
-            f"Ph0 phonon steady state has no finite solution in {label}; "
+            f"Phonon steady state has no finite solution in {label}; "
             f"singular balance at omega indices {bad}."
         )
 
@@ -345,7 +341,7 @@ def _solve_affine_balance(
     if np.any(invalid):
         bad = np.flatnonzero(invalid)[:5].tolist()
         raise RuntimeError(
-            f"Ph0 phonon steady state is unphysical in {label}; "
+            f"Phonon steady state is unphysical in {label}; "
             f"computed negative or non-finite occupation at omega indices {bad}. "
             "This indicates phonon runaway or no non-negative fixed point."
         )
@@ -371,7 +367,7 @@ def phonon_steady_state(
     enable_recombination: bool = True,
     coefficients_out: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Solve the Ph0 phonon-balance equation for ``n_ph(ω)`` given ``f``.
+    """Solve the phonon-balance equation for ``n_ph(ω)`` given ``f``.
 
     Parameters
     ----------

@@ -206,9 +206,10 @@ def create_app(workspace_root: Path | str) -> FastAPI:
 
     @app.get("/api/defaults/{mode}")
     def defaults(mode: str) -> dict[str, Any]:
-        # A bookmarked URL or an older client can still name a retired mode,
-        # and 404ing it here while /api/validate accepts the same name in a
-        # setup would be an inconsistency the caller cannot act on.
+        # A bookmarked URL or an older client can name a mode by the name it
+        # was saved under, and 404ing it here while /api/validate accepts the
+        # same name in a setup would be an inconsistency the caller cannot act
+        # on.
         setup_cls = MODE_CLASSES.get(canonical_mode(mode))
         if setup_cls is None:
             raise HTTPException(404, f"Unknown mode {mode!r}.")
@@ -268,7 +269,7 @@ def create_app(workspace_root: Path | str) -> FastAPI:
             envelope = workspace.load_setup(slug)
         except (FileNotFoundError, ValueError) as exc:  # ValueError: unsafe slug
             raise HTTPException(404, f"No setup {slug!r}.") from exc
-        # `benchmark` was persisted (Wave 0) and then dropped right here on
+        # `benchmark` is persisted and must not be dropped here on
         # the way back out, so a saved check could never be restored.
         return {
             "name": envelope.name,
