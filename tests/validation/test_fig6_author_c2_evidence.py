@@ -32,6 +32,7 @@ from validation.fischer_2023.fig6_author_c2_score import (
     canonical_score_bytes,
     load_c2_score,
 )
+from validation.source_provenance import source_sha256
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 C0_BUNDLE = REPOSITORY_ROOT / "tmp" / "author-runs" / "fig6-T020-sweep049-C0-author-equivalent-v1"
@@ -50,6 +51,27 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
         json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+
+
+def _with_live_source_bindings(score: dict) -> dict:
+    """Return ``score`` with its source closure rebound to the working tree.
+
+    ``load_c2_score`` checks C2's own source closure before it checks the
+    fields that depend on it, so a score whose sources have moved on stops
+    at that first guard and the later ones are unreachable. A negative
+    control for one of those later guards would then pass or fail on the age
+    of the committed artifact rather than on the guard it names.
+
+    Rebinding the closure makes every guard C2 owns reachable, so each
+    mutation below trips the guard it is named for. It does not make the
+    score loadable end to end: the parent C1 score carries its own closure,
+    and ``load_c2_score`` recurses into it after these guards have run.
+    """
+    score["sources"] = {
+        path.relative_to(c2_score.REPOSITORY_ROOT).as_posix(): source_sha256(path)
+        for path in c2_score._SOURCE_PATHS
+    }
+    return score
 
 
 def test_checked_c2_score_is_accepted_and_narrow() -> None:
@@ -335,7 +357,7 @@ def test_checked_loader_rejects_bound_field_tampering(
     mutation: object,
     match: str,
 ) -> None:
-    score = json.loads(C2_SCORE.read_text(encoding="utf-8"))
+    score = _with_live_source_bindings(json.loads(C2_SCORE.read_text(encoding="utf-8")))
     mutation(score)  # type: ignore[operator]
     path = tmp_path / "score.json"
     _write_json(path, score)
